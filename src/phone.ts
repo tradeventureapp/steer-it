@@ -4,6 +4,12 @@ import { supabase, channelName } from './supabase';
 const TILT_SENSITIVITY_DEG = 35;
 const TILT_DEADZONE_DEG    = 3;
 const SEND_HZ              = 30;
+// Analog pedal mapping: the top of the strip (player's visual outer edge,
+// away from the handbrake) is a saturation zone — any touch there pins the
+// value at 1.0. The active linear range covers the remaining bottom 3/4.
+// This puts "full throttle / full brake" comfortably mid-strip instead of
+// at the very screen edge where the player has to aim precisely.
+const PEDAL_SATURATION_FRACTION = 0.25;
 // Below this in-plane gravity magnitude, the phone is too flat for a
 // well-defined steering or rotation direction. Send neutral.
 const FLAT_THRESHOLD       = 3.0;
@@ -386,16 +392,40 @@ function attachControlListeners() {
   bindHandbrake(handbrakeBtn);
 }
 
+// Map a pointer's offsetY within the strip to a 0..1 pedal value.
+//
+//   y ∈ [0, h * SAT_FRAC]         → 1.0  (saturation zone, top quarter)
+//   y ∈ (h * SAT_FRAC, h]         → linear from 1.0 down to 0.0
+//
+// In offsetY coords the top of the strip (offsetY = 0) is the player's
+// visual outer edge (away from the handbrake), and the bottom (offsetY = h)
+// is the inner end nearest the handbrake. Hitting the FULL mark is now at
+// 3/4 of the way up the strip — much easier to reach without aiming at
+// the screen edge.
 function pedalValueFromEvent(e: PointerEvent, el: HTMLElement): number {
   const h = el.clientHeight || 1;
   const y = e.offsetY;
-  return Math.max(0, Math.min(1, 1 - y / h));
+  const satEdge = h * PEDAL_SATURATION_FRACTION;
+  if (y <= satEdge) return 1;
+  const activeRange = h - satEdge; // h * (1 - SAT_FRAC) = 0.75 * h
+  const inRange = y - satEdge;
+  const value = 1 - inRange / activeRange;
+  return Math.max(0, Math.min(1, value));
 }
 
+// Drive the visual fill bar.
+// Fill grows from the strip bottom upward and tops out at the FULL mark
+// (= 1 - SAT_FRAC of strip height), so the visible fill scale matches the
+// active-range mapping above. At value=1 we also flip on `at-max` so the
+// saturation zone overlay brightens, signalling "pinned at max".
 function updatePedalFill(el: HTMLElement, zone: Zone) {
   const fill = el.querySelector('.pedal-fill') as HTMLDivElement | null;
-  if (!fill) return;
-  fill.style.height = (pedalValue(zone) * 100).toFixed(1) + '%';
+  const v = pedalValue(zone);
+  if (fill) {
+    const activeRangePct = (1 - PEDAL_SATURATION_FRACTION) * 100; // 75
+    fill.style.height = (v * activeRangePct).toFixed(1) + '%';
+  }
+  el.classList.toggle('at-max', v >= 0.999);
 }
 
 function bindAnalogPedal(el: HTMLElement, zone: Zone) {
