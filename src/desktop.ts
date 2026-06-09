@@ -15,6 +15,9 @@ const codeText = document.getElementById('code-text') as HTMLDivElement;
 const statusEl = document.getElementById('status') as HTMLDivElement;
 const speedEl = document.getElementById('speed') as HTMLDivElement;
 const driftEl = document.getElementById('drift') as HTMLDivElement;
+const throttleBarEl  = document.getElementById('throttle-bar')  as HTMLDivElement;
+const brakeBarEl     = document.getElementById('brake-bar')     as HTMLDivElement;
+const handbrakeHudEl = document.getElementById('handbrake-hud') as HTMLDivElement;
 
 codeText.textContent = code;
 QRCode.toCanvas(qrCanvas, playUrl, { width: 160, margin: 1 }).catch(console.error);
@@ -60,8 +63,8 @@ const car: CarState = makeCar(
 // ---------- Control input ----------
 // target: latest from the phone. current: lerped toward target each frame for
 // silky steering even when broadcast packets arrive choppy.
-const target: Inputs = { steer: 0, throttle: 0, brake: 0 };
-const current: Inputs = { steer: 0, throttle: 0, brake: 0 };
+const target: Inputs = { steer: 0, throttle: 0, brake: 0, handbrake: false };
+const current: Inputs = { steer: 0, throttle: 0, brake: 0, handbrake: false };
 
 // ---------- Supabase channel ----------
 const channel = supabase.channel(channelName(code), {
@@ -78,13 +81,16 @@ function markConnected() {
 
 channel.on('broadcast', { event: 'control' }, ({ payload }) => {
   markConnected();
-  const p = payload as { steer?: unknown; throttle?: unknown; brake?: unknown };
+  const p = payload as {
+    steer?: unknown; throttle?: unknown; brake?: unknown; handbrake?: unknown;
+  };
   const s = Number(p?.steer);
   const t = Number(p?.throttle);
   const b = Number(p?.brake);
   if (Number.isFinite(s)) target.steer    = clamp(s, -1, 1);
   if (Number.isFinite(t)) target.throttle = clamp(t, 0, 1);
   if (Number.isFinite(b)) target.brake    = clamp(b, 0, 1);
+  target.handbrake = !!p?.handbrake;
 });
 
 channel.subscribe();
@@ -167,12 +173,14 @@ function frame(now: number) {
 
   let steps = 0;
   while (accumulator >= FIXED_DT && steps < MAX_SUBSTEPS) {
-    // Smooth incoming inputs (steer especially) inside the fixed step so the
-    // smoothing rate is frame-rate independent.
+    // Smooth incoming inputs inside the fixed step so the smoothing rate is
+    // frame-rate independent. Steer gets the heaviest smoothing. Throttle /
+    // brake get a light lerp so 30Hz network steps don't visibly jump the
+    // 60Hz physics. Handbrake is binary — snap.
     current.steer    += (target.steer    - current.steer)    * CONFIG.inputLerp;
-    // Throttle/brake snap — pedals are binary, no smoothing needed.
-    current.throttle = target.throttle;
-    current.brake    = target.brake;
+    current.throttle += (target.throttle - current.throttle) * 0.3;
+    current.brake    += (target.brake    - current.brake)    * 0.3;
+    current.handbrake = target.handbrake;
 
     step(car, current, FIXED_DT);
     recordSkids();
@@ -210,6 +218,12 @@ function updateHud() {
   const drifting = car.isRearSliding ||
     Math.abs(car.rearSlip) > CONFIG.slipThresholdForSkid;
   driftEl.classList.toggle('on', drifting);
+
+  // Pedal bars — show smoothed (current) values, what the physics actually
+  // sees, not the raw 30Hz packet. 0 = empty, 1 = full.
+  if (throttleBarEl) throttleBarEl.style.height = (current.throttle * 100).toFixed(0) + '%';
+  if (brakeBarEl)    brakeBarEl.style.height    = (current.brake    * 100).toFixed(0) + '%';
+  if (handbrakeHudEl) handbrakeHudEl.classList.toggle('on', current.handbrake);
 }
 
 // ---------- Drawing ----------

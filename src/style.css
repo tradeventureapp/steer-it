@@ -76,6 +76,53 @@ body.desktop #hud-bl {
   background: #fff3cd; color: #b54708; border-color: #f0c674;
 }
 
+/* Pedal HUD — small fill bars + handbrake pill */
+#pedal-hud {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  margin-top: 6px;
+}
+.bar {
+  position: relative;
+  width: 14px;
+  height: 80px;
+  background: #f3f4f6;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.bar-fill {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 0%;
+  transition: height 60ms linear;
+}
+.bar-gas .bar-fill { background: #2da44e; }
+.bar-brk .bar-fill { background: #e63946; }
+.bar-label {
+  position: absolute;
+  left: 50%;
+  bottom: -16px;
+  transform: translateX(-50%);
+  font: 700 9px/1 ui-monospace, monospace;
+  color: #6b7280;
+  letter-spacing: 1px;
+}
+#handbrake-hud {
+  font: 700 11px/1 ui-monospace, monospace;
+  letter-spacing: 2px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: #f3f4f6;
+  border: 1px solid #e5e7eb;
+  color: #6b7280;
+  align-self: center;
+}
+#handbrake-hud.on {
+  background: #b54708; color: #fff; border-color: #b54708;
+}
+
 /* ============ PHONE ============ */
 body.phone {
   background: #0d1117;
@@ -118,37 +165,83 @@ body.phone {
   transition: transform 120ms ease-out;
 }
 
-/* Pedals — always laid out as two columns in stage-local coords. The
-   stage is always landscape, so left = brake, right = gas, mapped to
-   the player's visual left/right by the stage rotation. */
+/* Pedals — three-zone landscape layout.
+   Left full-height column = BRAKE strip, right column = THROTTLE strip,
+   middle column has the handbrake button anchored to the bottom row. The
+   pedals span both rows of their column so they're tall vertical strips;
+   the spacer cell at the top of the middle column gives the handbrake a
+   clean, non-overlapping touch zone at bottom-center. */
 #pedals {
   position: absolute; inset: 0;
+  padding: 12px;
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  grid-template-areas: "brake gas";
+  grid-template-columns: 1fr clamp(140px, 22%, 220px) 1fr;
+  grid-template-rows: 1fr clamp(90px, 28%, 150px);
+  grid-template-areas:
+    "brake spacer throttle"
+    "brake handbrake throttle";
+  gap: 12px;
 }
 #pedal-brake    { grid-area: brake; }
-#pedal-throttle { grid-area: gas; }
+#pedal-throttle { grid-area: throttle; }
+#handbrake      { grid-area: handbrake; }
 
-.pedal {
+.pedal, #handbrake {
   appearance: none;
   border: none;
-  margin: 14px;
-  border-radius: 24px;
+  margin: 0;
+  padding: 0;
+  border-radius: 22px;
   font-family: inherit;
   font-weight: 800;
-  letter-spacing: 4px;
-  font-size: 30px;
+  letter-spacing: 3px;
   color: #f6f8fa;
-  display: grid;
-  place-items: center;
+  position: relative;
+  overflow: hidden;
   touch-action: none;
-  transition: transform 60ms ease-out, filter 60ms ease-out;
+  transition: filter 60ms ease-out;
+  cursor: pointer;
 }
-.pedal-label { pointer-events: none; }
+
+.pedal {
+  font-size: 22px;
+}
 #pedal-brake    { background: linear-gradient(180deg, #db5b5b, #b03232); }
 #pedal-throttle { background: linear-gradient(180deg, #3fb950, #1f7a32); }
-.pedal.active { transform: scale(0.98); filter: brightness(1.15); }
+
+/* Analog fill bar — grows from bottom to top of the strip, reflecting the
+   live 0..1 pedal value so the player can see at a glance how hard they're
+   pressing. */
+.pedal-fill {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 0%;
+  background: rgba(255, 255, 255, 0.22);
+  pointer-events: none;
+}
+.pedal-label {
+  position: absolute;
+  inset: 0;
+  display: grid; place-items: center;
+  pointer-events: none;
+  z-index: 1;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+.pedal.active { filter: brightness(1.08); }
+
+#handbrake {
+  font-size: 16px;
+  background: linear-gradient(180deg, #4b5563, #1f2937);
+}
+#handbrake .pedal-label {
+  position: static;
+  display: grid; place-items: center;
+  height: 100%; width: 100%;
+}
+#handbrake.active {
+  background: linear-gradient(180deg, #c47406, #7c2d12);
+  filter: brightness(1.05);
+}
 
 /* Unlock button — centered inside the stage. */
 #unlock {

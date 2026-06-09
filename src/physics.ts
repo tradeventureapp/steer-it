@@ -51,6 +51,14 @@ export const CONFIG = {
   // Multiplier on lateral force while sliding (kinetic < static friction).
   driftFriction: 0.92,
 
+  // ---------- Handbrake ----------
+  // Engaging the handbrake drastically reduces rear lateral grip and adds a
+  // fixed longitudinal drag, breaking the rear loose for handbrake-initiated
+  // drifts. Releasing it lets grip return so the player can catch the slide.
+  handbrakeRearGripMultiplier:      0.30, // fraction of normal rear peak lateral grip while engaged
+  handbrakeRearStiffnessMultiplier: 0.40, // fraction of normal rear cornering stiffness while engaged
+  handbrakeBrakeForce:              5500, // N, longitudinal drag added while engaged
+
   // ---------- Yaw damping ----------
   angularDamping: 0.7,              // 1/s, light damping on body rotation
 
@@ -94,9 +102,10 @@ export interface CarState {
 }
 
 export interface Inputs {
-  steer: number;     // -1..1, +1 = full right
-  throttle: number;  // 0..1
-  brake: number;     // 0..1
+  steer: number;      // -1..1, +1 = full right
+  throttle: number;   // 0..1 (analog)
+  brake: number;      // 0..1 (analog)
+  handbrake: boolean; // on/off
 }
 
 export function makeCar(x: number, y: number, heading: number = -Math.PI / 2): CarState {
@@ -170,11 +179,20 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   // ---- 5. Lateral forces (linear, clamped at peak) ----
   // Linear region (sub-grip): F = -stiffness * slip. Negative because positive
   // slip means the tire is dragged sideways and the tire pushes BACK.
+  //
+  // HANDBRAKE: while engaged, the rear axle's effective peak grip AND
+  // cornering stiffness are scaled down. The rear breaks loose almost
+  // immediately into a kinetic-friction-only slide — the core drift tool.
+  const rearStiff   = c.corneringStiffnessRear *
+    (input.handbrake ? c.handbrakeRearStiffnessMultiplier : 1);
+  const rearPeakGrip = c.peakLatGripRear *
+    (input.handbrake ? c.handbrakeRearGripMultiplier : 1);
+
   let frontLatForce = -c.corneringStiffnessFront * frontSlip;
-  let rearLatForce  = -c.corneringStiffnessRear  * rearSlip;
+  let rearLatForce  = -rearStiff                * rearSlip;
 
   const isFrontSliding = Math.abs(frontLatForce) > c.peakLatGripFront;
-  const isRearSliding  = Math.abs(rearLatForce)  > c.peakLatGripRear;
+  const isRearSliding  = Math.abs(rearLatForce)  > rearPeakGrip;
 
   // Past peak grip the tire slides. Apply driftFriction to bleed energy and
   // keep the slide controllable rather than catastrophic.
@@ -182,7 +200,7 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
     frontLatForce = Math.sign(frontLatForce) * c.peakLatGripFront * c.driftFriction;
   }
   if (isRearSliding) {
-    rearLatForce = Math.sign(rearLatForce) * c.peakLatGripRear * c.driftFriction;
+    rearLatForce = Math.sign(rearLatForce) * rearPeakGrip * c.driftFriction;
   }
 
   // ---- 6. Longitudinal forces ----
@@ -190,14 +208,17 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   let brakingForce = 0;
 
   // Brake decelerates whichever way the car is moving, never accelerates the
-  // other direction (no reverse this slice).
+  // other direction (no reverse this slice). HANDBRAKE adds a fixed
+  // longitudinal drag on top of any pedal brake input.
   if (forwardVel > 0.1) {
     brakingForce = input.brake * c.brakeForce;
+    if (input.handbrake) brakingForce += c.handbrakeBrakeForce;
   } else if (forwardVel < -0.1) {
     brakingForce = -input.brake * c.brakeForce;
+    if (input.handbrake) brakingForce -= c.handbrakeBrakeForce;
   } else {
-    // At rest with the brake held, lock the engine too so we sit still.
-    if (input.brake > 0.05) engineForce = 0;
+    // At rest with brake OR handbrake held, lock the engine too.
+    if (input.brake > 0.05 || input.handbrake) engineForce = 0;
   }
 
   const dragForce = c.dragCoeff * forwardVel * Math.abs(forwardVel);

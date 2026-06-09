@@ -25,6 +25,7 @@ const unlockBtn   = document.getElementById('unlock')         as HTMLButtonEleme
 const pedalsEl    = document.getElementById('pedals')         as HTMLDivElement;
 const brakeBtn    = document.getElementById('pedal-brake')    as HTMLButtonElement;
 const throttleBtn = document.getElementById('pedal-throttle') as HTMLButtonElement;
+const handbrakeBtn = document.getElementById('handbrake')     as HTMLButtonElement;
 const errorEl     = document.getElementById('error')          as HTMLDivElement;
 const debugEl     = document.getElementById('debug')          as HTMLDivElement | null;
 
@@ -58,13 +59,25 @@ type Phys = 'L-pri' | 'L-sec' | 'portrait' | 'port-down' | 'flat';
 let currentPhys: Phys = 'flat';
 let appliedRotDeg: number | null = null;
 
-const pedalPointers = {
-  throttle: new Set<number>(),
-  brake:    new Set<number>(),
+// Analog pedals: per-zone map of pointerId -> current 0..1 value. We take the
+// MAX across active pointers so an aggressive second finger can pin the pedal
+// at 100% even if the first finger is mid-strip.
+type Zone = 'throttle' | 'brake';
+const pedalValues: Record<Zone, Map<number, number>> = {
+  throttle: new Map(),
+  brake:    new Map(),
 };
-function pedalDown(zone: 'throttle' | 'brake') {
-  return pedalPointers[zone].size > 0;
+function pedalValue(zone: Zone): number {
+  const m = pedalValues[zone];
+  if (m.size === 0) return 0;
+  let max = 0;
+  for (const v of m.values()) if (v > max) max = v;
+  return max;
 }
+
+// Handbrake: binary on/off, multi-touch tolerant.
+const handbrakePointers = new Set<number>();
+function handbrakeOn(): boolean { return handbrakePointers.size > 0; }
 
 // ---------- Channel ----------
 if (!code) {
@@ -236,7 +249,8 @@ function updateDebug() {
     `calAx=${calibAx.toFixed(1)} calAy=${calibAy.toFixed(1)}\n` +
     `beta=${lastBeta.toFixed(0)} gamma=${lastGamma.toFixed(0)}\n` +
     `tilt=${tilt.toFixed(1)}° steer=${steer.toFixed(2)}  ` +
-    `t=${pedalDown('throttle') ? 1 : 0} b=${pedalDown('brake') ? 1 : 0}`;
+    `t=${pedalValue('throttle').toFixed(2)} b=${pedalValue('brake').toFixed(2)} ` +
+    `hb=${handbrakeOn() ? 'ON' : 'off'}`;
 }
 
 // ----------------------------------------------------------------------
@@ -278,7 +292,7 @@ unlockBtn.addEventListener('click', async () => {
 
     stage = 'after-unlock';
     attachSensorListeners();
-    attachPedalListeners();
+    attachControlListeners();
     startBroadcast();
     renderUI();
     void calibrate();
@@ -351,28 +365,79 @@ async function calibrate() {
 }
 
 // ----------------------------------------------------------------------
-//  Pedals (multi-touch)
+//  Analog pedals + handbrake (multi-touch via pointer events).
+//
+//  Each pedal is a tall vertical strip. The finger's vertical position
+//  within the strip's local frame is the input:
+//      offsetY = 0           → top of strip → value = 1
+//      offsetY = clientHeight → bottom      → value = 0
+//
+//  offsetY is reported in the element's PRE-TRANSFORM local frame, so it
+//  works correctly even when #phone-stage is CSS-rotated for the
+//  forced-landscape view. The value is clamped to [0, 1].
+//
+//  We deliberately DO NOT release on `pointerleave`: with pointer
+//  capture, the finger can slide below or above the strip without
+//  cancelling the input — value just clamps to 0 or 1 respectively.
 // ----------------------------------------------------------------------
-function attachPedalListeners() {
-  bindPedal(throttleBtn, 'throttle');
-  bindPedal(brakeBtn,    'brake');
+function attachControlListeners() {
+  bindAnalogPedal(throttleBtn, 'throttle');
+  bindAnalogPedal(brakeBtn,    'brake');
+  bindHandbrake(handbrakeBtn);
 }
 
-function bindPedal(el: HTMLElement, zone: 'throttle' | 'brake') {
-  const onDown = (e: PointerEvent) => {
+function pedalValueFromEvent(e: PointerEvent, el: HTMLElement): number {
+  const h = el.clientHeight || 1;
+  const y = e.offsetY;
+  return Math.max(0, Math.min(1, 1 - y / h));
+}
+
+function updatePedalFill(el: HTMLElement, zone: Zone) {
+  const fill = el.querySelector('.pedal-fill') as HTMLDivElement | null;
+  if (!fill) return;
+  fill.style.height = (pedalValue(zone) * 100).toFixed(1) + '%';
+}
+
+function bindAnalogPedal(el: HTMLElement, zone: Zone) {
+  el.addEventListener('pointerdown', (e) => {
     e.preventDefault();
-    pedalPointers[zone].add(e.pointerId);
+    const v = pedalValueFromEvent(e, el);
+    pedalValues[zone].set(e.pointerId, v);
     el.classList.add('active');
     try { el.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+    updatePedalFill(el, zone);
+  });
+  el.addEventListener('pointermove', (e) => {
+    if (!pedalValues[zone].has(e.pointerId)) return;
+    const v = pedalValueFromEvent(e, el);
+    pedalValues[zone].set(e.pointerId, v);
+    updatePedalFill(el, zone);
+  });
+  const release = (e: PointerEvent) => {
+    if (!pedalValues[zone].has(e.pointerId)) return;
+    pedalValues[zone].delete(e.pointerId);
+    if (pedalValues[zone].size === 0) el.classList.remove('active');
+    updatePedalFill(el, zone);
   };
-  const onUp = (e: PointerEvent) => {
-    pedalPointers[zone].delete(e.pointerId);
-    if (pedalPointers[zone].size === 0) el.classList.remove('active');
+  el.addEventListener('pointerup',     release);
+  el.addEventListener('pointercancel', release);
+  el.addEventListener('contextmenu',   (e) => e.preventDefault());
+}
+
+function bindHandbrake(el: HTMLElement) {
+  el.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    handbrakePointers.add(e.pointerId);
+    el.classList.add('active');
+    try { el.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+  });
+  const release = (e: PointerEvent) => {
+    if (!handbrakePointers.has(e.pointerId)) return;
+    handbrakePointers.delete(e.pointerId);
+    if (handbrakePointers.size === 0) el.classList.remove('active');
   };
-  el.addEventListener('pointerdown',   onDown);
-  el.addEventListener('pointerup',     onUp);
-  el.addEventListener('pointercancel', onUp);
-  el.addEventListener('pointerleave',  onUp);
+  el.addEventListener('pointerup',     release);
+  el.addEventListener('pointercancel', release);
   el.addEventListener('contextmenu',   (e) => e.preventDefault());
 }
 
@@ -384,8 +449,9 @@ function startBroadcast() {
   setInterval(() => {
     const payload = {
       steer:    steerFromTilt(),
-      throttle: pedalDown('throttle') ? 1 : 0,
-      brake:    pedalDown('brake')    ? 1 : 0,
+      throttle:  pedalValue('throttle'),
+      brake:     pedalValue('brake'),
+      handbrake: handbrakeOn(),
     };
     channel.send({ type: 'broadcast', event: 'control', payload });
   }, INTERVAL_MS);
