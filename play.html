@@ -10,31 +10,27 @@
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body class="phone">
-    <!-- Stage 1: ask for motion permission (iOS) and confirm landscape. -->
-    <button id="unlock" type="button">TAP TO STEER</button>
-
-    <!-- Stage 2 (shown after unlock): landscape pedal layout. -->
-    <div id="pedals" hidden>
-      <button id="pedal-brake" class="pedal pedal-left" type="button" aria-label="Brake">
-        <span class="pedal-label">BRAKE</span>
-      </button>
-      <button id="pedal-throttle" class="pedal pedal-right" type="button" aria-label="Throttle">
-        <span class="pedal-label">GAS</span>
-      </button>
-      <div class="pedal-hint">tilt phone to steer</div>
-    </div>
-
-    <!-- Overlay: shown when phone is held portrait after unlock. -->
-    <div id="rotate-hint" hidden>
-      <div class="rotate-icon">⟳</div>
-      <div class="rotate-label">ROTATE TO LANDSCAPE</div>
-    </div>
-
-    <!-- Error fallback. -->
-    <div id="error" hidden></div>
-
-    <!-- Live state strip — keep until we're confident on every device. -->
+    <!-- Debug strip stays outside the rotated stage so it lives in real
+         viewport coords. -->
     <div id="debug">init</div>
+
+    <!-- All controller UI lives inside #phone-stage, which we rotate -90°
+         in CSS when the device reports portrait — so the player always
+         sees landscape regardless of what iOS Safari decides. -->
+    <div id="phone-stage">
+      <button id="unlock" type="button">TAP TO STEER</button>
+
+      <div id="pedals" hidden>
+        <button id="pedal-brake" class="pedal" type="button" aria-label="Brake">
+          <span class="pedal-label">BRAKE</span>
+        </button>
+        <button id="pedal-throttle" class="pedal" type="button" aria-label="Throttle">
+          <span class="pedal-label">GAS</span>
+        </button>
+      </div>
+
+      <div id="error" hidden></div>
+    </div>
 
     <script type="module" src="/src/phone.ts"></script>
   </body>

@@ -1,12 +1,13 @@
 import { supabase, channelName } from './supabase';
 
-// ---------- Tuning (phone side) ----------
-const TILT_SENSITIVITY = 35; // deg of tilt from neutral that maps to full ±1
-const TILT_DEADZONE    = 3;  // deg ignored around neutral
-const SEND_HZ          = 30;
-// Clamp baseline capture so even a wildly tilted starting hold still leaves
-// enough headroom on each side to actually steer.
-const CALIBRATION_CLAMP_DEG = 25;
+// ---------- Tuning ----------
+const TILT_SENSITIVITY_DEG = 35;   // tilt from neutral that maps to full ±1
+const TILT_DEADZONE_DEG    = 3;
+const SEND_HZ              = 30;
+// Magnitude (m/s²) of (ax, ay) below which we treat the phone as "too flat"
+// — a flat-on-table baseline has no in-plane gravity component so no
+// well-defined steering direction. Below threshold we send neutral.
+const FLAT_THRESHOLD       = 3.0;
 
 // ---------- DOM ----------
 const params = new URLSearchParams(window.location.search);
@@ -16,42 +17,38 @@ const unlockBtn   = document.getElementById('unlock')         as HTMLButtonEleme
 const pedalsEl    = document.getElementById('pedals')         as HTMLDivElement;
 const brakeBtn    = document.getElementById('pedal-brake')    as HTMLButtonElement;
 const throttleBtn = document.getElementById('pedal-throttle') as HTMLButtonElement;
-const rotateHint  = document.getElementById('rotate-hint')    as HTMLDivElement;
 const errorEl     = document.getElementById('error')          as HTMLDivElement;
 const debugEl     = document.getElementById('debug')          as HTMLDivElement | null;
 
-// ---------- State machine ----------
+// ---------- State ----------
 type Stage = 'before-unlock' | 'after-unlock' | 'error';
 let stage: Stage = 'before-unlock';
 let errorMsg = '';
 let permState: 'unknown' | 'granted' | 'denied' | 'not-required' = 'unknown';
 
-// ---------- Orientation ----------
 const landscapeMQ = window.matchMedia('(orientation: landscape)');
-function isLandscape(): boolean {
-  return landscapeMQ.matches;
-}
-function currentAngle(): number {
-  const so = (screen as unknown as { orientation?: { angle?: number } }).orientation;
-  if (typeof so?.angle === 'number') return so.angle;
-  const wo = (window as unknown as { orientation?: number }).orientation;
-  if (typeof wo === 'number') return wo;
-  return 0;
-}
 
-// ---------- Sensor state ----------
-let lastBeta  = 0;
+// Sensor readings.
+// We listen to deviceorientation for beta/gamma (debug only) and to
+// devicemotion for accelerationIncludingGravity, which is the real input
+// to the steering math.
+let lastBeta = 0;
 let lastGamma = 0;
-let hasReading = false;
+let hasOrientationReading = false;
 
-// Baseline captured from the user's natural hold at calibration time. We
-// subtract this from raw sensor values so neutral hold == zero steer no
-// matter which way the device thinks "0" is.
-let calibrationBeta  = 0;
-let calibrationGamma = 0;
+let lastAx = 0;
+let lastAy = 0;
+let lastAz = 0;
+let hasMotionReading = false;
+
+// Calibration baseline (gravity vector projected into the screen plane).
+// Captured at unlock AND on every orientation change, so neutral is always
+// "however the user is holding the phone right now".
+let calibAx = 0;
+let calibAy = 0;
 let calibrated = false;
+let recalibrating = false;
 
-// ---------- Pedal input ----------
 const pedalPointers = {
   throttle: new Set<number>(),
   brake:    new Set<number>(),
@@ -71,17 +68,16 @@ const channel = supabase.channel(channelName(code), {
 channel.subscribe();
 
 // ---------- Render ----------
+// No orientation gating — CSS forces a landscape layout always, so the
+// controller renders the same panel set whichever way the phone is held.
 function renderUI() {
-  unlockBtn.hidden  = true;
-  pedalsEl.hidden   = true;
-  rotateHint.hidden = true;
-  errorEl.hidden    = true;
+  unlockBtn.hidden = true;
+  pedalsEl.hidden  = true;
+  errorEl.hidden   = true;
 
   if (stage === 'error') {
     errorEl.hidden = false;
     errorEl.textContent = errorMsg;
-  } else if (!isLandscape()) {
-    rotateHint.hidden = false;
   } else if (stage === 'before-unlock') {
     unlockBtn.hidden = false;
   } else {
@@ -91,70 +87,96 @@ function renderUI() {
   updateDebug();
 }
 
-// Compute axis + sign decision in one place so debug + steerFromTilt agree.
-// Returns the centered (post-calibration), sign-corrected tilt in DEGREES.
-// Positive == "steer right" by definition; sign mapping handled here.
-function readTilt(): { axis: 'beta' | 'gamma'; signed: number; angle: number } {
-  const angle = currentAngle();
-
-  // -------- LANDSCAPE (the play orientation) --------
-  // In landscape the device's long axis is horizontal, so gamma is pinned
-  // near ±90 even when the screen is upright — useless as steering input.
-  // The steering motion (roll the phone like a wheel) shows up on `beta`.
-  //
-  // Sign confirmed empirically on iOS Safari:
-  //   landscape-primary  (angle 90):  tilting right edge of screen DOWN
-  //                                   moves beta POSITIVE relative to the
-  //                                   captured baseline. Use as-is.
-  //   landscape-secondary(angle -90/270): mirrored — same physical motion
-  //                                       moves beta NEGATIVE. Flip sign.
-  if (angle === 90) {
-    const centered = lastBeta - calibrationBeta;
-    return { axis: 'beta', signed: +centered, angle };
-  }
-  if (angle === 270 || angle === -90) {
-    const centered = lastBeta - calibrationBeta;
-    return { axis: 'beta', signed: -centered, angle };
-  }
-
-  // -------- PORTRAIT (only reached if orientation flips during play) --------
-  // gamma+ = tilt right edge of screen down in portrait. Upside-down portrait
-  // inverts the sign.
-  const centered = lastGamma - calibrationGamma;
-  if (angle === 180) {
-    return { axis: 'gamma', signed: -centered, angle };
-  }
-  return { axis: 'gamma', signed: +centered, angle };
+// ----------------------------------------------------------------------
+//  Steering math.
+//
+//  We compute the angle the device has rolled around its screen-perpendicular
+//  axis (device Z), relative to the calibration baseline. This is the
+//  natural "steering wheel" motion regardless of which way the phone is
+//  oriented — the player rolls the device clockwise/counterclockwise.
+//
+//  How: accelerationIncludingGravity gives the gravity vector in the
+//  device's own frame. The component in the screen plane is (ax, ay).
+//  A roll around device Z rotates this 2D vector. The signed angle
+//  between baseline (calibAx, calibAy) and current (lastAx, lastAy):
+//
+//      cross = calibAx * lastAy − calibAy * lastAx
+//      dot   = calibAx * lastAx + calibAy * lastAy
+//      tilt  = atan2(cross, dot)
+//
+//  The sign falls out naturally:
+//    • Real landscape-primary  (gx0 > 0, gy0 ≈ 0):
+//        tilt right → gy goes positive → cross > 0 → tilt > 0
+//    • Real landscape-secondary (gx0 < 0, gy0 ≈ 0):
+//        tilt right → gy goes negative → cross > 0 (gx0 was negative)
+//        → tilt > 0
+//    • Forced-rotated portrait  (gx0 ≈ 0, gy0 ≈ -g):
+//        tilt right (wheel-rotation around device Z) → gx goes positive
+//        → cross = gx0*lastAy − gy0*lastAx ≈ 0 − (−g)(gx>0) > 0 → tilt > 0
+//
+//  So "tilt right = positive steer" holds in every orientation, with no
+//  orientation-API consultation needed. Beautiful.
+// ----------------------------------------------------------------------
+function steeringTiltDeg(): number {
+  if (!hasMotionReading || !calibrated) return 0;
+  const baseMag = Math.hypot(calibAx, calibAy);
+  if (baseMag < FLAT_THRESHOLD) return 0;
+  const cross = calibAx * lastAy - calibAy * lastAx;
+  const dot   = calibAx * lastAx + calibAy * lastAy;
+  return Math.atan2(cross, dot) * 180 / Math.PI;
 }
 
 function steerFromTilt(): number {
-  if (!hasReading) return 0;
-  const { signed } = readTilt();
-  const sign = Math.sign(signed);
-  const mag = Math.max(0, Math.abs(signed) - TILT_DEADZONE);
-  const norm = Math.min(1, mag / (TILT_SENSITIVITY - TILT_DEADZONE));
+  if (recalibrating) return 0;
+  const tiltDeg = steeringTiltDeg();
+  const sign = Math.sign(tiltDeg);
+  const mag = Math.max(0, Math.abs(tiltDeg) - TILT_DEADZONE_DEG);
+  const norm = Math.min(1, mag / (TILT_SENSITIVITY_DEG - TILT_DEADZONE_DEG));
   return sign * norm;
+}
+
+// Best-effort label for how the phone is being held — purely for debug.
+function physicalMode(): string {
+  const mag = Math.hypot(lastAx, lastAy);
+  if (mag < FLAT_THRESHOLD) return 'flat';
+  if (Math.abs(lastAx) > Math.abs(lastAy)) {
+    return lastAx > 0 ? 'land-L' : 'land-R';
+  }
+  return lastAy < 0 ? 'portrait' : 'port-down';
 }
 
 function updateDebug() {
   if (!debugEl) return;
   const so = (screen as unknown as { orientation?: { angle?: number; type?: string } }).orientation;
   const wo = (window as unknown as { orientation?: number }).orientation;
-  const land = isLandscape();
-  const t = readTilt();
-  const steer = hasReading ? steerFromTilt() : 0;
+  const visualLandscape = landscapeMQ.matches;
+  const forced = !visualLandscape; // we're applying CSS rotation
+  const tilt = steeringTiltDeg();
+  const steer = steerFromTilt();
   debugEl.textContent =
-    `stage=${stage} perm=${permState} cal=${calibrated ? 'yes' : 'no'}\n` +
-    `land=${land} angle=${t.angle} (so=${so?.angle ?? 'n/a'} wo=${wo ?? 'n/a'} type=${so?.type ?? 'n/a'})\n` +
-    `beta=${lastBeta.toFixed(1)}  gamma=${lastGamma.toFixed(1)}\n` +
-    `calB=${calibrationBeta.toFixed(1)}  calG=${calibrationGamma.toFixed(1)}\n` +
-    `axis=${t.axis}  signed=${t.signed.toFixed(1)}  steer=${steer.toFixed(2)}\n` +
-    `t=${pedalDown('throttle') ? 1 : 0}  b=${pedalDown('brake') ? 1 : 0}`;
+    `stage=${stage} perm=${permState} cal=${calibrated ? 'yes' : 'no'}${recalibrating ? ' RE' : ''}\n` +
+    `view=${visualLandscape ? 'real-L' : 'force-L (rotated)'} ` +
+    `phys=${physicalMode()} angle=so${so?.angle ?? 'n/a'}/wo${wo ?? 'n/a'}\n` +
+    `ax=${lastAx.toFixed(1)} ay=${lastAy.toFixed(1)} az=${lastAz.toFixed(1)}\n` +
+    `calAx=${calibAx.toFixed(1)} calAy=${calibAy.toFixed(1)}\n` +
+    `beta=${lastBeta.toFixed(0)} gamma=${lastGamma.toFixed(0)}\n` +
+    `tilt=${tilt.toFixed(1)}° steer=${steer.toFixed(2)} ` +
+    `t=${pedalDown('throttle') ? 1 : 0} b=${pedalDown('brake') ? 1 : 0}`;
+  void forced; // (already encoded in `view=`)
 }
 
-// ---------- Orientation listeners ----------
+// ---------- Orientation watchers ----------
+// matchMedia drives the CSS rotation, and we re-calibrate whenever the
+// device flips between portrait and landscape so the player's new neutral
+// hold becomes the new zero.
 if (typeof landscapeMQ.addEventListener === 'function') {
-  landscapeMQ.addEventListener('change', renderUI);
+  landscapeMQ.addEventListener('change', () => {
+    renderUI();
+    if (stage === 'after-unlock') {
+      // Let the sensors settle for a moment before resampling.
+      setTimeout(() => { void calibrate(); }, 250);
+    }
+  });
 } else {
   (landscapeMQ as unknown as { addListener: (cb: () => void) => void }).addListener(renderUI);
 }
@@ -163,36 +185,54 @@ window.addEventListener('orientationchange', () => {
   renderUI();
   setTimeout(renderUI, 200);
   setTimeout(renderUI, 600);
+  if (stage === 'after-unlock') {
+    setTimeout(() => { void calibrate(); }, 400);
+  }
 });
 
-// ---------- Unlock ----------
+// ---------- Unlock + permission ----------
 unlockBtn.addEventListener('click', async () => {
   try {
-    const DOE = (window as unknown as {
+    // iOS Safari: DeviceOrientationEvent.requestPermission() must be called
+    // from a user gesture. DeviceMotionEvent may also have its own. We try
+    // both; either granted is fine.
+    const win = window as unknown as {
       DeviceOrientationEvent?: { requestPermission?: () => Promise<string> };
-    }).DeviceOrientationEvent;
+      DeviceMotionEvent?:      { requestPermission?: () => Promise<string> };
+    };
 
-    if (DOE && typeof DOE.requestPermission === 'function') {
-      const result = await DOE.requestPermission();
-      permState = result === 'granted' ? 'granted' : 'denied';
-      if (result !== 'granted') {
-        errorMsg = 'Motion permission denied. Reload the page and tap again.';
+    let needAny = false;
+    if (typeof win.DeviceOrientationEvent?.requestPermission === 'function') {
+      needAny = true;
+      const r = await win.DeviceOrientationEvent.requestPermission();
+      if (r !== 'granted') {
+        permState = 'denied';
+        errorMsg = 'Motion permission denied. Reload and tap again.';
         stage = 'error';
         renderUI();
         return;
       }
-    } else {
-      permState = 'not-required';
     }
+    if (typeof win.DeviceMotionEvent?.requestPermission === 'function') {
+      needAny = true;
+      try {
+        const r = await win.DeviceMotionEvent.requestPermission();
+        if (r !== 'granted') {
+          permState = 'denied';
+          errorMsg = 'Motion permission denied (motion). Reload and tap again.';
+          stage = 'error';
+          renderUI();
+          return;
+        }
+      } catch { /* some iOS versions bundle this with the orientation grant */ }
+    }
+    permState = needAny ? 'granted' : 'not-required';
 
     stage = 'after-unlock';
-    attachTiltListener();
+    attachSensorListeners();
     attachPedalListeners();
     startBroadcast();
     renderUI();
-
-    // Calibration runs after listeners are wired and a few sensor samples
-    // have landed. Async so we don't block the UI.
     void calibrate();
   } catch (err) {
     errorMsg = 'Could not enable motion: ' + (err as Error).message;
@@ -201,54 +241,55 @@ unlockBtn.addEventListener('click', async () => {
   }
 });
 
-// ---------- Tilt listener ----------
-function attachTiltListener() {
+// ---------- Sensor listeners ----------
+function attachSensorListeners() {
   window.addEventListener('deviceorientation', (e) => {
-    if (e.beta == null && e.gamma == null) return;
     if (e.beta  != null) lastBeta  = e.beta;
     if (e.gamma != null) lastGamma = e.gamma;
-    hasReading = true;
+    if (e.beta != null || e.gamma != null) hasOrientationReading = true;
   });
+  window.addEventListener('devicemotion', (e) => {
+    const a = e.accelerationIncludingGravity;
+    if (!a) return;
+    if (a.x != null) lastAx = a.x;
+    if (a.y != null) lastAy = a.y;
+    if (a.z != null) lastAz = a.z;
+    hasMotionReading = true;
+  });
+  // hasOrientationReading is unused in the steering math but useful for
+  // diagnosing why a phone hasn't started reporting — keep referenced.
+  void hasOrientationReading;
 }
 
-// ---------- Auto-calibration ----------
-// Capture the user's natural hold as the steering zero. Averages a short
-// burst of samples for stability, then clamps so a wild starting position
-// can't put neutral past the sensitivity range (which would leave the car
-// permanently stuck steering one way).
+// ---------- Calibration ----------
+// Capture the player's natural hold as steer=0 by averaging the first
+// burst of motion samples. Re-runs on every orientation flip so neutral
+// always matches the current hold.
 async function calibrate() {
-  const samples: Array<{ b: number; g: number }> = [];
-  const SAMPLE_COUNT = 8;
-  const SAMPLE_GAP_MS = 40;
+  recalibrating = true;
 
-  // Wait for the first reading to land before starting (iOS sometimes
-  // delays the first deviceorientation event by 50-150ms).
+  // Wait for first sample (iOS can stall the first event 50-150ms).
   const start = performance.now();
-  while (!hasReading && performance.now() - start < 700) {
+  while (!hasMotionReading && performance.now() - start < 700) {
     await new Promise((r) => setTimeout(r, 25));
   }
 
-  // Burst-sample. If we never get a reading we leave calibration at 0.
-  for (let i = 0; i < SAMPLE_COUNT; i++) {
-    await new Promise((r) => setTimeout(r, SAMPLE_GAP_MS));
-    if (!hasReading) continue;
-    samples.push({ b: lastBeta, g: lastGamma });
+  const samples: Array<{ x: number; y: number }> = [];
+  const COUNT = 8;
+  const GAP_MS = 40;
+  for (let i = 0; i < COUNT; i++) {
+    await new Promise((r) => setTimeout(r, GAP_MS));
+    if (!hasMotionReading) continue;
+    samples.push({ x: lastAx, y: lastAy });
   }
   if (samples.length === 0) {
-    calibrated = true; // still mark, with 0 baselines
-    return;
+    calibAx = 0; calibAy = 0;
+  } else {
+    calibAx = samples.reduce((s, p) => s + p.x, 0) / samples.length;
+    calibAy = samples.reduce((s, p) => s + p.y, 0) / samples.length;
   }
-
-  const avgB = samples.reduce((s, x) => s + x.b, 0) / samples.length;
-  const avgG = samples.reduce((s, x) => s + x.g, 0) / samples.length;
-
-  calibrationBeta  = clamp(avgB, -CALIBRATION_CLAMP_DEG, CALIBRATION_CLAMP_DEG);
-  calibrationGamma = clamp(avgG, -CALIBRATION_CLAMP_DEG, CALIBRATION_CLAMP_DEG);
   calibrated = true;
-}
-
-function clamp(v: number, lo: number, hi: number): number {
-  return v < lo ? lo : v > hi ? hi : v;
+  recalibrating = false;
 }
 
 // ---------- Pedals (multi-touch) ----------
@@ -276,26 +317,17 @@ function bindPedal(el: HTMLElement, zone: 'throttle' | 'brake') {
 }
 
 // ---------- Broadcast ----------
-// IMPORTANT: gate input on landscape. If the user rotates to portrait mid-game
-// we DON'T want to ship a steer value computed from gamma against a beta
-// calibration (or vice versa) — that produced phantom steering. Send neutral
-// while portrait so the desktop car coasts.
 function startBroadcast() {
   const INTERVAL_MS = 1000 / SEND_HZ;
   setInterval(() => {
-    const payload = isLandscape()
-      ? {
-          steer:    steerFromTilt(),
-          throttle: pedalDown('throttle') ? 1 : 0,
-          brake:    pedalDown('brake')    ? 1 : 0,
-        }
-      : { steer: 0, throttle: 0, brake: 0 };
+    const payload = {
+      steer:    steerFromTilt(),
+      throttle: pedalDown('throttle') ? 1 : 0,
+      brake:    pedalDown('brake')    ? 1 : 0,
+    };
     channel.send({ type: 'broadcast', event: 'control', payload });
   }, INTERVAL_MS);
 }
-
-// ---------- Error UI ----------
-// (No standalone helper; we set errorMsg + stage and let renderUI() decide.)
 
 // ---------- Debug polling ----------
 setInterval(updateDebug, 250);

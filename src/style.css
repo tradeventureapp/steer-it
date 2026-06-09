@@ -2,9 +2,9 @@
 html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; }
 
 /* The `hidden` HTML attribute must actually hide. Our ID selectors below
-   set `display: grid`, which would otherwise out-specificity the UA
-   `[hidden] { display: none }` rule. Restore the intended behavior. */
+   would otherwise out-specificity the UA `[hidden] { display: none }` rule. */
 [hidden] { display: none !important; }
+
 body {
   background: #ffffff;
   color: #1c1c20;
@@ -14,100 +14,56 @@ body {
 
 /* ============ DESKTOP ============ */
 body.desktop { background: #ffffff; }
-body.desktop #game {
-  display: block;
-  width: 100vw;
-  height: 100vh;
-}
+body.desktop #game { display: block; width: 100vw; height: 100vh; }
 
-/* Top-right: QR + code + status */
 body.desktop #hud-tr {
-  position: fixed;
-  top: 20px;
-  right: 20px;
-  z-index: 10;
-  pointer-events: none;
+  position: fixed; top: 20px; right: 20px;
+  z-index: 10; pointer-events: none;
 }
 #qr-panel {
-  background: #ffffff;
-  color: #1c1c20;
-  padding: 14px 14px 12px;
-  border-radius: 14px;
+  background: #ffffff; color: #1c1c20;
+  padding: 14px 14px 12px; border-radius: 14px;
   box-shadow: 0 14px 36px rgba(0, 0, 0, 0.18);
   border: 1px solid #e5e7eb;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
 }
 #qr { width: 160px; height: 160px; display: block; }
 #code-text {
   font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
-  font-weight: 700;
-  font-size: 22px;
-  letter-spacing: 6px;
-  margin-left: 6px;
+  font-weight: 700; font-size: 22px; letter-spacing: 6px; margin-left: 6px;
 }
 #status {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 1.5px;
+  font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px;
   color: #6b7280;
 }
 #status.connected { color: #2da44e; }
 
-/* Bottom-left: speedometer + drift indicator */
 body.desktop #hud-bl {
-  position: fixed;
-  bottom: 24px;
-  left: 24px;
-  z-index: 10;
-  pointer-events: none;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 10px;
+  position: fixed; bottom: 24px; left: 24px;
+  z-index: 10; pointer-events: none;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 10px;
 }
 #speedo {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
-  padding: 12px 18px;
-  border-radius: 12px;
+  display: flex; align-items: baseline; gap: 8px;
+  background: #ffffff; border: 1px solid #e5e7eb;
+  padding: 12px 18px; border-radius: 12px;
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.14);
 }
 #speed {
   font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
-  font-weight: 800;
-  font-size: 44px;
-  letter-spacing: 2px;
-  color: #1c1c20;
-  font-variant-numeric: tabular-nums;
-  line-height: 1;
+  font-weight: 800; font-size: 44px; letter-spacing: 2px;
+  color: #1c1c20; font-variant-numeric: tabular-nums; line-height: 1;
 }
-#speed-unit {
-  font-size: 12px;
-  letter-spacing: 2px;
-  color: #6b7280;
-}
+#speed-unit { font-size: 12px; letter-spacing: 2px; color: #6b7280; }
 #drift {
   font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
-  font-weight: 700;
-  font-size: 12px;
-  letter-spacing: 4px;
-  padding: 6px 12px;
-  border-radius: 6px;
-  background: transparent;
-  color: transparent;
-  border: 1px solid transparent;
+  font-weight: 700; font-size: 12px; letter-spacing: 4px;
+  padding: 6px 12px; border-radius: 6px;
+  background: transparent; color: transparent; border: 1px solid transparent;
   transition: background 80ms linear, color 80ms linear;
 }
 #drift.on {
-  background: #fff3cd;
-  color: #b54708;
-  border-color: #f0c674;
+  background: #fff3cd; color: #b54708; border-color: #f0c674;
 }
 
 /* ============ PHONE ============ */
@@ -120,32 +76,56 @@ body.phone {
   -webkit-user-select: none;
 }
 
-/* Unlock screen (portrait OR landscape, doesn't matter — it's the entry CTA) */
-#unlock {
-  position: fixed; inset: 0;
-  margin: auto;
-  width: min(86vw, 520px);
-  height: min(60vh, 380px);
-  background: #2da44e;
-  color: #ffffff;
-  border: none;
-  border-radius: 28px;
-  font-size: 30px;
-  font-weight: 800;
-  letter-spacing: 3px;
-  box-shadow: 0 20px 50px rgba(45, 164, 78, 0.35);
+/* ----------------------------------------------------------------------
+   #phone-stage is the rotated landscape canvas.
+   - In real landscape: it occupies the viewport as-is (no rotation).
+   - In real portrait : we rotate it -90° (CCW) and size it 100vh × 100vw,
+     so what was laid out as "top row" appears at the player's visual
+     LEFT, and "bottom row" at their visual RIGHT.
+   This way the player always sees a landscape controller regardless of
+   what iOS Safari reports for orientation.
+   ---------------------------------------------------------------------- */
+#phone-stage {
+  position: fixed;
+  inset: 0;
+  /* Landscape default: pedals are a 2-column row. */
 }
-#unlock:active { background: #218739; transform: scale(0.99); }
 
-/* Pedal layout — landscape, full screen, two big touch zones */
 #pedals {
-  position: fixed; inset: 0;
+  position: absolute; inset: 0;
   display: grid;
   grid-template-columns: 1fr 1fr;
-  background: #0d1117;
-  padding: env(safe-area-inset-top) env(safe-area-inset-right)
-           env(safe-area-inset-bottom) env(safe-area-inset-left);
+  grid-template-rows: 1fr;
+  grid-template-areas: "brake gas";
 }
+
+@media (orientation: portrait) {
+  #phone-stage {
+    inset: auto;
+    width: 100vh;
+    height: 100vw;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) rotate(-90deg);
+    transform-origin: center;
+  }
+
+  /* In portrait the pre-rotation layout is two ROWS top/bottom. After the
+     -90° rotation, "top" lands on the player's visual LEFT (brake) and
+     "bottom" on visual RIGHT (gas). */
+  #pedals {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr 1fr;
+    grid-template-areas:
+      "brake"
+      "gas";
+  }
+}
+
+/* Pedal areas — by ID so we don't need orientation-specific class swaps. */
+#pedal-brake    { grid-area: brake; }
+#pedal-throttle { grid-area: gas; }
+
 .pedal {
   appearance: none;
   border: none;
@@ -162,58 +142,39 @@ body.phone {
   transition: transform 60ms ease-out, filter 60ms ease-out;
 }
 .pedal-label { pointer-events: none; }
-.pedal-left  { background: linear-gradient(180deg, #db5b5b, #b03232); }
-.pedal-right { background: linear-gradient(180deg, #3fb950, #1f7a32); }
+#pedal-brake    { background: linear-gradient(180deg, #db5b5b, #b03232); }
+#pedal-throttle { background: linear-gradient(180deg, #3fb950, #1f7a32); }
 .pedal.active { transform: scale(0.98); filter: brightness(1.15); }
 
-.pedal-hint {
-  position: fixed;
-  left: 50%;
-  bottom: 14px;
-  transform: translateX(-50%);
-  font-size: 11px;
+/* Unlock button — centered inside the stage in stage-local coords. */
+#unlock {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 70%;
+  height: 55%;
+  background: #2da44e;
+  color: #ffffff;
+  border: none;
+  border-radius: 28px;
+  font-size: 30px;
+  font-weight: 800;
   letter-spacing: 3px;
-  color: #6e7681;
-  text-transform: uppercase;
-  pointer-events: none;
+  box-shadow: 0 20px 50px rgba(45, 164, 78, 0.35);
 }
+#unlock:active { background: #218739; transform: translate(-50%, -50%) scale(0.99); }
 
-/* Rotate hint (covers screen when in portrait after unlock) */
-#rotate-hint {
-  position: fixed; inset: 0;
-  background: #0d1117;
-  display: grid;
-  place-items: center;
-  z-index: 20;
-}
-#rotate-hint .rotate-icon {
-  font-size: 110px;
-  line-height: 1;
-  color: #e6edf3;
-  transform: rotate(45deg);
-  margin-bottom: 14px;
-}
-#rotate-hint .rotate-label {
-  font-size: 14px;
-  letter-spacing: 4px;
-  text-transform: uppercase;
-  color: #8b949e;
-  text-align: center;
-}
-
-/* Error */
+/* Error fallback */
 #error {
-  position: fixed; inset: 0;
-  display: grid;
-  place-items: center;
+  position: absolute; inset: 0;
+  display: grid; place-items: center;
   padding: 24px;
-  color: #f85149;
-  text-align: center;
-  font-size: 16px;
-  line-height: 1.5;
+  color: #f85149; text-align: center;
+  font-size: 16px; line-height: 1.5;
 }
 
-/* Live state strip — visible during debugging, remove once stable. */
+/* Live state strip — sits in real viewport coords (NOT inside #phone-stage)
+   so it's never affected by the forced-landscape rotation. */
 #debug {
   position: fixed;
   top: max(4px, env(safe-area-inset-top));
