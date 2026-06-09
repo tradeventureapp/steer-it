@@ -1,0 +1,16 @@
+node_modules
+dist
+dist-ssr
+.env
+.env.local
+.env.*.local
+*.log
+.DS_Store
+.vite
+.vercel
+
+# Local tooling state
+.claude/settings.local.json
+
+# Pre-existing local file — looks like a credential, kept out of the repo
+databaze.txt

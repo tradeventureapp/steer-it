@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <title>Steer It — Controller</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body class="phone">
+    <div id="phone-root">
+      <button id="unlock" type="button">TAP TO STEER</button>
+      <div id="steering" hidden>
+        <div class="wheel" aria-hidden="true">⟳</div>
+        <div class="label">STEERING — tilt your phone</div>
+      </div>
+      <div id="error" hidden></div>
+    </div>
+    <script type="module" src="/src/phone.ts"></script>
+  </body>
+</html>

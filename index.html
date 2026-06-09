@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Steer It</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body class="desktop">
+    <canvas id="game"></canvas>
+    <aside id="hud">
+      <div id="qr-panel">
+        <canvas id="qr" width="160" height="160"></canvas>
+        <div id="code-text">····</div>
+        <div id="status">Waiting for phone…</div>
+      </div>
+    </aside>
+    <script type="module" src="/src/desktop.ts"></script>
+  </body>
+</html>
