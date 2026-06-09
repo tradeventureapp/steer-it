@@ -1,8 +1,18 @@
 *, *::before, *::after { box-sizing: border-box; }
-html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; }
 
-/* The `hidden` HTML attribute must actually hide. Our ID selectors below
-   would otherwise out-specificity the UA `[hidden] { display: none }` rule. */
+/* Document is locked. The browser's own reflow on rotation cannot reshape
+   the layout — we want the only thing that drives visual rotation to be
+   JS reading the gravity vector. */
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+}
+
 [hidden] { display: none !important; }
 
 body {
@@ -77,52 +87,46 @@ body.phone {
 }
 
 /* ----------------------------------------------------------------------
-   #phone-stage is the rotated landscape canvas.
-   - In real landscape: it occupies the viewport as-is (no rotation).
-   - In real portrait : we rotate it -90° (CCW) and size it 100vh × 100vw,
-     so what was laid out as "top row" appears at the player's visual
-     LEFT, and "bottom row" at their visual RIGHT.
-   This way the player always sees a landscape controller regardless of
-   what iOS Safari reports for orientation.
+   #phone-stage — the landscape canvas.
+
+   Sized to the screen's LANDSCAPE rectangle:
+     width  = 100vmax (the screen's long dimension)
+     height = 100vmin (the screen's short dimension)
+
+   These viewport units swap automatically if the browser reflows the
+   viewport, so the stage's PIXEL dimensions stay constant relative to
+   the physical screen regardless of which way the browser thinks it's
+   showing the page.
+
+   The rotation around its center is controlled by --rot, which JS sets
+   from the gravity vector + the current viewport aspect ratio. Whichever
+   way the player physically holds the phone, and whichever way the
+   browser is presenting the page, the rotation ends up oriented so the
+   landscape stage is visually upright in the player's view.
+
+   --rot transitions smoothly so any browser reflow during a rotation
+   doesn't snap-flash.
    ---------------------------------------------------------------------- */
 #phone-stage {
   position: fixed;
-  inset: 0;
-  /* Landscape default: pedals are a 2-column row. */
+  width: 100vmax;
+  height: 100vmin;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) rotate(var(--rot, 0deg));
+  transform-origin: center;
+  transition: transform 120ms ease-out;
 }
 
+/* Pedals — always laid out as two columns in stage-local coords. The
+   stage is always landscape, so left = brake, right = gas, mapped to
+   the player's visual left/right by the stage rotation. */
 #pedals {
   position: absolute; inset: 0;
   display: grid;
   grid-template-columns: 1fr 1fr;
-  grid-template-rows: 1fr;
   grid-template-areas: "brake gas";
 }
-
-@media (orientation: portrait) {
-  #phone-stage {
-    inset: auto;
-    width: 100vh;
-    height: 100vw;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%) rotate(-90deg);
-    transform-origin: center;
-  }
-
-  /* In portrait the pre-rotation layout is two ROWS top/bottom. After the
-     -90° rotation, "top" lands on the player's visual LEFT (brake) and
-     "bottom" on visual RIGHT (gas). */
-  #pedals {
-    grid-template-columns: 1fr;
-    grid-template-rows: 1fr 1fr;
-    grid-template-areas:
-      "brake"
-      "gas";
-  }
-}
-
-/* Pedal areas — by ID so we don't need orientation-specific class swaps. */
 #pedal-brake    { grid-area: brake; }
 #pedal-throttle { grid-area: gas; }
 
@@ -146,7 +150,7 @@ body.phone {
 #pedal-throttle { background: linear-gradient(180deg, #3fb950, #1f7a32); }
 .pedal.active { transform: scale(0.98); filter: brightness(1.15); }
 
-/* Unlock button — centered inside the stage in stage-local coords. */
+/* Unlock button — centered inside the stage. */
 #unlock {
   position: absolute;
   top: 50%; left: 50%;
@@ -173,8 +177,8 @@ body.phone {
   font-size: 16px; line-height: 1.5;
 }
 
-/* Live state strip — sits in real viewport coords (NOT inside #phone-stage)
-   so it's never affected by the forced-landscape rotation. */
+/* Live state strip — sits in real viewport coords (outside the rotated
+   stage) so it's never affected by the gravity-driven rotation. */
 #debug {
   position: fixed;
   top: max(4px, env(safe-area-inset-top));

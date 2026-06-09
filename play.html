@@ -14,9 +14,11 @@
          viewport coords. -->
     <div id="debug">init</div>
 
-    <!-- All controller UI lives inside #phone-stage, which we rotate -90°
-         in CSS when the device reports portrait — so the player always
-         sees landscape regardless of what iOS Safari decides. -->
+    <!-- All controller UI lives inside #phone-stage. The stage is sized
+         to the screen's LANDSCAPE rectangle (100vmax × 100vmin) and
+         JS-rotated to whatever angle keeps it visually upright in the
+         player's view, based on the gravity vector. The player always
+         sees landscape regardless of what iOS Safari reports. -->
     <div id="phone-stage">
       <button id="unlock" type="button">TAP TO STEER</button>
 

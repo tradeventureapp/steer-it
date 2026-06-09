@@ -1,18 +1,26 @@
 import { supabase, channelName } from './supabase';
 
 // ---------- Tuning ----------
-const TILT_SENSITIVITY_DEG = 35;   // tilt from neutral that maps to full ±1
+const TILT_SENSITIVITY_DEG = 35;
 const TILT_DEADZONE_DEG    = 3;
 const SEND_HZ              = 30;
-// Magnitude (m/s²) of (ax, ay) below which we treat the phone as "too flat"
-// — a flat-on-table baseline has no in-plane gravity component so no
-// well-defined steering direction. Below threshold we send neutral.
+// Below this in-plane gravity magnitude, the phone is too flat for a
+// well-defined steering or rotation direction. Send neutral.
 const FLAT_THRESHOLD       = 3.0;
+// Low-pass smoothing for the gravity vector used to drive the visual
+// rotation. Raw devicemotion is noisy; we don't want the stage rotation
+// to jitter on every steering twitch.
+const ROT_SMOOTHING_ALPHA  = 0.12;
+// Hysteresis: a new orientation classification has to dominate the other
+// axis by this factor before we accept it. Prevents borderline tilts from
+// flipping the visual frame mid-drive.
+const ORIENTATION_HYSTERESIS = 1.6;
 
 // ---------- DOM ----------
 const params = new URLSearchParams(window.location.search);
 const code = (params.get('s') || '').toUpperCase();
 
+const stageEl     = document.getElementById('phone-stage')    as HTMLDivElement;
 const unlockBtn   = document.getElementById('unlock')         as HTMLButtonElement;
 const pedalsEl    = document.getElementById('pedals')         as HTMLDivElement;
 const brakeBtn    = document.getElementById('pedal-brake')    as HTMLButtonElement;
@@ -26,28 +34,29 @@ let stage: Stage = 'before-unlock';
 let errorMsg = '';
 let permState: 'unknown' | 'granted' | 'denied' | 'not-required' = 'unknown';
 
-const landscapeMQ = window.matchMedia('(orientation: landscape)');
-
-// Sensor readings.
-// We listen to deviceorientation for beta/gamma (debug only) and to
-// devicemotion for accelerationIncludingGravity, which is the real input
-// to the steering math.
+// Raw sensor readings (device frame).
 let lastBeta = 0;
 let lastGamma = 0;
-let hasOrientationReading = false;
-
-let lastAx = 0;
-let lastAy = 0;
-let lastAz = 0;
+let lastAx = 0, lastAy = 0, lastAz = 0;
 let hasMotionReading = false;
 
-// Calibration baseline (gravity vector projected into the screen plane).
-// Captured at unlock AND on every orientation change, so neutral is always
-// "however the user is holding the phone right now".
-let calibAx = 0;
-let calibAy = 0;
+// Smoothed (ax, ay) for the rotation classifier — driven from a low-pass
+// of the raw motion so steering wobble doesn't flip the visual frame.
+let smoothedAx = 0, smoothedAy = 0;
+
+// Calibration baseline for steering — captured once on TAP TO STEER and
+// never recalculated. The cross-dot steering math is orientation-
+// agnostic so a single baseline carries through any way the player ends
+// up holding the phone.
+let calibAx = 0, calibAy = 0;
 let calibrated = false;
 let recalibrating = false;
+
+// Current physical orientation (from smoothed gravity) and applied stage
+// rotation in degrees. Cached so we only touch the DOM when they change.
+type Phys = 'L-pri' | 'L-sec' | 'portrait' | 'port-down' | 'flat';
+let currentPhys: Phys = 'flat';
+let appliedRotDeg: number | null = null;
 
 const pedalPointers = {
   throttle: new Set<number>(),
@@ -68,8 +77,6 @@ const channel = supabase.channel(channelName(code), {
 channel.subscribe();
 
 // ---------- Render ----------
-// No orientation gating — CSS forces a landscape layout always, so the
-// controller renders the same panel set whichever way the phone is held.
 function renderUI() {
   unlockBtn.hidden = true;
   pedalsEl.hidden  = true;
@@ -88,34 +95,112 @@ function renderUI() {
 }
 
 // ----------------------------------------------------------------------
-//  Steering math.
+//  Gravity → physical orientation, with hysteresis.
 //
-//  We compute the angle the device has rolled around its screen-perpendicular
-//  axis (device Z), relative to the calibration baseline. This is the
-//  natural "steering wheel" motion regardless of which way the phone is
-//  oriented — the player rolls the device clockwise/counterclockwise.
+//  Device-frame conventions (W3C):
+//    ax ≈ +g → device's +X edge points down → landscape-primary
+//                (top-of-phone to player's right)
+//    ax ≈ -g → landscape-secondary (top-of-phone to player's left)
+//    ay ≈ -g → portrait (top-of-phone up)
+//    ay ≈ +g → portrait upside-down (top-of-phone down)
 //
-//  How: accelerationIncludingGravity gives the gravity vector in the
-//  device's own frame. The component in the screen plane is (ax, ay).
-//  A roll around device Z rotates this 2D vector. The signed angle
-//  between baseline (calibAx, calibAy) and current (lastAx, lastAy):
+//  Hysteresis: to switch into a new orientation, the new dominant axis
+//  has to beat the other by ORIENTATION_HYSTERESIS. Once classified, a
+//  borderline tilt won't flip us.
+// ----------------------------------------------------------------------
+function classifyOrientation(ax: number, ay: number, current: Phys): Phys {
+  const mag = Math.hypot(ax, ay);
+  if (mag < FLAT_THRESHOLD) return 'flat';
+
+  const ax_abs = Math.abs(ax);
+  const ay_abs = Math.abs(ay);
+
+  // Strong dominance — always accept.
+  const requiredFactor = current === 'flat' ? 1.0 : ORIENTATION_HYSTERESIS;
+
+  if (ax_abs > ay_abs * requiredFactor) {
+    return ax > 0 ? 'L-pri' : 'L-sec';
+  }
+  if (ay_abs > ax_abs * requiredFactor) {
+    return ay > 0 ? 'port-down' : 'portrait';
+  }
+  // Ambiguous — keep current.
+  return current;
+}
+
+// ----------------------------------------------------------------------
+//  Compute the CSS rotation (degrees) needed to make the landscape
+//  stage visually upright in the player's view.
 //
-//      cross = calibAx * lastAy − calibAy * lastAx
-//      dot   = calibAx * lastAx + calibAy * lastAy
-//      tilt  = atan2(cross, dot)
+//  Two inputs:
+//    phys           — how the phone is physically held (from gravity)
+//    browserLandscape — whether the browser is presenting the page in
+//                       a landscape-aspect viewport right now
+//                       (innerWidth > innerHeight)
 //
-//  The sign falls out naturally:
-//    • Real landscape-primary  (gx0 > 0, gy0 ≈ 0):
-//        tilt right → gy goes positive → cross > 0 → tilt > 0
-//    • Real landscape-secondary (gx0 < 0, gy0 ≈ 0):
-//        tilt right → gy goes negative → cross > 0 (gx0 was negative)
-//        → tilt > 0
-//    • Forced-rotated portrait  (gx0 ≈ 0, gy0 ≈ -g):
-//        tilt right (wheel-rotation around device Z) → gx goes positive
-//        → cross = gx0*lastAy − gy0*lastAx ≈ 0 − (−g)(gx>0) > 0 → tilt > 0
+//  Cases the player will hit (player always holds landscape):
+//    phys=L-pri,  browser=landscape: browser auto-rotated to match → 0°
+//    phys=L-pri,  browser=portrait:  rotation locked or pre-rotate    → -90°
+//    phys=L-sec,  browser=landscape: browser auto-rotated to match → 0°
+//    phys=L-sec,  browser=portrait:                                  → +90°
 //
-//  So "tilt right = positive steer" holds in every orientation, with no
-//  orientation-API consultation needed. Beautiful.
+//  Edge cases (player accidentally portrait):
+//    phys=portrait,  browser=portrait:    → 0°
+//    phys=portrait,  browser=landscape:   → -90°  (best-effort)
+//    phys=port-down, browser=portrait:    → 180°
+//    phys=port-down, browser=landscape:   → +90°
+//
+//  flat → keep last applied rotation (don't flip when the phone is
+//          briefly horizontal).
+// ----------------------------------------------------------------------
+function computeRot(phys: Phys, browserLandscape: boolean): number | null {
+  if (phys === 'flat') return null;
+
+  if (browserLandscape) {
+    if (phys === 'L-pri' || phys === 'L-sec') return 0;
+    if (phys === 'portrait')                  return -90;
+    return 90; // port-down
+  }
+  // Browser portrait.
+  if (phys === 'L-pri')      return -90;
+  if (phys === 'L-sec')      return  90;
+  if (phys === 'port-down')  return 180;
+  return 0; // portrait
+}
+
+function applyTransform() {
+  if (!hasMotionReading) return;
+
+  const newPhys = classifyOrientation(smoothedAx, smoothedAy, currentPhys);
+  currentPhys = newPhys;
+
+  const browserLandscape = window.innerWidth > window.innerHeight;
+  const desired = computeRot(newPhys, browserLandscape);
+  if (desired == null) return; // flat: keep last rotation
+
+  if (desired !== appliedRotDeg) {
+    appliedRotDeg = desired;
+    document.documentElement.style.setProperty('--rot', desired + 'deg');
+  }
+}
+
+// rAF coalescer so per-event motion fires don't spam DOM writes.
+let rafQueued = false;
+function scheduleApplyTransform() {
+  if (rafQueued) return;
+  rafQueued = true;
+  requestAnimationFrame(() => {
+    rafQueued = false;
+    applyTransform();
+  });
+}
+
+// ----------------------------------------------------------------------
+//  Steering — unchanged cross-dot on raw (ax, ay) vs baseline.
+//
+//  The angle the device has rolled around its screen-perpendicular axis
+//  since calibration. Sign falls out correctly in every orientation
+//  because the formula is purely geometric in the device frame.
 // ----------------------------------------------------------------------
 function steeringTiltDeg(): number {
   if (!hasMotionReading || !calibrated) return 0;
@@ -135,75 +220,38 @@ function steerFromTilt(): number {
   return sign * norm;
 }
 
-// Best-effort label for how the phone is being held — purely for debug.
-function physicalMode(): string {
-  const mag = Math.hypot(lastAx, lastAy);
-  if (mag < FLAT_THRESHOLD) return 'flat';
-  if (Math.abs(lastAx) > Math.abs(lastAy)) {
-    return lastAx > 0 ? 'land-L' : 'land-R';
-  }
-  return lastAy < 0 ? 'portrait' : 'port-down';
-}
-
+// ----------------------------------------------------------------------
+//  Debug strip
+// ----------------------------------------------------------------------
 function updateDebug() {
   if (!debugEl) return;
-  const so = (screen as unknown as { orientation?: { angle?: number; type?: string } }).orientation;
-  const wo = (window as unknown as { orientation?: number }).orientation;
-  const visualLandscape = landscapeMQ.matches;
-  const forced = !visualLandscape; // we're applying CSS rotation
+  const browserLandscape = window.innerWidth > window.innerHeight;
   const tilt = steeringTiltDeg();
   const steer = steerFromTilt();
   debugEl.textContent =
     `stage=${stage} perm=${permState} cal=${calibrated ? 'yes' : 'no'}${recalibrating ? ' RE' : ''}\n` +
-    `view=${visualLandscape ? 'real-L' : 'force-L (rotated)'} ` +
-    `phys=${physicalMode()} angle=so${so?.angle ?? 'n/a'}/wo${wo ?? 'n/a'}\n` +
-    `ax=${lastAx.toFixed(1)} ay=${lastAy.toFixed(1)} az=${lastAz.toFixed(1)}\n` +
+    `phys=${currentPhys}  browser=${browserLandscape ? 'L' : 'P'}  rot=${appliedRotDeg ?? '—'}°\n` +
+    `ax=${lastAx.toFixed(1)} ay=${lastAy.toFixed(1)} az=${lastAz.toFixed(1)}  ` +
+    `sm=(${smoothedAx.toFixed(1)},${smoothedAy.toFixed(1)})\n` +
     `calAx=${calibAx.toFixed(1)} calAy=${calibAy.toFixed(1)}\n` +
     `beta=${lastBeta.toFixed(0)} gamma=${lastGamma.toFixed(0)}\n` +
-    `tilt=${tilt.toFixed(1)}° steer=${steer.toFixed(2)} ` +
+    `tilt=${tilt.toFixed(1)}° steer=${steer.toFixed(2)}  ` +
     `t=${pedalDown('throttle') ? 1 : 0} b=${pedalDown('brake') ? 1 : 0}`;
-  void forced; // (already encoded in `view=`)
 }
 
-// ---------- Orientation watchers ----------
-// matchMedia drives the CSS rotation, and we re-calibrate whenever the
-// device flips between portrait and landscape so the player's new neutral
-// hold becomes the new zero.
-if (typeof landscapeMQ.addEventListener === 'function') {
-  landscapeMQ.addEventListener('change', () => {
-    renderUI();
-    if (stage === 'after-unlock') {
-      // Let the sensors settle for a moment before resampling.
-      setTimeout(() => { void calibrate(); }, 250);
-    }
-  });
-} else {
-  (landscapeMQ as unknown as { addListener: (cb: () => void) => void }).addListener(renderUI);
-}
-window.addEventListener('resize', renderUI);
-window.addEventListener('orientationchange', () => {
-  renderUI();
-  setTimeout(renderUI, 200);
-  setTimeout(renderUI, 600);
-  if (stage === 'after-unlock') {
-    setTimeout(() => { void calibrate(); }, 400);
-  }
-});
-
-// ---------- Unlock + permission ----------
+// ----------------------------------------------------------------------
+//  Unlock + permission
+// ----------------------------------------------------------------------
 unlockBtn.addEventListener('click', async () => {
   try {
-    // iOS Safari: DeviceOrientationEvent.requestPermission() must be called
-    // from a user gesture. DeviceMotionEvent may also have its own. We try
-    // both; either granted is fine.
     const win = window as unknown as {
       DeviceOrientationEvent?: { requestPermission?: () => Promise<string> };
       DeviceMotionEvent?:      { requestPermission?: () => Promise<string> };
     };
 
-    let needAny = false;
+    let neededAny = false;
     if (typeof win.DeviceOrientationEvent?.requestPermission === 'function') {
-      needAny = true;
+      neededAny = true;
       const r = await win.DeviceOrientationEvent.requestPermission();
       if (r !== 'granted') {
         permState = 'denied';
@@ -214,7 +262,7 @@ unlockBtn.addEventListener('click', async () => {
       }
     }
     if (typeof win.DeviceMotionEvent?.requestPermission === 'function') {
-      needAny = true;
+      neededAny = true;
       try {
         const r = await win.DeviceMotionEvent.requestPermission();
         if (r !== 'granted') {
@@ -224,9 +272,9 @@ unlockBtn.addEventListener('click', async () => {
           renderUI();
           return;
         }
-      } catch { /* some iOS versions bundle this with the orientation grant */ }
+      } catch { /* older iOS bundles motion with orientation */ }
     }
-    permState = needAny ? 'granted' : 'not-required';
+    permState = neededAny ? 'granted' : 'not-required';
 
     stage = 'after-unlock';
     attachSensorListeners();
@@ -241,12 +289,13 @@ unlockBtn.addEventListener('click', async () => {
   }
 });
 
-// ---------- Sensor listeners ----------
+// ----------------------------------------------------------------------
+//  Sensor listeners
+// ----------------------------------------------------------------------
 function attachSensorListeners() {
   window.addEventListener('deviceorientation', (e) => {
     if (e.beta  != null) lastBeta  = e.beta;
     if (e.gamma != null) lastGamma = e.gamma;
-    if (e.beta != null || e.gamma != null) hasOrientationReading = true;
   });
   window.addEventListener('devicemotion', (e) => {
     const a = e.accelerationIncludingGravity;
@@ -254,21 +303,30 @@ function attachSensorListeners() {
     if (a.x != null) lastAx = a.x;
     if (a.y != null) lastAy = a.y;
     if (a.z != null) lastAz = a.z;
+
+    if (!hasMotionReading) {
+      // Seed smoothing with the first sample so the rotation snaps to
+      // the right value immediately rather than ramping from zero.
+      smoothedAx = lastAx;
+      smoothedAy = lastAy;
+    } else {
+      smoothedAx = smoothedAx * (1 - ROT_SMOOTHING_ALPHA) + lastAx * ROT_SMOOTHING_ALPHA;
+      smoothedAy = smoothedAy * (1 - ROT_SMOOTHING_ALPHA) + lastAy * ROT_SMOOTHING_ALPHA;
+    }
     hasMotionReading = true;
+    scheduleApplyTransform();
   });
-  // hasOrientationReading is unused in the steering math but useful for
-  // diagnosing why a phone hasn't started reporting — keep referenced.
-  void hasOrientationReading;
 }
 
-// ---------- Calibration ----------
-// Capture the player's natural hold as steer=0 by averaging the first
-// burst of motion samples. Re-runs on every orientation flip so neutral
-// always matches the current hold.
+// ----------------------------------------------------------------------
+//  Calibration — once on unlock, never again. The cross-dot steering
+//  formula is orientation-agnostic so one baseline carries through any
+//  physical hold the player ends up in.
+// ----------------------------------------------------------------------
 async function calibrate() {
   recalibrating = true;
 
-  // Wait for first sample (iOS can stall the first event 50-150ms).
+  // Wait for the first sample (iOS sometimes stalls 50-150ms).
   const start = performance.now();
   while (!hasMotionReading && performance.now() - start < 700) {
     await new Promise((r) => setTimeout(r, 25));
@@ -292,7 +350,9 @@ async function calibrate() {
   recalibrating = false;
 }
 
-// ---------- Pedals (multi-touch) ----------
+// ----------------------------------------------------------------------
+//  Pedals (multi-touch)
+// ----------------------------------------------------------------------
 function attachPedalListeners() {
   bindPedal(throttleBtn, 'throttle');
   bindPedal(brakeBtn,    'brake');
@@ -316,7 +376,9 @@ function bindPedal(el: HTMLElement, zone: 'throttle' | 'brake') {
   el.addEventListener('contextmenu',   (e) => e.preventDefault());
 }
 
-// ---------- Broadcast ----------
+// ----------------------------------------------------------------------
+//  Broadcast
+// ----------------------------------------------------------------------
 function startBroadcast() {
   const INTERVAL_MS = 1000 / SEND_HZ;
   setInterval(() => {
@@ -329,8 +391,20 @@ function startBroadcast() {
   }, INTERVAL_MS);
 }
 
-// ---------- Debug polling ----------
+// ----------------------------------------------------------------------
+//  Resize watcher — only purpose is to retrigger rotation computation
+//  when the browser DOES reflow the viewport, so our rot value updates
+//  to match the new innerWidth/innerHeight aspect. We do NOT recalibrate
+//  steering on resize — that's what was causing flips before.
+// ----------------------------------------------------------------------
+window.addEventListener('resize', scheduleApplyTransform);
+
+// Debug poll for live readouts between motion events.
 setInterval(updateDebug, 250);
+
+// stageEl is referenced for future tweaks; for now CSS handles the
+// rotation via the --rot custom property on documentElement.
+void stageEl;
 
 // ---------- Initial render ----------
 renderUI();
