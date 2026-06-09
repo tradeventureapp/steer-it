@@ -102,21 +102,19 @@ function readTilt(): { axis: 'beta' | 'gamma'; signed: number; angle: number } {
   // near ±90 even when the screen is upright — useless as steering input.
   // The steering motion (roll the phone like a wheel) shows up on `beta`.
   //
+  // Sign confirmed empirically on iOS Safari:
   //   landscape-primary  (angle 90):  tilting right edge of screen DOWN
-  //                                   moves beta in the NEGATIVE direction
-  //                                   (top-of-device, which now points
-  //                                   right in world, dips toward gravity).
-  //                                   Negate so right-tilt → +signed.
-  //
-  //   landscape-secondary(angle -90/270): mirrored. Right-edge-down moves
-  //                                       beta the OTHER way. Keep as-is.
+  //                                   moves beta POSITIVE relative to the
+  //                                   captured baseline. Use as-is.
+  //   landscape-secondary(angle -90/270): mirrored — same physical motion
+  //                                       moves beta NEGATIVE. Flip sign.
   if (angle === 90) {
     const centered = lastBeta - calibrationBeta;
-    return { axis: 'beta', signed: -centered, angle };
+    return { axis: 'beta', signed: +centered, angle };
   }
   if (angle === 270 || angle === -90) {
     const centered = lastBeta - calibrationBeta;
-    return { axis: 'beta', signed: +centered, angle };
+    return { axis: 'beta', signed: -centered, angle };
   }
 
   // -------- PORTRAIT (only reached if orientation flips during play) --------
