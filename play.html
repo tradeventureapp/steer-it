@@ -10,14 +10,29 @@
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body class="phone">
-    <div id="phone-root">
-      <button id="unlock" type="button">TAP TO STEER</button>
-      <div id="steering" hidden>
-        <div class="wheel" aria-hidden="true">⟳</div>
-        <div class="label">STEERING — tilt your phone</div>
-      </div>
-      <div id="error" hidden></div>
+    <!-- Stage 1: ask for motion permission (iOS) and confirm landscape. -->
+    <button id="unlock" type="button">TAP TO STEER</button>
+
+    <!-- Stage 2 (shown after unlock): landscape pedal layout. -->
+    <div id="pedals" hidden>
+      <button id="pedal-brake" class="pedal pedal-left" type="button" aria-label="Brake">
+        <span class="pedal-label">BRAKE</span>
+      </button>
+      <button id="pedal-throttle" class="pedal pedal-right" type="button" aria-label="Throttle">
+        <span class="pedal-label">GAS</span>
+      </button>
+      <div class="pedal-hint">tilt phone to steer</div>
     </div>
+
+    <!-- Overlay: shown when phone is held portrait after unlock. -->
+    <div id="rotate-hint" hidden>
+      <div class="rotate-icon">⟳</div>
+      <div class="rotate-label">ROTATE TO LANDSCAPE</div>
+    </div>
+
+    <!-- Error fallback. -->
+    <div id="error" hidden></div>
+
     <script type="module" src="/src/phone.ts"></script>
   </body>
 </html>

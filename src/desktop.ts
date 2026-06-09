@@ -1,52 +1,67 @@
 import QRCode from 'qrcode';
 import { supabase, channelName } from './supabase';
+import { CONFIG, makeCar, step, bodyToWorld, type CarState, type Inputs } from './physics';
 
 // ---------- Session ----------
-const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O/1/I/L
+const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const code = Array.from(
   { length: 4 },
   () => ALPHABET[Math.floor(Math.random() * ALPHABET.length)]
 ).join('');
-
 const playUrl = `${window.location.origin}/play?s=${code}`;
 
 const qrCanvas = document.getElementById('qr') as HTMLCanvasElement;
 const codeText = document.getElementById('code-text') as HTMLDivElement;
 const statusEl = document.getElementById('status') as HTMLDivElement;
+const speedEl = document.getElementById('speed') as HTMLDivElement;
+const driftEl = document.getElementById('drift') as HTMLDivElement;
 
 codeText.textContent = code;
 QRCode.toCanvas(qrCanvas, playUrl, { width: 160, margin: 1 }).catch(console.error);
 
-// ---------- Canvas ----------
+// ---------- Canvases ----------
+// Main canvas: cleared every frame, draws car + HUD overlay.
+// Skid canvas: persistent — accumulates tire skid lines.
 const canvas = document.getElementById('game') as HTMLCanvasElement;
 const ctx = canvas.getContext('2d')!;
+const skidCanvas = document.createElement('canvas');
+const skidCtx = skidCanvas.getContext('2d')!;
+
+let dpr = window.devicePixelRatio || 1;
 
 function resize() {
-  const dpr = window.devicePixelRatio || 1;
-  canvas.width = Math.floor(window.innerWidth * dpr);
-  canvas.height = Math.floor(window.innerHeight * dpr);
-  canvas.style.width = window.innerWidth + 'px';
-  canvas.style.height = window.innerHeight + 'px';
+  dpr = window.devicePixelRatio || 1;
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+
+  canvas.width = Math.floor(w * dpr);
+  canvas.height = Math.floor(h * dpr);
+  canvas.style.width = w + 'px';
+  canvas.style.height = h + 'px';
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  // Resize the skid buffer too. (Naive: previous skids are cleared on resize.)
+  skidCanvas.width = Math.floor(w * dpr);
+  skidCanvas.height = Math.floor(h * dpr);
+  skidCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
 resize();
 window.addEventListener('resize', resize);
 
-// ---------- Car / steering state ----------
-const car = {
-  x: window.innerWidth / 2,
-  y: window.innerHeight / 2,
-  heading: -Math.PI / 2, // facing up
-};
+// ---------- Car ----------
+const PX = () => CONFIG.pxPerMeter;
+// Spawn at center of screen, heading "up" (matches canvas: -PI/2 = -y).
+const car: CarState = makeCar(
+  window.innerWidth  / 2 / PX(),
+  window.innerHeight / 2 / PX(),
+  -Math.PI / 2,
+);
 
-const SPEED = 200;            // px/s — constant forward speed
-const TILT_MAX_DEG = 45;      // degrees of tilt for full turn rate
-const DEADZONE_DEG = 3;       // ignore tiny tilts
-const MAX_TURN_RATE = 2.6;    // rad/s at full tilt (~150°/s)
-const SMOOTHING = 0.15;       // lerp factor toward target steering per frame
-
-let targetSteer = 0; // rad/s, updated by network
-let currentSteer = 0; // rad/s, eased toward target each frame
+// ---------- Control input ----------
+// target: latest from the phone. current: lerped toward target each frame for
+// silky steering even when broadcast packets arrive choppy.
+const target: Inputs = { steer: 0, throttle: 0, brake: 0 };
+const current: Inputs = { steer: 0, throttle: 0, brake: 0 };
 
 // ---------- Supabase channel ----------
 const channel = supabase.channel(channelName(code), {
@@ -61,87 +76,199 @@ function markConnected() {
   statusEl.classList.add('connected');
 }
 
-channel.on('broadcast', { event: 'tilt' }, ({ payload }) => {
-  const gamma = Number((payload as { gamma?: unknown })?.gamma);
-  if (!Number.isFinite(gamma)) return;
+channel.on('broadcast', { event: 'control' }, ({ payload }) => {
   markConnected();
-
-  // Map gamma → target turn rate with deadzone + normalization.
-  const sign = Math.sign(gamma);
-  const mag = Math.max(0, Math.abs(gamma) - DEADZONE_DEG);
-  const norm = Math.min(1, mag / (TILT_MAX_DEG - DEADZONE_DEG));
-  targetSteer = sign * norm * MAX_TURN_RATE;
+  const p = payload as { steer?: unknown; throttle?: unknown; brake?: unknown };
+  const s = Number(p?.steer);
+  const t = Number(p?.throttle);
+  const b = Number(p?.brake);
+  if (Number.isFinite(s)) target.steer    = clamp(s, -1, 1);
+  if (Number.isFinite(t)) target.throttle = clamp(t, 0, 1);
+  if (Number.isFinite(b)) target.brake    = clamp(b, 0, 1);
 });
 
 channel.subscribe();
 
-// ---------- Render loop ----------
-let last = performance.now();
+// ---------- Skids ----------
+// We draw skid lines straight onto the persistent skidCanvas every physics
+// step. Each rear wheel keeps a "previous pixel position" so we can draw a
+// continuous line while it's skidding.
+type WheelTrail = { px: number; py: number; active: boolean };
+const skidRearL: WheelTrail = { px: 0, py: 0, active: false };
+const skidRearR: WheelTrail = { px: 0, py: 0, active: false };
+
+function rearWheelPositions() {
+  const halfTrack = CONFIG.trackWidth / 2;
+  const rearOffset = -CONFIG.wheelbase / 2;
+  const L = bodyToWorld(car, rearOffset, +halfTrack);
+  const R = bodyToWorld(car, rearOffset, -halfTrack);
+  return { L, R };
+}
+
+function drawSkidSegment(trail: WheelTrail, wx: number, wy: number, sliding: boolean) {
+  const px = wx * PX();
+  const py = wy * PX();
+  if (sliding) {
+    if (trail.active) {
+      // Don't draw across an edge-wrap jump.
+      const dx = px - trail.px, dy = py - trail.py;
+      if (dx * dx + dy * dy < 10000) {
+        skidCtx.strokeStyle = 'rgba(28, 28, 32, 0.45)';
+        skidCtx.lineWidth = 3;
+        skidCtx.lineCap = 'round';
+        skidCtx.beginPath();
+        skidCtx.moveTo(trail.px, trail.py);
+        skidCtx.lineTo(px, py);
+        skidCtx.stroke();
+      }
+    }
+    trail.px = px;
+    trail.py = py;
+    trail.active = true;
+  } else {
+    trail.active = false;
+  }
+}
+
+function recordSkids() {
+  const driftingRear =
+    car.isRearSliding || Math.abs(car.rearSlip) > CONFIG.slipThresholdForSkid;
+  const { L, R } = rearWheelPositions();
+  drawSkidSegment(skidRearL, L.x, L.y, driftingRear);
+  drawSkidSegment(skidRearR, R.x, R.y, driftingRear);
+}
+
+// ---------- World wrap ----------
+function wrap() {
+  const W = window.innerWidth / PX();
+  const H = window.innerHeight / PX();
+  const M = 2; // margin in meters
+  if (car.x < -M)       { car.x = W + M; invalidateSkidTrails(); }
+  else if (car.x > W + M) { car.x = -M;    invalidateSkidTrails(); }
+  if (car.y < -M)       { car.y = H + M; invalidateSkidTrails(); }
+  else if (car.y > H + M) { car.y = -M;    invalidateSkidTrails(); }
+}
+function invalidateSkidTrails() {
+  // After wrapping we don't want a long streak across the screen.
+  skidRearL.active = false;
+  skidRearR.active = false;
+}
+
+// ---------- Main loop with fixed-timestep accumulator ----------
+const FIXED_DT = 1 / 60;
+const MAX_SUBSTEPS = 5;
+let lastTime = performance.now();
+let accumulator = 0;
+
 function frame(now: number) {
-  const dt = Math.min(0.05, (now - last) / 1000);
-  last = now;
+  const realDt = Math.min(0.25, (now - lastTime) / 1000);
+  lastTime = now;
+  accumulator += realDt;
 
-  // Smooth the steering — independent of network update rate.
-  currentSteer += (targetSteer - currentSteer) * SMOOTHING;
+  let steps = 0;
+  while (accumulator >= FIXED_DT && steps < MAX_SUBSTEPS) {
+    // Smooth incoming inputs (steer especially) inside the fixed step so the
+    // smoothing rate is frame-rate independent.
+    current.steer    += (target.steer    - current.steer)    * CONFIG.inputLerp;
+    // Throttle/brake snap — pedals are binary, no smoothing needed.
+    current.throttle = target.throttle;
+    current.brake    = target.brake;
 
-  // Apply steering and drive forward.
-  car.heading += currentSteer * dt;
-  car.x += Math.cos(car.heading) * SPEED * dt;
-  car.y += Math.sin(car.heading) * SPEED * dt;
+    step(car, current, FIXED_DT);
+    recordSkids();
+    wrap();
 
-  // Wrap edges.
-  const W = window.innerWidth;
-  const H = window.innerHeight;
-  const M = 30;
-  if (car.x < -M) car.x = W + M;
-  else if (car.x > W + M) car.x = -M;
-  if (car.y < -M) car.y = H + M;
-  else if (car.y > H + M) car.y = -M;
+    accumulator -= FIXED_DT;
+    steps++;
+  }
+  // Drop accumulated time if we fell way behind (prevents spiral of death).
+  if (steps === MAX_SUBSTEPS) accumulator = 0;
 
-  // Draw.
-  ctx.fillStyle = '#0d1117';
-  ctx.fillRect(0, 0, W, H);
-  drawCar(car.x, car.y, car.heading);
-
+  render();
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
 
+// ---------- Render ----------
+function render() {
+  const W = window.innerWidth;
+  const H = window.innerHeight;
+
+  // Clear with white background, then composite the skid buffer on top.
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, W, H);
+  ctx.drawImage(skidCanvas, 0, 0, W, H);
+
+  drawCar();
+  updateHud();
+}
+
+function updateHud() {
+  // Fake "km/h" so it reads like a dashboard. 1 m/s ≈ 3.6 km/h.
+  const kmh = Math.round(car.speed * 3.6);
+  speedEl.textContent = String(kmh).padStart(3, '0');
+  const drifting = car.isRearSliding ||
+    Math.abs(car.rearSlip) > CONFIG.slipThresholdForSkid;
+  driftEl.classList.toggle('on', drifting);
+}
+
 // ---------- Drawing ----------
-function drawCar(x: number, y: number, heading: number) {
+function drawCar() {
+  // Draw the car centered at its world position, rotated by heading.
+  // All inner coordinates are in METERS, then scaled by pxPerMeter.
+  const sx = car.x * PX();
+  const sy = car.y * PX();
+
   ctx.save();
-  ctx.translate(x, y);
-  ctx.rotate(heading);
+  ctx.translate(sx, sy);
+  ctx.rotate(car.heading);
+  ctx.scale(PX(), PX()); // now draw in meters
+
+  const len = 4.5;
+  const wid = 1.85;
+  const halfL = len / 2;
+  const halfW = wid / 2;
 
   // Body
-  ctx.fillStyle = '#e6edf3';
-  roundRect(ctx, -24, -15, 48, 30, 8);
+  ctx.fillStyle = '#e63946';
+  roundRect(ctx, -halfL, -halfW, len, wid, 0.35);
   ctx.fill();
 
-  // Nose (clearly marks "front")
-  ctx.fillStyle = '#ff7b72';
+  // Roof tint (windshield + cabin) — helps see orientation
+  ctx.fillStyle = '#1d3557';
+  roundRect(ctx, -0.6, -halfW + 0.18, 1.7, wid - 0.36, 0.2);
+  ctx.fill();
+
+  // Nose marker (front)
+  ctx.fillStyle = '#f1faee';
   ctx.beginPath();
-  ctx.moveTo(24, -11);
-  ctx.lineTo(38, 0);
-  ctx.lineTo(24, 11);
+  ctx.moveTo(halfL - 0.15, -halfW + 0.25);
+  ctx.lineTo(halfL + 0.05, 0);
+  ctx.lineTo(halfL - 0.15, halfW - 0.25);
   ctx.closePath();
   ctx.fill();
 
-  // Windshield hint
-  ctx.fillStyle = '#58a6ff';
-  roundRect(ctx, 4, -10, 14, 20, 3);
-  ctx.fill();
+  // Wheels (front wheels rotate by steerAngle)
+  drawWheel(+CONFIG.wheelbase / 2, -CONFIG.trackWidth / 2, car.steerAngle);
+  drawWheel(+CONFIG.wheelbase / 2, +CONFIG.trackWidth / 2, car.steerAngle);
+  drawWheel(-CONFIG.wheelbase / 2, -CONFIG.trackWidth / 2, 0);
+  drawWheel(-CONFIG.wheelbase / 2, +CONFIG.trackWidth / 2, 0);
 
   ctx.restore();
 }
 
+function drawWheel(bx: number, by: number, angle: number) {
+  ctx.save();
+  ctx.translate(bx, by);
+  ctx.rotate(angle);
+  ctx.fillStyle = '#1c1c20';
+  roundRect(ctx, -0.32, -0.13, 0.64, 0.26, 0.06);
+  ctx.fill();
+  ctx.restore();
+}
+
 function roundRect(
-  c: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  r: number
+  c: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number,
 ) {
   c.beginPath();
   c.moveTo(x + r, y);
@@ -154,4 +281,9 @@ function roundRect(
   c.lineTo(x, y + r);
   c.quadraticCurveTo(x, y, x + r, y);
   c.closePath();
+}
+
+// ---------- Util ----------
+function clamp(v: number, lo: number, hi: number): number {
+  return v < lo ? lo : v > hi ? hi : v;
 }

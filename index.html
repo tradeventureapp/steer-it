@@ -8,13 +8,23 @@
   </head>
   <body class="desktop">
     <canvas id="game"></canvas>
-    <aside id="hud">
+
+    <aside id="hud-tr">
       <div id="qr-panel">
         <canvas id="qr" width="160" height="160"></canvas>
         <div id="code-text">····</div>
         <div id="status">Waiting for phone…</div>
       </div>
     </aside>
+
+    <aside id="hud-bl">
+      <div id="speedo">
+        <div id="speed">000</div>
+        <div id="speed-unit">KM/H</div>
+      </div>
+      <div id="drift">DRIFT</div>
+    </aside>
+
     <script type="module" src="/src/desktop.ts"></script>
   </body>
 </html>
