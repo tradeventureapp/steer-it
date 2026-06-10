@@ -36,7 +36,13 @@ export const CONFIG = {
   mass: 1200,                       // kg
   wheelbase: 2.6 / 3,               // m, distance between front and rear axles
   trackWidth: 1.6 / 3,              // m, distance between left and right wheels
-  inertiaScale: 1.5,                // yaw inertia = scale * m * L^2 / 12
+  // PASS 3: yaw inertia = inertiaScale * m * L^2 / 12. The 1/3 wheelbase
+  // made L^2 tiny (~1/9), so yaw inertia collapsed and the car spun the
+  // instant the rear stepped out — too fast to catch. Raise inertiaScale
+  // ~5.3× to give the rotation WEIGHT so a slide builds progressively
+  // into a holdable angle instead of snapping around. (At 8.0 the yaw
+  // inertia is ~600 kg·m², about 60% of the original full-size car.)
+  inertiaScale: 8.0,                // p2 1.5 → 8.0  ↑  weighty rotation, progressive slide
 
   // ---------- Engine / brakes (unchanged — feel is punchy after size pass) ----------
   enginePower: 7500,                // N at full throttle
@@ -87,11 +93,19 @@ export const CONFIG = {
   handbrakeRearStiffnessMultiplier: 0.45, // p1 0.30 → 0.45  ↑  less violent rear collapse
   handbrakeBrakeForce:              5500, // unchanged
 
-  // ---------- Yaw damping ----------
-  // Higher than before so the car doesn't spin like a top on light input
-  // and slides feel weighted. Well below "glued straight" — the catch
-  // torque from the front still dominates at any meaningful yaw rate.
-  angularDamping: 1.5,              // ← 0.7  ↑  weight feel, less spin-out
+  // ---------- Yaw damping / rate limit ----------
+  // PASS 3: damping is the yaw-rate DECAY constant (its effect in rad/s²
+  // is -angularDamping * angularVel, independent of inertia). Raised so a
+  // slide SETTLES into a held angle and gives countersteer time to work,
+  // instead of the yaw running away. Front catch torque still dominates
+  // at meaningful yaw rates, so the car isn't glued straight.
+  angularDamping: 3.0,              // p2 1.5 → 3.0  ↑  settle into angle, catchable
+  // Hard cap on |yaw rate| (rad/s). A pure backstop against runaway spin:
+  // a loss of grip can't produce more than this much rotation speed, so
+  // even a botched entry stays controllable. ~2.8 rad/s ≈ 160°/s, plenty
+  // for an aggressive drift but short of an uncatchable gyro. Raise to
+  // allow faster rotation, lower for more stability.
+  maxYawRate: 2.8,                  // NEW (p3). clamp on |angularVel|
 
   // ---------- Drift detection / skids ----------
   // Visual indicator only — independent of the physics slide cap. Lower
@@ -285,6 +299,9 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   const torque = halfWB * frontForceBodyY - halfWB * rearForceBodyY;
   const yawDamp = -c.angularDamping * I * car.angularVel;
   car.angularVel += (torque + yawDamp) / I * dt;
+  // Hard backstop against an uncatchable spin: clamp the yaw rate so a
+  // loss of grip can only ever produce a controllable rotation speed.
+  car.angularVel = clamp(car.angularVel, -c.maxYawRate, c.maxYawRate);
   car.heading    += car.angularVel * dt;
 
   // ---- 9. Integrate translation (body force -> world force -> velocity) ----
