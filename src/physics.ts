@@ -48,9 +48,9 @@ export const CONFIG = {
   // inertia is ~600 kg·m², about 60% of the original full-size car.)
   inertiaScale: 8.0,                // p2 1.5 → 8.0  ↑  weighty rotation, progressive slide
 
-  // ---------- Engine / brakes (unchanged — feel is punchy after size pass) ----------
-  enginePower: 7500,                // N at full throttle
-  brakeForce: 14000,                // N at full brake
+  // ---------- Engine / brakes ----------
+  enginePower: 8800,                // p4 7500 → 8800  ↑ ~17% more punch (p5)
+  brakeForce: 14000,                // N at full brake (unchanged)
 
   // ---------- Resistance (unchanged) ----------
   dragCoeff: 2.5,                   // air drag, force = dragCoeff * v * |v|
@@ -85,11 +85,11 @@ export const CONFIG = {
   // removed) and the separate peakLatGripRear cap (p2 8200, removed —
   // lateral-only peak is now the full budget when the wheel isn't spinning).
   // IMPORTANT relationship: kinetic reaction = budget × driftFriction
-  // (9200 × 0.83 ≈ 7636 N) must EXCEED steady enginePower (7500 N), or a
+  // (10800 × 0.83 ≈ 8964 N) must EXCEED steady enginePower (8800 N), or a
   // spinning wheel can never decelerate back to grip and full throttle
   // becomes a permanent burnout. With the launch boost the drive force
   // does exceed it below ~12 m/s — so launches light up and then hook up.
-  tireGripBudgetRear: 9200,         // N — friction-circle radius (was peakLatGripRear 8200)
+  tireGripBudgetRear: 10800,        // p4 9200 → 10800  ↑ proportional to enginePower (p5)
   // Slip ratio at which longitudinal traction peaks. Below = linear
   // traction (wheel ~matches ground). Above = the wheel is SPINNING
   // (kinetic regime). Lower = wheelspin starts at smaller overspeed.
@@ -106,8 +106,8 @@ export const CONFIG = {
   // lifts — this keeps throttle-lift hookup near-instant (~2 frames).
   maxSlipRatio: 2.5,                // NEW (p4)
   // Launch punch: extra drive force at standstill, fading linearly to zero
-  // by torqueBoostFadeSpeed. Full throttle from rest: 7500 × 1.6 = 12000 N
-  // > 8500 N budget → the rear lights up (burnout + squirm) instead of
+  // by torqueBoostFadeSpeed. Full throttle from rest: 8800 × 1.6 = 14080 N
+  // > 10800 N budget → the rear lights up (burnout + squirm) instead of
   // cleanly hooking up. Doesn't touch cruise feel or top speed. 0 disables.
   lowSpeedTorqueBoost: 0.6,         // NEW (p4)
   torqueBoostFadeSpeed: 12,         // NEW (p4)  m/s (~43 km/h) where boost = 0
@@ -116,16 +116,19 @@ export const CONFIG = {
   // drift style). The rest acts on the front/body directly.
   brakeRearShare: 0.35,             // NEW (p4)
 
-  // ---------- Handbrake — PASS 4: wheel lock, not grip multipliers ----------
-  // The handbrake is now simply a strong brake force on the rear WHEEL. It
-  // locks the wheel within a couple of frames → slip ratio goes hard
-  // negative → the friction circle collapses lateral grip → the rear
-  // slides. Release → the wheel spins back up to ground speed → grip
-  // returns → the player catches the slide on throttle + countersteer.
-  // Replaces handbrakeRearGripMultiplier (p2 0.35), handbrakeRearStiffness-
-  // Multiplier (p2 0.45) and handbrakeBrakeForce (5500) — the same feel
-  // now emerges from the wheel-lock physics. Lower = softer, slower lock.
-  handbrakeLockForce: 9000,         // NEW (p4)  N at the rear contact patch
+  // ---------- Handbrake — wheel lock (p4), more bite (p5) ----------
+  // A strong brake force on the rear WHEEL. Locks it within a couple of
+  // frames → slip ratio goes hard negative → the friction circle collapses
+  // lateral grip → the rear slides. Release → the wheel spins back up →
+  // grip returns → catch on throttle + countersteer.
+  //
+  // SIZING: the locked tire's kinetic reaction (budget × driftFriction ≈
+  // 8964 N) constantly tries to spin the wheel BACK UP — the handbrake's
+  // bite is the MARGIN above that, not the raw number. p4's 9000 left only
+  // ~36 N of margin after the p5 budget raise (near-dead handbrake); 14000
+  // gives ~5000 N of lock authority → decisive slide entry, still well
+  // short of the p1 instant-spin (yaw inertia + damping unchanged).
+  handbrakeLockForce: 14000,        // p4 9000 → 14000  ↑ decisive lock (p5)
 
   // ---------- Yaw damping / rate limit ----------
   // PASS 3: damping is the yaw-rate DECAY constant (its effect in rad/s²
