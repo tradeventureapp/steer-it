@@ -56,31 +56,35 @@ export const CONFIG = {
   speedForFullFalloff: 50,          // ← 40    ↑  m/s, full falloff applies higher
 
   // ---------- Tire / grip — the core of the oversteer bias ----------
-  // Front grips ~2× as hard as rear AND has 2× the cornering stiffness:
-  // floppy rear (low stiffness + low peak) breaks loose under modest
-  // cornering load while the snappy front bites in and gives the player
-  // a strong restoring torque for the countersteer catch.
-  corneringStiffnessFront: 180000,  // ← 140000  ↑  snappier front turn-in & catch
-  corneringStiffnessRear:   90000,  // ← 170000  ↓  floppy rear, breaks loose readily
-  peakLatGripFront:  13500,         // ← 10500   ↑  more front grip to hold and catch
-  peakLatGripRear:    6500,         // ←  9500   ↓  rear gives up early
-  // driftFriction is the kinetic/static friction ratio used once a tire
-  // is past peak. 0.92 was too sticky (slides snapped back). 0.70 makes
-  // the slide actually lose energy as it goes, so it stays controllable.
-  driftFriction: 0.70,              // ← 0.92  ↓  sustainable controllable slide
+  // PASS 2: pass-1 overshot into "ice" — rear let go at the slightest
+  // input and the slide had no grip to recover with. Pull the rear grip
+  // partway back up (still below front for oversteer bias, but a much
+  // less extreme margin) and — most importantly — raise driftFriction so
+  // a sliding tire keeps enough grip to respond to countersteer.
+  corneringStiffnessFront: 180000,  // (p1, unchanged)  snappy front turn-in & catch
+  corneringStiffnessRear:  110000,  // p1 90000  → 110000  ↑  rear less floppy, holds longer
+  peakLatGripFront:  13500,         // (p1, unchanged)  strong front for catch authority
+  peakLatGripRear:    8200,         // p1 6500   →   8200  ↑  rear doesn't give up at a touch
+  // driftFriction = kinetic/static friction ratio once past peak. THE key
+  // "on ice" fix: 0.70 left the slide gripless and unrecoverable. 0.83
+  // keeps real grip in the slide so countersteer + throttle can settle it.
+  driftFriction: 0.83,              // p1 0.70   →   0.83  ↑  grip-in-slide, recoverable
 
-  // ---------- Power-on oversteer (NEW knob) ----------
+  // ---------- Power-on oversteer ----------
   // At higher throttle inputs we scale the rear's effective peak lateral
   // grip down — a single-knob approximation of the friction-circle effect
   // (longitudinal force at the driven axle steals from its lateral budget).
-  // Net result: mash gas mid-corner → rear pushes wider. Lift off → rear
-  // grip recovers and the slide can be caught. Tune up for more drifty,
-  // down for more neutral, 0 to disable.
-  rwdPowerOversteerStrength: 0.35,  // NEW. peakRear *= (1 - throttle * this)
+  // PASS 2: 0.35 snapped the rear loose almost instantly on throttle.
+  // 0.20 makes throttle add rotation PROGRESSIVELY so it's a modulation
+  // tool, not an on/off switch. Lift off → grip recovers → drift catches.
+  rwdPowerOversteerStrength: 0.20,  // p1 0.35   →   0.20  ↓  progressive, not instant
 
-  // ---------- Handbrake (more aggressive snap-loose) ----------
-  handbrakeRearGripMultiplier:      0.18, // ← 0.30  ↓  harder instant snap-loose
-  handbrakeRearStiffnessMultiplier: 0.30, // ← 0.40  ↓  rear goes floppy faster
+  // ---------- Handbrake (controllable snap-loose) ----------
+  // PASS 2: 0.18 was a violent instant spin. 0.35 still clearly breaks the
+  // rear loose for a drift ENTRY, but as a controllable slide you can hold
+  // and catch, not a gyro.
+  handbrakeRearGripMultiplier:      0.35, // p1 0.18 → 0.35  ↑  breaks loose but holdable
+  handbrakeRearStiffnessMultiplier: 0.45, // p1 0.30 → 0.45  ↑  less violent rear collapse
   handbrakeBrakeForce:              5500, // unchanged
 
   // ---------- Yaw damping ----------
