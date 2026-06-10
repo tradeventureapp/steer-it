@@ -218,12 +218,11 @@ function updateHud() {
   const kmh = Math.round(car.speed * 3.6);
   speedEl.textContent = String(kmh).padStart(3, '0');
 
-  // GRIP / DRIFT state — drives the badge text + amber styling. Drifting
-  // when the physics has flagged a rear slide OR the rear slip angle is
-  // past the visual threshold (so we see the badge flip the moment the
-  // tuning starts producing slip, even if force-clamp hasn't kicked in).
-  const drifting = car.isRearSliding ||
-    Math.abs(car.rearSlip) > CONFIG.slipThresholdForSkid;
+  // GRIP / DRIFT badge — LATERAL sliding only (p9). A straight-line
+  // burnout spins the wheels but isn't a drift; the badge keys off the
+  // rear slip angle alone. (Skid marks still include pure wheelspin —
+  // burnout stripes are a feature.)
+  const drifting = Math.abs(car.rearSlip) > CONFIG.slipThresholdForSkid;
   driftEl.textContent = drifting ? 'DRIFT' : 'GRIP';
   driftEl.classList.toggle('on', drifting);
 

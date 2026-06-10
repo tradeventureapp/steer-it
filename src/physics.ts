@@ -57,27 +57,36 @@ export const CONFIG = {
   // force — wheelspin is self-limiting and full throttle at speed HOOKS UP
   // instead of burning forever (the p6 perma-spin bug: constant 8800 N vs
   // 8964 N kinetic reaction left a 136 N recovery margin ≈ never).
-  enginePower: 8800,                // N — low-speed force cap (unchanged)
-  enginePeakPowerW: 125000,         // (p7)  W — straight-line power curve
-  // ---------- Drift-gated power delivery (p8) ----------
-  // The power curve runs on WHEEL speed, and a drifting wheel spins fast
-  // BY DESIGN — so the curve choked the engine exactly when the drift
-  // needed thrust. The car bled from a 40°+ slide to a 1-5 km/h pirouette
-  // (video-confirmed). Gate the curve by rear slip ANGLE with a smooth
-  // blend: going straight (< slipStart) the curve fully applies and the
-  // perma-burnout fix survives; deep in a drift (> slipFull) the engine
-  // delivers driftThrustFactor × enginePower so the spinning rear drives
-  // the car THROUGH the slide, like a real drift car at full power.
-  // Thresholds at 12°/24° (not 10°/20°): the gate is a positive feedback
-  // loop (slip → thrust → slip), and lower thresholds let a gentle
-  // full-throttle corner self-ignite into a slide. 12° keeps casual
-  // cornering on the power curve; committed slides get the thrust.
-  driftPowerSlipStart: 0.21,        // NEW (p8)  rad (~12°) — curve fully active below
-  driftPowerSlipFull: 0.42,         // NEW (p8)  rad (~24°) — full drift thrust above
-  // >1 overdrives the engine in a drift — needed because a deep slide
-  // scrubs enormous energy; 1.15 sustains a ~30-40°, ~20-25 km/h donut
-  // indefinitely instead of decaying into a pirouette.
-  driftThrustFactor: 1.15,          // NEW (p8)  × enginePower while drifting
+  enginePower: 8400,                // p5 8800 → 8400 ↓ (p9): below the curve crossover
+                                    // the cap is the recovery margin vs the 8964 N tire
+                                    // reaction — 164 N took forever to hook; 564 N is crisp
+  // p9: 125k → 110k. Crisp hookup needs the curve to bite at the pinned
+  // wheel speed (at 125k the recovery margin was a sluggish 164 N);
+  // drifts no longer need the curve — the p8 drift gate bypasses it.
+  enginePeakPowerW: 110000,         // p7 125000 → 110000  ↓ (p9)
+  // ---------- Governed drift mode (p9 — replaces the p8/p9 patch stack) ----------
+  // Layered emergent fixes (drift-gated power, scrub cancel, stability
+  // assist, soft ceiling) fought each other: sims showed the drift either
+  // starved to a pirouette, overshot to ~86°, or ran away to 140 km/h
+  // depending on which patch won. Arcade drift games solve this with a
+  // GOVERNED drift state, and so do we now: while sliding WITH power on,
+  // yaw is driven so the slip angle tracks an explicit target set by the
+  // STEERING (into the drift = deeper, countersteer = shallower), and
+  // speed is driven toward a target set by the THROTTLE. Raw tire physics
+  // still rules grip driving, initiation, and lift-off recovery; the
+  // governor blends in over driftModeStart→Full and out the moment the
+  // player lifts. Predictable by construction: floor it + steer = swing
+  // out and PARK in the 40-60° band at a held speed.
+  driftModeStart: 0.30,             // NEW (p9)  rad (~17°) body slip — governor blends in
+  driftModeFull: 0.52,              // NEW (p9)  rad (~30°) — fully governed
+  driftBaseAngle: 0.70,             // NEW (p9)  rad (~40°) slip target at neutral steer
+  driftSteerAngleGain: 0.35,        // NEW (p9)  rad (~20°) steer bias: into = up to ~60°,
+                                    //           full countersteer = down to ~20°
+  driftAngleRate: 4.0,              // NEW (p9)  1/s — slip-angle tracking stiffness
+  driftYawRelax: 8.0,               // NEW (p9)  1/s — yaw relax rate toward the law
+  driftTargetSpeedMin: 5,           // NEW (p9)  m/s drift speed at light throttle
+  driftTargetSpeedMax: 10,          // NEW (p9)  m/s at full throttle (~36 km/h)
+  driftSpeedGain: 2.5,              // NEW (p9)  1/s accel toward the target speed
   brakeForce: 14000,                // N at full brake (unchanged)
 
   // ---------- Resistance (unchanged) ----------
@@ -95,6 +104,18 @@ export const CONFIG = {
   steerSpeed: 7.0,                  // p6 5.5  → 7.0  ↑  rad/s, faster actuation
   steerSpeedFalloff: 0.70,          // (unchanged)  less lock loss at speed
   speedForFullFalloff: 50,          // (unchanged)  m/s, full falloff applies higher
+  // ---------- Auto-countersteer (p9) ----------
+  // During a deep slide the EFFECTIVE front-wheel angle blends toward the
+  // velocity direction — the alignment a real drifter holds. Without it, a
+  // binary tilt player holding steer INTO the turn at 50° of slip turns
+  // the front tire into a plow: it kills the yaw, drags the angle through
+  // the band to ~85°, and scrubs the car to a stop (traced in sim). The
+  // player's input still trims around the alignment (autoCounterTrim of
+  // stick authority), so steering stays expressive mid-drift.
+  autoCounterStart: 0.35,           // NEW (p9)  rad (~20°) body slip — blend begins
+  autoCounterFull: 0.70,            // NEW (p9)  rad (~40°) — fully engaged
+  autoCounterStrength: 0.85,        // NEW (p9)  0..1, how strongly fronts align
+  autoCounterTrim: 0.3,             // NEW (p9)  player authority around alignment
 
   // ---------- Tire / grip ----------
   // FRONT (undriven): pure lateral model — linear stiffness with a peak cap.
@@ -141,6 +162,12 @@ export const CONFIG = {
   // both eventually collapsed the angle). At 0.25 a full-throttle drift
   // sustains its angle AND its speed.
   spinLatGripFactor: 0.25,          // NEW (p7)
+  // p9: the cut is additionally gated by LATERAL slip — wheelspin while
+  // traveling STRAIGHT must not collapse rear lateral grip, or the car
+  // crabs/shuffles sideways during a straight-line burnout (video-
+  // confirmed at 13 km/h). No cut below slipStart, full cut by slipFull.
+  spinLatCutSlipStart: 0.08,        // NEW (p9)  rad (~4.6°)
+  spinLatCutSlipFull: 0.30,         // NEW (p9)  rad (~17°)
   // Effective inertia of wheel + drivetrain at the contact patch (kg).
   // Lower = wheels spin up on throttle / grip up on lift FASTER.
   wheelSpinInertia: 15,             // NEW (p4)
@@ -153,10 +180,12 @@ export const CONFIG = {
   // by torqueBoostFadeSpeed. Full throttle from rest: 8800 × 1.6 = 14080 N
   // > 10800 N budget → the rear lights up (burnout + squirm) instead of
   // cleanly hooking up. Doesn't touch cruise feel or top speed. 0 disables.
-  lowSpeedTorqueBoost: 0.6,         // (p4, unchanged)
-  // p7: boost fades sooner so launch wheelspin ends by ~30-40 km/h instead
-  // of dragging on — launch lights up, then cleanly hooks.
-  torqueBoostFadeSpeed: 8,          // p4 12 → 8  ↓  m/s (~29 km/h) where boost = 0
+  // p9: binary-throttle players live at 100% — the burnout window must be
+  // SHORT. Boost down and fading by 4 m/s puts full-throttle hookup at
+  // ~16-18 km/h (was ~33). Drifts are unaffected: the governed drift mode
+  // paces the car through slides independently of engine drive.
+  lowSpeedTorqueBoost: 0.5,         // p4 0.6 → 0.5  ↓ (p9)
+  torqueBoostFadeSpeed: 4,          // p7 8 → 4  ↓  m/s (~14 km/h) where boost = 0
   // Fraction of the pedal brake that acts on the rear WHEEL (through the
   // friction circle — hard braking can lock the rear and slide it, brake-
   // drift style). The rest acts on the front/body directly.
@@ -199,17 +228,9 @@ export const CONFIG = {
   // develop. Inertia (8.0) + the soft yaw limit below keep entries
   // progressive and catchable.
   angularDamping: 1.7,              // p3 3.0 → p7 1.7  ↓  deep angles need yaw headroom
-  // Drift stability assist (p7) — the key to HOLDING big angles. While the
-  // rear is sliding, a corrective yaw term drives the body's rotation to
-  // TRACK the rotation of the velocity vector, so the current slide angle
-  // tends to hold instead of self-straightening (the raw dynamics are
-  // unstable around deep angles with a ~0.3 s divergence time — fine for
-  // a sim with a wheel, hopeless on phone tilt). Steering and throttle
-  // then SHIFT the balanced angle rather than fight the instability:
-  // throttle deepens, lift shallows, countersteer trims. Gated by the
-  // countersteer gesture (see step 9) so initiation stays free. 1/s;
-  // higher = stickier drift angle, 0 = raw physics (assist off).
-  driftStabilityAssist: 8.0,        // NEW (p7)
+  // (The p7 drift-stability assist and the p9 soft angle ceiling were
+  //  replaced by the governed drift mode above — one law instead of three
+  //  fighting correctors.)
   // Yaw-rate limit (rad/s). p7: now a SOFT limit — yaw above maxYawRate
   // is damped back hard (softYawClampRate per second) instead of
   // hard-clipped. The hard clip froze rotation exactly when a big entry
@@ -298,7 +319,14 @@ function clamp(v: number, lo: number, hi: number): number {
 //  Call this with a FIXED dt (e.g. 1/60). Render decoupled.
 // -----------------------------------------------------------------------------
 export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFIG) {
-  // ---- 1. Steering: ease front wheel toward target lock ----
+  // ---- 1. Body-frame velocity (forward = +x_body, lateral = +y_body) ----
+  // (computed first — the steering auto-align needs the slip direction)
+  const cosH = Math.cos(car.heading);
+  const sinH = Math.sin(car.heading);
+  const forwardVel =  car.vx * cosH + car.vy * sinH;
+  const lateralVel = -car.vx * sinH + car.vy * cosH;
+
+  // ---- 2. Steering: ease front wheel toward target lock ----
   const targetSteer = clamp(input.steer, -1, 1) * c.maxSteerAngle;
   const maxStep = c.steerSpeed * dt;
   car.steerAngle += clamp(targetSteer - car.steerAngle, -maxStep, maxStep);
@@ -308,13 +336,22 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   // reduced to steerSpeedFalloff * actual. Keeps high-speed inputs sane.
   const falloff = 1 - (1 - c.steerSpeedFalloff) *
     Math.min(1, speed / c.speedForFullFalloff);
-  const effectiveSteer = car.steerAngle * falloff;
+  const playerSteer = car.steerAngle * falloff;
 
-  // ---- 2. Body-frame velocity (forward = +x_body, lateral = +y_body) ----
-  const cosH = Math.cos(car.heading);
-  const sinH = Math.sin(car.heading);
-  const forwardVel =  car.vx * cosH + car.vy * sinH;
-  const lateralVel = -car.vx * sinH + car.vy * cosH;
+  // Auto-countersteer (p9): in a deep slide, blend the EFFECTIVE wheel
+  // angle toward the velocity direction (a drifter's alignment); the
+  // player's input trims around it. Gate by body slip angle AND speed
+  // (the slip direction is noise near standstill).
+  const bodyBeta = Math.atan2(lateralVel, Math.max(0.5, Math.abs(forwardVel)));
+  const alignGate = clamp(
+      (Math.abs(bodyBeta) - c.autoCounterStart) /
+      (c.autoCounterFull - c.autoCounterStart), 0, 1) *
+    c.autoCounterStrength *
+    clamp((speed - 2) / 2, 0, 1);
+  const alignAngle = clamp(bodyBeta, -c.maxSteerAngle, c.maxSteerAngle);
+  const effectiveSteer =
+    playerSteer * (1 - alignGate) +
+    (alignAngle + playerSteer * c.autoCounterTrim) * alignGate;
 
   // ---- 3. Velocities at each axle (include yaw contribution) ----
   // For a rigid body with angular velocity w, the velocity at a point r off
@@ -371,28 +408,27 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   const budget = c.tireGripBudgetRear;
   const alphaPeakRear = budget / c.corneringStiffnessRear;
 
-  // Engine drive force at the rear contact patch (p7: power curve,
-  // p8: drift-gated). Going straight, force = min(enginePower,
-  // P/|wheelSpeed|) — wheelspin bleeds its own drive force, so burnouts
-  // self-resolve. In a DRIFT (rear slip angle past driftPowerSlipStart,
-  // blending to full by driftPowerSlipFull) the curve is bypassed and the
-  // engine delivers driftThrustFactor × enginePower — the spinning rear
-  // must PUSH the car through the slide or the drift starves into a
-  // stationary pirouette (the p7 bug). The low-speed torque boost
-  // (burnout launches) fades out by torqueBoostFadeSpeed of CAR speed.
+  // Engine drive force at the rear contact patch (p7 power curve):
+  // force = min(enginePower, P/|wheelSpeed|) — wheelspin bleeds its own
+  // drive force, so burnouts self-resolve. The governed drift mode (step 9)
+  // sustains the car THROUGH a slide, so the curve no longer needs a
+  // drift bypass. The low-speed torque boost (burnout launches) fades out
+  // by torqueBoostFadeSpeed of CAR speed.
   const driveBoost = 1 + c.lowSpeedTorqueBoost *
     Math.max(0, 1 - speed / c.torqueBoostFadeSpeed);
   const powerLimitedForce = Math.min(
     c.enginePower,
     c.enginePeakPowerW / Math.max(1, Math.abs(car.rearWheelSpeed)),
   );
-  const driftPowerBlend = clamp(
-    (Math.abs(rearSlip) - c.driftPowerSlipStart) /
-    (c.driftPowerSlipFull - c.driftPowerSlipStart), 0, 1);
-  const driftForce = c.enginePower * c.driftThrustFactor;
-  const engineForceNow =
-    powerLimitedForce + (driftForce - powerLimitedForce) * driftPowerBlend;
-  const drive = input.throttle * engineForceNow * driveBoost;
+  // Handbrake cuts drive to the rear wheel (p9) — the arcade clutch-kick.
+  // Binary-throttle players hold full gas while jabbing the handbrake;
+  // with drive flowing, engine force + ground reaction overpowers the
+  // 14000 N lock and the wheel never locks, so the slide never initiates.
+  // Cut the drive and the lock is decisive regardless of throttle;
+  // release → full power resumes instantly into the drift.
+  const drive = input.handbrake
+    ? 0
+    : input.throttle * powerLimitedForce * driveBoost;
 
   // Arcade reverse mode (p6): brake held at/below walking pace with the
   // handbrake off — the pedal's meaning flips from "brake" to "reverse".
@@ -479,7 +515,14 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   // lateral returns smoothly.
   else if (isRearSliding && s > c.slipRatioPeak) {
     const spinDepth = Math.min(1, (s - c.slipRatioPeak) / (0.5 * c.slipRatioPeak));
-    rearLatForce *= 1 - (1 - c.spinLatGripFactor) * spinDepth;
+    // p9: gate the cut by LATERAL slip — a straight-line burnout
+    // (slip ≈ 0) keeps full rear lateral grip and tracks straight
+    // instead of crabbing sideways; the cut blends in as the car
+    // actually steps out.
+    const latGate = clamp(
+      (Math.abs(rearSlip) - c.spinLatCutSlipStart) /
+      (c.spinLatCutSlipFull - c.spinLatCutSlipStart), 0, 1);
+    rearLatForce *= 1 - (1 - c.spinLatGripFactor) * spinDepth * latGate;
   }
 
   // Clamp wheel overspeed to ±maxSlipRatio (force saturates past rho = 1
@@ -524,7 +567,7 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   const rearForceBodyY  = rearLatForce;
 
   const bodyForceX = longitudinalForce + frontForceBodyX + rearForceBodyX;
-  const bodyForceY = frontForceBodyY  + rearForceBodyY;
+  const bodyForceY = frontForceBodyY + rearForceBodyY;
 
   // ---- 8. Yaw torque (front pushes one way at +L/2, rear at -L/2) ----
   // 2D torque from force at offset (rx, ry): rx*Fy - ry*Fx. Axles are on the
@@ -547,23 +590,41 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   const worldForceX = bodyForceX * cosH - bodyForceY * sinH;
   const worldForceY = bodyForceX * sinH + bodyForceY * cosH;
 
-  // Drift stability assist (p7): while the rear slides AND the player is
-  // countersteering, nudge the yaw rate toward the rotation rate of the
-  // VELOCITY vector (dphi, from this step's net force). dβ/dt = dphi − ω,
-  // so this damps the slide angle's drift — the angle holds where the
-  // player put it instead of self-straightening or diverging (the raw
-  // dynamics are unstable with ~0.3 s divergence — hopeless on phone
-  // tilt). The countersteer GATE keeps initiation free: steering INTO the
-  // turn (same side as the rotation) disables the assist so flicks and
-  // power-overs swing out unhindered; the moment the player countersteers
-  // — the universal "hold it here" gesture — the assist locks the angle.
+  // Governed drift mode (p9): while sliding WITH power on, drive the slip
+  // angle toward an explicit target set by the steering, and the speed
+  // toward a target set by the throttle. dβ/dt = dphi − ω, so commanding
+  //   ω_des = dphi + driftAngleRate · (β − β_target)
+  // tracks the angle; the yaw relaxes toward ω_des at driftYawRelax.
+  // Replaces the p7 stability assist, the p9 soft ceiling, the p8 drift
+  // power gate and the p9 scrub cancel — one law, predictable: floor it +
+  // steer = swing out and PARK in the band. Lift → the governor fades and
+  // raw tire physics straightens the car.
   const v2 = car.vx * car.vx + car.vy * car.vy;
-  if (rearSlideBlend > 0 && v2 > 4) {
-    const steerNorm = car.steerAngle / c.maxSteerAngle;
-    const assistGate = clamp(0.5 + 1.5 * steerNorm * Math.sign(lateralVel || 0), 0, 1);
+  const driftIntent = Math.max(input.throttle, input.handbrake ? 1 : 0);
+  const driftMode = clamp(
+      (Math.abs(bodyBeta) - c.driftModeStart) /
+      (c.driftModeFull - c.driftModeStart), 0, 1) *
+    driftIntent * rearSlideBlend;
+  if (driftMode > 0 && v2 > 4) {
+    const sgn = Math.sign(bodyBeta);
+    // Steering INTO the drift (opposite sign of beta) deepens the target;
+    // countersteer shallows it.
+    const steerBias = clamp(input.steer, -1, 1) * -sgn;
+    const betaTarget = sgn * clamp(
+      c.driftBaseAngle + c.driftSteerAngleGain * steerBias, 0.30, 1.10);
     const dphi = (car.vx * worldForceY - car.vy * worldForceX) / (c.mass * v2);
-    car.angularVel += c.driftStabilityAssist * rearSlideBlend * assistGate *
-      (dphi - car.angularVel) * dt;
+    const omegaDes = dphi + c.driftAngleRate * (bodyBeta - betaTarget);
+    car.angularVel += (omegaDes - car.angularVel) *
+      Math.min(1, c.driftYawRelax * dt) * driftMode;
+
+    // Speed governor: throttle sets the drift's pace; the correction acts
+    // along the velocity so it never bends the path, only paces it.
+    const vTarget = c.driftTargetSpeedMin +
+      (c.driftTargetSpeedMax - c.driftTargetSpeedMin) * input.throttle;
+    const vNow = Math.sqrt(v2);
+    const accel = c.driftSpeedGain * (vTarget - vNow) * driftMode;
+    car.vx += (car.vx / vNow) * accel * dt;
+    car.vy += (car.vy / vNow) * accel * dt;
   }
 
   car.vx += worldForceX / c.mass * dt;
