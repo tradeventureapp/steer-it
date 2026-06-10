@@ -129,6 +129,22 @@ export const CONFIG = {
   // gives ~5000 N of lock authority → decisive slide entry, still well
   // short of the p1 instant-spin (yaw inertia + damping unchanged).
   handbrakeLockForce: 14000,        // p4 9000 → 14000  ↑ decisive lock (p5)
+  // While the handbrake is held the rear LATERAL force is additionally
+  // scaled by this factor — a locking/locked wheel has almost no lateral
+  // grip. The friction circle covers the fully-locked steady state, but is
+  // too forgiving during the ~0.2s lock transition (which is most of what
+  // the player feels); this applies the collapse from the instant the
+  // lever is pulled → turn-in + handbrake = the rear SNAPS out instead of
+  // the car just slowing down. Raise toward 1 for a milder handbrake.
+  handbrakeLatGripFactor: 0.30,     // NEW (p6)
+
+  // ---------- Reverse (p6) ----------
+  // Arcade reverse: holding BRAKE at (near) standstill backs the car up.
+  // While moving forward the pedal is a normal brake; once stopped, keep
+  // holding to reverse smoothly. Release while reversing → ease to a stop.
+  // The handbrake never reverses (it's a lock, not a drive).
+  reverseForce: 4000,               // NEW (p6)  N of reverse drive (and ease-to-stop force)
+  maxReverseSpeed: 6,               // NEW (p6)  m/s (~22 km/h) reverse cap
 
   // ---------- Yaw damping / rate limit ----------
   // PASS 3: damping is the yaw-rate DECAY constant (its effect in rad/s²
@@ -304,26 +320,45 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
     Math.max(0, 1 - speed / c.torqueBoostFadeSpeed);
   const drive = input.throttle * c.enginePower * driveBoost;
 
+  // Arcade reverse mode (p6): brake held at/below walking pace with the
+  // handbrake off — the pedal's meaning flips from "brake" to "reverse".
+  // In this mode the pedal share is removed from the wheel (the wheel must
+  // roll freely backwards) and the body gets a reverse force in section 6.
+  const reverseMode = input.brake > 0.1 && !input.handbrake && forwardVel < 0.2;
+
   // Brake torque on the rear wheel: rear share of the pedal + handbrake.
   // The handbrake LOCKS the wheel, which drives the slip ratio hard
   // negative and — through the circle — collapses lateral grip. That IS
   // the handbrake-drift mechanic.
-  const rearBrakeF = input.brake * c.brakeForce * c.brakeRearShare +
+  const rearBrakeF = (reverseMode ? 0 : input.brake * c.brakeForce * c.brakeRearShare) +
     (input.handbrake ? c.handbrakeLockForce : 0);
 
   const vg = rearLong;                                   // ground speed at rear patch
   const sDenom = Math.max(c.slipDenomFloor, Math.abs(vg));
   const mw = c.wheelSpinInertia;
 
-  // Wheel-speed update. The linear traction region is numerically STIFF
-  // (tiny wheel inertia against a steep force-vs-slip slope), so it's
-  // integrated IMPLICITLY — unconditionally stable at any dt:
-  //   wv' = (drive − brake − k·(wv − vg)) / mw,   k = budget/(slipPeak·denom)
-  //   wvNew = (wv + dt/mw·(drive − brake + k·vg)) / (1 + dt·k/mw)
+  // Brake torque OPPOSES wheel rotation and clamps at zero — a brake can
+  // stop the wheel but never spin it the other way. (p6 fix: the old code
+  // applied the brake as a signed constant force inside the implicit
+  // solve, which drove wheel speed NEGATIVE at standstill; the locked-
+  // wheel slip then physically THRUST the car backwards — the "handbrake
+  // reverses the car" bug.) The wheel may still legitimately roll
+  // backwards when the GROUND drags it there (reverse driving).
+  const dWvBrake = (dt / mw) * rearBrakeF;
+  const brakeClamp = (w: number) =>
+    w > 0 ? Math.max(0, w - dWvBrake) : w < 0 ? Math.min(0, w + dWvBrake) : 0;
+
+  // Wheel-speed update, stage 1: drive + traction. The linear traction
+  // region is numerically STIFF (tiny wheel inertia against a steep
+  // force-vs-slip slope), so it's integrated IMPLICITLY — unconditionally
+  // stable at any dt:
+  //   wv' = (drive − k·(wv − vg)) / mw,   k = budget/(slipPeak·denom)
+  //   wvNew = (wv + dt/mw·(drive + k·vg)) / (1 + dt·k/mw)
+  // Stage 2: the zero-clamped brake torque above.
   const kSlip = budget / (c.slipRatioPeak * sDenom);
   const wv0 = car.rearWheelSpeed;
-  let wv = (wv0 + (dt / mw) * (drive - rearBrakeF + kSlip * vg)) /
-           (1 + (dt * kSlip) / mw);
+  let wv = (wv0 + (dt / mw) * (drive + kSlip * vg)) / (1 + (dt * kSlip) / mw);
+  wv = brakeClamp(wv);
 
   let s = (wv - vg) / sDenom;
   let nLong = s / c.slipRatioPeak;
@@ -343,30 +378,51 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
     rearLatForce  = -fk * (nLat  / rho);
     // The implicit predictor assumed the full linear reaction; while
     // saturated the real reaction is the (smaller, ~constant) kinetic
-    // force, so re-integrate the wheel explicitly against it. This is
-    // the branch where the wheel actually SPINS UP under power.
-    wv = wv0 + (dt / mw) * (drive - rearBrakeF - rearLongForce);
+    // force, so re-integrate the wheel explicitly against it (same
+    // two stages: traction, then the zero-clamped brake). This is the
+    // branch where the wheel actually SPINS UP under power.
+    wv = wv0 + (dt / mw) * (drive - rearLongForce);
+    // The ground reaction drags the wheel TOWARD ground speed and
+    // vanishes at zero slip — it can never push the wheel PAST it.
+    // Clamp the crossing, else the one-frame overshoot makes the wheel
+    // oscillate locked/overspun on alternate frames under hard braking.
+    if ((wv0 - vg) * (wv - vg) < 0) wv = vg;
+    wv = brakeClamp(wv);
   }
 
+  // Handbrake kills rear lateral grip from the instant it's pulled — a
+  // locking wheel has almost no lateral authority. The friction circle
+  // covers the fully-locked steady state; this factor covers the lock
+  // TRANSITION, so turn-in + handbrake snaps the rear out instead of
+  // merely slowing the car. (p6)
+  if (input.handbrake) rearLatForce *= c.handbrakeLatGripFactor;
+
   // Clamp wheel overspeed to ±maxSlipRatio (force saturates past rho = 1
-  // anyway; unbounded wheel speed would only add throttle-lift lag), and
-  // no reverse drive this slice.
+  // anyway; unbounded wheel speed would only add throttle-lift lag).
   wv = clamp(wv, vg - c.maxSlipRatio * sDenom, vg + c.maxSlipRatio * sDenom);
-  wv = Math.max(0, wv);
   s = (wv - vg) / sDenom;
   car.rearWheelSpeed = wv;
 
-  // ---- 6. Body longitudinal forces (engine lives at the rear wheel now) ----
-  // Front share of the pedal brake acts on the body directly (front axle
-  // has no longitudinal slip model); it never reverses the car.
-  let frontBrakeForce = 0;
-  const pedalFront = input.brake * c.brakeForce * (1 - c.brakeRearShare);
-  if (forwardVel > 0.1)       frontBrakeForce =  pedalFront;
-  else if (forwardVel < -0.1) frontBrakeForce = -pedalFront;
+  // ---- 6. Body longitudinal forces (engine lives at the rear wheel) ----
+  // Pedal logic (p6): moving forward → normal brake (front share on the
+  // body; the rear share went through the wheel). At (near) standstill,
+  // holding the pedal becomes arcade REVERSE, capped at maxReverseSpeed.
+  // Rolling backwards with the pedal released → ease back to a stop.
+  let pedalBodyForce = 0;
+  if (reverseMode) {
+    if (forwardVel > -c.maxReverseSpeed) {
+      pedalBodyForce = -input.brake * c.reverseForce;
+    }
+  } else if (forwardVel > 0.1) {
+    pedalBodyForce = -input.brake * c.brakeForce * (1 - c.brakeRearShare);
+  } else if (forwardVel < -0.1) {
+    // Scale down near zero so the stop is smooth, not a jolt.
+    pedalBodyForce = c.reverseForce * Math.min(1, -forwardVel);
+  }
 
   const dragForce = c.dragCoeff * forwardVel * Math.abs(forwardVel);
   const rollingForce = c.rollingResistance * forwardVel;
-  const longitudinalForce = -frontBrakeForce - dragForce - rollingForce;
+  const longitudinalForce = pedalBodyForce - dragForce - rollingForce;
 
   // ---- 7. Assemble body-frame forces ----
   // Front tire force lives in the steered-wheel frame (lateral only);

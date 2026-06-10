@@ -4,7 +4,7 @@ Phone-as-steering-wheel mini-game. Open the desktop URL on your computer, scan
 the QR with your phone, **rotate the phone to landscape**, then:
 
 - **Right side of phone** = throttle (press to accelerate)
-- **Left side of phone**  = brake
+- **Left side of phone**  = brake — hold at standstill to reverse
 - **Tilt** the phone left/right to steer
 
 The desktop runs a GRID-style 2D vehicle model (proper longitudinal +
