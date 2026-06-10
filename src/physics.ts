@@ -58,10 +58,26 @@ export const CONFIG = {
   // instead of burning forever (the p6 perma-spin bug: constant 8800 N vs
   // 8964 N kinetic reaction left a 136 N recovery margin ≈ never).
   enginePower: 8800,                // N — low-speed force cap (unchanged)
-  // 125 kW (not 110): a held drift runs the wheel at ~14 m/s contact speed
-  // where thrust = P/wv — at 110 kW the drift starved (~6.8 kN vs its own
-  // drag) and speed decayed until the slide collapsed. 125 kW sustains it.
-  enginePeakPowerW: 125000,         // NEW (p7)  W
+  enginePeakPowerW: 125000,         // (p7)  W — straight-line power curve
+  // ---------- Drift-gated power delivery (p8) ----------
+  // The power curve runs on WHEEL speed, and a drifting wheel spins fast
+  // BY DESIGN — so the curve choked the engine exactly when the drift
+  // needed thrust. The car bled from a 40°+ slide to a 1-5 km/h pirouette
+  // (video-confirmed). Gate the curve by rear slip ANGLE with a smooth
+  // blend: going straight (< slipStart) the curve fully applies and the
+  // perma-burnout fix survives; deep in a drift (> slipFull) the engine
+  // delivers driftThrustFactor × enginePower so the spinning rear drives
+  // the car THROUGH the slide, like a real drift car at full power.
+  // Thresholds at 12°/24° (not 10°/20°): the gate is a positive feedback
+  // loop (slip → thrust → slip), and lower thresholds let a gentle
+  // full-throttle corner self-ignite into a slide. 12° keeps casual
+  // cornering on the power curve; committed slides get the thrust.
+  driftPowerSlipStart: 0.21,        // NEW (p8)  rad (~12°) — curve fully active below
+  driftPowerSlipFull: 0.42,         // NEW (p8)  rad (~24°) — full drift thrust above
+  // >1 overdrives the engine in a drift — needed because a deep slide
+  // scrubs enormous energy; 1.15 sustains a ~30-40°, ~20-25 km/h donut
+  // indefinitely instead of decaying into a pirouette.
+  driftThrustFactor: 1.15,          // NEW (p8)  × enginePower while drifting
   brakeForce: 14000,                // N at full brake (unchanged)
 
   // ---------- Resistance (unchanged) ----------
@@ -355,10 +371,14 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   const budget = c.tireGripBudgetRear;
   const alphaPeakRear = budget / c.corneringStiffnessRear;
 
-  // Engine drive force at the rear contact patch (p7: power curve).
-  // Force = min(enginePower, P/|wheelSpeed|): full punch at low wheel
-  // speed, falling off as the WHEEL spins faster — so wheelspin bleeds
-  // its own drive force and is self-limiting. The low-speed torque boost
+  // Engine drive force at the rear contact patch (p7: power curve,
+  // p8: drift-gated). Going straight, force = min(enginePower,
+  // P/|wheelSpeed|) — wheelspin bleeds its own drive force, so burnouts
+  // self-resolve. In a DRIFT (rear slip angle past driftPowerSlipStart,
+  // blending to full by driftPowerSlipFull) the curve is bypassed and the
+  // engine delivers driftThrustFactor × enginePower — the spinning rear
+  // must PUSH the car through the slide or the drift starves into a
+  // stationary pirouette (the p7 bug). The low-speed torque boost
   // (burnout launches) fades out by torqueBoostFadeSpeed of CAR speed.
   const driveBoost = 1 + c.lowSpeedTorqueBoost *
     Math.max(0, 1 - speed / c.torqueBoostFadeSpeed);
@@ -366,7 +386,13 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
     c.enginePower,
     c.enginePeakPowerW / Math.max(1, Math.abs(car.rearWheelSpeed)),
   );
-  const drive = input.throttle * powerLimitedForce * driveBoost;
+  const driftPowerBlend = clamp(
+    (Math.abs(rearSlip) - c.driftPowerSlipStart) /
+    (c.driftPowerSlipFull - c.driftPowerSlipStart), 0, 1);
+  const driftForce = c.enginePower * c.driftThrustFactor;
+  const engineForceNow =
+    powerLimitedForce + (driftForce - powerLimitedForce) * driftPowerBlend;
+  const drive = input.throttle * engineForceNow * driveBoost;
 
   // Arcade reverse mode (p6): brake held at/below walking pace with the
   // handbrake off — the pedal's meaning flips from "brake" to "reverse".

@@ -382,14 +382,101 @@ async function calibrate() {
 //  works correctly even when #phone-stage is CSS-rotated for the
 //  forced-landscape view. The value is clamped to [0, 1].
 //
-//  We deliberately DO NOT release on `pointerleave`: with pointer
-//  capture, the finger can slide below or above the strip without
-//  cancelling the input — value just clamps to 0 or 1 respectively.
+//  STUCK-INPUT SAFETY (p8): a missed pointerup left the pedal pinned at
+//  its last value (stuck full throttle, twice in testing). Defenses:
+//    - release on pointerup, pointercancel, pointerleave AND
+//      lostpointercapture (any one zeroes that pointer's contribution;
+//      with healthy pointer capture, pointerleave doesn't fire mid-press,
+//      so sliding off the strip still clamps rather than cancels)
+//    - visibilitychange/pagehide → zero ALL inputs immediately
+//    - watchdog: a tracked pointer that hasn't been seen for >2 s and no
+//      longer holds pointer capture is presumed dead and dropped
+//    - every reset broadcasts a control message IMMEDIATELY rather than
+//      waiting for the next 30 Hz tick
 // ----------------------------------------------------------------------
 function attachControlListeners() {
   bindAnalogPedal(throttleBtn, 'throttle');
   bindAnalogPedal(brakeBtn,    'brake');
   bindHandbrake(handbrakeBtn);
+
+  // Zero everything the moment the page loses foreground — a backgrounded
+  // tab will never see the finger lift.
+  const zeroAll = () => resetAllControls('page hidden');
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') zeroAll();
+  });
+  window.addEventListener('pagehide', zeroAll);
+  window.addEventListener('blur', zeroAll);
+
+  // Watchdog for ghost pointers (pointerup that never arrived).
+  setInterval(watchdogSweep, 500);
+}
+
+// Last time each tracked pointer was seen alive, per control.
+const pointerLastSeen: Record<Zone | 'handbrake', Map<number, number>> = {
+  throttle: new Map(), brake: new Map(), handbrake: new Map(),
+};
+const POINTER_STALE_MS = 2000;
+
+function markSeen(zone: Zone | 'handbrake', pointerId: number) {
+  pointerLastSeen[zone].set(pointerId, performance.now());
+}
+
+// Drop pointers that are stale AND no longer captured. A finger resting
+// motionless on a pedal emits no events, but it keeps pointer capture —
+// hasPointerCapture() refreshes its lease each sweep, so it's never
+// falsely dropped. A ghost pointer has lost capture and goes quiet → cut.
+function watchdogSweep() {
+  const now = performance.now();
+  let changed = false;
+
+  const sweep = (
+    el: HTMLElement, ids: Iterable<number>, zone: Zone | 'handbrake',
+    drop: (pid: number) => void,
+  ) => {
+    for (const pid of [...ids]) {
+      let captured = false;
+      try { captured = el.hasPointerCapture(pid); } catch { /* ignore */ }
+      if (captured) { markSeen(zone, pid); continue; }
+      const seen = pointerLastSeen[zone].get(pid) ?? 0;
+      if (now - seen > POINTER_STALE_MS) {
+        drop(pid);
+        pointerLastSeen[zone].delete(pid);
+        changed = true;
+      }
+    }
+  };
+
+  sweep(throttleBtn, pedalValues.throttle.keys(), 'throttle',
+    (pid) => pedalValues.throttle.delete(pid));
+  sweep(brakeBtn, pedalValues.brake.keys(), 'brake',
+    (pid) => pedalValues.brake.delete(pid));
+  sweep(handbrakeBtn, handbrakePointers, 'handbrake',
+    (pid) => handbrakePointers.delete(pid));
+
+  if (changed) {
+    refreshControlVisuals();
+    sendControlNow();
+  }
+}
+
+function resetAllControls(_reason: string) {
+  pedalValues.throttle.clear();
+  pedalValues.brake.clear();
+  handbrakePointers.clear();
+  pointerLastSeen.throttle.clear();
+  pointerLastSeen.brake.clear();
+  pointerLastSeen.handbrake.clear();
+  refreshControlVisuals();
+  sendControlNow();
+}
+
+function refreshControlVisuals() {
+  updatePedalFill(throttleBtn, 'throttle');
+  updatePedalFill(brakeBtn, 'brake');
+  throttleBtn.classList.toggle('active', pedalValues.throttle.size > 0);
+  brakeBtn.classList.toggle('active', pedalValues.brake.size > 0);
+  handbrakeBtn.classList.toggle('active', handbrakePointers.size > 0);
 }
 
 // Map a pointer's offsetY within the strip to a 0..1 pedal value.
@@ -433,6 +520,7 @@ function bindAnalogPedal(el: HTMLElement, zone: Zone) {
     e.preventDefault();
     const v = pedalValueFromEvent(e, el);
     pedalValues[zone].set(e.pointerId, v);
+    markSeen(zone, e.pointerId);
     el.classList.add('active');
     try { el.setPointerCapture(e.pointerId); } catch { /* ignore */ }
     updatePedalFill(el, zone);
@@ -441,50 +529,66 @@ function bindAnalogPedal(el: HTMLElement, zone: Zone) {
     if (!pedalValues[zone].has(e.pointerId)) return;
     const v = pedalValueFromEvent(e, el);
     pedalValues[zone].set(e.pointerId, v);
+    markSeen(zone, e.pointerId);
     updatePedalFill(el, zone);
   });
   const release = (e: PointerEvent) => {
     if (!pedalValues[zone].has(e.pointerId)) return;
     pedalValues[zone].delete(e.pointerId);
+    pointerLastSeen[zone].delete(e.pointerId);
     if (pedalValues[zone].size === 0) el.classList.remove('active');
     updatePedalFill(el, zone);
+    sendControlNow();
   };
-  el.addEventListener('pointerup',     release);
-  el.addEventListener('pointercancel', release);
-  el.addEventListener('contextmenu',   (e) => e.preventDefault());
+  el.addEventListener('pointerup',          release);
+  el.addEventListener('pointercancel',      release);
+  el.addEventListener('pointerleave',       release);
+  el.addEventListener('lostpointercapture', release);
+  el.addEventListener('contextmenu',        (e) => e.preventDefault());
 }
 
 function bindHandbrake(el: HTMLElement) {
   el.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     handbrakePointers.add(e.pointerId);
+    markSeen('handbrake', e.pointerId);
     el.classList.add('active');
     try { el.setPointerCapture(e.pointerId); } catch { /* ignore */ }
   });
   const release = (e: PointerEvent) => {
     if (!handbrakePointers.has(e.pointerId)) return;
     handbrakePointers.delete(e.pointerId);
+    pointerLastSeen.handbrake.delete(e.pointerId);
     if (handbrakePointers.size === 0) el.classList.remove('active');
+    sendControlNow();
   };
-  el.addEventListener('pointerup',     release);
-  el.addEventListener('pointercancel', release);
-  el.addEventListener('contextmenu',   (e) => e.preventDefault());
+  el.addEventListener('pointerup',          release);
+  el.addEventListener('pointercancel',      release);
+  el.addEventListener('pointerleave',       release);
+  el.addEventListener('lostpointercapture', release);
+  el.addEventListener('contextmenu',        (e) => e.preventDefault());
 }
 
 // ----------------------------------------------------------------------
 //  Broadcast
 // ----------------------------------------------------------------------
+let broadcastStarted = false;
+
+function sendControlNow() {
+  if (!broadcastStarted) return;
+  const payload = {
+    steer:     steerFromTilt(),
+    throttle:  pedalValue('throttle'),
+    brake:     pedalValue('brake'),
+    handbrake: handbrakeOn(),
+  };
+  channel.send({ type: 'broadcast', event: 'control', payload });
+}
+
 function startBroadcast() {
+  broadcastStarted = true;
   const INTERVAL_MS = 1000 / SEND_HZ;
-  setInterval(() => {
-    const payload = {
-      steer:    steerFromTilt(),
-      throttle:  pedalValue('throttle'),
-      brake:     pedalValue('brake'),
-      handbrake: handbrakeOn(),
-    };
-    channel.send({ type: 'broadcast', event: 'control', payload });
-  }, INTERVAL_MS);
+  setInterval(sendControlNow, INTERVAL_MS);
 }
 
 // ----------------------------------------------------------------------
