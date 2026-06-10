@@ -97,6 +97,8 @@ one number, save, hot-reload. Common tweaks:
 | More violent burnout launches | `lowSpeedTorqueBoost ↑` |
 | Sharper throttle→drift response | `wheelSpinInertia ↓` |
 | Drift retains more energy | `driftFriction ↑` |
+| Deeper held drift angles | `spinLatGripFactor ↓` |
+| Stickier drift angle while countersteering | `driftStabilityAssist ↑` (0 = raw physics) |
 | Softer handbrake | `handbrakeLockForce ↓` |
 | Snappier steering | `steerSpeed ↑` |
 | Less twitchy on phone tilt | `tiltSensitivity ↑` (more tilt for same input) |

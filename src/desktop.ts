@@ -235,8 +235,9 @@ function updateHud() {
     rearSlipValEl.textContent = sign + slipDeg.toFixed(1) + '°';
   }
 
-  // Rear wheelspin as a percentage (|slip ratio| clamped to 1). ~13% under
-  // clean full-throttle acceleration, 100% during a burnout/lock.
+  // Rear wheelspin as a percentage. 0% while the tire grips (even at full
+  // throttle), >0% only when the rear is saturated — burnout, handbrake
+  // lock, or power-over spin.
   if (wspinValEl) {
     wspinValEl.textContent = Math.round(car.wheelSpin * 100) + '%';
   }

@@ -49,7 +49,19 @@ export const CONFIG = {
   inertiaScale: 8.0,                // p2 1.5 → 8.0  ↑  weighty rotation, progressive slide
 
   // ---------- Engine / brakes ----------
-  enginePower: 8800,                // p4 7500 → 8800  ↑ ~17% more punch (p5)
+  // p7: the engine is now a POWER CURVE, not a constant force:
+  //   drive = throttle · min(enginePower, enginePeakPowerW / |wheelSpeed|)
+  // enginePower caps the low-speed force (launch punch); above the
+  // crossover (~12.5 m/s wheel speed) force falls off as P/v. Because the
+  // curve runs on WHEEL speed, a spinning wheel bleeds its own engine
+  // force — wheelspin is self-limiting and full throttle at speed HOOKS UP
+  // instead of burning forever (the p6 perma-spin bug: constant 8800 N vs
+  // 8964 N kinetic reaction left a 136 N recovery margin ≈ never).
+  enginePower: 8800,                // N — low-speed force cap (unchanged)
+  // 125 kW (not 110): a held drift runs the wheel at ~14 m/s contact speed
+  // where thrust = P/wv — at 110 kW the drift starved (~6.8 kN vs its own
+  // drag) and speed decayed until the slide collapsed. 125 kW sustains it.
+  enginePeakPowerW: 125000,         // NEW (p7)  W
   brakeForce: 14000,                // N at full brake (unchanged)
 
   // ---------- Resistance (unchanged) ----------
@@ -60,10 +72,13 @@ export const CONFIG = {
   // More lock and higher high-speed authority so countersteer can actually
   // CATCH a slide. With the old falloff a drift at speed had ~55% of full
   // lock available — not enough to point the fronts into the slide.
-  maxSteerAngle: 0.70,              // ← 0.55  ↑  ~40°, more counter-steer headroom
-  steerSpeed: 5.5,                  // ← 4.5   ↑  rad/s, faster wheel actuation
-  steerSpeedFalloff: 0.70,          // ← 0.55  ↑  less lock loss at speed
-  speedForFullFalloff: 50,          // ← 40    ↑  m/s, full falloff applies higher
+  // p7: real drift cars run 50-65° of lock precisely to HOLD big angles —
+  // at 40° the fronts ran out of countersteer long before a 50° drift
+  // could balance. steerSpeed up so full lock arrives in ~0.15 s.
+  maxSteerAngle: 1.0,               // p6 0.70 → 1.0  ↑  ~57° lock for deep drifts
+  steerSpeed: 7.0,                  // p6 5.5  → 7.0  ↑  rad/s, faster actuation
+  steerSpeedFalloff: 0.70,          // (unchanged)  less lock loss at speed
+  speedForFullFalloff: 50,          // (unchanged)  m/s, full falloff applies higher
 
   // ---------- Tire / grip ----------
   // FRONT (undriven): pure lateral model — linear stiffness with a peak cap.
@@ -85,10 +100,11 @@ export const CONFIG = {
   // removed) and the separate peakLatGripRear cap (p2 8200, removed —
   // lateral-only peak is now the full budget when the wheel isn't spinning).
   // IMPORTANT relationship: kinetic reaction = budget × driftFriction
-  // (10800 × 0.83 ≈ 8964 N) must EXCEED steady enginePower (8800 N), or a
-  // spinning wheel can never decelerate back to grip and full throttle
-  // becomes a permanent burnout. With the launch boost the drive force
-  // does exceed it below ~12 m/s — so launches light up and then hook up.
+  // (10800 × 0.83 ≈ 8964 N) must EXCEED the engine's force CAP (8800 N),
+  // or a spinning wheel can never decelerate back to grip. p7's power
+  // curve makes this much easier to satisfy: above ~12.5 m/s of wheel
+  // speed the drive force falls off as P/v, so a spinning wheel bleeds
+  // its own torque and recovery is fast everywhere.
   tireGripBudgetRear: 10800,        // p4 9200 → 10800  ↑ proportional to enginePower (p5)
   // Slip ratio at which longitudinal traction peaks. Below = linear
   // traction (wheel ~matches ground). Above = the wheel is SPINNING
@@ -97,6 +113,18 @@ export const CONFIG = {
   // m/s floor for the slip-ratio denominator — keeps the math sane near
   // standstill. Lower = more violent low-speed wheelspin behavior.
   slipDenomFloor: 3.0,              // NEW (p4)
+  // p7: extra cut on the rear LATERAL force while the wheel is POWER-
+  // SPINNING (slip ratio past peak under throttle). The friction circle
+  // already rotates the force vector longitudinal, but the residual
+  // lateral (≈ half the kinetic budget at a 50° slide) generated enough
+  // straightening torque that deep drift angles collapsed back to a
+  // shallow donut. With the cut, throttle truly holds the rear out and
+  // 45-60° angles balance on countersteer. Raise toward 1 for less effect.
+  // 0.25: higher values leave enough rear lateral while spinning that its
+  // restoring torque + drag starve a held drift (tested 0.55 and 0.35 —
+  // both eventually collapsed the angle). At 0.25 a full-throttle drift
+  // sustains its angle AND its speed.
+  spinLatGripFactor: 0.25,          // NEW (p7)
   // Effective inertia of wheel + drivetrain at the contact patch (kg).
   // Lower = wheels spin up on throttle / grip up on lift FASTER.
   wheelSpinInertia: 15,             // NEW (p4)
@@ -109,8 +137,10 @@ export const CONFIG = {
   // by torqueBoostFadeSpeed. Full throttle from rest: 8800 × 1.6 = 14080 N
   // > 10800 N budget → the rear lights up (burnout + squirm) instead of
   // cleanly hooking up. Doesn't touch cruise feel or top speed. 0 disables.
-  lowSpeedTorqueBoost: 0.6,         // NEW (p4)
-  torqueBoostFadeSpeed: 12,         // NEW (p4)  m/s (~43 km/h) where boost = 0
+  lowSpeedTorqueBoost: 0.6,         // (p4, unchanged)
+  // p7: boost fades sooner so launch wheelspin ends by ~30-40 km/h instead
+  // of dragging on — launch lights up, then cleanly hooks.
+  torqueBoostFadeSpeed: 8,          // p4 12 → 8  ↓  m/s (~29 km/h) where boost = 0
   // Fraction of the pedal brake that acts on the rear WHEEL (through the
   // friction circle — hard braking can lock the rear and slide it, brake-
   // drift style). The rest acts on the front/body directly.
@@ -147,18 +177,29 @@ export const CONFIG = {
   maxReverseSpeed: 6,               // NEW (p6)  m/s (~22 km/h) reverse cap
 
   // ---------- Yaw damping / rate limit ----------
-  // PASS 3: damping is the yaw-rate DECAY constant (its effect in rad/s²
-  // is -angularDamping * angularVel, independent of inertia). Raised so a
-  // slide SETTLES into a held angle and gives countersteer time to work,
-  // instead of the yaw running away. Front catch torque still dominates
-  // at meaningful yaw rates, so the car isn't glued straight.
-  angularDamping: 3.0,              // p2 1.5 → 3.0  ↑  settle into angle, catchable
-  // Hard cap on |yaw rate| (rad/s). A pure backstop against runaway spin:
-  // a loss of grip can't produce more than this much rotation speed, so
-  // even a botched entry stays controllable. ~2.8 rad/s ≈ 160°/s, plenty
-  // for an aggressive drift but short of an uncatchable gyro. Raise to
-  // allow faster rotation, lower for more stability.
-  maxYawRate: 2.8,                  // NEW (p3). clamp on |angularVel|
+  // Damping is the yaw-rate DECAY constant (its effect in rad/s² is
+  // -angularDamping * angularVel, independent of inertia). p7: eased back
+  // down — 3.0 ate so much yaw headroom that big drift angles couldn't
+  // develop. Inertia (8.0) + the soft yaw limit below keep entries
+  // progressive and catchable.
+  angularDamping: 1.7,              // p3 3.0 → p7 1.7  ↓  deep angles need yaw headroom
+  // Drift stability assist (p7) — the key to HOLDING big angles. While the
+  // rear is sliding, a corrective yaw term drives the body's rotation to
+  // TRACK the rotation of the velocity vector, so the current slide angle
+  // tends to hold instead of self-straightening (the raw dynamics are
+  // unstable around deep angles with a ~0.3 s divergence time — fine for
+  // a sim with a wheel, hopeless on phone tilt). Steering and throttle
+  // then SHIFT the balanced angle rather than fight the instability:
+  // throttle deepens, lift shallows, countersteer trims. Gated by the
+  // countersteer gesture (see step 9) so initiation stays free. 1/s;
+  // higher = stickier drift angle, 0 = raw physics (assist off).
+  driftStabilityAssist: 8.0,        // NEW (p7)
+  // Yaw-rate limit (rad/s). p7: now a SOFT limit — yaw above maxYawRate
+  // is damped back hard (softYawClampRate per second) instead of
+  // hard-clipped. The hard clip froze rotation exactly when a big entry
+  // needed it most; the soft limit still stops runaway spins.
+  maxYawRate: 3.2,                  // p3 2.8 → 3.2  ↑  more rotation for deep entries
+  softYawClampRate: 10,             // NEW (p7)  1/s decay applied to yaw above the limit
 
   // ---------- Drift detection / skids ----------
   // Visual indicator only — independent of the physics slide cap. Lower
@@ -314,11 +355,18 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   const budget = c.tireGripBudgetRear;
   const alphaPeakRear = budget / c.corneringStiffnessRear;
 
-  // Engine drive force at the rear contact patch, with the low-speed
-  // torque boost (burnout launches; fades out by torqueBoostFadeSpeed).
+  // Engine drive force at the rear contact patch (p7: power curve).
+  // Force = min(enginePower, P/|wheelSpeed|): full punch at low wheel
+  // speed, falling off as the WHEEL spins faster — so wheelspin bleeds
+  // its own drive force and is self-limiting. The low-speed torque boost
+  // (burnout launches) fades out by torqueBoostFadeSpeed of CAR speed.
   const driveBoost = 1 + c.lowSpeedTorqueBoost *
     Math.max(0, 1 - speed / c.torqueBoostFadeSpeed);
-  const drive = input.throttle * c.enginePower * driveBoost;
+  const powerLimitedForce = Math.min(
+    c.enginePower,
+    c.enginePeakPowerW / Math.max(1, Math.abs(car.rearWheelSpeed)),
+  );
+  const drive = input.throttle * powerLimitedForce * driveBoost;
 
   // Arcade reverse mode (p6): brake held at/below walking pace with the
   // handbrake off — the pedal's meaning flips from "brake" to "reverse".
@@ -396,12 +444,27 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   // TRANSITION, so turn-in + handbrake snaps the rear out instead of
   // merely slowing the car. (p6)
   if (input.handbrake) rearLatForce *= c.handbrakeLatGripFactor;
+  // Power-spin lateral cut (p7): while the rear is spinning UP under
+  // throttle (positive slip past peak), cut its lateral force further so
+  // the residual restoring torque can't straighten a deep drift. The cut
+  // blends in CONTINUOUSLY with spin depth (full effect by 3× peak slip) —
+  // a hard on/off switch at the threshold made the torque balance jump and
+  // drove limit-cycle oscillation in held drifts. Lift → slip collapses →
+  // lateral returns smoothly.
+  else if (isRearSliding && s > c.slipRatioPeak) {
+    const spinDepth = Math.min(1, (s - c.slipRatioPeak) / (0.5 * c.slipRatioPeak));
+    rearLatForce *= 1 - (1 - c.spinLatGripFactor) * spinDepth;
+  }
 
   // Clamp wheel overspeed to ±maxSlipRatio (force saturates past rho = 1
   // anyway; unbounded wheel speed would only add throttle-lift lag).
   wv = clamp(wv, vg - c.maxSlipRatio * sDenom, vg + c.maxSlipRatio * sDenom);
   s = (wv - vg) / sDenom;
   car.rearWheelSpeed = wv;
+
+  // How deep into the slide the rear is (0 = grip, 1 = fully saturated) —
+  // smooth ramp over rho ∈ [1, 1.5]. Gates the drift stability assist.
+  const rearSlideBlend = clamp((rho - 1) / 0.5, 0, 1);
 
   // ---- 6. Body longitudinal forces (engine lives at the rear wheel) ----
   // Pedal logic (p6): moving forward → normal brake (front share on the
@@ -444,14 +507,38 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   const torque = halfWB * frontForceBodyY - halfWB * rearForceBodyY;
   const yawDamp = -c.angularDamping * I * car.angularVel;
   car.angularVel += (torque + yawDamp) / I * dt;
-  // Hard backstop against an uncatchable spin: clamp the yaw rate so a
-  // loss of grip can only ever produce a controllable rotation speed.
-  car.angularVel = clamp(car.angularVel, -c.maxYawRate, c.maxYawRate);
+  // Soft yaw-rate limit (p7): yaw above maxYawRate is damped back hard
+  // instead of hard-clipped — the hard clip froze rotation exactly when
+  // a deep drift entry needed it. Still a firm backstop against runaway.
+  const yawExcess = Math.abs(car.angularVel) - c.maxYawRate;
+  if (yawExcess > 0) {
+    car.angularVel -= Math.sign(car.angularVel) *
+      yawExcess * Math.min(1, c.softYawClampRate * dt);
+  }
   car.heading    += car.angularVel * dt;
 
   // ---- 9. Integrate translation (body force -> world force -> velocity) ----
   const worldForceX = bodyForceX * cosH - bodyForceY * sinH;
   const worldForceY = bodyForceX * sinH + bodyForceY * cosH;
+
+  // Drift stability assist (p7): while the rear slides AND the player is
+  // countersteering, nudge the yaw rate toward the rotation rate of the
+  // VELOCITY vector (dphi, from this step's net force). dβ/dt = dphi − ω,
+  // so this damps the slide angle's drift — the angle holds where the
+  // player put it instead of self-straightening or diverging (the raw
+  // dynamics are unstable with ~0.3 s divergence — hopeless on phone
+  // tilt). The countersteer GATE keeps initiation free: steering INTO the
+  // turn (same side as the rotation) disables the assist so flicks and
+  // power-overs swing out unhindered; the moment the player countersteers
+  // — the universal "hold it here" gesture — the assist locks the angle.
+  const v2 = car.vx * car.vx + car.vy * car.vy;
+  if (rearSlideBlend > 0 && v2 > 4) {
+    const steerNorm = car.steerAngle / c.maxSteerAngle;
+    const assistGate = clamp(0.5 + 1.5 * steerNorm * Math.sign(lateralVel || 0), 0, 1);
+    const dphi = (car.vx * worldForceY - car.vy * worldForceX) / (c.mass * v2);
+    car.angularVel += c.driftStabilityAssist * rearSlideBlend * assistGate *
+      (dphi - car.angularVel) * dt;
+  }
 
   car.vx += worldForceX / c.mass * dt;
   car.vy += worldForceY / c.mass * dt;
@@ -469,7 +556,9 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   car.frontSlip = frontSlip;
   car.rearSlip = rearSlip;
   car.slipRatio = s;
-  car.wheelSpin = Math.min(1, Math.abs(s));
+  // WSPIN reads 0 while the tire grips (linear traction slip is normal and
+  // not "wheelspin"); only a saturated/sliding rear registers. (p7)
+  car.wheelSpin = isRearSliding ? Math.min(1, Math.abs(s)) : 0;
   car.isFrontSliding = isFrontSliding;
   car.isRearSliding = isRearSliding;
 }
