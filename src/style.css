@@ -78,8 +78,8 @@ body.desktop #hud-bl {
   background: #fff3cd; color: #b54708; border-color: #f0c674;
 }
 
-/* Live rear slip-angle readout — sits below the GRIP/DRIFT badge. */
-#slip-readout {
+/* Live readouts (rear slip angle, wheelspin) — below the GRIP/DRIFT badge. */
+#slip-readout, #wspin-readout {
   font: 700 11px/1 ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   letter-spacing: 1.5px;
   color: #6b7280;
@@ -87,7 +87,7 @@ body.desktop #hud-bl {
   gap: 8px;
   align-items: baseline;
 }
-#slip-readout #rear-slip-val {
+#slip-readout #rear-slip-val, #wspin-readout #wspin-val {
   color: #1c1c20;
   font-weight: 800;
   font-variant-numeric: tabular-nums;

@@ -3,17 +3,21 @@
 // -----------------------------------------------------------------------------
 //  Bicycle model with separate longitudinal & lateral tire forces.
 //
-//   - Longitudinal: engine, brake, quadratic air drag, linear rolling drag.
+//   - Longitudinal: the engine drives the REAR WHEEL, not the body. We track
+//     rear wheel speed separately from ground speed; the tire transmits force
+//     through friction. Plus quadratic air drag + linear rolling drag.
 //     The car has MASS, accelerates gradually, coasts on inertia.
 //
-//   - Lateral: slip-angle tire model with a peak grip cap.
-//     Inside the linear region the car holds the line.
-//     Past the cap, the wheel breaks loose -> velocity keeps momentum while
-//     the chassis rotates -> DRIFT.
+//   - Lateral: slip-angle tire model. Front: linear with a peak cap. Rear:
+//     combined-slip FRICTION CIRCLE — one grip budget shared between
+//     longitudinal (wheelspin/braking) and lateral (cornering) force.
 //
-//   - Rear axle is biased to break loose first (lower peak grip + higher
-//     stiffness vs front) -> GRID-style throttle-on oversteer that's
-//     countersteer-catchable.
+//   - DRIFT = wheelspin: throttle spins the rear faster than the ground,
+//     the spin consumes the friction budget, lateral grip collapses and the
+//     rear steps out. Lift off -> the wheel grips up -> the budget swings
+//     back to lateral -> the car straightens. Throttle steers the drift
+//     angle; countersteer balances it. Handbrake locks the rear wheel for
+//     slide entries via the same mechanism.
 //
 //  All units are SI: meters, seconds, kilograms, Newtons, radians.
 //  Tunables live in one place: CONFIG. Tweak a number, see the change.
@@ -61,37 +65,67 @@ export const CONFIG = {
   steerSpeedFalloff: 0.70,          // ← 0.55  ↑  less lock loss at speed
   speedForFullFalloff: 50,          // ← 40    ↑  m/s, full falloff applies higher
 
-  // ---------- Tire / grip — the core of the oversteer bias ----------
-  // PASS 2: pass-1 overshot into "ice" — rear let go at the slightest
-  // input and the slide had no grip to recover with. Pull the rear grip
-  // partway back up (still below front for oversteer bias, but a much
-  // less extreme margin) and — most importantly — raise driftFriction so
-  // a sliding tire keeps enough grip to respond to countersteer.
-  corneringStiffnessFront: 180000,  // (p1, unchanged)  snappy front turn-in & catch
-  corneringStiffnessRear:  110000,  // p1 90000  → 110000  ↑  rear less floppy, holds longer
-  peakLatGripFront:  13500,         // (p1, unchanged)  strong front for catch authority
-  peakLatGripRear:    8200,         // p1 6500   →   8200  ↑  rear doesn't give up at a touch
-  // driftFriction = kinetic/static friction ratio once past peak. THE key
-  // "on ice" fix: 0.70 left the slide gripless and unrecoverable. 0.83
-  // keeps real grip in the slide so countersteer + throttle can settle it.
-  driftFriction: 0.83,              // p1 0.70   →   0.83  ↑  grip-in-slide, recoverable
+  // ---------- Tire / grip ----------
+  // FRONT (undriven): pure lateral model — linear stiffness with a peak cap.
+  corneringStiffnessFront: 180000,  // (unchanged)  snappy front turn-in & catch
+  peakLatGripFront:  13500,         // (unchanged)  strong front for catch authority
+  // REAR (driven): lateral stiffness still shapes how fast lateral force
+  // builds with slip angle. The PEAK now comes from tireGripBudgetRear
+  // below — lateral peak slip angle = budget / stiffness ≈ 4.4°.
+  corneringStiffnessRear:  110000,  // (unchanged)
+  // Kinetic/static friction ratio once a tire is past peak — used by the
+  // front cap AND as the saturated-force magnitude of the rear circle.
+  driftFriction: 0.83,              // (unchanged)  grip-in-slide, recoverable
 
-  // ---------- Power-on oversteer ----------
-  // At higher throttle inputs we scale the rear's effective peak lateral
-  // grip down — a single-knob approximation of the friction-circle effect
-  // (longitudinal force at the driven axle steals from its lateral budget).
-  // PASS 2: 0.35 snapped the rear loose almost instantly on throttle.
-  // 0.20 makes throttle add rotation PROGRESSIVELY so it's a modulation
-  // tool, not an on/off switch. Lift off → grip recovers → drift catches.
-  rwdPowerOversteerStrength: 0.20,  // p1 0.35   →   0.20  ↓  progressive, not instant
+  // ---------- Rear wheelspin / friction circle — PASS 4, the drift core ----------
+  // The rear tire has ONE total grip budget (N) shared between longitudinal
+  // force (wheelspin / braking) and lateral force (cornering). Wheelspin
+  // consumes the budget → lateral grip collapses → THROTTLE STEERS THE
+  // DRIFT ANGLE. Replaces the rwdPowerOversteerStrength hack (p2 0.20,
+  // removed) and the separate peakLatGripRear cap (p2 8200, removed —
+  // lateral-only peak is now the full budget when the wheel isn't spinning).
+  // IMPORTANT relationship: kinetic reaction = budget × driftFriction
+  // (9200 × 0.83 ≈ 7636 N) must EXCEED steady enginePower (7500 N), or a
+  // spinning wheel can never decelerate back to grip and full throttle
+  // becomes a permanent burnout. With the launch boost the drive force
+  // does exceed it below ~12 m/s — so launches light up and then hook up.
+  tireGripBudgetRear: 9200,         // N — friction-circle radius (was peakLatGripRear 8200)
+  // Slip ratio at which longitudinal traction peaks. Below = linear
+  // traction (wheel ~matches ground). Above = the wheel is SPINNING
+  // (kinetic regime). Lower = wheelspin starts at smaller overspeed.
+  slipRatioPeak: 0.15,              // NEW (p4)
+  // m/s floor for the slip-ratio denominator — keeps the math sane near
+  // standstill. Lower = more violent low-speed wheelspin behavior.
+  slipDenomFloor: 3.0,              // NEW (p4)
+  // Effective inertia of wheel + drivetrain at the contact patch (kg).
+  // Lower = wheels spin up on throttle / grip up on lift FASTER.
+  wheelSpinInertia: 15,             // NEW (p4)
+  // Cap on |slip ratio| via wheel overspeed: wv is clamped within
+  // ±maxSlipRatio·denom of ground speed. Force already saturates past
+  // rho = 1, so extra wheel speed adds nothing except lag when the player
+  // lifts — this keeps throttle-lift hookup near-instant (~2 frames).
+  maxSlipRatio: 2.5,                // NEW (p4)
+  // Launch punch: extra drive force at standstill, fading linearly to zero
+  // by torqueBoostFadeSpeed. Full throttle from rest: 7500 × 1.6 = 12000 N
+  // > 8500 N budget → the rear lights up (burnout + squirm) instead of
+  // cleanly hooking up. Doesn't touch cruise feel or top speed. 0 disables.
+  lowSpeedTorqueBoost: 0.6,         // NEW (p4)
+  torqueBoostFadeSpeed: 12,         // NEW (p4)  m/s (~43 km/h) where boost = 0
+  // Fraction of the pedal brake that acts on the rear WHEEL (through the
+  // friction circle — hard braking can lock the rear and slide it, brake-
+  // drift style). The rest acts on the front/body directly.
+  brakeRearShare: 0.35,             // NEW (p4)
 
-  // ---------- Handbrake (controllable snap-loose) ----------
-  // PASS 2: 0.18 was a violent instant spin. 0.35 still clearly breaks the
-  // rear loose for a drift ENTRY, but as a controllable slide you can hold
-  // and catch, not a gyro.
-  handbrakeRearGripMultiplier:      0.35, // p1 0.18 → 0.35  ↑  breaks loose but holdable
-  handbrakeRearStiffnessMultiplier: 0.45, // p1 0.30 → 0.45  ↑  less violent rear collapse
-  handbrakeBrakeForce:              5500, // unchanged
+  // ---------- Handbrake — PASS 4: wheel lock, not grip multipliers ----------
+  // The handbrake is now simply a strong brake force on the rear WHEEL. It
+  // locks the wheel within a couple of frames → slip ratio goes hard
+  // negative → the friction circle collapses lateral grip → the rear
+  // slides. Release → the wheel spins back up to ground speed → grip
+  // returns → the player catches the slide on throttle + countersteer.
+  // Replaces handbrakeRearGripMultiplier (p2 0.35), handbrakeRearStiffness-
+  // Multiplier (p2 0.45) and handbrakeBrakeForce (5500) — the same feel
+  // now emerges from the wheel-lock physics. Lower = softer, slower lock.
+  handbrakeLockForce: 9000,         // NEW (p4)  N at the rear contact patch
 
   // ---------- Yaw damping / rate limit ----------
   // PASS 3: damping is the yaw-rate DECAY constant (its effect in rad/s²
@@ -138,11 +172,18 @@ export interface CarState {
   // Current front-wheel angle (rad), eased toward target each step.
   steerAngle: number;
 
+  // Rear wheel contact-patch speed (m/s) — the wheelspin state. Spun up by
+  // engine torque, dragged toward ground speed by the tire's friction
+  // reaction, slowed by rear brake / handbrake. Clamped >= 0 (no reverse).
+  rearWheelSpeed: number;
+
   // Derived, updated every step (for HUD / skid logic).
   speed: number;
   forwardSpeed: number;
   frontSlip: number;
   rearSlip: number;
+  slipRatio: number;       // rear longitudinal slip (+ = spinning, − = locking)
+  wheelSpin: number;       // |slipRatio| clamped to 0..1 — HUD "WSPIN %"
   isFrontSliding: boolean;
   isRearSliding: boolean;
 }
@@ -159,8 +200,10 @@ export function makeCar(x: number, y: number, heading: number = -Math.PI / 2): C
     x, y, heading,
     vx: 0, vy: 0, angularVel: 0,
     steerAngle: 0,
+    rearWheelSpeed: 0,
     speed: 0, forwardSpeed: 0,
     frontSlip: 0, rearSlip: 0,
+    slipRatio: 0, wheelSpin: 0,
     isFrontSliding: false, isRearSliding: false,
   };
 }
@@ -222,71 +265,114 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   const frontSlip = Math.atan2(frontWheelLat, Math.max(MIN_LONG, Math.abs(frontWheelLong)));
   const rearSlip  = Math.atan2(rearLat,       Math.max(MIN_LONG, Math.abs(rearLong)));
 
-  // ---- 5. Lateral forces (linear, clamped at peak) ----
-  // Linear region (sub-grip): F = -stiffness * slip. Negative because positive
-  // slip means the tire is dragged sideways and the tire pushes BACK.
-  //
-  // Rear-grip scaling priority:
-  //   1. HANDBRAKE engaged → use the handbrake multipliers (deliberate
-  //      snap-loose). Throttle effect is ignored here so the two don't
-  //      compound into "no grip at all".
-  //   2. Otherwise → peak grip is scaled DOWN by throttle via
-  //      rwdPowerOversteerStrength to fake power-on oversteer:
-  //         rearPeakGrip = peakLatGripRear * (1 - throttle * strength)
-  //      Easing off throttle restores grip → drift catches.
-  //   Stiffness scales with handbrake only (throttle doesn't change how
-  //   quickly the rear builds force, just how soon it saturates).
-  const rearStiff = c.corneringStiffnessRear *
-    (input.handbrake ? c.handbrakeRearStiffnessMultiplier : 1);
-  const rearGripScale = input.handbrake
-    ? c.handbrakeRearGripMultiplier
-    : (1 - input.throttle * c.rwdPowerOversteerStrength);
-  const rearPeakGrip = c.peakLatGripRear * rearGripScale;
-
+  // ---- 5. Tire forces ----
+  // FRONT (undriven): pure lateral, linear in slip angle, clamped at peak,
+  // kinetic fraction once sliding — unchanged from earlier passes.
   let frontLatForce = -c.corneringStiffnessFront * frontSlip;
-  let rearLatForce  = -rearStiff                * rearSlip;
-
   const isFrontSliding = Math.abs(frontLatForce) > c.peakLatGripFront;
-  const isRearSliding  = Math.abs(rearLatForce)  > rearPeakGrip;
-
-  // Past peak grip the tire slides. Apply driftFriction to bleed energy and
-  // keep the slide controllable rather than catastrophic.
   if (isFrontSliding) {
     frontLatForce = Math.sign(frontLatForce) * c.peakLatGripFront * c.driftFriction;
   }
-  if (isRearSliding) {
-    rearLatForce = Math.sign(rearLatForce) * rearPeakGrip * c.driftFriction;
-  }
 
-  // ---- 6. Longitudinal forces ----
-  let engineForce = input.throttle * c.enginePower;
-  let brakingForce = 0;
+  // REAR (driven): combined-slip friction circle — PASS 4.
+  //
+  //   slip ratio  s     = (wheelSpeed − groundSpeed) / max(floor, |groundSpeed|)
+  //   norm long   nLong = s / slipRatioPeak
+  //   norm lat    nLat  = slipAngle / alphaPeak,   alphaPeak = budget/stiffness
+  //   combined    rho   = hypot(nLong, nLat)
+  //
+  //   rho ≤ 1 (grip):    F_long =  budget · nLong
+  //                      F_lat  = −budget · nLat
+  //   rho > 1 (sliding): total force = budget · driftFriction, pointed along
+  //                      the combined-slip direction:
+  //                      F_long =  budget · driftFriction · nLong/rho
+  //                      F_lat  = −budget · driftFriction · nLat /rho
+  //
+  // This is what makes throttle steer the drift: more throttle → the wheel
+  // spins → nLong grows → the force vector rotates longitudinal → lateral
+  // grip collapses → the rear steps out. Lift → the wheel grips up
+  // (nLong → 0) → the budget swings back lateral → the rear hooks up.
+  const budget = c.tireGripBudgetRear;
+  const alphaPeakRear = budget / c.corneringStiffnessRear;
 
-  // Brake decelerates whichever way the car is moving, never accelerates the
-  // other direction (no reverse this slice). HANDBRAKE adds a fixed
-  // longitudinal drag on top of any pedal brake input.
-  if (forwardVel > 0.1) {
-    brakingForce = input.brake * c.brakeForce;
-    if (input.handbrake) brakingForce += c.handbrakeBrakeForce;
-  } else if (forwardVel < -0.1) {
-    brakingForce = -input.brake * c.brakeForce;
-    if (input.handbrake) brakingForce -= c.handbrakeBrakeForce;
+  // Engine drive force at the rear contact patch, with the low-speed
+  // torque boost (burnout launches; fades out by torqueBoostFadeSpeed).
+  const driveBoost = 1 + c.lowSpeedTorqueBoost *
+    Math.max(0, 1 - speed / c.torqueBoostFadeSpeed);
+  const drive = input.throttle * c.enginePower * driveBoost;
+
+  // Brake torque on the rear wheel: rear share of the pedal + handbrake.
+  // The handbrake LOCKS the wheel, which drives the slip ratio hard
+  // negative and — through the circle — collapses lateral grip. That IS
+  // the handbrake-drift mechanic.
+  const rearBrakeF = input.brake * c.brakeForce * c.brakeRearShare +
+    (input.handbrake ? c.handbrakeLockForce : 0);
+
+  const vg = rearLong;                                   // ground speed at rear patch
+  const sDenom = Math.max(c.slipDenomFloor, Math.abs(vg));
+  const mw = c.wheelSpinInertia;
+
+  // Wheel-speed update. The linear traction region is numerically STIFF
+  // (tiny wheel inertia against a steep force-vs-slip slope), so it's
+  // integrated IMPLICITLY — unconditionally stable at any dt:
+  //   wv' = (drive − brake − k·(wv − vg)) / mw,   k = budget/(slipPeak·denom)
+  //   wvNew = (wv + dt/mw·(drive − brake + k·vg)) / (1 + dt·k/mw)
+  const kSlip = budget / (c.slipRatioPeak * sDenom);
+  const wv0 = car.rearWheelSpeed;
+  let wv = (wv0 + (dt / mw) * (drive - rearBrakeF + kSlip * vg)) /
+           (1 + (dt * kSlip) / mw);
+
+  let s = (wv - vg) / sDenom;
+  let nLong = s / c.slipRatioPeak;
+  const nLat = rearSlip / alphaPeakRear;
+  let rho = Math.hypot(nLong, nLat);
+
+  let rearLongForce: number;
+  let rearLatForce: number;
+  const isRearSliding = rho > 1;
+
+  if (!isRearSliding) {
+    rearLongForce =  budget * nLong;
+    rearLatForce  = -budget * nLat;
   } else {
-    // At rest with brake OR handbrake held, lock the engine too.
-    if (input.brake > 0.05 || input.handbrake) engineForce = 0;
+    const fk = budget * c.driftFriction;
+    rearLongForce =  fk * (nLong / rho);
+    rearLatForce  = -fk * (nLat  / rho);
+    // The implicit predictor assumed the full linear reaction; while
+    // saturated the real reaction is the (smaller, ~constant) kinetic
+    // force, so re-integrate the wheel explicitly against it. This is
+    // the branch where the wheel actually SPINS UP under power.
+    wv = wv0 + (dt / mw) * (drive - rearBrakeF - rearLongForce);
   }
+
+  // Clamp wheel overspeed to ±maxSlipRatio (force saturates past rho = 1
+  // anyway; unbounded wheel speed would only add throttle-lift lag), and
+  // no reverse drive this slice.
+  wv = clamp(wv, vg - c.maxSlipRatio * sDenom, vg + c.maxSlipRatio * sDenom);
+  wv = Math.max(0, wv);
+  s = (wv - vg) / sDenom;
+  car.rearWheelSpeed = wv;
+
+  // ---- 6. Body longitudinal forces (engine lives at the rear wheel now) ----
+  // Front share of the pedal brake acts on the body directly (front axle
+  // has no longitudinal slip model); it never reverses the car.
+  let frontBrakeForce = 0;
+  const pedalFront = input.brake * c.brakeForce * (1 - c.brakeRearShare);
+  if (forwardVel > 0.1)       frontBrakeForce =  pedalFront;
+  else if (forwardVel < -0.1) frontBrakeForce = -pedalFront;
 
   const dragForce = c.dragCoeff * forwardVel * Math.abs(forwardVel);
   const rollingForce = c.rollingResistance * forwardVel;
-  const longitudinalForce = engineForce - brakingForce - dragForce - rollingForce;
+  const longitudinalForce = -frontBrakeForce - dragForce - rollingForce;
 
   // ---- 7. Assemble body-frame forces ----
-  // Front tire force expressed in the WHEEL frame: longitudinal ~ 0 (we model
-  // engine at CG / rear axle; front tire only generates lateral), lateral =
-  // frontLatForce. Rotate that vector by steerAngle to land in BODY frame.
+  // Front tire force lives in the steered-wheel frame (lateral only);
+  // rotate by steerAngle into the BODY frame. The rear tire contributes
+  // BOTH components now: longitudinal (engine/brake through the contact
+  // patch) and lateral.
   const frontForceBodyX = -frontLatForce * fs;
   const frontForceBodyY =  frontLatForce * fc;
-  const rearForceBodyX  = 0;
+  const rearForceBodyX  = rearLongForce;
   const rearForceBodyY  = rearLatForce;
 
   const bodyForceX = longitudinalForce + frontForceBodyX + rearForceBodyX;
@@ -323,6 +409,8 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   car.forwardSpeed = forwardVel;
   car.frontSlip = frontSlip;
   car.rearSlip = rearSlip;
+  car.slipRatio = s;
+  car.wheelSpin = Math.min(1, Math.abs(s));
   car.isFrontSliding = isFrontSliding;
   car.isRearSliding = isRearSliding;
 }

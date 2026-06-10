@@ -19,6 +19,7 @@ const throttleBarEl  = document.getElementById('throttle-bar')  as HTMLDivElemen
 const brakeBarEl     = document.getElementById('brake-bar')     as HTMLDivElement;
 const handbrakeHudEl = document.getElementById('handbrake-hud') as HTMLDivElement;
 const rearSlipValEl  = document.getElementById('rear-slip-val') as HTMLSpanElement | null;
+const wspinValEl     = document.getElementById('wspin-val')     as HTMLSpanElement | null;
 
 codeText.textContent = code;
 QRCode.toCanvas(qrCanvas, playUrl, { width: 160, margin: 1 }).catch(console.error);
@@ -232,6 +233,12 @@ function updateHud() {
     const slipDeg = car.rearSlip * 180 / Math.PI;
     const sign = slipDeg >= 0 ? '+' : '';
     rearSlipValEl.textContent = sign + slipDeg.toFixed(1) + '°';
+  }
+
+  // Rear wheelspin as a percentage (|slip ratio| clamped to 1). ~13% under
+  // clean full-throttle acceleration, 100% during a burnout/lock.
+  if (wspinValEl) {
+    wspinValEl.textContent = Math.round(car.wheelSpin * 100) + '%';
   }
 
   // Pedal bars — show smoothed (current) values, what the physics actually
