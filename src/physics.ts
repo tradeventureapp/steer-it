@@ -21,9 +21,14 @@
 
 export const CONFIG = {
   // ---------- Mass / geometry ----------
+  // Dimensions reduced to 1/3 of "real car" scale (originally 2.6 / 1.6 m).
+  // Driving-feel constants below — mass, engine, brake, drag, grip — are
+  // intentionally left unchanged so the car will visibly handle more
+  // agilely (smaller body, same forces → tighter turning radius and
+  // quicker yaw response). Tune the feel in a separate pass.
   mass: 1200,                       // kg
-  wheelbase: 2.6,                   // m, distance between front and rear axles
-  trackWidth: 1.6,                  // m, distance between left and right wheels
+  wheelbase: 2.6 / 3,               // m, distance between front and rear axles
+  trackWidth: 1.6 / 3,              // m, distance between left and right wheels
   inertiaScale: 1.5,                // yaw inertia = scale * m * L^2 / 12
 
   // ---------- Engine / brakes ----------

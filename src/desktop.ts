@@ -227,6 +227,12 @@ function updateHud() {
 }
 
 // ---------- Drawing ----------
+// CAR_DRAW_SCALE applies uniformly to every visual dimension of the car
+// (body, cabin, nose, wheel chrome). It tracks the same 1/3 reduction
+// applied to CONFIG.wheelbase / CONFIG.trackWidth in physics.ts so the
+// sprite and the physical footprint stay in proportion.
+const CAR_DRAW_SCALE = 1 / 3;
+
 function drawCar() {
   // Draw the car centered at its world position, rotated by heading.
   // All inner coordinates are in METERS, then scaled by pxPerMeter.
@@ -238,31 +244,36 @@ function drawCar() {
   ctx.rotate(car.heading);
   ctx.scale(PX(), PX()); // now draw in meters
 
-  const len = 4.5;
-  const wid = 1.85;
+  const s = CAR_DRAW_SCALE;
+  const len = 4.5 * s;
+  const wid = 1.85 * s;
   const halfL = len / 2;
   const halfW = wid / 2;
 
   // Body
   ctx.fillStyle = '#e63946';
-  roundRect(ctx, -halfL, -halfW, len, wid, 0.35);
+  roundRect(ctx, -halfL, -halfW, len, wid, 0.35 * s);
   ctx.fill();
 
   // Roof tint (windshield + cabin) — helps see orientation
   ctx.fillStyle = '#1d3557';
-  roundRect(ctx, -0.6, -halfW + 0.18, 1.7, wid - 0.36, 0.2);
+  roundRect(ctx, -0.6 * s, -halfW + 0.18 * s, 1.7 * s, wid - 0.36 * s, 0.2 * s);
   ctx.fill();
 
   // Nose marker (front)
   ctx.fillStyle = '#f1faee';
   ctx.beginPath();
-  ctx.moveTo(halfL - 0.15, -halfW + 0.25);
-  ctx.lineTo(halfL + 0.05, 0);
-  ctx.lineTo(halfL - 0.15, halfW - 0.25);
+  ctx.moveTo(halfL - 0.15 * s, -halfW + 0.25 * s);
+  ctx.lineTo(halfL + 0.05 * s, 0);
+  ctx.lineTo(halfL - 0.15 * s, halfW - 0.25 * s);
   ctx.closePath();
   ctx.fill();
 
-  // Wheels (front wheels rotate by steerAngle)
+  // Wheels (front wheels rotate by steerAngle). Positions come from
+  // CONFIG.wheelbase / CONFIG.trackWidth which are already at the smaller
+  // scale; the wheel chrome itself is scaled by CAR_DRAW_SCALE inside
+  // drawWheel(). This is the same source used by the skid emitter, so
+  // skid marks spawn exactly under these rear wheels.
   drawWheel(+CONFIG.wheelbase / 2, -CONFIG.trackWidth / 2, car.steerAngle);
   drawWheel(+CONFIG.wheelbase / 2, +CONFIG.trackWidth / 2, car.steerAngle);
   drawWheel(-CONFIG.wheelbase / 2, -CONFIG.trackWidth / 2, 0);
@@ -276,7 +287,8 @@ function drawWheel(bx: number, by: number, angle: number) {
   ctx.translate(bx, by);
   ctx.rotate(angle);
   ctx.fillStyle = '#1c1c20';
-  roundRect(ctx, -0.32, -0.13, 0.64, 0.26, 0.06);
+  const s = CAR_DRAW_SCALE;
+  roundRect(ctx, -0.32 * s, -0.13 * s, 0.64 * s, 0.26 * s, 0.06 * s);
   ctx.fill();
   ctx.restore();
 }
