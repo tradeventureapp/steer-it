@@ -18,6 +18,7 @@ const driftEl = document.getElementById('drift') as HTMLDivElement;
 const throttleBarEl  = document.getElementById('throttle-bar')  as HTMLDivElement;
 const brakeBarEl     = document.getElementById('brake-bar')     as HTMLDivElement;
 const handbrakeHudEl = document.getElementById('handbrake-hud') as HTMLDivElement;
+const rearSlipValEl  = document.getElementById('rear-slip-val') as HTMLSpanElement | null;
 
 codeText.textContent = code;
 QRCode.toCanvas(qrCanvas, playUrl, { width: 160, margin: 1 }).catch(console.error);
@@ -215,9 +216,23 @@ function updateHud() {
   // Fake "km/h" so it reads like a dashboard. 1 m/s ≈ 3.6 km/h.
   const kmh = Math.round(car.speed * 3.6);
   speedEl.textContent = String(kmh).padStart(3, '0');
+
+  // GRIP / DRIFT state — drives the badge text + amber styling. Drifting
+  // when the physics has flagged a rear slide OR the rear slip angle is
+  // past the visual threshold (so we see the badge flip the moment the
+  // tuning starts producing slip, even if force-clamp hasn't kicked in).
   const drifting = car.isRearSliding ||
     Math.abs(car.rearSlip) > CONFIG.slipThresholdForSkid;
+  driftEl.textContent = drifting ? 'DRIFT' : 'GRIP';
   driftEl.classList.toggle('on', drifting);
+
+  // Live rear slip angle in degrees. Signed (+ = sliding one way, - the
+  // other) so the tuner can see direction at a glance.
+  if (rearSlipValEl) {
+    const slipDeg = car.rearSlip * 180 / Math.PI;
+    const sign = slipDeg >= 0 ? '+' : '';
+    rearSlipValEl.textContent = sign + slipDeg.toFixed(1) + '°';
+  }
 
   // Pedal bars — show smoothed (current) values, what the physics actually
   // sees, not the raw 30Hz packet. 0 = empty, 1 = full.

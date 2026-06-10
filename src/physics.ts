@@ -19,66 +19,89 @@
 //  Tunables live in one place: CONFIG. Tweak a number, see the change.
 // =============================================================================
 
+// =============================================================================
+//  DRIFT-FEEL TUNING — PASS 1
+//
+//  Goal: Ken Block-style oversteer-biased handling. The rear should break
+//  loose willingly on steering + throttle (and snap-loose on handbrake),
+//  but slides must SUSTAIN long enough to feel expressive and be catchable
+//  with countersteer + throttle modulation, not spin out.
+//
+//  Each CHANGED value below carries a ← comment showing the previous
+//  setting and an arrow indicating the direction of the change, so the
+//  next tuning pass can revert / nudge individual numbers without hunting.
+// =============================================================================
 export const CONFIG = {
-  // ---------- Mass / geometry ----------
-  // Dimensions reduced to 1/3 of "real car" scale (originally 2.6 / 1.6 m).
-  // Driving-feel constants below — mass, engine, brake, drag, grip — are
-  // intentionally left unchanged so the car will visibly handle more
-  // agilely (smaller body, same forces → tighter turning radius and
-  // quicker yaw response). Tune the feel in a separate pass.
+  // ---------- Mass / geometry (size-pass output; unchanged here) ----------
   mass: 1200,                       // kg
   wheelbase: 2.6 / 3,               // m, distance between front and rear axles
   trackWidth: 1.6 / 3,              // m, distance between left and right wheels
   inertiaScale: 1.5,                // yaw inertia = scale * m * L^2 / 12
 
-  // ---------- Engine / brakes ----------
-  enginePower: 7500,                // N at full throttle (constant force model)
+  // ---------- Engine / brakes (unchanged — feel is punchy after size pass) ----------
+  enginePower: 7500,                // N at full throttle
   brakeForce: 14000,                // N at full brake
 
-  // ---------- Resistance ----------
+  // ---------- Resistance (unchanged) ----------
   dragCoeff: 2.5,                   // air drag, force = dragCoeff * v * |v|
   rollingResistance: 50,            // rolling drag, force = rollingResistance * v
 
   // ---------- Steering ----------
-  maxSteerAngle: 0.55,              // rad, front-wheel lock (~31 deg)
-  steerSpeed: 4.5,                  // rad/s, how fast wheels swing toward target
-  steerSpeedFalloff: 0.55,          // 1.0 = no falloff; <1 reduces lock at speed
-  speedForFullFalloff: 40,          // m/s where falloff is fully applied
+  // More lock and higher high-speed authority so countersteer can actually
+  // CATCH a slide. With the old falloff a drift at speed had ~55% of full
+  // lock available — not enough to point the fronts into the slide.
+  maxSteerAngle: 0.70,              // ← 0.55  ↑  ~40°, more counter-steer headroom
+  steerSpeed: 5.5,                  // ← 4.5   ↑  rad/s, faster wheel actuation
+  steerSpeedFalloff: 0.70,          // ← 0.55  ↑  less lock loss at speed
+  speedForFullFalloff: 50,          // ← 40    ↑  m/s, full falloff applies higher
 
-  // ---------- Tire / grip ----------
-  // Linear cornering stiffness (slope of lateral force vs slip-angle, N/rad)
-  corneringStiffnessFront: 140000,
-  corneringStiffnessRear:  170000,
-  // Peak lateral force per axle (N). Beyond this the tire SLIDES.
-  // Rear < front -> rear lets go first -> oversteer / catchable drift.
-  peakLatGripFront: 10500,
-  peakLatGripRear:  9500,
-  // Multiplier on lateral force while sliding (kinetic < static friction).
-  driftFriction: 0.92,
+  // ---------- Tire / grip — the core of the oversteer bias ----------
+  // Front grips ~2× as hard as rear AND has 2× the cornering stiffness:
+  // floppy rear (low stiffness + low peak) breaks loose under modest
+  // cornering load while the snappy front bites in and gives the player
+  // a strong restoring torque for the countersteer catch.
+  corneringStiffnessFront: 180000,  // ← 140000  ↑  snappier front turn-in & catch
+  corneringStiffnessRear:   90000,  // ← 170000  ↓  floppy rear, breaks loose readily
+  peakLatGripFront:  13500,         // ← 10500   ↑  more front grip to hold and catch
+  peakLatGripRear:    6500,         // ←  9500   ↓  rear gives up early
+  // driftFriction is the kinetic/static friction ratio used once a tire
+  // is past peak. 0.92 was too sticky (slides snapped back). 0.70 makes
+  // the slide actually lose energy as it goes, so it stays controllable.
+  driftFriction: 0.70,              // ← 0.92  ↓  sustainable controllable slide
 
-  // ---------- Handbrake ----------
-  // Engaging the handbrake drastically reduces rear lateral grip and adds a
-  // fixed longitudinal drag, breaking the rear loose for handbrake-initiated
-  // drifts. Releasing it lets grip return so the player can catch the slide.
-  handbrakeRearGripMultiplier:      0.30, // fraction of normal rear peak lateral grip while engaged
-  handbrakeRearStiffnessMultiplier: 0.40, // fraction of normal rear cornering stiffness while engaged
-  handbrakeBrakeForce:              5500, // N, longitudinal drag added while engaged
+  // ---------- Power-on oversteer (NEW knob) ----------
+  // At higher throttle inputs we scale the rear's effective peak lateral
+  // grip down — a single-knob approximation of the friction-circle effect
+  // (longitudinal force at the driven axle steals from its lateral budget).
+  // Net result: mash gas mid-corner → rear pushes wider. Lift off → rear
+  // grip recovers and the slide can be caught. Tune up for more drifty,
+  // down for more neutral, 0 to disable.
+  rwdPowerOversteerStrength: 0.35,  // NEW. peakRear *= (1 - throttle * this)
+
+  // ---------- Handbrake (more aggressive snap-loose) ----------
+  handbrakeRearGripMultiplier:      0.18, // ← 0.30  ↓  harder instant snap-loose
+  handbrakeRearStiffnessMultiplier: 0.30, // ← 0.40  ↓  rear goes floppy faster
+  handbrakeBrakeForce:              5500, // unchanged
 
   // ---------- Yaw damping ----------
-  angularDamping: 0.7,              // 1/s, light damping on body rotation
+  // Higher than before so the car doesn't spin like a top on light input
+  // and slides feel weighted. Well below "glued straight" — the catch
+  // torque from the front still dominates at any meaningful yaw rate.
+  angularDamping: 1.5,              // ← 0.7  ↑  weight feel, less spin-out
 
-  // ---------- Drift detection ----------
-  // Slip-angle magnitude above which we treat the wheel as "skidding" for
-  // visual feedback (skid marks). Independent of the physics slide cap.
-  slipThresholdForSkid: 0.18,       // rad (~10 deg)
+  // ---------- Drift detection / skids ----------
+  // Visual indicator only — independent of the physics slide cap. Lower
+  // so skids and the DRIFT badge show up as soon as the rear is past
+  // peak, not only deep into a slide.
+  slipThresholdForSkid: 0.12,       // ← 0.18  ↓  ~7° instead of ~10°, earlier visual
 
   // ---------- Input mapping (phone tilt) ----------
-  tiltSensitivity: 35,              // deg of tilt that maps to full lock
-  tiltDeadzone: 3,                  // deg ignored around level
-  inputLerp: 0.18,                  // smoothing on incoming steer target
+  tiltSensitivity: 35,              // unchanged
+  tiltDeadzone: 3,                  // unchanged
+  inputLerp: 0.18,                  // unchanged
 
   // ---------- Render scaling ----------
-  pxPerMeter: 22,                   // visual scale only; doesn't affect physics
+  pxPerMeter: 22,                   // unchanged
 };
 
 export type Config = typeof CONFIG;
@@ -185,13 +208,22 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   // Linear region (sub-grip): F = -stiffness * slip. Negative because positive
   // slip means the tire is dragged sideways and the tire pushes BACK.
   //
-  // HANDBRAKE: while engaged, the rear axle's effective peak grip AND
-  // cornering stiffness are scaled down. The rear breaks loose almost
-  // immediately into a kinetic-friction-only slide — the core drift tool.
-  const rearStiff   = c.corneringStiffnessRear *
+  // Rear-grip scaling priority:
+  //   1. HANDBRAKE engaged → use the handbrake multipliers (deliberate
+  //      snap-loose). Throttle effect is ignored here so the two don't
+  //      compound into "no grip at all".
+  //   2. Otherwise → peak grip is scaled DOWN by throttle via
+  //      rwdPowerOversteerStrength to fake power-on oversteer:
+  //         rearPeakGrip = peakLatGripRear * (1 - throttle * strength)
+  //      Easing off throttle restores grip → drift catches.
+  //   Stiffness scales with handbrake only (throttle doesn't change how
+  //   quickly the rear builds force, just how soon it saturates).
+  const rearStiff = c.corneringStiffnessRear *
     (input.handbrake ? c.handbrakeRearStiffnessMultiplier : 1);
-  const rearPeakGrip = c.peakLatGripRear *
-    (input.handbrake ? c.handbrakeRearGripMultiplier : 1);
+  const rearGripScale = input.handbrake
+    ? c.handbrakeRearGripMultiplier
+    : (1 - input.throttle * c.rwdPowerOversteerStrength);
+  const rearPeakGrip = c.peakLatGripRear * rearGripScale;
 
   let frontLatForce = -c.corneringStiffnessFront * frontSlip;
   let rearLatForce  = -rearStiff                * rearSlip;
