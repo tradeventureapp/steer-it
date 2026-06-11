@@ -93,7 +93,9 @@ export const CONFIG = {
   driftAngleRate: 4.0,              // NEW (p9)  1/s — slip-angle tracking stiffness
   driftYawRelax: 8.0,               // NEW (p9)  1/s — yaw relax rate toward the law
   driftTargetSpeedMin: 5,           // NEW (p9)  m/s drift speed at light throttle
-  driftTargetSpeedMax: 10,          // NEW (p9)  m/s at full throttle (~36 km/h)
+  driftTargetSpeedMax: 11,          // p9 10 → 11 (p11)  m/s at full throttle (~40 km/h):
+                                    //   restores donut speed after the p11 spin-cut
+                                    //   removal (more rear lateral = more scrub drag)
   driftSpeedGain: 2.5,              // NEW (p9)  1/s accel toward the target speed
   brakeForce: 14000,                // N at full brake (unchanged)
 
@@ -158,24 +160,14 @@ export const CONFIG = {
   // m/s floor for the slip-ratio denominator — keeps the math sane near
   // standstill. Lower = more violent low-speed wheelspin behavior.
   slipDenomFloor: 3.0,              // NEW (p4)
-  // p7: extra cut on the rear LATERAL force while the wheel is POWER-
-  // SPINNING (slip ratio past peak under throttle). The friction circle
-  // already rotates the force vector longitudinal, but the residual
-  // lateral (≈ half the kinetic budget at a 50° slide) generated enough
-  // straightening torque that deep drift angles collapsed back to a
-  // shallow donut. With the cut, throttle truly holds the rear out and
-  // 45-60° angles balance on countersteer. Raise toward 1 for less effect.
-  // 0.25: higher values leave enough rear lateral while spinning that its
-  // restoring torque + drag starve a held drift (tested 0.55 and 0.35 —
-  // both eventually collapsed the angle). At 0.25 a full-throttle drift
-  // sustains its angle AND its speed.
-  spinLatGripFactor: 0.25,          // NEW (p7)
-  // p9: the cut is additionally gated by LATERAL slip — wheelspin while
-  // traveling STRAIGHT must not collapse rear lateral grip, or the car
-  // crabs/shuffles sideways during a straight-line burnout (video-
-  // confirmed at 13 km/h). No cut below slipStart, full cut by slipFull.
-  spinLatCutSlipStart: 0.08,        // NEW (p9)  rad (~4.6°)
-  spinLatCutSlipFull: 0.30,         // NEW (p9)  rad (~17°)
+  // p11 REMOVED: spinLatGripFactor / spinLatCutSlipStart / spinLatCutSlipFull.
+  // Those were an EXTRA cut on the rear lateral force while the wheel spun —
+  // a patch on top of the friction circle. The circle itself already
+  // reduces lateral as the longitudinal slip grows (F_lat = −Fk·nLat/rho:
+  // as nLong rises, rho rises, F_lat shrinks). The extra cut over-deepened
+  // donuts (60° vs the 45-55° target) now that the governed drift mode
+  // controls the angle directly. Pure friction circle is the honest model;
+  // the governor handles angle stability.
   // Effective inertia of wheel + drivetrain at the contact patch (kg).
   // Lower = wheels spin up on throttle / grip up on lift FASTER.
   wheelSpinInertia: 15,             // NEW (p4)
@@ -355,6 +347,51 @@ function clamp(v: number, lo: number, hi: number): number {
   return v < lo ? lo : v > hi ? hi : v;
 }
 
+// =============================================================================
+//  FORCE FLOW (read top to bottom — this is the honest model, p11).
+//
+//  throttle ──▶ ENGINE TORQUE CURVE  (function of throttle & WHEEL speed only,
+//                                     NO slip-angle term anywhere)
+//                  │ drive force at the rear contact patch
+//                  ▼
+//              REAR WHEEL  (own inertia; spins up on drive, dragged toward
+//                           ground speed by tire friction, braked by pedal/
+//                           handbrake) ──▶ slip ratio s = (wv − ground)/denom
+//                  │
+//                  ▼
+//              FRICTION CIRCLE  (one grip budget shared long/lat):
+//                  nLong = s/slipRatioPeak,  nLat = slipAngle/alphaPeak
+//                  rho ≤ 1 grip:  F = (budget·nLong, −budget·nLat)
+//                  rho > 1 slide: F = budget·driftFriction·(nLong,−nLat)/rho
+//                  → a SPINNING wheel (nLong ≫ nLat) puts down a strong
+//                    FORWARD force (F_long→Fk) and little lateral: that is
+//                    how a powered drift both holds its angle AND keeps
+//                    moving. Verified: net longitudinal ≥ 0 at every slip
+//                    angle 5-45° (the slip-sweep table).
+//                  │  + front tire lateral (linear, capped) for turn-in/catch
+//                  ▼
+//              BODY FORCES  →  translation (vx,vy) and yaw torque (ω)
+//                  │
+//                  ▼
+//              ANTI-PERMA-BURNOUT is honest: the launch lights up because
+//              boosted drive briefly exceeds kinetic reaction; it HOOKS UP
+//              because the steady force CAP (enginePower 8400) is below the
+//              kinetic reaction (budget·driftFriction ≈ 8964), so the
+//              spinning wheel always decelerates back to grip. No gate.
+//
+//  THE ONE ASSIST: real drifting is an unstable equilibrium a driver
+//  balances continuously; a phone-tilt binary player cannot. The raw model
+//  above is self-stabilizing (it recovers to grip — realistic), so without
+//  help it will not SUSTAIN a hands-off drift. The "governed drift mode"
+//  (step 9 below) is therefore the single declared assist: while sliding on
+//  power it nudges YAW toward a steering-set angle and SPEED toward a
+//  throttle-set target. It changes no tire force — it is a stability
+//  controller layered on the honest forces, exactly like every arcade
+//  drift game. Auto-countersteer (step 2) is a steering aid in the same
+//  spirit (it points the fronts where a drifter would). Everything else is
+//  physics.
+// =============================================================================
+
 // -----------------------------------------------------------------------------
 //  step(): one fixed-timestep physics update.
 //  Call this with a FIXED dt (e.g. 1/60). Render decoupled.
@@ -449,12 +486,21 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   const budget = c.tireGripBudgetRear;
   const alphaPeakRear = budget / c.corneringStiffnessRear;
 
-  // Engine drive force at the rear contact patch (p7 power curve):
-  // force = min(enginePower, P/|wheelSpeed|) — wheelspin bleeds its own
-  // drive force, so burnouts self-resolve. The governed drift mode (step 9)
-  // sustains the car THROUGH a slide, so the curve no longer needs a
-  // drift bypass. The low-speed torque boost (burnout launches) fades out
-  // by torqueBoostFadeSpeed of CAR speed.
+  // Engine drive force at the rear contact patch — an HONEST torque curve,
+  // a function of THROTTLE and WHEEL SPEED ONLY (no slip-angle term; the
+  // engine never "knows" the car is cornering). Two regions, like a real
+  // engine through a fixed gear:
+  //   - below the crossover wheel speed (enginePeakPowerW / enginePower ≈
+  //     19 m/s) the engine makes flat PEAK TORQUE → force = enginePower;
+  //   - above it, the CONSTANT-POWER region → force = P / wheelSpeed
+  //     (torque falls with RPM, the high end of the curve). This also sets
+  //     a natural top speed and is the honest reason a high-RPM wheelspin
+  //     bleeds its own drive force.
+  // The crossover is set high enough (~68 km/h of wheel speed) that the
+  // whole normal driving + cornering-wheelspin range sits in the strong
+  // peak-torque region — so cornering never starves the drive.
+  // lowSpeedTorqueBoost is the launch end of the curve (gearing torque
+  // multiplication off the line), fading out by torqueBoostFadeSpeed.
   const driveBoost = 1 + c.lowSpeedTorqueBoost *
     Math.max(0, 1 - speed / c.torqueBoostFadeSpeed);
   const powerLimitedForce = Math.min(
@@ -545,26 +591,9 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   // locking wheel has almost no lateral authority. The friction circle
   // covers the fully-locked steady state; this factor covers the lock
   // TRANSITION, so turn-in + handbrake snaps the rear out instead of
-  // merely slowing the car. (p6)
+  // merely slowing the car. (p6) — the ONLY lateral modifier on top of
+  // the friction circle now (the p7 power-spin cut was removed in p11).
   if (input.handbrake) rearLatForce *= c.handbrakeLatGripFactor;
-  // Power-spin lateral cut (p7): while the rear is spinning UP under
-  // throttle (positive slip past peak), cut its lateral force further so
-  // the residual restoring torque can't straighten a deep drift. The cut
-  // blends in CONTINUOUSLY with spin depth (full effect by 3× peak slip) —
-  // a hard on/off switch at the threshold made the torque balance jump and
-  // drove limit-cycle oscillation in held drifts. Lift → slip collapses →
-  // lateral returns smoothly.
-  else if (isRearSliding && s > c.slipRatioPeak) {
-    const spinDepth = Math.min(1, (s - c.slipRatioPeak) / (0.5 * c.slipRatioPeak));
-    // p9: gate the cut by LATERAL slip — a straight-line burnout
-    // (slip ≈ 0) keeps full rear lateral grip and tracks straight
-    // instead of crabbing sideways; the cut blends in as the car
-    // actually steps out.
-    const latGate = clamp(
-      (Math.abs(rearSlip) - c.spinLatCutSlipStart) /
-      (c.spinLatCutSlipFull - c.spinLatCutSlipStart), 0, 1);
-    rearLatForce *= 1 - (1 - c.spinLatGripFactor) * spinDepth * latGate;
-  }
 
   // Clamp wheel overspeed to ±maxSlipRatio (force saturates past rho = 1
   // anyway; unbounded wheel speed would only add throttle-lift lag).
