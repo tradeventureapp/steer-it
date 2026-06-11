@@ -422,15 +422,17 @@ function updateHud() {
   if (handbrakeHudEl) handbrakeHudEl.classList.toggle('on', current.handbrake);
 
   if (debugOn) {
-    // Live inputs as PHYSICS receives them (post-expo, post-smoothing) plus the
-    // key derived state — so the real commanded values are visible on screen.
+    // Mirror the physics gates so the screen shows WHY a burnout/spin did or
+    // didn't fire from the real commanded values.
+    const boostGate = Math.max(0, Math.min(1,
+      (current.throttle - CONFIG.burnoutThrottle) / (1 - CONFIG.burnoutThrottle)));
+    const armT = current.handbrake
+      ? CONFIG.spinReleaseThresholdHB : CONFIG.spinReleaseThreshold;
     debugEl.textContent =
-      `steer ${current.steer.toFixed(2)}   throttle ${current.throttle.toFixed(2)}` +
-      `   brake ${current.brake.toFixed(2)}   hb ${current.handbrake ? 'ON' : 'off'}\n` +
-      `speed ${(car.speed * 3.6).toFixed(0)}km/h   fwd ${(car.forwardSpeed * 3.6).toFixed(0)}` +
-      `   yaw ${car.angularVel.toFixed(2)}\n` +
-      `rearSlip ${(car.rearSlip * 180 / Math.PI).toFixed(0)}°   wspin ${(car.wheelSpin * 100).toFixed(0)}%` +
-      `   ${car.isRearSliding ? 'SLIDING' : 'grip'}   (burnout ≥ ${CONFIG.burnoutThrottle.toFixed(2)})`;
+      `steer   ${current.steer.toFixed(2)}   (spin-arm ≥ ${armT.toFixed(2)}${current.handbrake ? ' HB' : ''})\n` +
+      `throttle ${current.throttle.toFixed(2)}  brake ${current.brake.toFixed(2)}  hb ${current.handbrake ? 'ON' : 'off'}\n` +
+      `burnout boost ${(boostGate * 100).toFixed(0)}%   (ignites ≥ ${CONFIG.burnoutThrottle.toFixed(2)})\n` +
+      `spinTimer ${car.spinTimer.toFixed(2)}  drift ${car.driftActive ? 'Y' : 'n'}  wspin ${(car.wheelSpin * 100).toFixed(0)}%`;
   }
 }
 
