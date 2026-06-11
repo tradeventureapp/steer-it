@@ -1,74 +1,70 @@
 // =============================================================================
-//  Steer It — procedural soundscape, iteration 2 (Web Audio, no samples).
+//  Steer It — procedural soundscape, iteration 3: CLEAN over realistic.
 //
-//  THE ENGINE IS NOT A TONE. A real engine is a rapid series of combustion
-//  events — ~30 firings/sec at idle (heard as a lopey rumble), blending
-//  into a roar near redline but always keeping pulse and irregularity.
-//  The core is an AudioWorklet generating that impulse train sample-
-//  accurately: each firing is a few-ms noise burst + a low sine thump,
-//  with per-pulse amplitude (±15%) and timing (±4%) randomness — the
-//  irregularity is what reads as "mechanical" instead of "synth".
+//  Iteration 2's impulse-train engine read as radio static and its wide
+//  noise squeal as breath. This version goes back to the iteration-1
+//  oscillator engine — generic but clean — with ONE subtle mechanical
+//  touch: a gentle amplitude throb at the virtual firing rate (~16%
+//  depth). The pitched oscillator tone carries the sound; every noise
+//  source left in the mix is tightly bandpass-filtered and quiet.
 //
-//  The pulse train then drives a RESONANT BODY: three fixed bandpass
-//  formants (~90/220/600 Hz — exhaust pipe + block resonances, low-mid
-//  biased for a small-rally-car growl) plus a direct low thump path, into
-//  a load filter whose cutoff opens with throttle (dark off-throttle,
-//  bright and snarling on it).
+//    saw + sub-square + detuned-saw ─ mix ─ AM throb ─ lowpass ─ gain ──┐
+//    noise ─ NARROW bandpass 1.7-2.6 kHz (squeal) ─ gain ─ pan ─────────┤
+//    noise ─ bandpass 950 Hz Q8 + flutter (burnout) ─ gain ─────────────┼─ master ─ limiter
+//    noise ─ bandpass 620 Hz (overrun burble blips) ─ gain ─────────────┤
+//    one-shot impact thump/knock ─────────────────────────────────────────┘
 //
-//  Dirt layers: an RPM-tracking mechanical rustle bed, an intake hiss
-//  that rises with throttle, and sparse overrun pops (extra-strong lone
-//  pulses through the same exhaust formants) when lifting at revs.
+//  Rules of the mix: at idle and at full throttle the dominant sound is
+//  a PITCHED ENGINE TONE — never hiss. The squeal is high and narrow —
+//  instantly "tires", never wind. RPM still derives from REAR WHEEL
+//  speed, so burnouts rev high while the car crawls.
 //
-//  Virtual RPM still derives from REAR WHEEL speed — a burnout revs to
-//  the moon while the car crawls. Tire squeal / burnout screech / impact
-//  thumps carry over from iteration 1, rebalanced against the new engine.
-//
-//  Autoplay policy: nothing is constructed until enable() runs inside a
-//  user gesture. Mute dips the master gain; the graph keeps running.
+//  Autoplay policy: nothing constructed until enable() runs in a user
+//  gesture. Mute dips the master gain; the graph keeps running.
 // =============================================================================
 
 export const SOUND_CONFIG = {
   master: 0.8,
 
-  // ---------- Engine core (impulse train) ----------
-  idleFiringHz: 30,            // firings/sec at standstill — audible lope
-  maxFiringHz: 240,            // near redline — blends into a roar
-  rpmFullWheelSpeed: 42,       // m/s of WHEEL contact speed = full RPM
-  rpmCurve: 0.72,              // <1 = climbs fast early
-  engineVolBase: 0.40,         // off-throttle engine level
-  engineVolThrottle: 0.26,     // + under load
-  attackTau: 0.02,             // throttle swell — must feel instant
+  // ---------- Engine (oscillator core) ----------
+  idleHz: 52,                  // oscillator base at standstill
+  maxHz: 380,                  // at full virtual RPM
+  rpmFullWheelSpeed: 42,       // m/s WHEEL contact speed = full RPM
+  rpmCurve: 0.72,              // <1 = satisfying early climb
+  wobbleHz: 5.5,               // mechanical pitch wobble LFO
+  wobbleDepthHz: 2.4,
+  jitter: 0.012,               // ±1.2% random-walk pitch jitter
+  // Gentle AM throb at the firing rate — the one nod to "combustion".
+  // Low depth on purpose: a throb, not a buzz.
+  amDepth: 0.16,
+  fireRateIdle: 30,            // throb rate at idle (lopey)
+  fireRateMax: 220,            // at redline (fuses perceptually)
+  filterBaseHz: 240,           // lowpass: dark off-throttle
+  filterThrottleHz: 2900,      // opens with throttle
+  filterRpmHz: 1300,           // and with RPM
+  engineIdleVol: 0.20,
+  engineThrottleVol: 0.26,
+  engineRpmVol: 0.12,
+  attackTau: 0.02,
   releaseTau: 0.09,
+  burbleVol: 0.10,             // overrun blips (tightly filtered, brief)
 
-  // ---------- Resonant body ----------
-  formant1Hz: 92,  formant1Q: 3.2, formant1Gain: 1.0,   // exhaust fundamental
-  formant2Hz: 225, formant2Q: 3.0, formant2Gain: 0.75,  // block knock
-  formant3Hz: 620, formant3Q: 2.4,                      // snarl (gain = load)
-  formant3GainBase: 0.30, formant3GainThrottle: 0.45,
-  bodyLowpassHz: 160,          // direct low-thump path
-  loadFilterBaseHz: 750,       // overall brightness: dark off-throttle...
-  loadFilterThrottleHz: 2700,  // ...opens under load
-
-  // ---------- Dirt layers ----------
-  rustleVol: 0.045,            // mechanical noise bed, RPM-tracking
-  intakeVol: 0.07,             // hiss rising with throttle
-  popChancePerSec: 1.6,        // sparse coast pops at mid/high RPM
-  popLiftThreshold: 0.45,      // sharp-lift detection for overrun pops
-
-  // ---------- Tires (carried over, rebalanced) ----------
+  // ---------- Tire squeal: HIGH and NARROW = instantly "tires" ----------
   squealStartDeg: 9,
   squealFullDeg: 26,
-  squealVol: 0.30,
-  squealFreqBase: 1150,
-  squealFreqSlip: 1500,
-  squealQ: 7,
-  burnoutVol: 0.34,
-  burnoutFreqHz: 520,
-  burnoutQ: 2.5,
-  burnoutFlutterHz: 27,
-  burnoutFlutterDepth: 80,
+  squealVol: 0.26,
+  squealFreqBase: 1700,        // Hz — bandpass center at light slip
+  squealFreqSlip: 900,         // rises with slip depth (deeper = higher wail)
+  squealQ: 12,                 // narrow band — squeal, not wind
 
-  // ---------- Impacts ----------
+  // ---------- Burnout screech: high + rough, no woosh ----------
+  burnoutVol: 0.30,
+  burnoutFreqHz: 950,
+  burnoutQ: 8,
+  burnoutFlutterHz: 27,        // square-LFO flutter = roughness
+  burnoutFlutterDepth: 120,
+
+  // ---------- Impacts (unchanged from iteration 1) ----------
   impactVol: 0.55,
   impactFullSpeed: 12,
 };
@@ -83,122 +79,37 @@ export interface SoundState {
 
 const clamp = (v: number, lo: number, hi: number) => (v < lo ? lo : v > hi ? hi : v);
 
-// -----------------------------------------------------------------------------
-//  The AudioWorklet processor source. Registered from a Blob URL so it
-//  needs no bundler support. Self-contained; k-rate params firingRate and
-//  throttle; port message 'pop' queues an extra-strong lone pulse.
-// -----------------------------------------------------------------------------
-const ENGINE_WORKLET_SRC = `
-class EngineCore extends AudioWorkletProcessor {
-  static get parameterDescriptors() {
-    return [
-      { name: 'firingRate', defaultValue: 30, minValue: 5, maxValue: 400, automationRate: 'k-rate' },
-      { name: 'throttle', defaultValue: 0, minValue: 0, maxValue: 1, automationRate: 'k-rate' },
-    ];
-  }
-  constructor() {
-    super();
-    this.nextFire = 0;
-    this.pulses = [];
-    this.popQueue = 0;
-    this.port.onmessage = (e) => {
-      if (e.data === 'pop') this.popQueue += 1 + (Math.random() < 0.4 ? 1 : 0);
-    };
-  }
-  fire(throttle, isPop) {
-    // Per-pulse randomness — amplitude +-15%, pitch +-8% — is the
-    // mechanical irregularity. Throttle makes pulses louder and sharper.
-    this.pulses.push({
-      age: 0,
-      amp: (isPop ? 1.8 : 0.55 + 0.45 * throttle) * (0.85 + Math.random() * 0.3),
-      freq: (isPop ? 54 : 76) * (0.92 + Math.random() * 0.16),
-      sTau: isPop ? 0.020 : 0.012,
-      nTau: 0.0028 + (1 - throttle) * 0.003,
-      nAmp: isPop ? 0.9 : 0.55,
-    });
-    if (this.pulses.length > 10) this.pulses.shift();
-  }
-  process(inputs, outputs, parameters) {
-    const out = outputs[0][0];
-    const dt = 1 / sampleRate;
-    const rate = Math.max(5, parameters.firingRate[0]);
-    const thr = parameters.throttle[0];
-    const interval = 1 / rate;
-    for (let i = 0; i < out.length; i++) {
-      this.nextFire -= dt;
-      if (this.nextFire <= 0) {
-        const isPop = this.popQueue > 0;
-        if (isPop) this.popQueue--;
-        this.fire(thr, isPop);
-        // Timing jitter +-4% — engines are never metronomes.
-        this.nextFire += interval * (1 + 0.08 * (Math.random() - 0.5));
-      }
-      let s = 0;
-      for (let j = this.pulses.length - 1; j >= 0; j--) {
-        const p = this.pulses[j];
-        if (p.age > 0.06) { this.pulses.splice(j, 1); continue; }
-        // Low sine thump (slight upward chirp) + fast noise crack.
-        s += p.amp * (
-          Math.exp(-p.age / p.sTau) *
-            Math.sin(6.28318 * p.freq * p.age * (1 + p.age * 6)) * 0.9 +
-          Math.exp(-p.age / p.nTau) * (Math.random() * 2 - 1) * p.nAmp
-        );
-        p.age += dt;
-      }
-      out[i] = s * 0.5;
-    }
-    return true;
-  }
-}
-registerProcessor('engine-core', EngineCore);
-`;
-
 export class SoundEngine {
   private ctx: AudioContext | null = null;
   private master!: GainNode;
-  private engineNode: AudioWorkletNode | null = null;
+  private oscMain!: OscillatorNode;
+  private oscSub!: OscillatorNode;
+  private oscHarm!: OscillatorNode;
+  private amOsc!: OscillatorNode;
+  private engineFilter!: BiquadFilterNode;
   private engineGain!: GainNode;
-  private loadFilter!: BiquadFilterNode;
-  private formant3Gain!: GainNode;
-  private rustleGain!: GainNode;
-  private intakeGain!: GainNode;
   private squealFilter!: BiquadFilterNode;
   private squealGain!: GainNode;
   private squealPan!: StereoPannerNode;
   private burnoutFilter!: BiquadFilterNode;
   private burnoutGain!: GainNode;
+  private burbleGain!: GainNode;
   private noiseBuffer!: AudioBuffer;
 
   private prevThrottle = 0;
-  private building = false;
+  private jitterState = 0;
   enabled = false;
   muted = false;
   onChange: (() => void) | null = null;
 
   // Must be called from a user gesture (click/key) per autoplay policy.
   enable() {
-    if (this.ctx) {
-      this.ctx.resume().catch(() => { /* ignore */ });
-      this.enabled = true;
-      this.muted = false;
-      this.applyMaster();
-      this.onChange?.();
-      return;
-    }
-    if (this.building) return;
-    this.building = true;
-    void this.build()
-      .then(() => {
-        this.enabled = true;
-        this.muted = false;
-        this.applyMaster();
-        this.onChange?.();
-      })
-      .catch((err) => {
-        console.warn('Sound init failed:', err);
-        this.ctx = null;
-      })
-      .finally(() => { this.building = false; });
+    if (!this.ctx) this.build();
+    this.ctx!.resume().catch(() => { /* ignore */ });
+    this.enabled = true;
+    this.muted = false;
+    this.applyMaster();
+    this.onChange?.();
   }
 
   toggleMute() {
@@ -214,19 +125,9 @@ export class SoundEngine {
       this.muted ? 0 : SOUND_CONFIG.master, this.ctx.currentTime, 0.03);
   }
 
-  private async build() {
+  private build() {
     const C = SOUND_CONFIG;
     const ctx = new AudioContext();
-
-    // Register the engine-core processor from a Blob — no bundler magic.
-    const blob = new Blob([ENGINE_WORKLET_SRC], { type: 'application/javascript' });
-    const url = URL.createObjectURL(blob);
-    try {
-      await ctx.audioWorklet.addModule(url);
-    } finally {
-      URL.revokeObjectURL(url);
-    }
-    await ctx.resume();
     this.ctx = ctx;
 
     // Master chain: gain → soft limiter → out.
@@ -241,51 +142,56 @@ export class SoundEngine {
     this.master.connect(limiter);
     limiter.connect(ctx.destination);
 
-    // ---------- Engine: impulse train → resonant body → load filter ----------
-    this.engineNode = new AudioWorkletNode(ctx, 'engine-core', {
-      numberOfInputs: 0,
-      numberOfOutputs: 1,
-      outputChannelCount: [1],
-    });
+    // ---------- Engine: oscillators → AM throb → lowpass → gain ----------
+    this.oscMain = ctx.createOscillator();
+    this.oscMain.type = 'sawtooth';
+    this.oscSub = ctx.createOscillator();
+    this.oscSub.type = 'square';
+    this.oscHarm = ctx.createOscillator();
+    this.oscHarm.type = 'sawtooth';
 
-    const mkFormant = (hz: number, q: number) => {
-      const f = ctx.createBiquadFilter();
-      f.type = 'bandpass';
-      f.frequency.value = hz;
-      f.Q.value = q;
-      return f;
-    };
-    const f1 = mkFormant(C.formant1Hz, C.formant1Q);
-    const f2 = mkFormant(C.formant2Hz, C.formant2Q);
-    const f3 = mkFormant(C.formant3Hz, C.formant3Q);
-    const g1 = ctx.createGain(); g1.gain.value = C.formant1Gain;
-    const g2 = ctx.createGain(); g2.gain.value = C.formant2Gain;
-    this.formant3Gain = ctx.createGain();
-    this.formant3Gain.gain.value = C.formant3GainBase;
-    const body = ctx.createBiquadFilter();
-    body.type = 'lowpass';
-    body.frequency.value = C.bodyLowpassHz;
-    const gBody = ctx.createGain(); gBody.gain.value = 0.9;
+    const mixMain = ctx.createGain(); mixMain.gain.value = 0.50;
+    const mixSub  = ctx.createGain(); mixSub.gain.value  = 0.36;
+    const mixHarm = ctx.createGain(); mixHarm.gain.value = 0.17;
 
-    // Brightness under load: dark when coasting, opens with throttle.
-    this.loadFilter = ctx.createBiquadFilter();
-    this.loadFilter.type = 'lowpass';
-    this.loadFilter.frequency.value = C.loadFilterBaseHz;
-    this.loadFilter.Q.value = 0.8;
+    // AM throb: gain sits at (1 − depth/2), a sine at the firing rate
+    // adds ±depth/2 → smooth 16% amplitude pulse. Mechanical, not buzzy.
+    const amGain = ctx.createGain();
+    amGain.gain.value = 1 - C.amDepth / 2;
+    this.amOsc = ctx.createOscillator();
+    this.amOsc.type = 'sine';
+    this.amOsc.frequency.value = C.fireRateIdle;
+    const amDepth = ctx.createGain();
+    amDepth.gain.value = C.amDepth / 2;
+    this.amOsc.connect(amDepth);
+    amDepth.connect(amGain.gain);
+
+    this.engineFilter = ctx.createBiquadFilter();
+    this.engineFilter.type = 'lowpass';
+    this.engineFilter.frequency.value = C.filterBaseHz;
+    this.engineFilter.Q.value = 1.1;
 
     this.engineGain = ctx.createGain();
     this.engineGain.gain.value = 0;
 
-    this.engineNode.connect(f1); f1.connect(g1); g1.connect(this.loadFilter);
-    this.engineNode.connect(f2); f2.connect(g2); g2.connect(this.loadFilter);
-    this.engineNode.connect(f3); f3.connect(this.formant3Gain);
-    this.formant3Gain.connect(this.loadFilter);
-    this.engineNode.connect(body); body.connect(gBody);
-    gBody.connect(this.loadFilter);
-    this.loadFilter.connect(this.engineGain);
+    this.oscMain.connect(mixMain); mixMain.connect(amGain);
+    this.oscSub.connect(mixSub);   mixSub.connect(amGain);
+    this.oscHarm.connect(mixHarm); mixHarm.connect(amGain);
+    amGain.connect(this.engineFilter);
+    this.engineFilter.connect(this.engineGain);
     this.engineGain.connect(this.master);
 
-    // ---------- Shared looped white-noise source ----------
+    // Mechanical pitch wobble.
+    const lfo = ctx.createOscillator();
+    lfo.type = 'sine';
+    lfo.frequency.value = C.wobbleHz;
+    const lfoDepth = ctx.createGain();
+    lfoDepth.gain.value = C.wobbleDepthHz;
+    lfo.connect(lfoDepth);
+    lfoDepth.connect(this.oscMain.frequency);
+    lfoDepth.connect(this.oscHarm.frequency);
+
+    // ---------- Shared looped white-noise source (filtered uses only) ----------
     const len = ctx.sampleRate * 2;
     this.noiseBuffer = ctx.createBuffer(1, len, ctx.sampleRate);
     const data = this.noiseBuffer.getChannelData(0);
@@ -294,25 +200,7 @@ export class SoundEngine {
     noise.buffer = this.noiseBuffer;
     noise.loop = true;
 
-    // Dirt: mechanical rustle bed (RPM-tracking) + intake hiss (throttle).
-    const rustleLp = ctx.createBiquadFilter();
-    rustleLp.type = 'lowpass';
-    rustleLp.frequency.value = 320;
-    this.rustleGain = ctx.createGain();
-    this.rustleGain.gain.value = 0;
-    noise.connect(rustleLp); rustleLp.connect(this.rustleGain);
-    this.rustleGain.connect(this.master);
-
-    const intakeBp = ctx.createBiquadFilter();
-    intakeBp.type = 'bandpass';
-    intakeBp.frequency.value = 1900;
-    intakeBp.Q.value = 0.9;
-    this.intakeGain = ctx.createGain();
-    this.intakeGain.gain.value = 0;
-    noise.connect(intakeBp); intakeBp.connect(this.intakeGain);
-    this.intakeGain.connect(this.master);
-
-    // ---------- Tires (iteration-1 design, rebalanced) ----------
+    // Tire squeal — narrow high bandpass, panned by slip direction.
     this.squealFilter = ctx.createBiquadFilter();
     this.squealFilter.type = 'bandpass';
     this.squealFilter.frequency.value = C.squealFreqBase;
@@ -325,6 +213,7 @@ export class SoundEngine {
     this.squealGain.connect(this.squealPan);
     this.squealPan.connect(this.master);
 
+    // Burnout screech — high-ish narrow band with frequency flutter.
     this.burnoutFilter = ctx.createBiquadFilter();
     this.burnoutFilter.type = 'bandpass';
     this.burnoutFilter.frequency.value = C.burnoutFreqHz;
@@ -342,58 +231,77 @@ export class SoundEngine {
     flutter.connect(flutterDepth);
     flutterDepth.connect(this.burnoutFilter.frequency);
 
-    noise.start();
+    // Overrun burble: brief midband blips, scheduled on throttle lift.
+    const burbleFilter = ctx.createBiquadFilter();
+    burbleFilter.type = 'bandpass';
+    burbleFilter.frequency.value = 620;
+    burbleFilter.Q.value = 2.5;
+    this.burbleGain = ctx.createGain();
+    this.burbleGain.gain.value = 0;
+    noise.connect(burbleFilter);
+    burbleFilter.connect(this.burbleGain);
+    this.burbleGain.connect(this.master);
+
+    this.oscMain.start();
+    this.oscSub.start();
+    this.oscHarm.start();
+    this.amOsc.start();
+    lfo.start();
     flutter.start();
+    noise.start();
   }
 
   // Per-frame parameter drive — smooth ramps, no zipper noise.
   update(s: SoundState) {
-    if (!this.ctx || !this.enabled || !this.engineNode) return;
+    if (!this.ctx || !this.enabled) return;
     const C = SOUND_CONFIG;
     const t = this.ctx.currentTime;
 
-    // ---- Firing rate from WHEEL speed (burnout = high revs) ----
+    // ---- Engine pitch + throb rate from WHEEL speed ----
     const rpmN = Math.pow(
       clamp(Math.abs(s.wheelSpeed) / C.rpmFullWheelSpeed, 0, 1), C.rpmCurve);
-    const firing = C.idleFiringHz + rpmN * (C.maxFiringHz - C.idleFiringHz);
-    this.engineNode.parameters.get('firingRate')!
-      .setTargetAtTime(firing, t, 0.025);
-    this.engineNode.parameters.get('throttle')!
-      .setTargetAtTime(s.throttle, t, 0.02);
+    this.jitterState = clamp(
+      this.jitterState + (Math.random() - 0.5) * 0.5, -1, 1);
+    const f = (C.idleHz + rpmN * (C.maxHz - C.idleHz)) *
+      (1 + C.jitter * this.jitterState);
+    this.oscMain.frequency.setTargetAtTime(f, t, 0.02);
+    this.oscSub.frequency.setTargetAtTime(f * 0.5, t, 0.02);
+    this.oscHarm.frequency.setTargetAtTime(f * 1.503, t, 0.02);
+    this.amOsc.frequency.setTargetAtTime(
+      C.fireRateIdle + rpmN * (C.fireRateMax - C.fireRateIdle), t, 0.03);
 
-    // ---- Load character: brightness + swell ----
-    this.loadFilter.frequency.setTargetAtTime(
-      C.loadFilterBaseHz + s.throttle * C.loadFilterThrottleHz, t, 0.03);
-    this.formant3Gain.gain.setTargetAtTime(
-      C.formant3GainBase + s.throttle * C.formant3GainThrottle, t, 0.03);
-    const vol = C.engineVolBase + s.throttle * C.engineVolThrottle;
+    // ---- Throttle character: brightness + swell ----
+    const cutoff = C.filterBaseHz + s.throttle * C.filterThrottleHz +
+      rpmN * C.filterRpmHz;
+    this.engineFilter.frequency.setTargetAtTime(cutoff, t, 0.03);
+
+    const vol = C.engineIdleVol + s.throttle * C.engineThrottleVol +
+      rpmN * C.engineRpmVol;
     const rising = vol > this.engineGain.gain.value;
     this.engineGain.gain.setTargetAtTime(
       vol, t, rising ? C.attackTau : C.releaseTau);
 
-    // ---- Dirt layers ----
-    this.rustleGain.gain.setTargetAtTime(
-      C.rustleVol * (0.35 + 0.65 * rpmN), t, 0.06);
-    this.intakeGain.gain.setTargetAtTime(
-      C.intakeVol * s.throttle * s.throttle, t, 0.04);
-
-    // ---- Overrun pops: sharp lift at revs + sparse pops on coast ----
-    const lifted = this.prevThrottle - s.throttle > C.popLiftThreshold;
-    const coasting = s.throttle < 0.15 && rpmN > 0.35;
-    if ((lifted && rpmN > 0.25) ||
-        (coasting && Math.random() < C.popChancePerSec / 60)) {
-      this.engineNode.port.postMessage('pop');
+    // ---- Overrun burble on a sharp lift at revs ----
+    if (this.prevThrottle - s.throttle > 0.45 && rpmN > 0.25) {
+      const g = this.burbleGain.gain;
+      g.cancelScheduledValues(t);
+      g.setValueAtTime(0, t);
+      for (let i = 0; i < 3; i++) {
+        const bt = t + 0.03 + i * 0.095 + Math.random() * 0.02;
+        g.linearRampToValueAtTime(C.burbleVol * (1 - i * 0.25), bt + 0.012);
+        g.exponentialRampToValueAtTime(0.001, bt + 0.07);
+      }
     }
     this.prevThrottle = s.throttle;
 
-    // ---- Drift squeal: continuous mirror of the slip angle ----
+    // ---- Drift squeal: high, narrow, pitch rising with slip depth ----
     const slipDeg = Math.abs(s.slipAngle) * 180 / Math.PI;
     const sNorm = clamp(
       (slipDeg - C.squealStartDeg) / (C.squealFullDeg - C.squealStartDeg), 0, 1);
     const squealVol = sNorm * clamp(s.speed / 8, 0.2, 1) * C.squealVol;
     this.squealGain.gain.setTargetAtTime(squealVol, t, 0.05);
     this.squealFilter.frequency.setTargetAtTime(
-      C.squealFreqBase + sNorm * C.squealFreqSlip + s.speed * 15, t, 0.06);
+      C.squealFreqBase + sNorm * C.squealFreqSlip, t, 0.06);
     this.squealPan.pan.setTargetAtTime(
       clamp(Math.sign(s.slipAngle) * -0.3 * sNorm, -0.4, 0.4), t, 0.08);
 
