@@ -166,12 +166,16 @@ body.desktop #hud-bl {
 
 /* ============ PHONE ============ */
 body.phone {
-  background: #0d1117;
-  color: #e6edf3;
+  /* Deep synthwave navy — magenta glow up top, cyan glow at the floor. */
+  background:
+    radial-gradient(120% 85% at 50% 12%, #2a0f4e 0%, #150a30 46%, #07030f 100%);
+  color: #e9d5ff;
   touch-action: none;
   overscroll-behavior: none;
   user-select: none;
   -webkit-user-select: none;
+  font-family: 'Orbitron', -apple-system, BlinkMacSystemFont, 'Segoe UI',
+    system-ui, sans-serif;
 }
 
 /* ----------------------------------------------------------------------
@@ -204,6 +208,23 @@ body.phone {
   transform: translate(-50%, -50%) rotate(var(--rot, 0deg));
   transform-origin: center;
   transition: transform 120ms ease-out;
+  overflow: hidden;
+  background:
+    radial-gradient(125% 95% at 50% 0%, rgba(255, 45, 149, 0.12), transparent 55%),
+    radial-gradient(125% 95% at 50% 100%, rgba(45, 226, 230, 0.10), transparent 55%),
+    linear-gradient(180deg, #160a31 0%, #0b0622 58%, #07030f 100%);
+}
+/* Neon grid + faint scanlines, painted behind all controls. */
+#phone-stage::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    repeating-linear-gradient(0deg, rgba(45, 226, 230, 0.045) 0 1px, transparent 1px 3px),
+    linear-gradient(rgba(255, 45, 149, 0.06) 1px, transparent 1px) 0 0 / 100% 46px,
+    linear-gradient(90deg, rgba(45, 226, 230, 0.06) 1px, transparent 1px) 0 0 / 46px 100%;
 }
 
 /* Pedals — full-half-width strips with an L-shaped clip-path notch in the
@@ -217,7 +238,7 @@ body.phone {
   --hb-margin: 8px;                          /* gap between handbrake and pedal edges */
 }
 
-#pedals { position: absolute; inset: 0; }
+#pedals { position: absolute; inset: 0; z-index: 1; }
 
 .pedal, #handbrake {
   appearance: none;
@@ -225,13 +246,13 @@ body.phone {
   margin: 0;
   padding: 0;
   font-family: inherit;
-  font-weight: 800;
-  letter-spacing: 3px;
-  color: #f6f8fa;
+  font-weight: 900;
+  letter-spacing: 4px;
+  color: #ffffff;
   position: absolute;
   overflow: hidden;
   touch-action: none;
-  transition: filter 60ms ease-out;
+  transition: filter 80ms ease-out, box-shadow 140ms ease-out;
   cursor: pointer;
 }
 
@@ -241,8 +262,24 @@ body.phone {
   width: 50%;
   font-size: 22px;
 }
-#pedal-brake    { left:  0;  background: linear-gradient(180deg, #db5b5b, #b03232); }
-#pedal-throttle { right: 0;  background: linear-gradient(180deg, #3fb950, #1f7a32); }
+#pedal-brake {
+  left: 0;
+  background:
+    linear-gradient(180deg, rgba(255, 45, 149, 0.12), rgba(22, 8, 28, 0.62) 42%, rgba(8, 4, 16, 0.94));
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 45, 149, 0.8),
+    inset 0 0 34px rgba(255, 45, 149, 0.22),
+    inset 0 0 80px rgba(255, 122, 24, 0.1);
+}
+#pedal-throttle {
+  right: 0;
+  background:
+    linear-gradient(180deg, rgba(57, 255, 140, 0.12), rgba(8, 22, 26, 0.62) 42%, rgba(6, 12, 18, 0.94));
+  box-shadow:
+    inset 0 0 0 2px rgba(45, 255, 170, 0.8),
+    inset 0 0 34px rgba(45, 255, 170, 0.2),
+    inset 0 0 80px rgba(45, 226, 230, 0.1);
+}
 
 /* Brake notch — bottom-RIGHT corner of brake (its inner-bottom in player view). */
 #pedal-brake {
@@ -275,9 +312,22 @@ body.phone {
   position: absolute;
   left: 0; right: 0; bottom: 0;
   height: 0%;
-  background: rgba(255, 255, 255, 0.26);
   pointer-events: none;
   z-index: 0;
+}
+/* The neon column lights from the bottom; a bright glowing line rides its top
+   edge so a taller fill reads as "more pressed / brighter". */
+#pedal-brake .pedal-fill {
+  background: linear-gradient(180deg, #ff8a3d 0%, #ff2d95 52%, #b3146a 100%);
+  box-shadow:
+    0 0 28px rgba(255, 45, 149, 0.6),
+    0 -2px 14px rgba(255, 138, 61, 0.85);
+}
+#pedal-throttle .pedal-fill {
+  background: linear-gradient(180deg, #c4ffd6 0%, #39ff6a 46%, #00d39a 100%);
+  box-shadow:
+    0 0 28px rgba(57, 255, 90, 0.55),
+    0 -2px 14px rgba(45, 226, 230, 0.8);
 }
 
 /* Saturation zone — always-visible top quarter with a dashed FULL line at
@@ -287,14 +337,22 @@ body.phone {
   position: absolute;
   left: 0; right: 0; top: 0;
   height: 25%;
-  background: rgba(255, 255, 255, 0.08);
-  border-bottom: 2px dashed rgba(255, 255, 255, 0.55);
+  background: rgba(255, 255, 255, 0.05);
+  border-bottom: 2px dashed rgba(255, 255, 255, 0.5);
   pointer-events: none;
   z-index: 0;
-  transition: background 60ms linear;
+  transition: background 80ms linear, box-shadow 80ms linear;
 }
-.pedal.at-max .pedal-saturation {
-  background: rgba(255, 255, 255, 0.32);
+#pedal-brake .pedal-saturation    { border-bottom-color: rgba(255, 45, 149, 0.75); }
+#pedal-throttle .pedal-saturation { border-bottom-color: rgba(45, 255, 170, 0.75); }
+/* Pinned at max → the whole saturation band lights up. */
+#pedal-brake.at-max .pedal-saturation {
+  background: rgba(255, 45, 149, 0.3);
+  box-shadow: inset 0 0 34px rgba(255, 45, 149, 0.55);
+}
+#pedal-throttle.at-max .pedal-saturation {
+  background: rgba(45, 255, 170, 0.28);
+  box-shadow: inset 0 0 34px rgba(45, 255, 170, 0.55);
 }
 
 .pedal-label {
@@ -303,9 +361,18 @@ body.phone {
   display: grid; place-items: center;
   pointer-events: none;
   z-index: 1;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  font-weight: 900;
+  letter-spacing: 6px;
 }
-.pedal.active { filter: brightness(1.08); }
+#pedal-brake .pedal-label {
+  color: #ffe2f0;
+  text-shadow: 0 0 9px rgba(255, 45, 149, 0.95), 0 0 22px rgba(255, 122, 24, 0.6);
+}
+#pedal-throttle .pedal-label {
+  color: #dcffe6;
+  text-shadow: 0 0 9px rgba(57, 255, 110, 0.95), 0 0 22px rgba(45, 226, 230, 0.65);
+}
+.pedal.active { filter: brightness(1.14) saturate(1.12); }
 
 /* Handbrake — its own rounded button at bottom-center, on top of the
    pedals' notched-out area. z-index ensures it wins hit-tests where it
@@ -316,46 +383,92 @@ body.phone {
   transform: translateX(-50%);
   width: var(--hb-w);
   height: var(--hb-h);
-  border-radius: 18px;
-  font-size: 16px;
-  background: linear-gradient(180deg, #4b5563, #1f2937);
+  border-radius: 16px;
+  font-size: 18px;
+  color: #ffe9c7;
+  background:
+    linear-gradient(180deg, rgba(255, 138, 61, 0.14), rgba(22, 11, 8, 0.9));
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 150, 40, 0.85),
+    inset 0 0 28px rgba(255, 138, 61, 0.2),
+    0 0 24px rgba(255, 138, 61, 0.28);
   z-index: 2;
 }
 #handbrake .pedal-label {
   position: static;
   display: grid; place-items: center;
   height: 100%; width: 100%;
+  font-weight: 900;
+  letter-spacing: 4px;
+  text-shadow: 0 0 9px rgba(255, 150, 40, 0.95), 0 0 22px rgba(255, 90, 40, 0.6);
 }
+/* Engaged → bright amber bloom. */
 #handbrake.active {
-  background: linear-gradient(180deg, #c47406, #7c2d12);
-  filter: brightness(1.05);
+  background: linear-gradient(180deg, rgba(255, 172, 64, 0.55), rgba(124, 45, 18, 0.9));
+  filter: brightness(1.12);
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 200, 110, 1),
+    inset 0 0 40px rgba(255, 165, 55, 0.55),
+    0 0 50px rgba(255, 140, 40, 0.85),
+    0 0 100px rgba(255, 90, 30, 0.45);
 }
 
-/* Unlock button — centered inside the stage. */
+/* "TAP TO STEER" — the pre-game tap (enables motion + calibrates neutral).
+   Restyled to big glowing logo-gradient text; the full area stays tappable. */
 #unlock {
   position: absolute;
   top: 50%; left: 50%;
   transform: translate(-50%, -50%);
-  width: 70%;
-  height: 55%;
-  background: #2da44e;
-  color: #ffffff;
+  width: 86%;
+  height: 60%;
+  z-index: 3;
+  appearance: none;
+  -webkit-appearance: none;
   border: none;
-  border-radius: 28px;
-  font-size: 30px;
-  font-weight: 800;
-  letter-spacing: 3px;
-  box-shadow: 0 20px 50px rgba(45, 164, 78, 0.35);
+  background-color: transparent;
+  padding: 0 6%;
+  font-family: inherit;
+  font-size: clamp(34px, 9.5vmin, 70px);
+  font-weight: 900;
+  letter-spacing: 6px;
+  line-height: 1.12;
+  text-align: center;
+  /* Logo gradient (magenta → pink → orange) swept across the glyphs. */
+  background-image: linear-gradient(100deg, #ff2d95 0%, #ff5fa2 42%, #ff8a3d 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: tapPulse 1.9s ease-in-out infinite;
 }
-#unlock:active { background: #218739; transform: translate(-50%, -50%) scale(0.99); }
+@keyframes tapPulse {
+  0%, 100% {
+    transform: translate(-50%, -50%) scale(1);
+    filter: drop-shadow(0 0 10px rgba(255, 45, 149, 0.55))
+            drop-shadow(0 0 26px rgba(255, 138, 61, 0.4));
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1.04);
+    filter: drop-shadow(0 0 22px rgba(255, 45, 149, 0.95))
+            drop-shadow(0 0 50px rgba(255, 138, 61, 0.7));
+  }
+}
+#unlock:active {
+  animation: none;
+  transform: translate(-50%, -50%) scale(0.98);
+  filter: drop-shadow(0 0 26px rgba(255, 45, 149, 1))
+          drop-shadow(0 0 60px rgba(255, 138, 61, 0.85));
+}
 
 /* Error fallback */
 #error {
   position: absolute; inset: 0;
   display: grid; place-items: center;
   padding: 24px;
-  color: #f85149; text-align: center;
+  color: #ff5fa2; text-align: center;
   font-size: 16px; line-height: 1.5;
+  text-shadow: 0 0 12px rgba(255, 45, 149, 0.6);
+  z-index: 4;
 }
 
 /* Live state strip — sits in real viewport coords (outside the rotated
@@ -365,8 +478,9 @@ body.phone {
   top: max(4px, env(safe-area-inset-top));
   left: max(4px, env(safe-area-inset-left));
   font: 10px/1.25 ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
-  color: #e6edf3;
-  background: rgba(0, 0, 0, 0.55);
+  color: #7ff3e0;
+  background: rgba(10, 6, 24, 0.7);
+  border: 1px solid rgba(45, 226, 230, 0.25);
   padding: 4px 6px;
   border-radius: 4px;
   z-index: 999;
