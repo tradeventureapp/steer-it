@@ -105,6 +105,11 @@ export const CONFIG = {
   spinReleaseHold: 0.15,            // NEW (p14b)  s — the steer-into must be HELD this long to
                                     //   fully arm the spin (deliberate, not an accidental flick).
                                     //   Re-cages at 2× this rate when the player backs off.
+  spinReleaseThresholdHB: 0.45,     // NEW (p15)  steer-INTO needed to arm a spin WHILE THE
+                                    //   HANDBRAKE IS HELD — far lower than the tilt-only
+                                    //   spinReleaseThreshold. Pulling the handbrake is the player
+                                    //   saying "break it loose / spin it", so handbrake + a
+                                    //   decent steer-in over-rotates into a 360° readily.
   spinYawRate: 4.0,                 // NEW (p14b)  rad/s — when armed, ADD this much yaw (in the
                                     //   tilt direction) ON TOP of the natural drift rotation so
                                     //   the car genuinely over-rotates into a spin. The honest
@@ -221,6 +226,11 @@ export const CONFIG = {
   // fades by torqueBoostFadeSpeed so at speed the drive is the grippy 9000.
   lowSpeedTorqueBoost: 1.2,         // p9 0.5 → 1.2 ↑ (p12) launch ignition vs low eP
   torqueBoostFadeSpeed: 5,          // p9 4 → 5 (p12)  m/s (~18 km/h) where boost = 0
+  burnoutThrottle: 0.9,             // NEW (p15)  the launch torque-boost (the wheelspin
+                                    //   ignition off the line) only engages at throttle ≥ this,
+                                    //   ramping in over [this−0.1, this]. Below it the car just
+                                    //   hooks up and accelerates with grip — a standing burnout
+                                    //   is a DELIBERATE near-full-throttle act, not every launch.
   // Fraction of the pedal brake that acts on the rear WHEEL (through the
   // friction circle — hard braking can lock the rear and slide it, brake-
   // drift style). The rest acts on the front/body directly.
@@ -247,7 +257,9 @@ export const CONFIG = {
   // the player feels); this applies the collapse from the instant the
   // lever is pulled → turn-in + handbrake = the rear SNAPS out instead of
   // the car just slowing down. Raise toward 1 for a milder handbrake.
-  handbrakeLatGripFactor: 0.30,     // NEW (p6)
+  handbrakeLatGripFactor: 0.10,     // p6 0.30 → 0.10 ↓ (p15) the handbrake is THE slide tool:
+                                    //   a locked rear has almost no lateral grip, so turn-in +
+                                    //   handbrake instantly throws the rear into a big slide.
 
   // ---------- Reverse (p6) ----------
   // Arcade reverse: holding BRAKE at (near) standstill backs the car up.
@@ -609,8 +621,13 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   // peak-torque region — so cornering never starves the drive.
   // lowSpeedTorqueBoost is the launch end of the curve (gearing torque
   // multiplication off the line), fading out by torqueBoostFadeSpeed.
+  // The launch ignition is GATED on near-full throttle (p15): below
+  // burnoutThrottle the boost is off and the car simply hooks up with grip,
+  // so a half-throttle launch is clean and a standing burnout takes a
+  // deliberate ≥90% stab. Ramps in over [burnoutThrottle−0.1, burnoutThrottle].
+  const boostGate = clamp((input.throttle - (c.burnoutThrottle - 0.1)) / 0.1, 0, 1);
   const driveBoost = 1 + c.lowSpeedTorqueBoost *
-    Math.max(0, 1 - speed / c.torqueBoostFadeSpeed);
+    Math.max(0, 1 - speed / c.torqueBoostFadeSpeed) * boostGate;
   const powerLimitedForce = Math.min(
     c.enginePower,
     c.enginePeakPowerW / Math.max(1, Math.abs(car.rearWheelSpeed)),
@@ -930,12 +947,23 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
           // into/counter sense) flips as the car spins, re-deriving "into"
           // every frame would disarm it mid-spin. The player disarms by easing
           // off or tilting the OTHER way (which then catches the spin).
+          // The handbrake LOWERS the arm threshold (p15): pulling it is the
+          // player asking to break the rear loose / spin, so handbrake + a
+          // decent steer-in over-rotates far more readily than tilt alone.
+          const armThreshold = input.handbrake
+            ? c.spinReleaseThresholdHB
+            : c.spinReleaseThreshold;
+          // START signal: tilt-only reads intoAmount (steer OPPOSITE the slide,
+          // a power drift's signature). A handbrake slide LOCKS the rear, so β
+          // takes the SAME sign as the steer and intoAmount reads ~0 — there,
+          // the lever-pull + steer IS the spin intent, so arm on raw |steer|.
+          const startSignal = input.handbrake ? Math.abs(input.steer) : intoAmount;
           const armed = car.spinTimer !== 0;
           const sustain = armed
             ? (car.driftActive &&
-               Math.abs(input.steer) >= c.spinReleaseThreshold * 0.6 &&
+               Math.abs(input.steer) >= armThreshold * 0.6 &&
                Math.sign(input.steer) === Math.sign(car.spinTimer))
-            : (car.driftActive && intoAmount >= c.spinReleaseThreshold);
+            : (car.driftActive && startSignal >= armThreshold);
           const spinDir = armed
             ? Math.sign(car.spinTimer)
             : (Math.sign(input.steer) || -sgn);
@@ -965,8 +993,16 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
         }
       } else {
         // Too slow for the governor — bleed any spin arming.
-        car.spinTimer = Math.max(0, car.spinTimer - dt * 2);
+        car.spinTimer = Math.sign(car.spinTimer) *
+          Math.max(0, Math.abs(car.spinTimer) - dt * 2);
       }
+    } else if (car.spinTimer !== 0) {
+      // Not in a governed drift (govMode 0 — e.g. the player CAUGHT the slide
+      // and the rear regripped). Bleed the spin arming so a freshly re-entered
+      // drift is never pre-armed, and so releasing the handbrake to catch
+      // doesn't leave a latent spin waiting to fire.
+      car.spinTimer = Math.sign(car.spinTimer) *
+        Math.max(0, Math.abs(car.spinTimer) - dt * 2);
     }
   }
 
