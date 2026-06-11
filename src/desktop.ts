@@ -47,14 +47,12 @@ function updateSoundButton() {
 sound.onChange = updateSoundButton;
 updateSoundButton();
 
+// Sound is OFF BY DEFAULT — only the visible toggle (or the M key)
+// enables it. No auto-enable on random clicks.
 soundBtn?.addEventListener('click', (e) => {
   e.stopPropagation();
   sound.toggleMute();
 });
-// Autoplay policy: the first click anywhere unlocks audio.
-window.addEventListener('pointerdown', () => {
-  if (!sound.enabled) sound.enable();
-}, { once: true });
 window.addEventListener('keydown', (e) => {
   if (e.key === 'm' || e.key === 'M') sound.toggleMute();
 });
@@ -325,7 +323,7 @@ function frame(now: number) {
     Math.abs(car.rearSlip) / (CONFIG.slipThresholdForSkid * 2.5));
   const smokeIntensity = Math.max(
     car.wheelSpin, slipNorm > 0.4 ? slipNorm : 0);
-  if (smokeIntensity > 0.3) {
+  if (smokeIntensity > 0.2) {
     const { L, R } = rearWheelPositions();
     fx.emitSmoke(L.x, L.y, car.vx, car.vy, smokeIntensity, realDt);
     fx.emitSmoke(R.x, R.y, car.vx, car.vy, smokeIntensity, realDt);
@@ -395,58 +393,122 @@ function updateHud() {
   if (handbrakeHudEl) handbrakeHudEl.classList.toggle('on', current.handbrake);
 }
 
-// ---------- Drawing ----------
-// CAR_DRAW_SCALE applies uniformly to every visual dimension of the car
-// (body, cabin, nose, wheel chrome). It tracks the same 1/3 reduction
-// applied to CONFIG.wheelbase / CONFIG.trackWidth in physics.ts so the
-// sprite and the physical footprint stay in proportion.
-const CAR_DRAW_SCALE = 1 / 3;
+// ---------- Drawing: top-down rally car ----------
+// Evokes a 2000s WRC hatchback — deep blue body, gold wheels, white
+// stripes, roof roundel and a rear wing — with zero trademarked marks.
+// The footprint matches the old placeholder (1.5 m × 0.617 m, the 1/3 of
+// the original 4.5/1.85 sprite) so physics dimensions are untouched.
+// Bold shapes over fine detail: it must read as a rally car at ~35 px.
 
 function drawCar() {
-  // Draw the car centered at its world position, rotated by heading.
-  // All inner coordinates are in METERS, then scaled by pxPerMeter.
+  // Draw centered at the car's world position, rotated by heading.
+  // Inner coordinates are METERS (ctx scaled by pxPerMeter); +x = front.
   const sx = car.x * PX();
   const sy = car.y * PX();
 
   ctx.save();
   ctx.translate(sx, sy);
   ctx.rotate(car.heading);
-  ctx.scale(PX(), PX()); // now draw in meters
+  ctx.scale(PX(), PX());
 
-  const s = CAR_DRAW_SCALE;
-  const len = 4.5 * s;
-  const wid = 1.85 * s;
-  const halfL = len / 2;
-  const halfW = wid / 2;
+  const halfL = 0.75;   // 1.5 m long
+  const halfW = 0.309;  // 0.617 m wide
 
-  // Body
-  ctx.fillStyle = '#e63946';
-  roundRect(ctx, -halfL, -halfW, len, wid, 0.35 * s);
+  // Body — deep rally blue with a darker outline.
+  ctx.fillStyle = '#1d3fa0';
+  roundRect(ctx, -halfL, -halfW, halfL * 2, halfW * 2, 0.12);
   ctx.fill();
+  ctx.strokeStyle = '#12265e';
+  ctx.lineWidth = 0.03;
+  ctx.stroke();
 
-  // Roof tint (windshield + cabin) — helps see orientation
-  ctx.fillStyle = '#1d3557';
-  roundRect(ctx, -0.6 * s, -halfW + 0.18 * s, 1.7 * s, wid - 0.36 * s, 0.2 * s);
-  ctx.fill();
+  // Bumpers — dark caps front and rear.
+  ctx.fillStyle = '#1a1d24';
+  roundRect(ctx, halfL - 0.09, -0.28, 0.09, 0.56, 0.04); ctx.fill();
+  roundRect(ctx, -halfL, -0.28, 0.08, 0.56, 0.04); ctx.fill();
 
-  // Nose marker (front)
-  ctx.fillStyle = '#f1faee';
+  // Livery — twin white stripes down the hood and tail (the cabin glass
+  // overdraws them mid-car, which reads as stripes passing the roofline).
+  ctx.fillStyle = 'rgba(244, 246, 250, 0.95)';
+  ctx.fillRect(-0.62, -0.10, 1.24, 0.055);
+  ctx.fillRect(-0.62,  0.045, 1.24, 0.055);
+
+  // Headlights (pale) + taillights (red).
+  ctx.fillStyle = '#f3f0d8';
   ctx.beginPath();
-  ctx.moveTo(halfL - 0.15 * s, -halfW + 0.25 * s);
-  ctx.lineTo(halfL + 0.05 * s, 0);
-  ctx.lineTo(halfL - 0.15 * s, halfW - 0.25 * s);
-  ctx.closePath();
+  ctx.arc(0.69, -0.19, 0.047, 0, Math.PI * 2);
+  ctx.arc(0.69,  0.19, 0.047, 0, Math.PI * 2);
   ctx.fill();
+  ctx.fillStyle = '#d23b2f';
+  ctx.fillRect(-0.72, -0.24, 0.05, 0.09);
+  ctx.fillRect(-0.72,  0.15, 0.05, 0.09);
 
-  // Wheels (front wheels rotate by steerAngle). Positions come from
-  // CONFIG.wheelbase / CONFIG.trackWidth which are already at the smaller
-  // scale; the wheel chrome itself is scaled by CAR_DRAW_SCALE inside
-  // drawWheel(). This is the same source used by the skid emitter, so
-  // skid marks spawn exactly under these rear wheels.
+  // Wheels — gold rims on dark tires; fronts steer with steerAngle.
+  // Positions come from CONFIG (same source as the skid emitter).
   drawWheel(+CONFIG.wheelbase / 2, -CONFIG.trackWidth / 2, car.steerAngle);
   drawWheel(+CONFIG.wheelbase / 2, +CONFIG.trackWidth / 2, car.steerAngle);
   drawWheel(-CONFIG.wheelbase / 2, -CONFIG.trackWidth / 2, 0);
   drawWheel(-CONFIG.wheelbase / 2, +CONFIG.trackWidth / 2, 0);
+
+  // Windshield — dark glass, wider at the roofline.
+  ctx.fillStyle = '#141c2e';
+  ctx.beginPath();
+  ctx.moveTo(0.36, -0.21);
+  ctx.lineTo(0.36,  0.21);
+  ctx.lineTo(0.16,  0.26);
+  ctx.lineTo(0.16, -0.26);
+  ctx.closePath();
+  ctx.fill();
+
+  // Roof panel.
+  ctx.fillStyle = '#2b54c4';
+  roundRect(ctx, -0.28, -0.26, 0.44, 0.52, 0.07);
+  ctx.fill();
+
+  // Rear window.
+  ctx.fillStyle = '#141c2e';
+  ctx.beginPath();
+  ctx.moveTo(-0.28, -0.25);
+  ctx.lineTo(-0.28,  0.25);
+  ctx.lineTo(-0.44,  0.21);
+  ctx.lineTo(-0.44, -0.21);
+  ctx.closePath();
+  ctx.fill();
+
+  // Roof scoop hint at the windshield edge.
+  ctx.fillStyle = '#0f1524';
+  roundRect(ctx, 0.06, -0.07, 0.10, 0.14, 0.02);
+  ctx.fill();
+
+  // Racing roundel + number on the roof.
+  ctx.fillStyle = '#f4f6fa';
+  ctx.beginPath();
+  ctx.arc(-0.07, 0, 0.155, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#1a1d24';
+  ctx.font = 'bold 0.24px Arial, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('7', -0.07, 0.015);
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+
+  // Side mirrors at the windshield base.
+  ctx.fillStyle = '#12265e';
+  ctx.fillRect(0.27, -halfW - 0.045, 0.08, 0.05);
+  ctx.fillRect(0.27,  halfW - 0.005, 0.08, 0.05);
+
+  // Rear wing — wider than the body, white plank with dark endplates.
+  // Drawn last: it sits above everything in top-down view.
+  ctx.fillStyle = '#142c73';
+  ctx.fillRect(-0.80, -0.385, 0.16, 0.055);
+  ctx.fillRect(-0.80,  0.330, 0.16, 0.055);
+  ctx.fillStyle = '#e8ecf4';
+  roundRect(ctx, -0.78, -0.36, 0.12, 0.72, 0.03);
+  ctx.fill();
+  ctx.strokeStyle = '#9aa6bd';
+  ctx.lineWidth = 0.02;
+  ctx.stroke();
 
   ctx.restore();
 }
@@ -455,9 +517,13 @@ function drawWheel(bx: number, by: number, angle: number) {
   ctx.save();
   ctx.translate(bx, by);
   ctx.rotate(angle);
-  ctx.fillStyle = '#1c1c20';
-  const s = CAR_DRAW_SCALE;
-  roundRect(ctx, -0.32 * s, -0.13 * s, 0.64 * s, 0.26 * s, 0.06 * s);
+  // Tire
+  ctx.fillStyle = '#15161a';
+  roundRect(ctx, -0.12, -0.05, 0.24, 0.10, 0.025);
+  ctx.fill();
+  // Gold rim
+  ctx.fillStyle = '#d9b13b';
+  roundRect(ctx, -0.065, -0.028, 0.13, 0.056, 0.015);
   ctx.fill();
   ctx.restore();
 }

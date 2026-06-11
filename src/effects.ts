@@ -7,16 +7,16 @@
 // =============================================================================
 
 export const FX_CONFIG = {
-  maxParticles: 260,
+  maxParticles: 340,
 
-  // ---------- Tire smoke ----------
-  smokeRatePerWheel: 34,   // particles/s per wheel at full drift intensity
-  smokeLife: 0.95,         // s (± var)
+  // ---------- Tire smoke (p11 polish: clearly visible drift trail) ----------
+  smokeRatePerWheel: 55,   // particles/s per wheel at full drift intensity
+  smokeLife: 1.1,          // s (± var)
   smokeLifeVar: 0.35,
-  smokeSize: 0.34,         // m initial radius
-  smokeGrow: 1.05,         // m/s radius growth
-  smokeAlpha: 0.26,        // initial opacity
-  smokeDrift: 0.7,         // m/s random drift velocity
+  smokeSize: 0.42,         // m initial radius
+  smokeGrow: 1.5,          // m/s radius growth
+  smokeAlpha: 0.38,        // initial opacity
+  smokeDrift: 0.8,         // m/s random drift velocity
   smokeInheritVel: 0.25,   // fraction of car velocity inherited
 
   // ---------- Impact sparks ----------
@@ -132,8 +132,9 @@ export class Effects {
     for (const p of this.particles) {
       const t = p.age / p.life;
       if (p.kind === 'smoke') {
+        // Light warm grey — pops against both the green lawn and the sky.
         ctx.fillStyle =
-          `rgba(118, 118, 124, ${(FX_CONFIG.smokeAlpha * (1 - t)).toFixed(3)})`;
+          `rgba(168, 168, 172, ${(FX_CONFIG.smokeAlpha * (1 - t)).toFixed(3)})`;
         ctx.beginPath();
         ctx.arc(p.x * px, p.y * px, p.size * px, 0, Math.PI * 2);
         ctx.fill();
