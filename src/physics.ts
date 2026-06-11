@@ -49,29 +49,22 @@ export const CONFIG = {
   inertiaScale: 8.0,                // p2 1.5 → 8.0  ↑  weighty rotation, progressive slide
 
   // ---------- Engine / brakes ----------
-  // p7: the engine is now a POWER CURVE, not a constant force:
+  // Honest two-region torque curve (function of throttle & WHEEL speed):
   //   drive = throttle · min(enginePower, enginePeakPowerW / |wheelSpeed|)
-  // enginePower caps the low-speed force (launch punch); above the
-  // crossover (~12.5 m/s wheel speed) force falls off as P/v. Because the
-  // curve runs on WHEEL speed, a spinning wheel bleeds its own engine
-  // force — wheelspin is self-limiting and full throttle at speed HOOKS UP
-  // instead of burning forever (the p6 perma-spin bug: constant 8800 N vs
-  // 8964 N kinetic reaction left a 136 N recovery margin ≈ never).
-  enginePower: 8400,                // p5 8800 → 8400 ↓ (p9): below the curve crossover
-                                    // the cap is the recovery margin vs the 8964 N tire
-                                    // reaction — 164 N took forever to hook; 564 N is crisp
-  // p10: 110k → 200k. EVIDENCE 2 — full throttle at 25-30 km/h in a grip
-  // corner DECELERATED. Cause: the curve runs on WHEEL speed, and a
-  // cornering rear spins up (lateral load saturates the friction circle),
-  // so the wheel speed rose past the ~13 m/s crossover and the curve
-  // starved the drive exactly when cornering. Pushing the crossover to
-  // ~24 m/s of wheel speed keeps the force at the enginePower plateau
-  // through corner-speed wheelspin → the car POWERS through. Anti-perma-
-  // burnout is unaffected: the low-speed force CAP (enginePower 8400) is
-  // what guarantees recovery (< 8964 N kinetic reaction), and the cap is
-  // independent of this knob; the curve only ever LOWERS drive at high
-  // wheel speed, never raises it.
-  enginePeakPowerW: 160000,         // p9 110000 → 160000  ↑ (p10) power through corners
+  // Below the crossover (peakPowerW/enginePower ≈ 19 m/s wheel speed) the
+  // engine makes flat peak torque; above it, constant-power falloff P/v.
+  //
+  // p12 KEY RATIO: enginePower is held DELIBERATELY LOW relative to the
+  // race-tire grip budget so that full-throttle NORMAL cornering stays in
+  // GRIP (the drive doesn't saturate the rear) — slides need real
+  // provocation (handbrake, sustained wheelspin). The launch still lights
+  // up off the line because lowSpeedTorqueBoost briefly multiplies it
+  // (9000 × 2.2 = 19800 > 16200 budget → ignites), and it HOOKS UP because
+  // the steady cap (9000) is below the kinetic reaction (budget·
+  // driftFriction = 16200·0.83 ≈ 13446), so a spinning wheel always
+  // decelerates back to grip. No slip gate anywhere.
+  enginePower: 9000,                // p11 8400 → 9000 ↑ (p12) low vs grip → grip corners
+  enginePeakPowerW: 171000,         // p10 160000 → 171000 (p12) crossover 19 m/s (171k/9k)
   // ---------- Governed drift mode (p9 — replaces the p8/p9 patch stack) ----------
   // Layered emergent fixes (drift-gated power, scrub cancel, stability
   // assist, soft ceiling) fought each other: sims showed the drift either
@@ -92,12 +85,13 @@ export const CONFIG = {
                                     //           full countersteer = down to ~20°
   driftAngleRate: 4.0,              // NEW (p9)  1/s — slip-angle tracking stiffness
   driftYawRelax: 8.0,               // NEW (p9)  1/s — yaw relax rate toward the law
-  driftTargetSpeedMin: 5,           // NEW (p9)  m/s drift speed at light throttle
-  driftTargetSpeedMax: 11,          // p9 10 → 11 (p11)  m/s at full throttle (~40 km/h):
-                                    //   restores donut speed after the p11 spin-cut
-                                    //   removal (more rear lateral = more scrub drag)
-  driftSpeedGain: 2.5,              // NEW (p9)  1/s accel toward the target speed
-  brakeForce: 14000,                // N at full brake (unchanged)
+  // p12: race-tire grip raised the natural slide speed; bump the governor
+  // targets so drifts live at a cinematic 30-50 km/h (was ~25-40).
+  driftTargetSpeedMin: 7,           // p9 5 → 7 (p12)  m/s at light throttle (~25 km/h)
+  driftTargetSpeedMax: 13,          // p11 11 → 13 (p12)  m/s at full throttle (~47 km/h)
+  driftSpeedGain: 3.5,              // p9 2.5 → 3.5 (p12)  1/s — pull speed up harder so
+                                    //   slides hold a cinematic pace, not a crawl
+  brakeForce: 21000,                // p10 14000 → 21000 ↑ (p12) braking scaled with grip
 
   // ---------- Resistance (unchanged) ----------
   dragCoeff: 2.5,                   // air drag, force = dragCoeff * v * |v|
@@ -127,14 +121,22 @@ export const CONFIG = {
   autoCounterStrength: 0.85,        // NEW (p9)  0..1, how strongly fronts align
   autoCounterTrim: 0.3,             // NEW (p9)  player authority around alignment
 
-  // ---------- Tire / grip ----------
+  // ---------- Tire / grip — RACE-TIRE SCALE (p12) ----------
+  // The arena is screen-sized: visible turns are ~6-15 m radius, which at
+  // any watchable speed demands far more than a road car's ~0.8-1g. Road
+  // grip meant EVERY turn saturated the tires and scrubbed speed to a
+  // crawl (~16 km/h circles). Grip budgets are raised ~1.5× toward race
+  // levels so screen-radius cornering is normal GRIP driving; the friction
+  // circle still saturates when PROVOKED (handbrake, sustained wheelspin).
+  // Cornering stiffness is scaled with the budgets so the peak-grip slip
+  // angle (budget/stiffness) is unchanged (~5.6° rear) — same break-loose
+  // feel, more grip.
   // FRONT (undriven): pure lateral model — linear stiffness with a peak cap.
-  corneringStiffnessFront: 180000,  // (unchanged)  snappy front turn-in & catch
-  peakLatGripFront:  13500,         // (unchanged)  strong front for catch authority
+  corneringStiffnessFront: 270000,  // p10 180000 → 270000 ↑ (p12, ~1.5×)
+  peakLatGripFront:  20250,         // p10 13500 → 20250  ↑ (p12, ~1.5×) catch authority
   // REAR (driven): lateral stiffness still shapes how fast lateral force
-  // builds with slip angle. The PEAK now comes from tireGripBudgetRear
-  // below — lateral peak slip angle = budget / stiffness ≈ 4.4°.
-  corneringStiffnessRear:  110000,  // (unchanged)
+  // builds with slip angle. The PEAK comes from tireGripBudgetRear below.
+  corneringStiffnessRear:  165000,  // p10 110000 → 165000 ↑ (p12, ~1.5×)
   // Kinetic/static friction ratio once a tire is past peak — used by the
   // front cap AND as the saturated-force magnitude of the rear circle.
   driftFriction: 0.83,              // (unchanged)  grip-in-slide, recoverable
@@ -147,12 +149,9 @@ export const CONFIG = {
   // removed) and the separate peakLatGripRear cap (p2 8200, removed —
   // lateral-only peak is now the full budget when the wheel isn't spinning).
   // IMPORTANT relationship: kinetic reaction = budget × driftFriction
-  // (10800 × 0.83 ≈ 8964 N) must EXCEED the engine's force CAP (8800 N),
-  // or a spinning wheel can never decelerate back to grip. p7's power
-  // curve makes this much easier to satisfy: above ~12.5 m/s of wheel
-  // speed the drive force falls off as P/v, so a spinning wheel bleeds
-  // its own torque and recovery is fast everywhere.
-  tireGripBudgetRear: 10800,        // p4 9200 → 10800  ↑ proportional to enginePower (p5)
+  // (16200 × 0.83 ≈ 13446 N) must EXCEED the engine's force CAP (9000 N),
+  // or a spinning wheel can never decelerate back to grip (margin 4446 N).
+  tireGripBudgetRear: 16200,        // p5 10800 → 16200 ↑ (p12, ~1.5×) race-tire grip
   // Slip ratio at which longitudinal traction peaks. Below = linear
   // traction (wheel ~matches ground). Above = the wheel is SPINNING
   // (kinetic regime). Lower = wheelspin starts at smaller overspeed.
@@ -184,8 +183,11 @@ export const CONFIG = {
   // SHORT. Boost down and fading by 4 m/s puts full-throttle hookup at
   // ~16-18 km/h (was ~33). Drifts are unaffected: the governed drift mode
   // paces the car through slides independently of engine drive.
-  lowSpeedTorqueBoost: 0.5,         // p4 0.6 → 0.5  ↓ (p9)
-  torqueBoostFadeSpeed: 4,          // p7 8 → 4  ↓  m/s (~14 km/h) where boost = 0
+  // p12: boost RAISED so the launch still lights up despite the low steady
+  // enginePower (9000 × (1+1.2) = 19800 > 16200 budget → ignites), then
+  // fades by torqueBoostFadeSpeed so at speed the drive is the grippy 9000.
+  lowSpeedTorqueBoost: 1.2,         // p9 0.5 → 1.2 ↑ (p12) launch ignition vs low eP
+  torqueBoostFadeSpeed: 5,          // p9 4 → 5 (p12)  m/s (~18 km/h) where boost = 0
   // Fraction of the pedal brake that acts on the rear WHEEL (through the
   // friction circle — hard braking can lock the rear and slide it, brake-
   // drift style). The rest acts on the front/body directly.
@@ -203,7 +205,8 @@ export const CONFIG = {
   // ~36 N of margin after the p5 budget raise (near-dead handbrake); 14000
   // gives ~5000 N of lock authority → decisive slide entry, still well
   // short of the p1 instant-spin (yaw inertia + damping unchanged).
-  handbrakeLockForce: 14000,        // p4 9000 → 14000  ↑ decisive lock (p5)
+  handbrakeLockForce: 19000,        // p5 14000 → 19000 ↑ (p12) must clear the bigger
+                                    //   kinetic reaction (13446 N) to lock the rear
   // While the handbrake is held the rear LATERAL force is additionally
   // scaled by this factor — a locking/locked wheel has almost no lateral
   // grip. The friction circle covers the fully-locked steady state, but is
@@ -253,17 +256,24 @@ export const CONFIG = {
   slipReportSpeedGate: 1.5,         // NEW (p10)  m/s — slip reads 0 below
   slipReportRampWidth: 0.6,         // NEW (p10)  m/s — ramp band up to the gate
 
-  // ---------- Standing pivot / donut entry (p10) ----------
-  // PROBLEM 3 — from rest, full throttle + full lock did nothing stylish:
-  // the rear hooks up (~15 km/h) before steering gains authority (lateral
-  // forces need speed), so a burnout-pivot was impossible. This adds a
-  // direct yaw assist that fires only when the rear is LIT (wheelSpin),
-  // the player is STEERING, on THROTTLE, and at LOW speed — the car swings
-  // around its nose in smoke. Fades out by burnoutPivotFadeSpeed so above
-  // ~20 km/h normal tire physics takes over. Straighten the wheel → assist
-  // vanishes → the spinning rear launches the car forward.
-  burnoutPivotRate: 5.5,            // NEW (p10)  rad/s² yaw at full lock + full spin
-  burnoutPivotFadeSpeed: 5.5,       // NEW (p10)  m/s (~20 km/h) where the assist = 0
+  // ---------- Standing pivot = real spin-out (p12, declared assist) ----------
+  // At near-zero speed the tires make NO force (no slip → no force), so a
+  // genuine spin-out cannot emerge from physics — this is a declared
+  // assist, fenced off from the force model. When the rear is LIT
+  // (wheelspin), the player STEERS, on THROTTLE, at low speed, the car
+  // rotates ABOUT ITS FRONT AXLE: the front stays ~put while the rear
+  // sweeps around it in smoke (a spin-out, NOT a driven circle — the p10
+  // version drove a neat circle because it yawed about the CG and let the
+  // rear drive translate it out). Implemented by (a) ramping yaw toward a
+  // spin rate and (b) setting the body velocity to the rotation-about-front
+  // solution v_cg = ω × (CG − frontAxle), so net translation stays tiny.
+  // Fades out by burnoutPivotFadeSpeed; straighten → assist off → the
+  // spinning rear launches the car forward via honest tire force.
+  burnoutPivotMaxYaw: 4.5,          // NEW (p12)  rad/s spin rate at full lock + full spin
+  burnoutPivotRate: 8.0,            // p10 (repurposed)  1/s ramp toward the spin rate
+  burnoutPivotVelBlend: 12.0,       // NEW (p12)  1/s blend of velocity onto front-pivot
+  burnoutPivotFadeSpeed: 4.0,       // p10 (unchanged)  m/s (~20 km/h) where assist = 0
+  burnoutPivotSteerDead: 0.12,      // NEW (p12)  |steer| below this = no pivot (launch)
 
   // ---------- Collision vs desktop obstacles (p10) ----------
   // The car is treated as a circle against axis-aligned obstacle rects
@@ -375,8 +385,8 @@ function clamp(v: number, lo: number, hi: number): number {
 //                  ▼
 //              ANTI-PERMA-BURNOUT is honest: the launch lights up because
 //              boosted drive briefly exceeds kinetic reaction; it HOOKS UP
-//              because the steady force CAP (enginePower 8400) is below the
-//              kinetic reaction (budget·driftFriction ≈ 8964), so the
+//              because the steady force CAP (enginePower 9000) is below the
+//              kinetic reaction (budget·driftFriction ≈ 13446), so the
 //              spinning wheel always decelerates back to grip. No gate.
 //
 //  THE ONE ASSIST: real drifting is an unstable equilibrium a driver
@@ -510,7 +520,7 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   // Handbrake cuts drive to the rear wheel (p9) — the arcade clutch-kick.
   // Binary-throttle players hold full gas while jabbing the handbrake;
   // with drive flowing, engine force + ground reaction overpowers the
-  // 14000 N lock and the wheel never locks, so the slide never initiates.
+  // lock force and the wheel never locks, so the slide never initiates.
   // Cut the drive and the lock is decisive regardless of throttle;
   // release → full power resumes instantly into the drift.
   const drive = input.handbrake
@@ -647,19 +657,6 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   const yawDamp = -c.angularDamping * I * car.angularVel;
   car.angularVel += (torque + yawDamp) / I * dt;
 
-  // Standing pivot / donut entry (p10): when the rear is LIT (spinning),
-  // the player is STEERING, on THROTTLE, and going slow, add a direct yaw
-  // assist so the car swings around its nose — normal tire forces have no
-  // authority at standstill. Fades out by burnoutPivotFadeSpeed; straighten
-  // the wheel → assist vanishes → the spinning rear launches the car. Sign
-  // matches normal steering (steer right → +yaw).
-  const spinNow = isRearSliding ? Math.min(1, Math.abs(s)) : 0;
-  const pivotFade = clamp(1 - speed / c.burnoutPivotFadeSpeed, 0, 1);
-  if (pivotFade > 0 && spinNow > 0 && input.throttle > 0.05) {
-    car.angularVel += c.burnoutPivotRate * spinNow *
-      clamp(input.steer, -1, 1) * input.throttle * pivotFade * dt;
-  }
-
   // Soft yaw-rate limit (p7): yaw above maxYawRate is damped back hard
   // instead of hard-clipped — the hard clip froze rotation exactly when
   // a deep drift entry needed it. Still a firm backstop against runaway.
@@ -668,6 +665,28 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
     car.angularVel -= Math.sign(car.angularVel) *
       yawExcess * Math.min(1, c.softYawClampRate * dt);
   }
+
+  // Standing-pivot YAW (p12, declared assist — paired with the front-axle
+  // velocity coupling in step 9b). Computed here so it drives the heading
+  // THIS frame (not a frame late). Active only when the rear is LIT, the
+  // player STEERS on THROTTLE, slow. Ramped hard toward the spin rate so a
+  // half-frame of damping can't bleed it. spinNow/pivotActive are reused
+  // below for the velocity coupling.
+  const spinNow = isRearSliding ? Math.min(1, Math.abs(s)) : 0;
+  // PLATEAU fade (p12): FULL pivot strength below ~0.6·fadeSpeed, ramping
+  // to 0 by fadeSpeed. A plain linear fade scaled the pivot's yaw with
+  // speed, so lowering the cutoff to free the donut also weakened the spin
+  // — the plateau keeps it strong right up to the cutoff, then drops fast
+  // (the donut runs well above fadeSpeed, so it's never captured).
+  const pivotFade = clamp(
+    (c.burnoutPivotFadeSpeed - speed) / (c.burnoutPivotFadeSpeed * 0.4), 0, 1);
+  const pivotActive = pivotFade > 0 && spinNow > 0.3 &&
+    input.throttle > 0.05 && Math.abs(input.steer) > c.burnoutPivotSteerDead;
+  if (pivotActive) {
+    const targetYaw = Math.sign(input.steer) * c.burnoutPivotMaxYaw * spinNow * pivotFade;
+    car.angularVel += (targetYaw - car.angularVel) * Math.min(1, c.burnoutPivotRate * dt);
+  }
+
   car.heading    += car.angularVel * dt;
 
   // ---- 9. Integrate translation (body force -> world force -> velocity) ----
@@ -683,36 +702,61 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   // power gate and the p9 scrub cancel — one law, predictable: floor it +
   // steer = swing out and PARK in the band. Lift → the governor fades and
   // raw tire physics straightens the car.
-  const v2 = car.vx * car.vx + car.vy * car.vy;
-  const driftIntent = Math.max(input.throttle, input.handbrake ? 1 : 0);
-  const driftMode = clamp(
-      (Math.abs(bodyBeta) - c.driftModeStart) /
-      (c.driftModeFull - c.driftModeStart), 0, 1) *
-    driftIntent * rearSlideBlend;
-  if (driftMode > 0 && v2 > 4) {
-    const sgn = Math.sign(bodyBeta);
-    // Steering INTO the drift (opposite sign of beta) deepens the target;
-    // countersteer shallows it.
-    const steerBias = clamp(input.steer, -1, 1) * -sgn;
-    const betaTarget = sgn * clamp(
-      c.driftBaseAngle + c.driftSteerAngleGain * steerBias, 0.30, 1.10);
-    const dphi = (car.vx * worldForceY - car.vy * worldForceX) / (c.mass * v2);
-    const omegaDes = dphi + c.driftAngleRate * (bodyBeta - betaTarget);
-    car.angularVel += (omegaDes - car.angularVel) *
-      Math.min(1, c.driftYawRelax * dt) * driftMode;
-
-    // Speed governor: throttle sets the drift's pace; the correction acts
-    // along the velocity so it never bends the path, only paces it.
-    const vTarget = c.driftTargetSpeedMin +
-      (c.driftTargetSpeedMax - c.driftTargetSpeedMin) * input.throttle;
-    const vNow = Math.sqrt(v2);
-    const accel = c.driftSpeedGain * (vTarget - vNow) * driftMode;
-    car.vx += (car.vx / vNow) * accel * dt;
-    car.vy += (car.vy / vNow) * accel * dt;
-  }
-
   car.vx += worldForceX / c.mass * dt;
   car.vy += worldForceY / c.mass * dt;
+
+  // ---- 9b. Standing pivot VELOCITY (p12, declared) — paired with the yaw
+  // ramp in step 8. Rotation ABOUT THE FRONT AXLE so the rear sweeps around
+  // a near-stationary front (a spin-out, not a driven circle): the front is
+  // +halfWB ahead along heading, so v_cg = ω × (CG − front) =
+  // ω·halfWB·(sinH, −cosH). Blending the body velocity onto this keeps the
+  // front ~put and net translation tiny. Mutually exclusive with the
+  // governed drift mode. Straighten → assist off → the rear launches it.
+  if (pivotActive) {
+    const pvx =  car.angularVel * halfWB * sinH;
+    const pvy = -car.angularVel * halfWB * cosH;
+    const b = Math.min(1, c.burnoutPivotVelBlend * dt) * pivotFade;
+    car.vx += (pvx - car.vx) * b;
+    car.vy += (pvy - car.vy) * b;
+  } else {
+    // Governed drift mode (p9): the single declared drift-stability assist —
+    // while sliding WITH power on, nudge YAW toward a steering-set angle and
+    // SPEED toward a throttle-set target. Changes no tire force.
+    const v2 = car.vx * car.vx + car.vy * car.vy;
+    const vNow = Math.sqrt(v2);
+    const driftIntent = Math.max(input.throttle, input.handbrake ? 1 : 0);
+    const driftMode = clamp(
+        (Math.abs(bodyBeta) - c.driftModeStart) /
+        (c.driftModeFull - c.driftModeStart), 0, 1) *
+      driftIntent * rearSlideBlend;
+    if (driftMode > 0) {
+      // SPEED governor runs down to near standstill (floored denominator) so
+      // a slide that scrubs slow gets pulled back up — without it a deep
+      // drift stalls below the angle-governor's gate and dies (p12 fix).
+      const vTarget = c.driftTargetSpeedMin +
+        (c.driftTargetSpeedMax - c.driftTargetSpeedMin) * input.throttle;
+      const accel = c.driftSpeedGain * (vTarget - vNow) * driftMode;
+      if (vNow > 0.3) {
+        car.vx += (car.vx / vNow) * accel * dt;
+        car.vy += (car.vy / vNow) * accel * dt;
+      }
+      // ANGLE governor needs a stable velocity direction (dphi divides by
+      // v2), so it only engages above ~1 m/s.
+      if (v2 > 1) {
+        const sgn = Math.sign(bodyBeta);
+        // Steering INTO the drift (opposite sign of beta) deepens the
+        // target; countersteer shallows it.
+        const steerBias = clamp(input.steer, -1, 1) * -sgn;
+        const betaTarget = sgn * clamp(
+          c.driftBaseAngle + c.driftSteerAngleGain * steerBias, 0.30, 1.10);
+        const dphi = (car.vx * worldForceY - car.vy * worldForceX) / (c.mass * v2);
+        const omegaDes = dphi + c.driftAngleRate * (bodyBeta - betaTarget);
+        car.angularVel += (omegaDes - car.angularVel) *
+          Math.min(1, c.driftYawRelax * dt) * driftMode;
+      }
+    }
+  }
+
   car.x  += car.vx * dt;
   car.y  += car.vy * dt;
 
