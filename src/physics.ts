@@ -95,9 +95,22 @@ export const CONFIG = {
                                     //   governor driving the side-to-side transition
                                     //   through center for this long
   driftFlipThreshold: 0.65,         // NEW (p14)  countersteer amount that triggers a flip
-  spinReleaseThreshold: 0.82,       // NEW (p14)  steer-INTO amount above which the angle
-                                    //   governor releases (stops caging) and lets the car
-                                    //   over-rotate into a full spin — full lock = "hodiny"
+  spinReleaseThreshold: 0.78,       // p14b — steer-INTO INTENT (post-expo command, pre-limiter)
+                                    //   above which a HELD tilt arms the spin. Kept ABOVE the
+                                    //   holdable-donut steer (~0.7) so only a near-max, decisive
+                                    //   tilt (≈32°+) spins. What made the old 0.82 "never fire"
+                                    //   was the MECHANISM — a weak magnitude ramp over an inert
+                                    //   release — not the number; the debounce + active spin-
+                                    //   drive below fire reliably the instant a real commit lands.
+  spinReleaseHold: 0.15,            // NEW (p14b)  s — the steer-into must be HELD this long to
+                                    //   fully arm the spin (deliberate, not an accidental flick).
+                                    //   Re-cages at 2× this rate when the player backs off.
+  spinYawRate: 4.0,                 // NEW (p14b)  rad/s — when armed, ADD this much yaw (in the
+                                    //   tilt direction) ON TOP of the natural drift rotation so
+                                    //   the car genuinely over-rotates into a spin. The honest
+                                    //   tyre model is stable ~44°, so merely releasing won't spin
+                                    //   it, and a yaw-rate TARGET would CAP rotation — additive
+                                    //   always rotates further than the donut would.
   driftLatchRelease: 0.16,          // NEW (p14)  rad (~9°) — once the governor has LATCHED
                                     //   onto an established drift it stays engaged until β
                                     //   falls below this (hysteresis), so a held drift never
@@ -359,6 +372,13 @@ export interface CarState {
   // doesn't collapse to grip, while a gentle grip-corner never trips it.
   driftActive: boolean;
 
+  // Spin-release debounce (p14b, seconds). Accumulates while the player HOLDS
+  // a decisive steer-INTO (intent past spinReleaseThreshold) in a drift; once
+  // it reaches spinReleaseHold the angle governor's cage is fully lifted and
+  // the car over-rotates into a free spin ("hodiny"). Decays (faster) the
+  // moment they back off, re-caging so the spin can be caught.
+  spinTimer: number;
+
   // Derived, updated every step (for HUD / skid logic).
   speed: number;
   forwardSpeed: number;
@@ -385,6 +405,7 @@ export function makeCar(x: number, y: number, heading: number = -Math.PI / 2): C
     rearWheelSpeed: 0,
     flipTimer: 0,
     driftActive: false,
+    spinTimer: 0,
     speed: 0, forwardSpeed: 0,
     frontSlip: 0, rearSlip: 0,
     slipRatio: 0, wheelSpin: 0,
@@ -476,11 +497,19 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   // player's input trims around it. Gate by body slip angle AND speed
   // (the slip direction is noise near standstill).
   const bodyBeta = Math.atan2(lateralVel, Math.max(0.5, Math.abs(forwardVel)));
+  // Spin-release (p14b): once the player has committed to a spin (the debounce
+  // below has armed car.spinTimer), the auto-countersteer must ALSO yield — it
+  // is the catch-the-slide assist, and a committed driver is overriding it. We
+  // fade alignGate to zero so the front points fully INTO the slide and raw
+  // physics over-rotates past 90° into a real spin. (Uses last frame's timer;
+  // the governor updates it later this step — a one-frame lag is immaterial.)
+  const spinRelease = clamp(Math.abs(car.spinTimer) / c.spinReleaseHold, 0, 1);
   const alignGate = clamp(
       (Math.abs(bodyBeta) - c.autoCounterStart) /
       (c.autoCounterFull - c.autoCounterStart), 0, 1) *
     c.autoCounterStrength *
-    clamp((speed - 2) / 2, 0, 1);
+    clamp((speed - 2) / 2, 0, 1) *
+    (1 - spinRelease);
   const alignAngle = clamp(bodyBeta, -c.maxSteerAngle, c.maxSteerAngle);
   let effectiveSteer =
     playerSteer * (1 - alignGate) +
@@ -792,6 +821,7 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   // front ~put and net translation tiny. Mutually exclusive with the
   // governed drift mode. Straighten → assist off → the rear launches it.
   if (pivotActive) {
+    car.spinTimer = 0;
     const pvx =  car.angularVel * halfWB * sinH;
     const pvy = -car.angularVel * halfWB * cosH;
     const b = Math.min(1, c.burnoutPivotVelBlend * dt) * pivotFade;
@@ -854,10 +884,13 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
       //   • steer INTO / countersteer at normal amounts → HOLD the angle
       //     (betaTarget tracks the wheel: more lock = deeper drift). This is
       //     the holdable donut / sustained drift.
-      //   • steer HARD INTO (steerBias > spinReleaseThreshold, i.e. full lock,
-      //     or hard lock while the rear is deep/handbraked) → authority ramps
-      //     to ZERO: the cage is lifted, raw physics over-rotates past 90°
-      //     into a full 360° spin ("hodiny").
+      //   • steer HARD INTO and HOLD it (intent past spinReleaseThreshold for
+      //     spinReleaseHold seconds) → authority ramps to ZERO: the cage is
+      //     lifted, raw physics over-rotates past 90° into a full 360° spin
+      //     ("hodiny"). The trigger reads the PLAYER'S COMMAND (input.steer,
+      //     post-expo but pre-limiter/pre-auto-countersteer) — releasing the
+      //     cage is about what the player ASKS for, not what the tyre is
+      //     allowed to do — and is debounced so it's deliberate, not a flick.
       //   • HARD COUNTER flick while sliding → latch a transition for
       //     driftFlipDuration, driving the flip THROUGH center to the other
       //     side (counterAmount collapses to 0 at the zero-crossing, so without
@@ -877,28 +910,62 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
         if (car.flipTimer > 0) {
           // Drive toward the OPPOSITE drift (steer sign is opposite the
           // resulting β sign), full authority, bypassing the deadband so it
-          // crosses center.
+          // crosses center. A flip is a counter action — clear any spin arming.
+          car.spinTimer = 0;
           const betaTarget = -Math.sign(input.steer || 1) * c.driftBaseAngle;
           const omegaDes = dphi + c.driftAngleRate * (bodyBeta - betaTarget);
           car.angularVel += (omegaDes - car.angularVel) *
             Math.min(1, c.driftYawRelax * dt) * govMode;
         } else {
-          // RELEASE ramp: full authority up to spinReleaseThreshold of steer-
-          // into, fading to zero at full lock so a committed spin runs free.
-          const release = clamp(
-            (intoAmount - c.spinReleaseThreshold) / (1 - c.spinReleaseThreshold), 0, 1);
-          const authority = govMode * (1 - release);
-          if (authority > 0) {
-            // betaTarget tracks the wheel: steering into deepens the drift,
-            // countersteering shallows it — the player sets the angle, the
-            // governor just steadies the car to it.
+          // DEBOUNCED RELEASE: a decisive steer-into HELD past spinReleaseHold
+          // lifts the cage; backing off re-cages (decays 2× faster) so the
+          // spin is catchable. The timer reads INTENT (intoAmount from the
+          // player's command), gated on an active drift so holding lock while
+          // straight-driving can't pre-arm a spin.
+          // Spin arming. car.spinTimer is SIGNED: its sign LATCHES the spin
+          // direction (the way the player first tilted in), its magnitude is
+          // the debounce progress toward spinReleaseHold. It STARTS only on a
+          // hard steer-INTO the slide, but once armed it SUSTAINS on the raw
+          // tilt holding the same direction — because bodyBeta (and so the
+          // into/counter sense) flips as the car spins, re-deriving "into"
+          // every frame would disarm it mid-spin. The player disarms by easing
+          // off or tilting the OTHER way (which then catches the spin).
+          const armed = car.spinTimer !== 0;
+          const sustain = armed
+            ? (car.driftActive &&
+               Math.abs(input.steer) >= c.spinReleaseThreshold * 0.6 &&
+               Math.sign(input.steer) === Math.sign(car.spinTimer))
+            : (car.driftActive && intoAmount >= c.spinReleaseThreshold);
+          const spinDir = armed
+            ? Math.sign(car.spinTimer)
+            : (Math.sign(input.steer) || -sgn);
+          let spinMag = Math.abs(car.spinTimer);
+          spinMag = sustain
+            ? Math.min(c.spinReleaseHold, spinMag + dt)
+            : Math.max(0, spinMag - dt * 2);
+          car.spinTimer = spinDir * spinMag;
+          const release = clamp(spinMag / c.spinReleaseHold, 0, 1);
+          if (govMode > 0) {
+            // HOLD term — betaTarget tracks the wheel (into = deeper, counter =
+            // shallower); the player sets the angle, the governor steadies it.
             const betaTarget = sgn * clamp(
               c.driftBaseAngle + c.driftSteerAngleGain * steerBias, 0.30, 1.10);
-            const omegaDes = dphi + c.driftAngleRate * (bodyBeta - betaTarget);
+            const omegaHold = dphi + c.driftAngleRate * (bodyBeta - betaTarget);
+            // SPIN term — when armed, AMPLIFY the rotation in the steer
+            // direction so the car over-rotates (the tyre model is stable, so
+            // it won't spin on its own). Blend hold→spin by the release ramp;
+            // backing off returns to the hold term and re-catches the spin.
+            // ADDITIVE boost (not a target rate): a yaw-rate TARGET would cap
+            // rotation at spinYawRate (a governor); adding to the natural drift
+            // yaw always rotates the car FURTHER than the donut would.
+            const omegaDes = omegaHold + spinDir * c.spinYawRate * release;
             car.angularVel += (omegaDes - car.angularVel) *
-              Math.min(1, c.driftYawRelax * dt) * authority;
+              Math.min(1, c.driftYawRelax * dt) * govMode;
           }
         }
+      } else {
+        // Too slow for the governor — bleed any spin arming.
+        car.spinTimer = Math.max(0, car.spinTimer - dt * 2);
       }
     }
   }
