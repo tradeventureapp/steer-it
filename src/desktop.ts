@@ -6,7 +6,8 @@ import {
 } from './physics';
 import {
   layoutDesktop, drawWallpaper, drawOverlay, drawClock,
-  type DesktopWorld,
+  rebuildRects, iconAt, clampIconToBounds, resolveIconDrop,
+  type DesktopWorld, type DesktopIcon,
 } from './world';
 
 // ---------- Session ----------
@@ -69,11 +70,63 @@ function resize() {
   canvas.style.height = h + 'px';
 
   // Re-lay-out the desktop for the new window and re-render the static
-  // layers. (Naive: previous skids are cleared on resize.)
+  // layers. (Naive: previous skids are cleared on resize, and dragged
+  // icons return to the default layout.)
+  draggedIcon = null;
   world = layoutDesktop(w / CONFIG.pxPerMeter, h / CONFIG.pxPerMeter);
   drawWallpaper(wallpaperCtx, w, h);
-  drawOverlay(overlayCtx, world, CONFIG.pxPerMeter);
+  redrawOverlay();
 }
+
+// ---------- Icon dragging (mouse builds the track; phone drives) ----------
+// Handlers only mutate icon data + collision rects — the game loop and
+// the phone input path are untouched. Rects rebuild live during the drag
+// so the car reacts to the icon's current position at all times.
+let draggedIcon: DesktopIcon | null = null;
+let dragOffX = 0, dragOffY = 0;
+
+function redrawOverlay() {
+  overlayCtx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+  drawOverlay(overlayCtx, world, CONFIG.pxPerMeter, draggedIcon);
+}
+
+canvas.addEventListener('pointerdown', (e) => {
+  const mx = e.clientX / PX(), my = e.clientY / PX();
+  const ic = iconAt(world, mx, my);
+  if (!ic) return;
+  e.preventDefault();
+  draggedIcon = ic;
+  dragOffX = mx - ic.x;
+  dragOffY = my - ic.y;
+  try { canvas.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+  canvas.style.cursor = 'grabbing';
+  redrawOverlay();
+});
+
+canvas.addEventListener('pointermove', (e) => {
+  const mx = e.clientX / PX(), my = e.clientY / PX();
+  if (draggedIcon) {
+    draggedIcon.x = mx - dragOffX;
+    draggedIcon.y = my - dragOffY;
+    clampIconToBounds(world, draggedIcon);
+    rebuildRects(world);
+    redrawOverlay();
+  } else {
+    canvas.style.cursor = iconAt(world, mx, my) ? 'grab' : 'default';
+  }
+});
+
+function endIconDrag() {
+  if (!draggedIcon) return;
+  resolveIconDrop(world, draggedIcon);
+  rebuildRects(world);
+  draggedIcon = null;
+  canvas.style.cursor = 'grab';
+  redrawOverlay();
+}
+canvas.addEventListener('pointerup', endIconDrag);
+canvas.addEventListener('pointercancel', endIconDrag);
+
 resize();
 window.addEventListener('resize', resize);
 

@@ -53,19 +53,19 @@ const ICON_SPECS: Array<{
   col: number; row: number; jx?: number; jy?: number;
   type: Exclude<IconType, 'bin'>; label: string;
 }> = [
-  { col: 0, row: 0,                    type: 'folder', label: 'Dokumenty' },
-  { col: 0, row: 1, jx: 0.3,           type: 'folder', label: 'Fotky z dovčy' },
-  { col: 0, row: 2, jx: -0.2,          type: 'folder', label: 'NEMAZAT!!!' },
-  { col: 0, row: 3, jy: 0.4,           type: 'file',   label: 'hesla.txt' },
-  { col: 1, row: 0, jx: 0.5,           type: 'file',   label: 'daně_2024_final_v3' },
-  { col: 1, row: 1,                    type: 'folder', label: 'Nová složka (2)' },
-  { col: 1, row: 2, jx: 0.8, jy: 0.3,  type: 'zip',    label: 'zaloha_FINAL.zip' },
-  { col: 2, row: 0, jy: 0.2,           type: 'image',  label: 'foto_oběd.jpg' },
-  { col: 2, row: 1, jx: -0.4,          type: 'folder', label: 'Stará plocha' },
-  { col: 3, row: 0, jx: 0.2,           type: 'file',   label: 'seminárka_v8_FINAL' },
+  { col: 0, row: 0,                    type: 'folder', label: 'Documents' },
+  { col: 0, row: 1, jx: 0.3,           type: 'folder', label: 'vacation pics' },
+  { col: 0, row: 2, jx: -0.2,          type: 'folder', label: 'DO NOT DELETE!!!' },
+  { col: 0, row: 3, jy: 0.4,           type: 'file',   label: 'passwords.txt' },
+  { col: 1, row: 0, jx: 0.5,           type: 'file',   label: 'taxes_2024_final_v3' },
+  { col: 1, row: 1,                    type: 'folder', label: 'New folder (2)' },
+  { col: 1, row: 2, jx: 0.8, jy: 0.3,  type: 'zip',    label: 'backup_FINAL.zip' },
+  { col: 2, row: 0, jy: 0.2,           type: 'image',  label: 'lunch_photo.jpg' },
+  { col: 2, row: 1, jx: -0.4,          type: 'folder', label: 'old stuff' },
+  { col: 3, row: 0, jx: 0.2,           type: 'file',   label: 'essay_v8_FINAL.doc' },
   // A couple of strays mid-desktop so the open field has something to orbit.
-  { col: 6, row: 2, jx: 1.2, jy: 0.8,  type: 'folder', label: 'Nová složka' },
-  { col: 8, row: 1, jx: 0.4, jy: -0.3, type: 'file',   label: 'todo_urgentní!!.txt' },
+  { col: 6, row: 2, jx: 1.2, jy: 0.8,  type: 'folder', label: 'definitely not games' },
+  { col: 8, row: 1, jx: 0.4, jy: -0.3, type: 'file',   label: 'todo_URGENT.txt' },
 ];
 
 export function layoutDesktop(width: number, height: number): DesktopWorld {
@@ -87,13 +87,23 @@ export function layoutDesktop(width: number, height: number): DesktopWorld {
 
   // Recycle bin in the classic corner — bottom-right, above the taskbar.
   icons.push({
-    type: 'bin', label: 'Koš',
+    type: 'bin', label: 'Recycle Bin',
     x: width - BIN_SIZE - 2.2,
     y: height - TASKBAR_M - BIN_SIZE - 2.4,
     size: BIN_SIZE,
   });
 
-  const rects: ObstacleRect[] = icons.map((ic) => {
+  const world: DesktopWorld = {
+    width, height, taskbarHeight: TASKBAR_M, icons, rects: [],
+  };
+  rebuildRects(world);
+  return world;
+}
+
+// Recompute collision rects from the icons array — call after any icon
+// moves (icons are the single source of truth; rects are derived).
+export function rebuildRects(world: DesktopWorld) {
+  world.rects = world.icons.map((ic) => {
     const inset = ic.size * HITBOX_INSET_FRAC;
     return {
       x: ic.x + inset, y: ic.y + inset,
@@ -102,9 +112,58 @@ export function layoutDesktop(width: number, height: number): DesktopWorld {
   });
   // Taskbar — a solid wall spanning the full bottom edge (overshoot the
   // sides so the corner can't be squeezed through).
-  rects.push({ x: -10, y: height - TASKBAR_M, w: width + 20, h: TASKBAR_M + 10 });
+  world.rects.push({
+    x: -10, y: world.height - TASKBAR_M, w: world.width + 20, h: TASKBAR_M + 10,
+  });
+}
 
-  return { width, height, taskbarHeight: TASKBAR_M, icons, rects };
+// ---------- Icon dragging support ----------
+
+// Topmost icon under a point (meters), with a small grab margin.
+export function iconAt(world: DesktopWorld, x: number, y: number): DesktopIcon | null {
+  const m = 0.2;
+  for (let i = world.icons.length - 1; i >= 0; i--) {
+    const ic = world.icons[i];
+    if (x >= ic.x - m && x <= ic.x + ic.size + m &&
+        y >= ic.y - m && y <= ic.y + ic.size + m) {
+      return ic;
+    }
+  }
+  return null;
+}
+
+// Keep an icon inside the desktop: off the taskbar, label row visible.
+export function clampIconToBounds(world: DesktopWorld, ic: DesktopIcon) {
+  ic.x = Math.min(Math.max(ic.x, 0.3), world.width - ic.size - 0.3);
+  ic.y = Math.min(Math.max(ic.y, 0.3),
+    world.height - world.taskbarHeight - ic.size - 1.0);
+}
+
+// On drop: nudge out of (most) overlaps with other icons, forgivingly —
+// icons may sit close, just not on top of each other. Iterative separation
+// along the axis with the smaller push.
+export function resolveIconDrop(world: DesktopWorld, ic: DesktopIcon) {
+  clampIconToBounds(world, ic);
+  for (let iter = 0; iter < 8; iter++) {
+    let moved = false;
+    for (const other of world.icons) {
+      if (other === ic) continue;
+      // Forgiving: required center separation is 80% of touching distance.
+      const need = 0.8 * (ic.size + other.size) / 2;
+      const dx = (ic.x + ic.size / 2) - (other.x + other.size / 2);
+      const dy = (ic.y + ic.size / 2) - (other.y + other.size / 2);
+      if (Math.abs(dx) < need && Math.abs(dy) < need) {
+        if (Math.abs(dx) >= Math.abs(dy)) {
+          ic.x += (dx >= 0 ? 1 : -1) * (need - Math.abs(dx));
+        } else {
+          ic.y += (dy >= 0 ? 1 : -1) * (need - Math.abs(dy));
+        }
+        moved = true;
+      }
+    }
+    clampIconToBounds(world, ic);
+    if (!moved) break;
+  }
 }
 
 // =============================================================================
@@ -154,18 +213,33 @@ export function drawWallpaper(ctx: CanvasRenderingContext2D, w: number, h: numbe
 }
 
 // ---------- Icons + taskbar chrome (static overlay) ----------
+// `lifted` (the icon currently being dragged) renders LAST, slightly
+// scaled with a drop shadow — the classic picked-up-icon look.
 export function drawOverlay(
   ctx: CanvasRenderingContext2D, world: DesktopWorld, px: number,
+  lifted: DesktopIcon | null = null,
 ) {
   for (const ic of world.icons) {
-    drawIcon(ctx, ic, px);
+    if (ic !== lifted) drawIcon(ctx, ic, px, false);
   }
   drawTaskbar(ctx, world, px);
+  if (lifted) drawIcon(ctx, lifted, px, true);
 }
 
-function drawIcon(ctx: CanvasRenderingContext2D, ic: DesktopIcon, px: number) {
+function drawIcon(
+  ctx: CanvasRenderingContext2D, ic: DesktopIcon, px: number, lifted: boolean,
+) {
   const x = ic.x * px, y = ic.y * px, s = ic.size * px;
   ctx.save();
+  if (lifted) {
+    const cx = x + s / 2, cy = y + s / 2;
+    ctx.translate(cx, cy);
+    ctx.scale(1.08, 1.08);
+    ctx.translate(-cx, -cy);
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
+    ctx.shadowBlur = 14;
+    ctx.shadowOffsetY = 7;
+  }
   switch (ic.type) {
     case 'folder': drawFolder(ctx, x, y, s); break;
     case 'file':   drawFile(ctx, x, y, s); break;
