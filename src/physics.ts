@@ -106,8 +106,17 @@ export const CONFIG = {
   // could balance. steerSpeed up so full lock arrives in ~0.15 s.
   maxSteerAngle: 1.0,               // p6 0.70 → 1.0  ↑  ~57° lock for deep drifts
   steerSpeed: 7.0,                  // p6 5.5  → 7.0  ↑  rad/s, faster actuation
-  steerSpeedFalloff: 0.70,          // (unchanged)  less lock loss at speed
-  speedForFullFalloff: 50,          // (unchanged)  m/s, full falloff applies higher
+  steerSpeedFalloff: 1.0,           // p7 0.70 → 1.0 (p13) — no-op now; the front-slip
+                                    //   limiter below replaces the crude lock falloff
+  speedForFullFalloff: 50,          // (unused since falloff = 1.0)
+  // ---------- Speed-sensitive steering / front-slip limit (p13) ----------
+  // Caps the commanded front SLIP angle as FORWARD speed rises so a steered
+  // race-grip front stops acting as a backward anchor. See step 2b for the
+  // full rationale (limit slip not steer → countersteer free; gate on
+  // forward speed → deep-drift transitions free).
+  frontSlipLimitOptimal: 0.20,      // NEW (p13)  rad (~11.5°) — front-slip cap at speed
+  frontSlipLimitSpeedLow: 4.0,      // NEW (p13)  m/s (~14 km/h) — below: full lock
+  frontSlipLimitSpeedHigh: 14.0,    // NEW (p13)  m/s (~50 km/h) — at/above: cap = optimal
   // ---------- Auto-countersteer (p9) ----------
   // During a deep slide the EFFECTIVE front-wheel angle blends toward the
   // velocity direction — the alignment a real drifter holds. Without it, a
@@ -420,8 +429,9 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   car.steerAngle += clamp(targetSteer - car.steerAngle, -maxStep, maxStep);
 
   const speed = Math.hypot(car.vx, car.vy);
-  // High-speed steering falloff: at speed >= speedForFullFalloff, lock is
-  // reduced to steerSpeedFalloff * actual. Keeps high-speed inputs sane.
+  const halfWB = c.wheelbase / 2;
+  // High-speed steering falloff (p13: superseded by the slip limiter below,
+  // steerSpeedFalloff set to 1.0 = no-op; left in place as a fallback knob).
   const falloff = 1 - (1 - c.steerSpeedFalloff) *
     Math.min(1, speed / c.speedForFullFalloff);
   const playerSteer = car.steerAngle * falloff;
@@ -437,15 +447,39 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
     c.autoCounterStrength *
     clamp((speed - 2) / 2, 0, 1);
   const alignAngle = clamp(bodyBeta, -c.maxSteerAngle, c.maxSteerAngle);
-  const effectiveSteer =
+  let effectiveSteer =
     playerSteer * (1 - alignGate) +
     (alignAngle + playerSteer * c.autoCounterTrim) * alignGate;
+
+  // ---- 2b. Speed-sensitive steering (p13) — the front must not be a BRAKE.
+  // A steered front at race grip and full 57° lock makes a tire force
+  // pointing largely BACKWARD along velocity (~up to 17 kN vs the 9 kN
+  // engine) — an anchor that collapsed speed the instant a tilt player
+  // turned, even with the rear fully planted. Fix: cap the commanded front
+  // SLIP angle (the wheel's deviation from the FRONT axle's own velocity
+  // direction), tightening as FORWARD speed rises toward frontSlipLimit-
+  // Optimal (peak lateral force, minimal induced drag).
+  //   - Limiting SLIP (not raw steer) means COUNTERSTEER passes at full
+  //     authority: pointing the wheel toward the front's velocity REDUCES
+  //     slip, which the cap never restricts.
+  //   - Gating on FORWARD speed (not total) means a deep drift — low
+  //     forwardVel, high total speed — relaxes the cap, so drift-direction
+  //     TRANSITION flicks swing the rear over instead of anchoring.
+  //   - Below frontSlipLimitSpeedLow the full lock remains (parking,
+  //     standing pivot).
+  if (forwardVel > c.frontSlipLimitSpeedLow) {
+    const t = clamp(
+      (forwardVel - c.frontSlipLimitSpeedLow) /
+      (c.frontSlipLimitSpeedHigh - c.frontSlipLimitSpeedLow), 0, 1);
+    const slipCap = c.maxSteerAngle + (c.frontSlipLimitOptimal - c.maxSteerAngle) * t;
+    const frontVelAngle = Math.atan2(lateralVel + car.angularVel * halfWB, forwardVel);
+    effectiveSteer = clamp(effectiveSteer, frontVelAngle - slipCap, frontVelAngle + slipCap);
+  }
 
   // ---- 3. Velocities at each axle (include yaw contribution) ----
   // For a rigid body with angular velocity w, the velocity at a point r off
   // the CG (in body frame) is v_cg + (-w*ry, w*rx). The axles are on the body
   // x-axis, so r = (+L/2, 0) and r = (-L/2, 0).
-  const halfWB = c.wheelbase / 2;
 
   const frontLong = forwardVel;
   const frontLat  = lateralVel + car.angularVel * halfWB;
@@ -729,13 +763,21 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
         (Math.abs(bodyBeta) - c.driftModeStart) /
         (c.driftModeFull - c.driftModeStart), 0, 1) *
       driftIntent * rearSlideBlend;
-    if (driftMode > 0) {
+    // TRANSITION engagement (p13): a HARD steer command keeps the governor
+    // engaged THROUGH center (bypassing the driftModeStart deadband) so a
+    // side-to-side flick can cross from one drift to the other instead of
+    // gating off at ~17° and stalling. Still requires the rear to be SLIDING
+    // (rearSlideBlend) so it never forces a drift out of grip driving.
+    const hardSteer = clamp((Math.abs(input.steer) - 0.5) / 0.4, 0, 1);
+    const govMode = Math.max(driftMode, hardSteer * driftIntent * rearSlideBlend);
+    if (govMode > 0) {
       // SPEED governor runs down to near standstill (floored denominator) so
       // a slide that scrubs slow gets pulled back up — without it a deep
-      // drift stalls below the angle-governor's gate and dies (p12 fix).
+      // drift stalls below the angle-governor's gate and dies (p12 fix). It
+      // also carries speed THROUGH a transition.
       const vTarget = c.driftTargetSpeedMin +
         (c.driftTargetSpeedMax - c.driftTargetSpeedMin) * input.throttle;
-      const accel = c.driftSpeedGain * (vTarget - vNow) * driftMode;
+      const accel = c.driftSpeedGain * (vTarget - vNow) * govMode;
       if (vNow > 0.3) {
         car.vx += (car.vx / vNow) * accel * dt;
         car.vy += (car.vy / vNow) * accel * dt;
@@ -743,16 +785,25 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
       // ANGLE governor needs a stable velocity direction (dphi divides by
       // v2), so it only engages above ~1 m/s.
       if (v2 > 1) {
-        const sgn = Math.sign(bodyBeta);
-        // Steering INTO the drift (opposite sign of beta) deepens the
-        // target; countersteer shallows it.
+        const sgn = Math.sign(bodyBeta) || 1;
+        // Steering INTO the drift (same sense as the slide) deepens the
+        // target; gentle countersteer shallows it.
         const steerBias = clamp(input.steer, -1, 1) * -sgn;
-        const betaTarget = sgn * clamp(
+        const betaTargetNormal = sgn * clamp(
           c.driftBaseAngle + c.driftSteerAngleGain * steerBias, 0.30, 1.10);
+        // A HARD opposite flick retargets the governor to the OPPOSITE side
+        // (pendulum / Scandinavian flick): it drives the car through center
+        // into a drift the other way instead of pinning the current side.
+        // The moment β crosses zero, sgn flips and the held steer deepens
+        // the NEW drift via betaTargetNormal.
+        const oppositeFlick = clamp(input.steer * sgn, 0, 1);
+        const betaTargetFlip = -sgn * c.driftBaseAngle;
+        const betaTarget =
+          betaTargetNormal * (1 - oppositeFlick) + betaTargetFlip * oppositeFlick;
         const dphi = (car.vx * worldForceY - car.vy * worldForceX) / (c.mass * v2);
         const omegaDes = dphi + c.driftAngleRate * (bodyBeta - betaTarget);
         car.angularVel += (omegaDes - car.angularVel) *
-          Math.min(1, c.driftYawRelax * dt) * driftMode;
+          Math.min(1, c.driftYawRelax * dt) * govMode;
       }
     }
   }
