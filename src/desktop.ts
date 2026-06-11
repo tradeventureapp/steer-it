@@ -32,6 +32,19 @@ const rearSlipValEl  = document.getElementById('rear-slip-val') as HTMLSpanEleme
 const wspinValEl     = document.getElementById('wspin-val')     as HTMLSpanElement | null;
 const soundBtn       = document.getElementById('sound-toggle')  as HTMLButtonElement | null;
 
+// Physics-input debug overlay (toggle with D). Shows the steer/throttle as the
+// PHYSICS step actually receives them (post-expo, post-smoothing) plus the
+// burnout-boost gate and spin-arm state — so the real commanded values are
+// visible on the screen, not guessed at. Hidden by default.
+const debugEl = document.createElement('div');
+debugEl.id = 'phys-debug';
+debugEl.style.cssText =
+  'position:fixed;left:8px;bottom:8px;z-index:9999;display:none;white-space:pre;' +
+  'font:12px/1.45 ui-monospace,monospace;color:#6f6;background:rgba(0,0,0,.66);' +
+  'padding:6px 9px;border-radius:5px;pointer-events:none;';
+document.body.appendChild(debugEl);
+let debugOn = false;
+
 // ---------- Sound + visual effects ----------
 const sound = new SoundEngine();
 const fx = new Effects();
@@ -55,6 +68,10 @@ soundBtn?.addEventListener('click', (e) => {
 });
 window.addEventListener('keydown', (e) => {
   if (e.key === 'm' || e.key === 'M') sound.toggleMute();
+  if (e.key === 'd' || e.key === 'D') {
+    debugOn = !debugOn;
+    debugEl.style.display = debugOn ? 'block' : 'none';
+  }
 });
 
 codeText.textContent = code;
@@ -290,7 +307,11 @@ function frame(now: number) {
     // brake get a light lerp so 30Hz network steps don't visibly jump the
     // 60Hz physics. Handbrake is binary — snap.
     current.steer    += (target.steer    - current.steer)    * CONFIG.inputLerp;
-    current.throttle += (target.throttle - current.throttle) * 0.3;
+    // p15b: throttle lerp 0.3 → 0.5. A pinned pedal must reach near-full FAST,
+    // before the standing car accelerates past the boost-fade window — at 0.3
+    // the throttle ramp lagged so far that a full-pedal launch never lit the
+    // burnout (the boost had already faded by the time throttle maxed).
+    current.throttle += (target.throttle - current.throttle) * 0.5;
     current.brake    += (target.brake    - current.brake)    * 0.3;
     current.handbrake = target.handbrake;
 
@@ -399,6 +420,20 @@ function updateHud() {
   if (throttleBarEl) throttleBarEl.style.height = (current.throttle * 100).toFixed(0) + '%';
   if (brakeBarEl)    brakeBarEl.style.height    = (current.brake    * 100).toFixed(0) + '%';
   if (handbrakeHudEl) handbrakeHudEl.classList.toggle('on', current.handbrake);
+
+  if (debugOn) {
+    // Mirror the physics gates so the screen shows WHY a burnout/spin did or
+    // didn't fire from the real commanded values.
+    const boostGate = Math.max(0, Math.min(1,
+      (current.throttle - CONFIG.burnoutThrottle) / (1 - CONFIG.burnoutThrottle)));
+    const armT = current.handbrake
+      ? CONFIG.spinReleaseThresholdHB : CONFIG.spinReleaseThreshold;
+    debugEl.textContent =
+      `steer   ${current.steer.toFixed(2)}   (spin-arm ≥ ${armT.toFixed(2)}${current.handbrake ? ' HB' : ''})\n` +
+      `throttle ${current.throttle.toFixed(2)}  brake ${current.brake.toFixed(2)}  hb ${current.handbrake ? 'ON' : 'off'}\n` +
+      `burnout boost ${(boostGate * 100).toFixed(0)}%   (ignites ≥ ${CONFIG.burnoutThrottle.toFixed(2)})\n` +
+      `spinTimer ${car.spinTimer.toFixed(2)}  drift ${car.driftActive ? 'Y' : 'n'}  wspin ${(car.wheelSpin * 100).toFixed(0)}%`;
+  }
 }
 
 // ---------- Drawing: top-down rally car ----------

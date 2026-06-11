@@ -105,17 +105,23 @@ export const CONFIG = {
   spinReleaseHold: 0.15,            // NEW (p14b)  s — the steer-into must be HELD this long to
                                     //   fully arm the spin (deliberate, not an accidental flick).
                                     //   Re-cages at 2× this rate when the player backs off.
-  spinReleaseThresholdHB: 0.45,     // NEW (p15)  steer-INTO needed to arm a spin WHILE THE
-                                    //   HANDBRAKE IS HELD — far lower than the tilt-only
-                                    //   spinReleaseThreshold. Pulling the handbrake is the player
-                                    //   saying "break it loose / spin it", so handbrake + a
-                                    //   decent steer-in over-rotates into a 360° readily.
+  spinReleaseThresholdHB: 0.25,     // p15 0.45 → 0.25 (p15b) steer COMMAND needed to arm a spin
+                                    //   WHILE THE HANDBRAKE IS HELD. The phone steer passes
+                                    //   through the 1.7 expo, so a modest tilt sends little: 20°
+                                    //   → 0.34, 17° → 0.25. The handbrake itself is most of the
+                                    //   intent, so a ~17-20° tilt + handbrake must spin. (Reads
+                                    //   raw |steer|, not the β-relative "into": a locked rear
+                                    //   gives β the SAME sign as the steer.)
   spinYawRate: 4.0,                 // NEW (p14b)  rad/s — when armed, ADD this much yaw (in the
                                     //   tilt direction) ON TOP of the natural drift rotation so
                                     //   the car genuinely over-rotates into a spin. The honest
                                     //   tyre model is stable ~44°, so merely releasing won't spin
                                     //   it, and a yaw-rate TARGET would CAP rotation — additive
                                     //   always rotates further than the donut would.
+  slideBlendSmoothRate: 20,         // NEW (p15b)  1/s low-pass rate on rearSlideBlend (kills the
+                                    //   handbrake locked-wheel per-frame flicker that stalled the
+                                    //   spin arm). Fast enough to engage promptly, slow enough to
+                                    //   bridge the 1-frame dropouts.
   driftLatchRelease: 0.16,          // NEW (p14)  rad (~9°) — once the governor has LATCHED
                                     //   onto an established drift it stays engaged until β
                                     //   falls below this (hysteresis), so a held drift never
@@ -226,11 +232,14 @@ export const CONFIG = {
   // fades by torqueBoostFadeSpeed so at speed the drive is the grippy 9000.
   lowSpeedTorqueBoost: 1.2,         // p9 0.5 → 1.2 ↑ (p12) launch ignition vs low eP
   torqueBoostFadeSpeed: 5,          // p9 4 → 5 (p12)  m/s (~18 km/h) where boost = 0
-  burnoutThrottle: 0.9,             // NEW (p15)  the launch torque-boost (the wheelspin
-                                    //   ignition off the line) only engages at throttle ≥ this,
-                                    //   ramping in over [this−0.1, this]. Below it the car just
-                                    //   hooks up and accelerates with grip — a standing burnout
-                                    //   is a DELIBERATE near-full-throttle act, not every launch.
+  burnoutThrottle: 0.9,             // p15 0.9 (p15b: ramp retuned). The launch torque-boost (the
+                                    //   wheelspin ignition off the line) ramps in over
+                                    //   [this, 1.0] — i.e. only the TOP of the pedal lights up.
+                                    //   The phone's analog pedal maps a finger at half-strip to
+                                    //   ~0.67 throttle (the top quarter is a 1.0 saturation zone),
+                                    //   so the old [0.8,0.9] ramp ignited at a ~60% finger. Now
+                                    //   the boost needs a near-pinned pedal (value ≥ ~0.9, the top
+                                    //   ~third of the strip) — a true half-pedal launches on grip.
   // Fraction of the pedal brake that acts on the rear WHEEL (through the
   // friction circle — hard braking can lock the rear and slide it, brake-
   // drift style). The rest acts on the front/body directly.
@@ -384,6 +393,10 @@ export interface CarState {
   // doesn't collapse to grip, while a gentle grip-corner never trips it.
   driftActive: boolean;
 
+  // Low-passed rearSlideBlend (p15b) — kills the handbrake locked-wheel
+  // per-frame flicker so the drift governor engagement (govMode) is steady.
+  slideBlendSmooth: number;
+
   // Spin-release debounce (p14b, seconds). Accumulates while the player HOLDS
   // a decisive steer-INTO (intent past spinReleaseThreshold) in a drift; once
   // it reaches spinReleaseHold the angle governor's cage is fully lifted and
@@ -417,6 +430,7 @@ export function makeCar(x: number, y: number, heading: number = -Math.PI / 2): C
     rearWheelSpeed: 0,
     flipTimer: 0,
     driftActive: false,
+    slideBlendSmooth: 0,
     spinTimer: 0,
     speed: 0, forwardSpeed: 0,
     frontSlip: 0, rearSlip: 0,
@@ -621,11 +635,12 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   // peak-torque region — so cornering never starves the drive.
   // lowSpeedTorqueBoost is the launch end of the curve (gearing torque
   // multiplication off the line), fading out by torqueBoostFadeSpeed.
-  // The launch ignition is GATED on near-full throttle (p15): below
-  // burnoutThrottle the boost is off and the car simply hooks up with grip,
-  // so a half-throttle launch is clean and a standing burnout takes a
-  // deliberate ≥90% stab. Ramps in over [burnoutThrottle−0.1, burnoutThrottle].
-  const boostGate = clamp((input.throttle - (c.burnoutThrottle - 0.1)) / 0.1, 0, 1);
+  // The launch ignition is GATED on a near-pinned pedal (p15b): the boost
+  // ramps in over [burnoutThrottle, 1.0], so only the TOP of the analog pedal
+  // lights up. A half-strip finger sends ~0.67 → no boost → clean grip launch;
+  // the saturation zone sends 1.0 → full boost → burnout.
+  const boostGate = clamp(
+    (input.throttle - c.burnoutThrottle) / (1 - c.burnoutThrottle), 0, 1);
   const driveBoost = 1 + c.lowSpeedTorqueBoost *
     Math.max(0, 1 - speed / c.torqueBoostFadeSpeed) * boostGate;
   const powerLimitedForce = Math.min(
@@ -729,6 +744,14 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   // How deep into the slide the rear is (0 = grip, 1 = fully saturated) —
   // smooth ramp over rho ∈ [1, 1.5]. Gates the drift stability assist.
   const rearSlideBlend = clamp((rho - 1) / 0.5, 0, 1);
+  // Low-passed copy (p15b). Under the handbrake the locked wheel oscillates
+  // locked/overspun on alternate frames (see the crossing clamp above), so rho
+  // — and rearSlideBlend — FLICKER to 0 between frames. The governor engagement
+  // (govMode) keys off this; the flicker made the handbrake spin fail to arm
+  // (it bled away as fast as it built). Smoothing kills the per-frame flicker
+  // without changing the steady value, so govMode is stable.
+  car.slideBlendSmooth += (rearSlideBlend - car.slideBlendSmooth) *
+    Math.min(1, c.slideBlendSmoothRate * dt);
 
   // ---- 6. Body longitudinal forces (engine lives at the rear wheel) ----
   // Pedal logic (p6): moving forward → normal brake (front share on the
@@ -859,7 +882,7 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
     // old dilemma in one stroke: a gentle grip-corner (marginal slip, shallow
     // β) never trips the latch, yet a deliberately held shallow drift doesn't
     // fall out of governed mode the instant it dips under the entry threshold.
-    const sliding = rearSlideBlend > 0 && driftIntent > 0;
+    const sliding = car.slideBlendSmooth > 0.05 && driftIntent > 0;
     // PROVOCATION: a slide counts as a deliberate drift (vs a gentle grip-
     // corner that marginally breaks the rear loose) when the player is clearly
     // committing — handbrake, a real steering input, the rear well loose, or
@@ -871,11 +894,18 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
       Math.abs(bodyBeta) >= c.driftModeFull;
     if (!car.driftActive) {
       if (sliding && provoke) car.driftActive = true;
-    } else if ((!sliding || Math.abs(bodyBeta) < c.driftLatchRelease) &&
+    } else if ((!sliding ||
+                (Math.abs(bodyBeta) < c.driftLatchRelease && !provoke)) &&
                car.flipTimer <= 0) {
+      // Release only when the rear has regripped, or β has collapsed AND the
+      // player is no longer provoking. The `&& !provoke` is essential (p15b):
+      // a handbrake slide rides at a SHALLOW β (the locked rear scrubs speed
+      // before β deepens), so without it the latch released every frame on the
+      // low β and re-engaged on the handbrake provocation — flickering govMode
+      // and the spin arm to nothing. Holding the handbrake holds the latch.
       car.driftActive = false;
     }
-    const govMode = car.driftActive ? driftIntent * rearSlideBlend : 0;
+    const govMode = car.driftActive ? driftIntent * car.slideBlendSmooth : 0;
     if (govMode > 0) {
       // SPEED governor — the THRUST term is GATED BY THROTTLE (p14). An assist
       // amplifies what the player commands; it must never be a second motor.
@@ -996,11 +1026,16 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
         car.spinTimer = Math.sign(car.spinTimer) *
           Math.max(0, Math.abs(car.spinTimer) - dt * 2);
       }
-    } else if (car.spinTimer !== 0) {
-      // Not in a governed drift (govMode 0 — e.g. the player CAUGHT the slide
-      // and the rear regripped). Bleed the spin arming so a freshly re-entered
-      // drift is never pre-armed, and so releasing the handbrake to catch
-      // doesn't leave a latent spin waiting to fire.
+    } else if (!car.driftActive && car.spinTimer !== 0) {
+      // The drift is genuinely OVER (the latch released — e.g. the player
+      // CAUGHT the slide and the rear regripped). Bleed the spin arming so a
+      // freshly re-entered drift is never pre-armed, and so releasing the
+      // handbrake to catch doesn't leave a latent spin waiting to fire.
+      // NB: gate on !driftActive, NOT govMode==0 — under the handbrake the
+      // locked wheel makes rearSlideBlend (hence govMode) FLICKER to 0 between
+      // frames; decaying on those flickers kept the handbrake spin from ever
+      // arming (it bled away as fast as it built). driftActive is the stable
+      // latch, so it only bleeds when the slide has actually ended.
       car.spinTimer = Math.sign(car.spinTimer) *
         Math.max(0, Math.abs(car.spinTimer) - dt * 2);
     }
