@@ -9,6 +9,8 @@ import {
   rebuildRects, iconAt, clampIconToBounds, resolveIconDrop,
   type DesktopWorld, type DesktopIcon,
 } from './world';
+import { SoundEngine } from './sound';
+import { Effects } from './effects';
 
 // ---------- Session ----------
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -28,6 +30,34 @@ const brakeBarEl     = document.getElementById('brake-bar')     as HTMLDivElemen
 const handbrakeHudEl = document.getElementById('handbrake-hud') as HTMLDivElement;
 const rearSlipValEl  = document.getElementById('rear-slip-val') as HTMLSpanElement | null;
 const wspinValEl     = document.getElementById('wspin-val')     as HTMLSpanElement | null;
+const soundBtn       = document.getElementById('sound-toggle')  as HTMLButtonElement | null;
+
+// ---------- Sound + visual effects ----------
+const sound = new SoundEngine();
+const fx = new Effects();
+
+function updateSoundButton() {
+  if (!soundBtn) return;
+  soundBtn.textContent = sound.enabled && !sound.muted ? '🔊' : '🔇';
+  soundBtn.classList.toggle('off', !sound.enabled || sound.muted);
+  soundBtn.title = sound.enabled
+    ? 'Sound on/off (M)'
+    : 'Tap for sound (M)';
+}
+sound.onChange = updateSoundButton;
+updateSoundButton();
+
+soundBtn?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  sound.toggleMute();
+});
+// Autoplay policy: the first click anywhere unlocks audio.
+window.addEventListener('pointerdown', () => {
+  if (!sound.enabled) sound.enable();
+}, { once: true });
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'm' || e.key === 'M') sound.toggleMute();
+});
 
 codeText.textContent = code;
 QRCode.toCanvas(qrCanvas, playUrl, { width: 160, margin: 1 }).catch(console.error);
@@ -267,7 +297,11 @@ function frame(now: number) {
     current.handbrake = target.handbrake;
 
     step(car, current, FIXED_DT);
-    collideWithRects(car, world.rects);
+    const impact = collideWithRects(car, world.rects);
+    if (impact > 0.8) {
+      sound.impact(impact);
+      fx.impact(car.x, car.y, impact);
+    }
     recordSkids();
     wrap();
 
@@ -276,6 +310,27 @@ function frame(now: number) {
   }
   // Drop accumulated time if we fell way behind (prevents spiral of death).
   if (steps === MAX_SUBSTEPS) accumulator = 0;
+
+  // ---- Sound + effects (per render frame) ----
+  sound.update({
+    wheelSpeed: car.rearWheelSpeed,
+    speed: car.speed,
+    slipAngle: car.rearSlip,
+    wheelSpin: car.wheelSpin,
+    throttle: current.throttle,
+  });
+  // Tire smoke from the rear wheels while drifting or spinning — the
+  // visual twin of the squeal.
+  const slipNorm = Math.min(1,
+    Math.abs(car.rearSlip) / (CONFIG.slipThresholdForSkid * 2.5));
+  const smokeIntensity = Math.max(
+    car.wheelSpin, slipNorm > 0.4 ? slipNorm : 0);
+  if (smokeIntensity > 0.3) {
+    const { L, R } = rearWheelPositions();
+    fx.emitSmoke(L.x, L.y, car.vx, car.vy, smokeIntensity, realDt);
+    fx.emitSmoke(R.x, R.y, car.vx, car.vy, smokeIntensity, realDt);
+  }
+  fx.update(realDt);
 
   render();
   requestAnimationFrame(frame);
@@ -287,13 +342,21 @@ function render() {
   const W = window.innerWidth;
   const H = window.innerHeight;
 
-  // Layered desktop: wallpaper → skids → icons/taskbar → clock → car.
+  // Screen shake wraps every world layer (HUD is HTML, unaffected).
+  const shake = fx.shakeOffset();
+  ctx.save();
+  ctx.translate(shake.x, shake.y);
+
+  // Layered desktop: wallpaper → skids → icons/taskbar → clock → car → fx.
   ctx.drawImage(wallpaperCanvas, 0, 0, W, H);
   ctx.drawImage(skidCanvas, 0, 0, W, H);
   ctx.drawImage(overlayCanvas, 0, 0, W, H);
   drawClock(ctx, world, CONFIG.pxPerMeter);
 
   drawCar();
+  fx.draw(ctx, CONFIG.pxPerMeter);
+
+  ctx.restore();
   updateHud();
 }
 

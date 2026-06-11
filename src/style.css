@@ -65,6 +65,23 @@ body.desktop #hud-bl {
   color: #1c1c20; font-variant-numeric: tabular-nums; line-height: 1;
 }
 #speed-unit { font-size: 12px; letter-spacing: 2px; color: #6b7280; }
+
+/* Sound toggle — the one HUD element that takes clicks. */
+#sound-toggle {
+  pointer-events: auto;
+  appearance: none;
+  border: 1px solid #e5e7eb;
+  background: #f9fafb;
+  border-radius: 8px;
+  font-size: 16px;
+  line-height: 1;
+  padding: 6px 8px;
+  margin-left: 6px;
+  cursor: pointer;
+  align-self: center;
+}
+#sound-toggle:hover { background: #f3f4f6; }
+#sound-toggle.off { opacity: 0.55; }
 #drift {
   font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   font-weight: 700; font-size: 12px; letter-spacing: 4px;
