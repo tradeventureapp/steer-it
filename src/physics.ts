@@ -60,10 +60,18 @@ export const CONFIG = {
   enginePower: 8400,                // p5 8800 → 8400 ↓ (p9): below the curve crossover
                                     // the cap is the recovery margin vs the 8964 N tire
                                     // reaction — 164 N took forever to hook; 564 N is crisp
-  // p9: 125k → 110k. Crisp hookup needs the curve to bite at the pinned
-  // wheel speed (at 125k the recovery margin was a sluggish 164 N);
-  // drifts no longer need the curve — the p8 drift gate bypasses it.
-  enginePeakPowerW: 110000,         // p7 125000 → 110000  ↓ (p9)
+  // p10: 110k → 200k. EVIDENCE 2 — full throttle at 25-30 km/h in a grip
+  // corner DECELERATED. Cause: the curve runs on WHEEL speed, and a
+  // cornering rear spins up (lateral load saturates the friction circle),
+  // so the wheel speed rose past the ~13 m/s crossover and the curve
+  // starved the drive exactly when cornering. Pushing the crossover to
+  // ~24 m/s of wheel speed keeps the force at the enginePower plateau
+  // through corner-speed wheelspin → the car POWERS through. Anti-perma-
+  // burnout is unaffected: the low-speed force CAP (enginePower 8400) is
+  // what guarantees recovery (< 8964 N kinetic reaction), and the cap is
+  // independent of this knob; the curve only ever LOWERS drive at high
+  // wheel speed, never raises it.
+  enginePeakPowerW: 160000,         // p9 110000 → 160000  ↑ (p10) power through corners
   // ---------- Governed drift mode (p9 — replaces the p8/p9 patch stack) ----------
   // Layered emergent fixes (drift-gated power, scrub cancel, stability
   // assist, soft ceiling) fought each other: sims showed the drift either
@@ -243,6 +251,27 @@ export const CONFIG = {
   // so skids and the DRIFT badge show up as soon as the rear is past
   // peak, not only deep into a slide.
   slipThresholdForSkid: 0.12,       // ← 0.18  ↓  ~7° instead of ~10°, earlier visual
+  // p10: EVIDENCE 1 — at 0-1 km/h the reported slip angle was numerical
+  // garbage (atan2 of near-zero velocity), spawning smoke + DRIFT badge +
+  // squeal + skids around a parked car. Below this speed the REPORTED
+  // slip (car.rearSlip — what the HUD/smoke/squeal/skids consume) ramps
+  // to 0. The PHYSICS slip used for forces is untouched (it has its own
+  // MIN_LONG floor); WSPIN-driven smoke/skids stay active at any speed so
+  // standing burnouts still smoke.
+  slipReportSpeedGate: 1.5,         // NEW (p10)  m/s — slip reads 0 below
+  slipReportRampWidth: 0.6,         // NEW (p10)  m/s — ramp band up to the gate
+
+  // ---------- Standing pivot / donut entry (p10) ----------
+  // PROBLEM 3 — from rest, full throttle + full lock did nothing stylish:
+  // the rear hooks up (~15 km/h) before steering gains authority (lateral
+  // forces need speed), so a burnout-pivot was impossible. This adds a
+  // direct yaw assist that fires only when the rear is LIT (wheelSpin),
+  // the player is STEERING, on THROTTLE, and at LOW speed — the car swings
+  // around its nose in smoke. Fades out by burnoutPivotFadeSpeed so above
+  // ~20 km/h normal tire physics takes over. Straighten the wheel → assist
+  // vanishes → the spinning rear launches the car forward.
+  burnoutPivotRate: 5.5,            // NEW (p10)  rad/s² yaw at full lock + full spin
+  burnoutPivotFadeSpeed: 5.5,       // NEW (p10)  m/s (~20 km/h) where the assist = 0
 
   // ---------- Collision vs desktop obstacles (p10) ----------
   // The car is treated as a circle against axis-aligned obstacle rects
@@ -588,6 +617,20 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   const torque = halfWB * frontForceBodyY - halfWB * rearForceBodyY;
   const yawDamp = -c.angularDamping * I * car.angularVel;
   car.angularVel += (torque + yawDamp) / I * dt;
+
+  // Standing pivot / donut entry (p10): when the rear is LIT (spinning),
+  // the player is STEERING, on THROTTLE, and going slow, add a direct yaw
+  // assist so the car swings around its nose — normal tire forces have no
+  // authority at standstill. Fades out by burnoutPivotFadeSpeed; straighten
+  // the wheel → assist vanishes → the spinning rear launches the car. Sign
+  // matches normal steering (steer right → +yaw).
+  const spinNow = isRearSliding ? Math.min(1, Math.abs(s)) : 0;
+  const pivotFade = clamp(1 - speed / c.burnoutPivotFadeSpeed, 0, 1);
+  if (pivotFade > 0 && spinNow > 0 && input.throttle > 0.05) {
+    car.angularVel += c.burnoutPivotRate * spinNow *
+      clamp(input.steer, -1, 1) * input.throttle * pivotFade * dt;
+  }
+
   // Soft yaw-rate limit (p7): yaw above maxYawRate is damped back hard
   // instead of hard-clipped — the hard clip froze rotation exactly when
   // a deep drift entry needed it. Still a firm backstop against runaway.
@@ -653,7 +696,15 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   car.speed = Math.hypot(car.vx, car.vy);
   car.forwardSpeed = forwardVel;
   car.frontSlip = frontSlip;
-  car.rearSlip = rearSlip;
+  // p10: gate the REPORTED slip to 0 below slipReportSpeedGate so a parked
+  // car shows no phantom slip — no smoke, DRIFT badge, squeal or skids from
+  // atan2 noise at standstill. Ramps over slipReportRampWidth to avoid a
+  // pop when a real drift crosses the gate. The physics slip (local
+  // `rearSlip`) used for forces is untouched.
+  const slipReport = clamp(
+    (car.speed - (c.slipReportSpeedGate - c.slipReportRampWidth)) /
+    c.slipReportRampWidth, 0, 1);
+  car.rearSlip = rearSlip * slipReport;
   car.slipRatio = s;
   // WSPIN reads 0 while the tire grips (linear traction slip is normal and
   // not "wheelspin"); only a saturated/sliding rear registers. (p7)

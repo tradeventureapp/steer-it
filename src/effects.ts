@@ -49,7 +49,7 @@ export class Effects {
   // Emit smoke from a wheel position; intensity 0..1 scales the rate.
   emitSmoke(
     x: number, y: number, carVx: number, carVy: number,
-    intensity: number, dt: number,
+    intensity: number, dt: number, sizeScale = 1,
   ) {
     const C = FX_CONFIG;
     if (intensity <= 0) return;
@@ -66,8 +66,10 @@ export class Effects {
         vx: carVx * C.smokeInheritVel + Math.cos(a) * d,
         vy: carVy * C.smokeInheritVel + Math.sin(a) * d,
         age: 0,
+        // sizeScale keeps puffs MODEST near a slow/stationary car so a
+        // standing burnout never fully obscures it (p10).
         life: C.smokeLife + (Math.random() - 0.5) * 2 * C.smokeLifeVar,
-        size: C.smokeSize * (0.8 + Math.random() * 0.4),
+        size: C.smokeSize * (0.8 + Math.random() * 0.4) * sizeScale,
       });
     }
   }

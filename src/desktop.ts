@@ -318,15 +318,23 @@ function frame(now: number) {
     throttle: current.throttle,
   });
   // Tire smoke from the rear wheels while drifting or spinning — the
-  // visual twin of the squeal.
+  // visual twin of the squeal. car.rearSlip is speed-gated in physics, so
+  // a parked car (slip == 0) only smokes from genuine WSPIN (standing
+  // burnout), never from atan2 noise.
   const slipNorm = Math.min(1,
     Math.abs(car.rearSlip) / (CONFIG.slipThresholdForSkid * 2.5));
   const smokeIntensity = Math.max(
     car.wheelSpin, slipNorm > 0.4 ? slipNorm : 0);
   if (smokeIntensity > 0.2) {
+    // Spawn slightly BEHIND the rear wheels (along -heading) and keep puffs
+    // modest near a slow car so a standing burnout never hides it.
+    const back = 0.45;
+    const bx = -Math.cos(car.heading) * back;
+    const by = -Math.sin(car.heading) * back;
+    const sizeScale = 0.55 + 0.45 * Math.min(1, car.speed / 6);
     const { L, R } = rearWheelPositions();
-    fx.emitSmoke(L.x, L.y, car.vx, car.vy, smokeIntensity, realDt);
-    fx.emitSmoke(R.x, R.y, car.vx, car.vy, smokeIntensity, realDt);
+    fx.emitSmoke(L.x + bx, L.y + by, car.vx, car.vy, smokeIntensity, realDt, sizeScale);
+    fx.emitSmoke(R.x + bx, R.y + by, car.vx, car.vy, smokeIntensity, realDt, sizeScale);
   }
   fx.update(realDt);
 
