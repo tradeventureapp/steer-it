@@ -75,11 +75,11 @@ export const CONFIG = {
   // STEERING (into the drift = deeper, countersteer = shallower), and
   // speed is driven toward a target set by the THROTTLE. Raw tire physics
   // still rules grip driving, initiation, and lift-off recovery; the
-  // governor blends in over driftModeStart→Full and out the moment the
-  // player lifts. Predictable by construction: floor it + steer = swing
-  // out and PARK in the 40-60° band at a held speed.
-  driftModeStart: 0.30,             // NEW (p9)  rad (~17°) body slip — governor blends in
-  driftModeFull: 0.52,              // NEW (p9)  rad (~30°) — fully governed
+  // governor LATCHES on once a slide is provoked past driftModeFull and stays
+  // engaged (hysteresis) until β collapses below driftLatchRelease. Predictable
+  // by construction: floor it + steer = swing out and hold a controlled drift;
+  // commit to full lock = the cage lifts and it spins ("hodiny").
+  driftModeFull: 0.52,              // p9; p14: drift-LATCH entry angle, rad (~30°)
   driftBaseAngle: 0.70,             // NEW (p9)  rad (~40°) slip target at neutral steer
   driftSteerAngleGain: 0.35,        // NEW (p9)  rad (~20°) steer bias: into = up to ~60°,
                                     //           full countersteer = down to ~20°
@@ -91,6 +91,17 @@ export const CONFIG = {
   driftTargetSpeedMax: 13,          // p11 11 → 13 (p12)  m/s at full throttle (~47 km/h)
   driftSpeedGain: 3.5,              // p9 2.5 → 3.5 (p12)  1/s — pull speed up harder so
                                     //   slides hold a cinematic pace, not a crawl
+  driftFlipDuration: 0.5,           // NEW (p14)  s — a hard counter flick keeps the
+                                    //   governor driving the side-to-side transition
+                                    //   through center for this long
+  driftFlipThreshold: 0.65,         // NEW (p14)  countersteer amount that triggers a flip
+  spinReleaseThreshold: 0.82,       // NEW (p14)  steer-INTO amount above which the angle
+                                    //   governor releases (stops caging) and lets the car
+                                    //   over-rotate into a full spin — full lock = "hodiny"
+  driftLatchRelease: 0.16,          // NEW (p14)  rad (~9°) — once the governor has LATCHED
+                                    //   onto an established drift it stays engaged until β
+                                    //   falls below this (hysteresis), so a held drift never
+                                    //   collapses to grip but a gentle corner never trips it
   brakeForce: 21000,                // p10 14000 → 21000 ↑ (p12) braking scaled with grip
 
   // ---------- Resistance (unchanged) ----------
@@ -279,7 +290,18 @@ export const CONFIG = {
   // Fades out by burnoutPivotFadeSpeed; straighten → assist off → the
   // spinning rear launches the car forward via honest tire force.
   burnoutPivotMaxYaw: 4.5,          // NEW (p12)  rad/s spin rate at full lock + full spin
-  burnoutPivotRate: 8.0,            // p10 (repurposed)  1/s ramp toward the spin rate
+  // p14: the pivot now carries ANGULAR MOMENTUM — the yaw approaches the
+  // target at a FIXED rate (rad/s²) instead of an exponential lerp, so a
+  // steer-flip decays the spin THROUGH zero over ~0.4 s and rebuilds the
+  // other way (no instantaneous, fake-looking reversal). 8 rad/s² → ~0.4 s
+  // from a 3.2 rad/s spin to zero.
+  // The pivot BUILDS with a strong proportional approach (overcomes the
+  // opposing tire torque so it actually spins up), but a REVERSAL (steer
+  // flip) is rate-limited to burnoutPivotAccel so the spin decays through
+  // zero over ~0.4 s and rebuilds the other way — angular momentum, no
+  // instant fake reversal.
+  burnoutPivotBuildRate: 8.0,       // NEW (p14)  1/s proportional build toward spin rate
+  burnoutPivotAccel: 8.0,           // p12 burnoutPivotRate (lerp) → 8.0 (rad/s² reversal, p14)
   burnoutPivotVelBlend: 12.0,       // NEW (p12)  1/s blend of velocity onto front-pivot
   burnoutPivotFadeSpeed: 4.0,       // p10 (unchanged)  m/s (~20 km/h) where assist = 0
   burnoutPivotSteerDead: 0.12,      // NEW (p12)  |steer| below this = no pivot (launch)
@@ -326,6 +348,17 @@ export interface CarState {
   // reaction, slowed by rear brake / handbrake. Clamped >= 0 (no reverse).
   rearWheelSpeed: number;
 
+  // Drift-transition latch (p14, seconds). A hard counter flick sets this;
+  // while it counts down the angle governor drives the flip THROUGH center
+  // to the opposite side (else it would gate off at center and stall).
+  flipTimer: number;
+
+  // Drift-engagement latch (p14). The governor ENGAGES only when a slide is
+  // clearly established (deep β + rear sliding under power) and STAYS engaged
+  // with hysteresis as a countersteer shallows the angle — so a held drift
+  // doesn't collapse to grip, while a gentle grip-corner never trips it.
+  driftActive: boolean;
+
   // Derived, updated every step (for HUD / skid logic).
   speed: number;
   forwardSpeed: number;
@@ -350,6 +383,8 @@ export function makeCar(x: number, y: number, heading: number = -Math.PI / 2): C
     vx: 0, vy: 0, angularVel: 0,
     steerAngle: 0,
     rearWheelSpeed: 0,
+    flipTimer: 0,
+    driftActive: false,
     speed: 0, forwardSpeed: 0,
     frontSlip: 0, rearSlip: 0,
     slipRatio: 0, wheelSpin: 0,
@@ -718,7 +753,17 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
     input.throttle > 0.05 && Math.abs(input.steer) > c.burnoutPivotSteerDead;
   if (pivotActive) {
     const targetYaw = Math.sign(input.steer) * c.burnoutPivotMaxYaw * spinNow * pivotFade;
-    car.angularVel += (targetYaw - car.angularVel) * Math.min(1, c.burnoutPivotRate * dt);
+    const reversing = targetYaw * car.angularVel < 0 && Math.abs(car.angularVel) > 0.1;
+    if (reversing) {
+      // Momentum: decelerate toward zero at a limited rate (steer-flip looks
+      // real — the spin winds down through zero, ~0.4 s, before rebuilding).
+      const maxDelta = c.burnoutPivotAccel * dt;
+      car.angularVel += clamp(targetYaw - car.angularVel, -maxDelta, maxDelta);
+    } else {
+      // Build: a strong proportional approach overcomes the opposing tire
+      // torque so the pivot actually reaches the spin rate.
+      car.angularVel += (targetYaw - car.angularVel) * Math.min(1, c.burnoutPivotBuildRate * dt);
+    }
   }
 
   car.heading    += car.angularVel * dt;
@@ -759,51 +804,101 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
     const v2 = car.vx * car.vx + car.vy * car.vy;
     const vNow = Math.sqrt(v2);
     const driftIntent = Math.max(input.throttle, input.handbrake ? 1 : 0);
-    const driftMode = clamp(
-        (Math.abs(bodyBeta) - c.driftModeStart) /
-        (c.driftModeFull - c.driftModeStart), 0, 1) *
-      driftIntent * rearSlideBlend;
-    // TRANSITION engagement (p13): a HARD steer command keeps the governor
-    // engaged THROUGH center (bypassing the driftModeStart deadband) so a
-    // side-to-side flick can cross from one drift to the other instead of
-    // gating off at ~17° and stalling. Still requires the rear to be SLIDING
-    // (rearSlideBlend) so it never forces a drift out of grip driving.
-    const hardSteer = clamp((Math.abs(input.steer) - 0.5) / 0.4, 0, 1);
-    const govMode = Math.max(driftMode, hardSteer * driftIntent * rearSlideBlend);
+    // ENGAGEMENT (p14) — a HYSTERESIS LATCH, not an instantaneous gate. The
+    // governor only ENGAGES once a slide is clearly established (β past the
+    // driftModeFull angle while the rear slides under power/handbrake), and it
+    // STAYS engaged as a countersteer shallows the angle, releasing only when
+    // β collapses below driftLatchRelease or the rear regrips. This solves the
+    // old dilemma in one stroke: a gentle grip-corner (marginal slip, shallow
+    // β) never trips the latch, yet a deliberately held shallow drift doesn't
+    // fall out of governed mode the instant it dips under the entry threshold.
+    const sliding = rearSlideBlend > 0 && driftIntent > 0;
+    // PROVOCATION: a slide counts as a deliberate drift (vs a gentle grip-
+    // corner that marginally breaks the rear loose) when the player is clearly
+    // committing — handbrake, a real steering input, the rear well loose, or
+    // the angle already deep. Engaging on provocation (not waiting for β to
+    // build) lets the speed governor hold pace through the ENTRY, instead of
+    // the entry scrubbing all the speed and dropping the car into pivot mode.
+    const provoke = input.handbrake ||
+      Math.abs(input.steer) > 0.45 ||
+      Math.abs(bodyBeta) >= c.driftModeFull;
+    if (!car.driftActive) {
+      if (sliding && provoke) car.driftActive = true;
+    } else if ((!sliding || Math.abs(bodyBeta) < c.driftLatchRelease) &&
+               car.flipTimer <= 0) {
+      car.driftActive = false;
+    }
+    const govMode = car.driftActive ? driftIntent * rearSlideBlend : 0;
     if (govMode > 0) {
-      // SPEED governor runs down to near standstill (floored denominator) so
-      // a slide that scrubs slow gets pulled back up — without it a deep
-      // drift stalls below the angle-governor's gate and dies (p12 fix). It
-      // also carries speed THROUGH a transition.
+      // SPEED governor — the THRUST term is GATED BY THROTTLE (p14). An assist
+      // amplifies what the player commands; it must never be a second motor.
+      // accel > 0 (push the drift up to pace) is scaled by input.throttle, so
+      // zero throttle = zero thrust: a handbrake slide with no gas SCRUBS and
+      // STOPS like a real locked-rear turn instead of self-sustaining a
+      // perpetual donut. The accel < 0 (cap excess speed) term is ungated —
+      // it only ever REMOVES energy, never adds. (Floored denominator so a
+      // slow drift is still paced; carries speed through a transition.)
       const vTarget = c.driftTargetSpeedMin +
         (c.driftTargetSpeedMax - c.driftTargetSpeedMin) * input.throttle;
-      const accel = c.driftSpeedGain * (vTarget - vNow) * govMode;
+      let accel = c.driftSpeedGain * (vTarget - vNow) * govMode;
+      if (accel > 0) accel *= input.throttle;
       if (vNow > 0.3) {
         car.vx += (car.vx / vNow) * accel * dt;
         car.vy += (car.vy / vNow) * accel * dt;
       }
-      // ANGLE governor needs a stable velocity direction (dphi divides by
-      // v2), so it only engages above ~1 m/s.
+      // ANGLE governor — STABILISE, DON'T CAGE (p14). The assist holds the
+      // drift at a steering-set angle so a normal slide is catchable and
+      // expressive — but it must yield the instant the player COMMITS to a
+      // spin. Three regimes, by how the wheel relates to the slide:
+      //
+      //   • steer INTO / countersteer at normal amounts → HOLD the angle
+      //     (betaTarget tracks the wheel: more lock = deeper drift). This is
+      //     the holdable donut / sustained drift.
+      //   • steer HARD INTO (steerBias > spinReleaseThreshold, i.e. full lock,
+      //     or hard lock while the rear is deep/handbraked) → authority ramps
+      //     to ZERO: the cage is lifted, raw physics over-rotates past 90°
+      //     into a full 360° spin ("hodiny").
+      //   • HARD COUNTER flick while sliding → latch a transition for
+      //     driftFlipDuration, driving the flip THROUGH center to the other
+      //     side (counterAmount collapses to 0 at the zero-crossing, so without
+      //     the latch a side-to-side flick stalls mid-cross).
+      //
+      // Only engages above ~1 m/s (dphi divides by v2).
       if (v2 > 1) {
         const sgn = Math.sign(bodyBeta) || 1;
-        // Steering INTO the drift (same sense as the slide) deepens the
-        // target; gentle countersteer shallows it.
-        const steerBias = clamp(input.steer, -1, 1) * -sgn;
-        const betaTargetNormal = sgn * clamp(
-          c.driftBaseAngle + c.driftSteerAngleGain * steerBias, 0.30, 1.10);
-        // A HARD opposite flick retargets the governor to the OPPOSITE side
-        // (pendulum / Scandinavian flick): it drives the car through center
-        // into a drift the other way instead of pinning the current side.
-        // The moment β crosses zero, sgn flips and the held steer deepens
-        // the NEW drift via betaTargetNormal.
-        const oppositeFlick = clamp(input.steer * sgn, 0, 1);
-        const betaTargetFlip = -sgn * c.driftBaseAngle;
-        const betaTarget =
-          betaTargetNormal * (1 - oppositeFlick) + betaTargetFlip * oppositeFlick;
+        const steerBias = clamp(input.steer, -1, 1) * -sgn;   // + into slide, − counter
+        const counterAmount = clamp(-steerBias, 0, 1);        // 1 at full countersteer
+        const intoAmount = clamp(steerBias, 0, 1);            // 1 at full steer-into
+        // Latch a transition on a hard counter flick while the rear slides.
+        if (counterAmount >= c.driftFlipThreshold && rearSlideBlend > 0.3) {
+          car.flipTimer = c.driftFlipDuration;
+        }
         const dphi = (car.vx * worldForceY - car.vy * worldForceX) / (c.mass * v2);
-        const omegaDes = dphi + c.driftAngleRate * (bodyBeta - betaTarget);
-        car.angularVel += (omegaDes - car.angularVel) *
-          Math.min(1, c.driftYawRelax * dt) * govMode;
+        if (car.flipTimer > 0) {
+          // Drive toward the OPPOSITE drift (steer sign is opposite the
+          // resulting β sign), full authority, bypassing the deadband so it
+          // crosses center.
+          const betaTarget = -Math.sign(input.steer || 1) * c.driftBaseAngle;
+          const omegaDes = dphi + c.driftAngleRate * (bodyBeta - betaTarget);
+          car.angularVel += (omegaDes - car.angularVel) *
+            Math.min(1, c.driftYawRelax * dt) * govMode;
+        } else {
+          // RELEASE ramp: full authority up to spinReleaseThreshold of steer-
+          // into, fading to zero at full lock so a committed spin runs free.
+          const release = clamp(
+            (intoAmount - c.spinReleaseThreshold) / (1 - c.spinReleaseThreshold), 0, 1);
+          const authority = govMode * (1 - release);
+          if (authority > 0) {
+            // betaTarget tracks the wheel: steering into deepens the drift,
+            // countersteering shallows it — the player sets the angle, the
+            // governor just steadies the car to it.
+            const betaTarget = sgn * clamp(
+              c.driftBaseAngle + c.driftSteerAngleGain * steerBias, 0.30, 1.10);
+            const omegaDes = dphi + c.driftAngleRate * (bodyBeta - betaTarget);
+            car.angularVel += (omegaDes - car.angularVel) *
+              Math.min(1, c.driftYawRelax * dt) * authority;
+          }
+        }
       }
     }
   }
@@ -815,6 +910,7 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   if (Math.abs(car.vx) < 0.01) car.vx = 0;
   if (Math.abs(car.vy) < 0.01) car.vy = 0;
   if (Math.abs(car.angularVel) < 0.005) car.angularVel = 0;
+  if (car.flipTimer > 0) car.flipTimer = Math.max(0, car.flipTimer - dt);
 
   // ---- 11. Derived state for HUD / skids ----
   car.speed = Math.hypot(car.vx, car.vy);
