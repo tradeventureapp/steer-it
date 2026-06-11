@@ -1,8 +1,17 @@
 import { supabase, channelName } from './supabase';
 
 // ---------- Tuning ----------
-const TILT_SENSITIVITY_DEG = 35;
-const TILT_DEADZONE_DEG    = 3;
+// Steering response (PHONE INPUT MAPPING ONLY — nothing downstream changes;
+// maxSteerAngle, the front-slip limiter, and countersteer all live in the
+// physics and are untouched).
+const TILT_RANGE_DEG = 35;   // physical tilt (deg, after deadzone) that maps to full input
+const TILT_DEADZONE_DEG = 3;  // deg ignored around level
+// Expo curve on the normalised tilt: steer = sign(t)·|t|^STEER_EXPO. >1 makes
+// the response gentle around center (fine corrections / lane-keeping between
+// icons) and only reaches full lock near full tilt — the linear map felt
+// twitchy because medium tilts already commanded most of the lock. At 1.7,
+// half tilt ≈ 31% steer; full tilt still = 100% (pivot/countersteer intact).
+const STEER_EXPO = 1.7;
 const SEND_HZ              = 30;
 // Analog pedal mapping: the top of the strip (player's visual outer edge,
 // away from the handbrake) is a saturation zone — any touch there pins the
@@ -235,8 +244,9 @@ function steerFromTilt(): number {
   const tiltDeg = steeringTiltDeg();
   const sign = Math.sign(tiltDeg);
   const mag = Math.max(0, Math.abs(tiltDeg) - TILT_DEADZONE_DEG);
-  const norm = Math.min(1, mag / (TILT_SENSITIVITY_DEG - TILT_DEADZONE_DEG));
-  return sign * norm;
+  const norm = Math.min(1, mag / (TILT_RANGE_DEG - TILT_DEADZONE_DEG));
+  // Progressive (expo) response: gentle near center, full lock near full tilt.
+  return sign * Math.pow(norm, STEER_EXPO);
 }
 
 // ----------------------------------------------------------------------
