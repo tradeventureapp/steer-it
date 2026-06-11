@@ -244,6 +244,18 @@ export const CONFIG = {
   // peak, not only deep into a slide.
   slipThresholdForSkid: 0.12,       // ← 0.18  ↓  ~7° instead of ~10°, earlier visual
 
+  // ---------- Collision vs desktop obstacles (p10) ----------
+  // The car is treated as a circle against axis-aligned obstacle rects
+  // (icons, taskbar). Arcade bounce: reflect the normal velocity with
+  // restitution, keep most of the tangential component, push the car out
+  // so it never sinks in. Yaw is damped in proportion to impact strength
+  // so a mid-drift wall thump doesn't explode the spin.
+  carCollisionRadius: 0.85,         // NEW (p10)  m
+  collisionRestitution: 0.35,       // NEW (p10)  normal bounce kept (0..1)
+  collisionTangentFriction: 0.12,   // NEW (p10)  tangential speed lost on hit
+  collisionPushOut: 0.02,           // NEW (p10)  m extra separation after push-out
+  collisionYawDamp: 0.35,           // NEW (p10)  yaw kill at full-strength impact
+
   // ---------- Input mapping (phone tilt) ----------
   tiltSensitivity: 35,              // unchanged
   tiltDeadzone: 3,                  // unchanged
@@ -656,4 +668,70 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
 export function bodyToWorld(car: CarState, bx: number, by: number): { x: number; y: number } {
   const c = Math.cos(car.heading), s = Math.sin(car.heading);
   return { x: car.x + bx * c - by * s, y: car.y + bx * s + by * c };
+}
+
+// -----------------------------------------------------------------------------
+//  Obstacle collision (p10) — car-as-circle vs axis-aligned rects.
+//  Arcade bounce per CONFIG: restitution on the normal component, light
+//  friction on the tangential one, positional push-out so the car never
+//  sinks in or tunnels (speeds stay well under a radius per substep).
+//  Returns the strongest normal impact speed this call (0 = no hit), so
+//  the caller can drive feedback (sound/shake) later.
+// -----------------------------------------------------------------------------
+export interface ObstacleRect { x: number; y: number; w: number; h: number; }
+
+export function collideWithRects(
+  car: CarState, rects: ObstacleRect[], c: Config = CONFIG,
+): number {
+  const R = c.carCollisionRadius;
+  let strongest = 0;
+  for (const r of rects) {
+    // Closest point on the rect to the car center.
+    const px = clamp(car.x, r.x, r.x + r.w);
+    const py = clamp(car.y, r.y, r.y + r.h);
+    const dx = car.x - px;
+    const dy = car.y - py;
+    const d2 = dx * dx + dy * dy;
+    if (d2 >= R * R) continue;
+
+    // Contact normal + penetration depth.
+    let nx: number, ny: number, pen: number;
+    if (d2 > 1e-9) {
+      const d = Math.sqrt(d2);
+      nx = dx / d; ny = dy / d;
+      pen = R - d;
+    } else {
+      // Center inside the rect — exit along the shallowest face.
+      const left = car.x - r.x, right = r.x + r.w - car.x;
+      const top = car.y - r.y, bottom = r.y + r.h - car.y;
+      const m = Math.min(left, right, top, bottom);
+      if (m === left)       { nx = -1; ny = 0; pen = R + left; }
+      else if (m === right) { nx =  1; ny = 0; pen = R + right; }
+      else if (m === top)   { nx = 0; ny = -1; pen = R + top; }
+      else                  { nx = 0; ny =  1; pen = R + bottom; }
+    }
+
+    // Push out, then bounce: reflect the inbound normal component with
+    // restitution, keep the tangential with light friction.
+    car.x += nx * (pen + c.collisionPushOut);
+    car.y += ny * (pen + c.collisionPushOut);
+    const vn = car.vx * nx + car.vy * ny;
+    if (vn < 0) {
+      const tx = car.vx - vn * nx;
+      const ty = car.vy - vn * ny;
+      // Tangential friction scales with impact strength (full effect at
+      // ~5 m/s of normal speed). Resting/scraping contact repeats every
+      // frame — a constant per-contact loss would glue the car to walls.
+      const tf = 1 - c.collisionTangentFriction * Math.min(1, -vn / 5);
+      const bounce = -vn * c.collisionRestitution;
+      car.vx = tx * tf + nx * bounce;
+      car.vy = ty * tf + ny * bounce;
+      // Calm the spin in proportion to impact strength (full damp at
+      // ~10 m/s of normal speed) — a mid-drift thump shouldn't pirouette.
+      const impact = Math.min(1, -vn / 10);
+      car.angularVel *= 1 - c.collisionYawDamp * impact;
+      strongest = Math.max(strongest, -vn);
+    }
+  }
+  return strongest;
 }

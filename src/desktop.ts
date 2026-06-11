@@ -1,6 +1,13 @@
 import QRCode from 'qrcode';
 import { supabase, channelName } from './supabase';
-import { CONFIG, makeCar, step, bodyToWorld, type CarState, type Inputs } from './physics';
+import {
+  CONFIG, makeCar, step, bodyToWorld, collideWithRects,
+  type CarState, type Inputs,
+} from './physics';
+import {
+  layoutDesktop, drawWallpaper, drawOverlay, drawClock,
+  type DesktopWorld,
+} from './world';
 
 // ---------- Session ----------
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -25,30 +32,47 @@ codeText.textContent = code;
 QRCode.toCanvas(qrCanvas, playUrl, { width: 160, margin: 1 }).catch(console.error);
 
 // ---------- Canvases ----------
-// Main canvas: cleared every frame, draws car + HUD overlay.
-// Skid canvas: persistent — accumulates tire skid lines.
+// Layered rendering (back to front):
+//   wallpaper (static offscreen) → skid marks (persistent offscreen)
+//   → overlay: icons + taskbar (static offscreen) → clock → car.
 const canvas = document.getElementById('game') as HTMLCanvasElement;
 const ctx = canvas.getContext('2d')!;
 const skidCanvas = document.createElement('canvas');
 const skidCtx = skidCanvas.getContext('2d')!;
+const wallpaperCanvas = document.createElement('canvas');
+const wallpaperCtx = wallpaperCanvas.getContext('2d')!;
+const overlayCanvas = document.createElement('canvas');
+const overlayCtx = overlayCanvas.getContext('2d')!;
 
 let dpr = window.devicePixelRatio || 1;
+
+// ---------- The desktop world (icons, taskbar, collision rects) ----------
+let world: DesktopWorld = layoutDesktop(
+  window.innerWidth / CONFIG.pxPerMeter,
+  window.innerHeight / CONFIG.pxPerMeter,
+);
 
 function resize() {
   dpr = window.devicePixelRatio || 1;
   const w = window.innerWidth;
   const h = window.innerHeight;
 
-  canvas.width = Math.floor(w * dpr);
-  canvas.height = Math.floor(h * dpr);
+  for (const [cv, cx] of [
+    [canvas, ctx], [skidCanvas, skidCtx],
+    [wallpaperCanvas, wallpaperCtx], [overlayCanvas, overlayCtx],
+  ] as Array<[HTMLCanvasElement, CanvasRenderingContext2D]>) {
+    cv.width = Math.floor(w * dpr);
+    cv.height = Math.floor(h * dpr);
+    cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
   canvas.style.width = w + 'px';
   canvas.style.height = h + 'px';
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-  // Resize the skid buffer too. (Naive: previous skids are cleared on resize.)
-  skidCanvas.width = Math.floor(w * dpr);
-  skidCanvas.height = Math.floor(h * dpr);
-  skidCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  // Re-lay-out the desktop for the new window and re-render the static
+  // layers. (Naive: previous skids are cleared on resize.)
+  world = layoutDesktop(w / CONFIG.pxPerMeter, h / CONFIG.pxPerMeter);
+  drawWallpaper(wallpaperCtx, w, h);
+  drawOverlay(overlayCtx, world, CONFIG.pxPerMeter);
 }
 resize();
 window.addEventListener('resize', resize);
@@ -147,14 +171,19 @@ function recordSkids() {
 }
 
 // ---------- World wrap ----------
+// Wrap on left/right/top only — the bottom edge is the taskbar, a solid
+// wall the car collides with (see world.rects).
 function wrap() {
   const W = window.innerWidth / PX();
-  const H = window.innerHeight / PX();
   const M = 2; // margin in meters
   if (car.x < -M)       { car.x = W + M; invalidateSkidTrails(); }
   else if (car.x > W + M) { car.x = -M;    invalidateSkidTrails(); }
-  if (car.y < -M)       { car.y = H + M; invalidateSkidTrails(); }
-  else if (car.y > H + M) { car.y = -M;    invalidateSkidTrails(); }
+  if (car.y < -M) {
+    // Re-enter from the bottom, emerging from just above the taskbar wall.
+    car.y = window.innerHeight / PX() - world.taskbarHeight -
+      CONFIG.carCollisionRadius - 0.2;
+    invalidateSkidTrails();
+  }
 }
 function invalidateSkidTrails() {
   // After wrapping we don't want a long streak across the screen.
@@ -185,6 +214,7 @@ function frame(now: number) {
     current.handbrake = target.handbrake;
 
     step(car, current, FIXED_DT);
+    collideWithRects(car, world.rects);
     recordSkids();
     wrap();
 
@@ -204,10 +234,11 @@ function render() {
   const W = window.innerWidth;
   const H = window.innerHeight;
 
-  // Clear with white background, then composite the skid buffer on top.
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, W, H);
+  // Layered desktop: wallpaper → skids → icons/taskbar → clock → car.
+  ctx.drawImage(wallpaperCanvas, 0, 0, W, H);
   ctx.drawImage(skidCanvas, 0, 0, W, H);
+  ctx.drawImage(overlayCanvas, 0, 0, W, H);
+  drawClock(ctx, world, CONFIG.pxPerMeter);
 
   drawCar();
   updateHud();

@@ -49,7 +49,7 @@ body.desktop #hud-tr {
 #status.connected { color: #2da44e; }
 
 body.desktop #hud-bl {
-  position: fixed; bottom: 24px; left: 24px;
+  position: fixed; bottom: 56px; /* clear of the fake taskbar */ left: 24px;
   z-index: 10; pointer-events: none;
   display: flex; flex-direction: column; align-items: flex-start; gap: 10px;
 }
@@ -78,7 +78,8 @@ body.desktop #hud-bl {
   background: #fff3cd; color: #b54708; border-color: #f0c674;
 }
 
-/* Live readouts (rear slip angle, wheelspin) — below the GRIP/DRIFT badge. */
+/* Live readouts (rear slip angle, wheelspin) — below the GRIP/DRIFT badge.
+   White pill backdrop so they stay readable on the wallpaper. */
 #slip-readout, #wspin-readout {
   font: 700 11px/1 ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   letter-spacing: 1.5px;
@@ -86,6 +87,10 @@ body.desktop #hud-bl {
   display: flex;
   gap: 8px;
   align-items: baseline;
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid #e5e7eb;
+  padding: 5px 9px;
+  border-radius: 7px;
 }
 #slip-readout #rear-slip-val, #wspin-readout #wspin-val {
   color: #1c1c20;
