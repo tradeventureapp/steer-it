@@ -155,6 +155,68 @@ export class RaceState {
   }
 }
 
+// =============================================================================
+//  Editor mutators — operate on the live RaceElement[] (the single source of
+//  truth shared with RaceState). Pure (mutate the passed array), unit-testable.
+//  After any structural change the desktop rebuilds its RaceState from the
+//  array so the cached cpTotal / inside[] stay in sync.
+// =============================================================================
+export function countCheckpoints(elements: RaceElement[]): number {
+  let n = 0;
+  for (const e of elements) if (e.type === 'checkpoint') n++;
+  return n;
+}
+
+// Renumber checkpoints 1..n in array (= placement) order.
+export function renumberCheckpoints(elements: RaceElement[]): void {
+  let n = 0;
+  for (const e of elements) if (e.type === 'checkpoint') e.index = ++n;
+}
+
+export interface PlaceResult { ok: boolean; reason?: 'cap'; }
+
+// Place an element at (x,y) world metres. START/FINISH are unique (a new one
+// replaces the old). CHECKPOINT appends up to cfg.maxCheckpoints (else ignored
+// with reason 'cap') and auto-numbers in placement order.
+export function placeElement(
+  elements: RaceElement[], type: RaceType, x: number, y: number,
+  cfg: RaceConfig = RACE_CONFIG,
+): PlaceResult {
+  if (type === 'start' || type === 'finish') {
+    const i = elements.findIndex((e) => e.type === type);
+    if (i >= 0) elements.splice(i, 1);
+    elements.push({ type, x, y, angle: 0 });
+    return { ok: true };
+  }
+  if (countCheckpoints(elements) >= cfg.maxCheckpoints) return { ok: false, reason: 'cap' };
+  elements.push({ type: 'checkpoint', x, y });
+  renumberCheckpoints(elements);
+  return { ok: true };
+}
+
+// Remove the element at array index `idx` (renumbering any checkpoints).
+export function removeElementAt(elements: RaceElement[], idx: number): void {
+  if (idx < 0 || idx >= elements.length) return;
+  elements.splice(idx, 1);
+  renumberCheckpoints(elements);
+}
+
+export function clearElements(elements: RaceElement[]): void {
+  elements.length = 0;
+}
+
+// Topmost element (last drawn) whose centre is within `radius` of (x,y); -1 if
+// none. Used for editor drag/delete hit-testing.
+export function findElementIndexAt(
+  elements: RaceElement[], x: number, y: number, radius: number,
+): number {
+  for (let i = elements.length - 1; i >= 0; i--) {
+    const dx = x - elements[i].x, dy = y - elements[i].y;
+    if (dx * dx + dy * dy <= radius * radius) return i;
+  }
+  return -1;
+}
+
 // Format ms as M:SS.t (tenths) for the HUD.
 export function formatRaceTime(ms: number): string {
   const totalT = Math.max(0, Math.round(ms / 100)); // tenths

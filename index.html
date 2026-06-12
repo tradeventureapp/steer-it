@@ -29,6 +29,22 @@
       <div id="race-finish-time">0:00.0</div>
     </div>
 
+    <!-- Track editor (key E): tool palette + status. The canvas behind stays
+         clickable for placing/dragging elements; only the palette takes input. -->
+    <div id="editor" hidden>
+      <div id="editor-bar">
+        <div id="editor-palette">
+          <button class="etool" type="button" data-tool="start">START</button>
+          <button class="etool" type="button" data-tool="finish">FINISH</button>
+          <button class="etool" type="button" data-tool="checkpoint">CHECKPOINT</button>
+          <button class="etool" type="button" data-tool="delete">DELETE</button>
+          <button id="editor-clear" type="button">CLEAR ALL</button>
+        </div>
+        <div id="editor-status"></div>
+      </div>
+      <div id="editor-hint">click to place · drag to move · E to exit</div>
+    </div>
+
     <!-- Pause overlay (key P): dims the frozen game; gradient wordmark + hint. -->
     <div id="pause-overlay" hidden>
       <div id="pause-title">PAUSED</div>

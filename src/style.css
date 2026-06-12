@@ -174,6 +174,59 @@ body.desktop #pause-overlay {
   text-shadow: 0 0 10px rgba(45, 226, 230, 0.7);
 }
 
+/* ---- Track editor (key E): palette + status. The container is click-through
+   so the canvas behind stays placeable; only the bar/buttons take input. ---- */
+body.desktop #editor {
+  position: fixed; inset: 0; z-index: 40; pointer-events: none;
+  font-family: 'Orbitron', ui-monospace, monospace;
+}
+#editor-bar {
+  position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  pointer-events: auto;
+}
+#editor-palette {
+  display: flex; gap: 8px; padding: 8px 10px; border-radius: 14px;
+  background: rgba(8, 4, 18, 0.82);
+  border: 1.5px solid rgba(45, 226, 230, 0.4);
+  box-shadow: 0 0 24px rgba(45, 226, 230, 0.18), 0 10px 30px rgba(0, 0, 0, 0.55);
+}
+.etool, #editor-clear {
+  appearance: none; -webkit-appearance: none; cursor: pointer;
+  font-family: inherit; font-weight: 800; font-size: 12px; letter-spacing: 2px;
+  padding: 9px 12px; border-radius: 9px;
+  color: #cdd6f4; background: rgba(255, 255, 255, 0.04);
+  border: 1.5px solid rgba(154, 166, 192, 0.3);
+  transition: background 120ms, box-shadow 120ms, transform 80ms, border-color 120ms;
+}
+.etool[data-tool="start"]      { color: #bfffd0; border-color: rgba(57, 255, 106, 0.5); }
+.etool[data-tool="finish"]     { color: #ffd0e6; border-color: rgba(255, 45, 149, 0.5); }
+.etool[data-tool="checkpoint"] { color: #bff4ff; border-color: rgba(45, 226, 230, 0.5); }
+.etool[data-tool="delete"]     { color: #ffb3b3; border-color: rgba(255, 59, 59, 0.45); }
+#editor-clear { color: #ff8a8a; border-color: rgba(255, 59, 59, 0.45); margin-left: 4px; }
+.etool.sel {
+  background: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 0 16px currentColor, inset 0 0 0 1.5px currentColor;
+  transform: translateY(-1px);
+}
+.etool:active, #editor-clear:active { transform: translateY(1px); }
+#editor-status {
+  display: flex; gap: 14px; font-weight: 800; font-size: 11px; letter-spacing: 2px;
+  padding: 5px 11px; border-radius: 8px; background: rgba(8, 4, 18, 0.6);
+  border: 1px solid rgba(45, 226, 230, 0.16);
+}
+#editor-status .ok { color: #5dffb0; text-shadow: 0 0 8px rgba(57, 255, 140, 0.6); }
+#editor-status .no { color: rgba(154, 166, 192, 0.55); }
+#editor-status .cp { color: #2de2e6; text-shadow: 0 0 8px rgba(45, 226, 230, 0.5); }
+#editor-hint {
+  position: absolute; bottom: 54px; left: 50%; transform: translateX(-50%);
+  pointer-events: none;
+  font-weight: 700; font-size: 11px; letter-spacing: 3px; text-transform: uppercase;
+  color: rgba(154, 166, 192, 0.7);
+}
+#editor-hint.flash { color: #ffe23d; text-shadow: 0 0 10px rgba(255, 226, 61, 0.85); }
+body.desktop.editing #game { cursor: crosshair; }
+
 body.desktop #hud-bl {
   position: fixed; bottom: 56px; /* clear of the fake taskbar */ left: 24px;
   z-index: 10; pointer-events: none;

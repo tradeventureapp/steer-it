@@ -16,7 +16,9 @@ import {
 } from './lobby';
 import {
   RaceState, RACE_CONFIG, formatRaceTime,
-  type RaceElement, type RaceHud,
+  placeElement, removeElementAt, clearElements, findElementIndexAt,
+  countCheckpoints,
+  type RaceElement, type RaceHud, type RaceType,
 } from './race';
 
 // ---------- Session ----------
@@ -48,11 +50,31 @@ const soundBtn       = document.getElementById('sound-toggle')  as HTMLButtonEle
 const hudBlEl        = document.getElementById('hud-bl')         as HTMLElement | null;
 const hudTrEl        = document.getElementById('hud-tr')         as HTMLElement | null;
 const pauseOverlayEl = document.getElementById('pause-overlay')  as HTMLElement | null;
+const editorEl       = document.getElementById('editor')         as HTMLElement | null;
+const editorStatusEl = document.getElementById('editor-status')  as HTMLDivElement | null;
+const editorHintEl   = document.getElementById('editor-hint')    as HTMLDivElement | null;
 
-// ---------- Pause (key P) — freezes the simulation + race timer, not render ----------
-let isPaused = false;
-let pausedAccumMs = 0;   // total time spent paused (subtracted from the game clock)
-let pauseStartedAt = 0;  // performance.now() when the current pause began
+// ---------- Freeze: pause (P) OR editor (E) both halt the simulation + race
+// timer (not the render). isPaused is the combined gate read by the loop. ----
+let userPaused = false;  // toggled by P
+let editorMode = false;  // toggled by E
+let isPaused = false;    // = userPaused || editorMode (the frame-loop gate)
+let pausedAccumMs = 0;   // total frozen time, subtracted from the game clock
+let pauseStartedAt = 0;  // performance.now() when the current freeze began
+
+function refreshFreeze() {
+  const want = userPaused || editorMode;
+  if (want !== isPaused) {
+    isPaused = want;
+    if (isPaused) pauseStartedAt = performance.now();
+    else pausedAccumMs += performance.now() - pauseStartedAt;  // bank frozen time
+  }
+  // PAUSED overlay only for a manual pause (not while editing); editor UI only
+  // while editing.
+  if (pauseOverlayEl) pauseOverlayEl.hidden = !(userPaused && !editorMode);
+  if (editorEl) editorEl.hidden = !editorMode;
+  document.body.classList.toggle('editing', editorMode);
+}
 
 // Physics-input debug overlay (toggle with D). Shows the steer/throttle as the
 // PHYSICS step actually receives them (post-expo, post-smoothing) plus the
@@ -104,14 +126,14 @@ window.addEventListener('keydown', (e) => {
     if (hudTrEl) hudTrEl.style.display = qrOn ? 'block' : 'none';
   }
   if (e.key === 'p' || e.key === 'P') {
-    isPaused = !isPaused;
-    if (isPaused) {
-      pauseStartedAt = performance.now();
-    } else {
-      // Banked the elapsed pause so the game clock resumes seamlessly.
-      pausedAccumMs += performance.now() - pauseStartedAt;
-    }
-    if (pauseOverlayEl) pauseOverlayEl.hidden = !isPaused;
+    if (!editorMode) { userPaused = !userPaused; refreshFreeze(); }  // P is a no-op in the editor
+  }
+  if (e.key === 'e' || e.key === 'E') {
+    editorMode = !editorMode;
+    if (!editorMode) rebuildRace();   // exiting → apply the built track (fresh race)
+    else editorDragIdx = null;        // entering → no stale drag
+    refreshFreeze();
+    updateEditorStatus();
   }
 });
 
@@ -177,6 +199,7 @@ function redrawOverlay() {
 }
 
 canvas.addEventListener('pointerdown', (e) => {
+  if (editorMode) { editorPointerDown(e); return; }  // editor owns the mouse
   const mx = e.clientX / PX(), my = e.clientY / PX();
   const ic = iconAt(world, mx, my);
   if (!ic) return;
@@ -190,6 +213,7 @@ canvas.addEventListener('pointerdown', (e) => {
 });
 
 canvas.addEventListener('pointermove', (e) => {
+  if (editorMode) { editorPointerMove(e); return; }
   const mx = e.clientX / PX(), my = e.clientY / PX();
   if (draggedIcon) {
     draggedIcon.x = mx - dragOffX;
@@ -210,8 +234,16 @@ function endIconDrag() {
   canvas.style.cursor = 'grab';
   redrawOverlay();
 }
-canvas.addEventListener('pointerup', endIconDrag);
-canvas.addEventListener('pointercancel', endIconDrag);
+canvas.addEventListener('pointerup', (e) => {
+  if (editorMode) { editorPointerUp(); return; }
+  endIconDrag();
+  void e;
+});
+canvas.addEventListener('pointercancel', (e) => {
+  if (editorMode) { editorPointerUp(); return; }
+  endIconDrag();
+  void e;
+});
 
 resize();
 window.addEventListener('resize', resize);
@@ -225,19 +257,86 @@ const car: CarState = makeCar(
   -Math.PI / 2,
 );
 
-// ---------- Race elements (STEP 3a: hardcoded; editor writes this next) ----
-// Positions are WORLD METRES — the exact RaceElement[] a future click-to-place
-// editor will produce. Laid out around the spawn so the loop fits on screen:
-// drive UP through START, collect both CHECKPOINTS (any order), come back DOWN
-// through FINISH. (Counts are CONFIG-driven via RACE_CONFIG / RaceState.)
-const _cx = car.x, _cy = car.y;
-const RACE_ELEMENTS: RaceElement[] = [
-  { type: 'start',      x: _cx,     y: _cy - 7, angle: 0 },
-  { type: 'checkpoint', x: _cx - 9, y: _cy - 1, index: 1 },
-  { type: 'checkpoint', x: _cx + 9, y: _cy - 1, index: 2 },
-  { type: 'finish',     x: _cx,     y: _cy + 7, angle: 0 },
-];
-const raceState = new RaceState(RACE_ELEMENTS, RACE_CONFIG);
+// ---------- Race elements ----------
+// The desktop starts EMPTY — free-drift sandbox. The track editor (key E)
+// mutates this RaceElement[] (world metres) in place; RaceState is rebuilt from
+// it whenever the structure changes. No START/FINISH ⇒ no active race.
+const raceElements: RaceElement[] = [];
+let raceState = new RaceState(raceElements, RACE_CONFIG);
+function rebuildRace() { raceState = new RaceState(raceElements, RACE_CONFIG); }
+
+// ---------- Track editor (key E) — place/drag/delete into raceElements ----------
+type EditorTool = RaceType | 'delete';
+let editorTool: EditorTool = 'start';
+let editorDragIdx: number | null = null;
+let editorDragOff = { x: 0, y: 0 };
+const EDITOR_GRAB_R = 1.8;  // metres — generous hit radius for drag/delete
+const EDITOR_DEFAULT_HINT = 'click to place · drag to move · E to exit';
+
+function editorPointerDown(e: PointerEvent) {
+  e.preventDefault();
+  const mx = e.clientX / PX(), my = e.clientY / PX();
+  const idx = findElementIndexAt(raceElements, mx, my, EDITOR_GRAB_R);
+  if (idx >= 0) {
+    if (editorTool === 'delete') {
+      removeElementAt(raceElements, idx);
+      updateEditorStatus();
+    } else {
+      // Any placement tool can also REPOSITION the element under the cursor.
+      editorDragIdx = idx;
+      editorDragOff = { x: mx - raceElements[idx].x, y: my - raceElements[idx].y };
+      try { canvas.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+    }
+    return;
+  }
+  if (editorTool === 'delete') return;            // empty space + delete → nothing
+  const r = placeElement(raceElements, editorTool, mx, my, RACE_CONFIG);
+  if (!r.ok && r.reason === 'cap') showEditorHint(`MAX ${RACE_CONFIG.maxCheckpoints} CHECKPOINTS`);
+  updateEditorStatus();
+}
+function editorPointerMove(e: PointerEvent) {
+  if (editorDragIdx === null) return;
+  const mx = e.clientX / PX(), my = e.clientY / PX();
+  raceElements[editorDragIdx].x = mx - editorDragOff.x;
+  raceElements[editorDragIdx].y = my - editorDragOff.y;
+}
+function editorPointerUp() { editorDragIdx = null; }
+
+let hintTimer = 0;
+function showEditorHint(msg: string) {
+  if (!editorHintEl) return;
+  editorHintEl.textContent = msg;
+  editorHintEl.classList.add('flash');
+  clearTimeout(hintTimer);
+  hintTimer = window.setTimeout(() => {
+    editorHintEl.classList.remove('flash');
+    editorHintEl.textContent = EDITOR_DEFAULT_HINT;
+  }, 1400);
+}
+
+function updateEditorStatus() {
+  if (editorStatusEl) {
+    const hasStart = raceElements.some((el) => el.type === 'start');
+    const hasFinish = raceElements.some((el) => el.type === 'finish');
+    const cp = countCheckpoints(raceElements);
+    editorStatusEl.innerHTML =
+      `<span class="${hasStart ? 'ok' : 'no'}">START ${hasStart ? '✓' : '·'}</span>` +
+      `<span class="${hasFinish ? 'ok' : 'no'}">FINISH ${hasFinish ? '✓' : '·'}</span>` +
+      `<span class="cp">CP ${cp}/${RACE_CONFIG.maxCheckpoints}</span>`;
+  }
+  for (const b of Array.from(document.querySelectorAll('#editor-palette .etool')) as HTMLElement[]) {
+    b.classList.toggle('sel', b.dataset.tool === editorTool);
+  }
+}
+
+// Palette buttons (exist in index.html). Selecting a tool never touches the map.
+for (const b of Array.from(document.querySelectorAll('#editor-palette .etool')) as HTMLElement[]) {
+  b.addEventListener('click', () => { editorTool = b.dataset.tool as EditorTool; updateEditorStatus(); });
+}
+document.getElementById('editor-clear')?.addEventListener('click', () => {
+  clearElements(raceElements);
+  updateEditorStatus();
+});
 
 // ---------- Control input ----------
 // target: latest from the phone. current: lerped toward target each frame for
@@ -610,11 +709,11 @@ const RACE_CYAN = '#2de2e6';
 function drawRaceElements() {
   const px = PX();
   const collected = raceState.collectedElementIndices();
-  RACE_ELEMENTS.forEach((e, i) => {
+  raceElements.forEach((e, i) => {
     const sx = e.x * px, sy = e.y * px;
     const rPx = (e.radius ?? RACE_CONFIG.gateRadius) * px;
     if (e.type === 'checkpoint') {
-      drawCheckpoint(sx, sy, rPx, e.index ?? 0, collected.has(i));
+      drawCheckpoint(sx, sy, rPx, e.index ?? 0, !editorMode && collected.has(i));
     } else {
       drawGate(sx, sy, rPx, e.angle ?? 0, e.type === 'start');
     }
@@ -681,6 +780,11 @@ function drawCheckpoint(sx: number, sy: number, rPx: number, index: number, done
 // ---------- Race HUD (functional readout; independent of the D/Q debug toggles) ----------
 function updateRaceHud(h: RaceHud) {
   if (!raceHudEl) return;
+  if (editorMode) {  // editor shows its own status; race HUD hidden
+    raceHudEl.hidden = true;
+    if (raceFinishEl) raceFinishEl.hidden = true;
+    return;
+  }
   if (!h.active) {
     raceHudEl.hidden = true;
     if (raceFinishEl) raceFinishEl.hidden = true;
