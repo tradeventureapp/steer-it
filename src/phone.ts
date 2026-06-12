@@ -1,4 +1,7 @@
 import { supabase, channelName } from './supabase';
+import {
+  getClientId, CAR_COLORS, EV, PHONE_HEARTBEAT_MS, type LobbyPlayer,
+} from './lobby';
 
 // ---------- Tuning ----------
 // Steering response (PHONE INPUT MAPPING ONLY — nothing downstream changes;
@@ -43,6 +46,14 @@ const throttleBtn = document.getElementById('pedal-throttle') as HTMLButtonEleme
 const handbrakeBtn = document.getElementById('handbrake')     as HTMLButtonElement;
 const errorEl     = document.getElementById('error')          as HTMLDivElement;
 const debugEl     = document.getElementById('debug')          as HTMLDivElement | null;
+const lobbySlotEl   = document.getElementById('lobby-slot')   as HTMLDivElement | null;
+const lobbyColorsEl = document.getElementById('lobby-colors') as HTMLDivElement | null;
+
+// ---------- Lobby (this phone's slot + colour) ----------
+const clientId = getClientId();
+let mySlot: number | null = null;     // assigned by the desktop authority
+let selectedColor = '';                // '' until picked / adopted from server
+let lobbyFull = false;
 
 // ---------- State ----------
 type Stage = 'before-unlock' | 'after-unlock' | 'error';
@@ -102,13 +113,100 @@ if (!code) {
 const channel = supabase.channel(channelName(code), {
   config: { broadcast: { self: false } },
 });
-channel.subscribe();
+
+// ---------- Lobby messaging (desktop is the authority) ----------
+// We never self-assign a slot — we announce ourselves (join, doubling as a
+// keepalive heartbeat) and adopt whatever slot/colour the desktop broadcasts.
+function sendJoin() {
+  channel.send({
+    type: 'broadcast', event: EV.join,
+    payload: { id: clientId, color: selectedColor || undefined },
+  });
+}
+function sendLeave() {
+  try {
+    channel.send({ type: 'broadcast', event: EV.leave, payload: { id: clientId } });
+  } catch { /* best-effort */ }
+}
+
+let lobbyStarted = false;
+function startLobby() {
+  if (lobbyStarted || !code) return;
+  lobbyStarted = true;
+  sendJoin();
+  setInterval(sendJoin, PHONE_HEARTBEAT_MS);
+}
+
+// Desktop → phone: full lobby state. Find our own entry to learn our slot.
+channel.on('broadcast', { event: EV.lobby }, ({ payload }) => {
+  const list = ((payload as { players?: LobbyPlayer[] })?.players ?? []) as LobbyPlayer[];
+  const me = list.find((p) => p.id === clientId);
+  if (me) {
+    lobbyFull = false;
+    mySlot = me.slot;
+    if (!selectedColor) { selectedColor = me.color; highlightSwatch(); }
+  }
+  renderLobby();
+});
+channel.on('broadcast', { event: EV.full }, ({ payload }) => {
+  if ((payload as { id?: string })?.id === clientId && mySlot === null) {
+    lobbyFull = true;
+    renderLobby();
+  }
+});
+
+channel.subscribe((status) => {
+  if (status === 'SUBSCRIBED') startLobby();
+});
+window.addEventListener('pagehide', sendLeave);
+
+// ---------- Colour picker (on the TAP TO STEER screen) ----------
+function buildColorPicker() {
+  if (!lobbyColorsEl || lobbyColorsEl.childElementCount > 0) return;
+  for (const c of CAR_COLORS) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'swatch';
+    b.dataset.hex = c.hex;
+    b.style.setProperty('--sw', c.hex);
+    b.setAttribute('aria-label', c.name);
+    b.addEventListener('click', (e) => { e.preventDefault(); pickColor(c.hex); });
+    lobbyColorsEl.appendChild(b);
+  }
+}
+function pickColor(hex: string) {
+  selectedColor = hex;
+  highlightSwatch();
+  // Immediate colour message + refresh the join payload so it sticks.
+  channel.send({ type: 'broadcast', event: EV.color, payload: { id: clientId, color: hex } });
+  sendJoin();
+}
+function highlightSwatch() {
+  if (!lobbyColorsEl) return;
+  for (const el of Array.from(lobbyColorsEl.children) as HTMLElement[]) {
+    el.classList.toggle('selected', el.dataset.hex === selectedColor);
+  }
+}
+function renderLobby() {
+  if (lobbySlotEl) {
+    lobbySlotEl.textContent = lobbyFull ? 'GAME FULL'
+      : mySlot === null ? 'JOINING…'
+      : 'PLAYER ' + (mySlot + 1);
+    lobbySlotEl.classList.toggle('full', lobbyFull);
+  }
+}
+buildColorPicker();
 
 // ---------- Render ----------
 function renderUI() {
   unlockBtn.hidden = true;
   pedalsEl.hidden  = true;
   errorEl.hidden   = true;
+
+  // The slot label + colour picker live on the TAP TO STEER screen only.
+  const showLobby = stage === 'before-unlock';
+  if (lobbySlotEl)   lobbySlotEl.hidden   = !showLobby;
+  if (lobbyColorsEl) lobbyColorsEl.hidden = !showLobby;
 
   if (stage === 'error') {
     errorEl.hidden = false;
@@ -587,12 +685,14 @@ let broadcastStarted = false;
 function sendControlNow() {
   if (!broadcastStarted) return;
   const payload = {
+    id:        clientId,
+    slot:      mySlot ?? 0,
     steer:     steerFromTilt(),
     throttle:  pedalValue('throttle'),
     brake:     pedalValue('brake'),
     handbrake: handbrakeOn(),
   };
-  channel.send({ type: 'broadcast', event: 'control', payload });
+  channel.send({ type: 'broadcast', event: EV.control, payload });
 }
 
 function startBroadcast() {

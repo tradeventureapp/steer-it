@@ -11,6 +11,9 @@ import {
 } from './world';
 import { SoundEngine } from './sound';
 import { Effects } from './effects';
+import {
+  PLAYER_CAP, LOBBY_SYNC_MS, EV, colorName, LobbyState,
+} from './lobby';
 
 // ---------- Session ----------
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -23,6 +26,7 @@ const playUrl = `${window.location.origin}/play?s=${code}`;
 const qrCanvas = document.getElementById('qr') as HTMLCanvasElement;
 const codeText = document.getElementById('code-text') as HTMLDivElement;
 const statusEl = document.getElementById('status') as HTMLDivElement;
+const rosterEl = document.getElementById('lobby-roster') as HTMLDivElement | null;
 const speedEl = document.getElementById('speed') as HTMLDivElement;
 const driftEl = document.getElementById('drift') as HTMLDivElement;
 const throttleBarEl  = document.getElementById('throttle-bar')  as HTMLDivElement;
@@ -206,19 +210,38 @@ const channel = supabase.channel(channelName(code), {
   config: { broadcast: { self: false } },
 });
 
-let connected = false;
-function markConnected() {
-  if (connected) return;
-  connected = true;
-  statusEl.textContent = 'Connected';
-  statusEl.classList.add('connected');
+// ================= LOBBY — the desktop is the authority =================
+// The desktop owns the ONLY LobbyState; phones never self-assign slots (no
+// races — Supabase delivers to this single JS thread, processed in order).
+// Built for N: the cap lives in lobby.ts (PLAYER_CAP).
+const lobby = new LobbyState(PLAYER_CAP);
+
+function broadcastLobby() {
+  channel.send({
+    type: 'broadcast', event: EV.lobby,
+    payload: { players: lobby.snapshot(), cap: PLAYER_CAP },
+  });
+  renderLobbyUI();
 }
 
-channel.on('broadcast', { event: 'control' }, ({ payload }) => {
-  markConnected();
-  const p = payload as {
-    steer?: unknown; throttle?: unknown; brake?: unknown; handbrake?: unknown;
-  };
+function renderLobbyUI() {
+  const n = lobby.size();
+  statusEl.textContent = n === 0 ? 'Waiting for phone…' : `${n}/${PLAYER_CAP} connected`;
+  statusEl.classList.toggle('connected', n > 0);
+  if (!rosterEl) return;
+  rosterEl.innerHTML = n === 0 ? '' : lobby.snapshot().map((p) =>
+    `<div class="roster-row">` +
+      `<span class="roster-dot" style="background:${p.color};box-shadow:0 0 8px ${p.color}"></span>` +
+      `<span class="roster-name">PLAYER ${p.slot + 1}</span>` +
+      `<span class="roster-color">${colorName(p.color)}</span>` +
+      `<span class="roster-ok">●</span>` +
+    `</div>`
+  ).join('');
+}
+
+function applyControl(p: {
+  steer?: unknown; throttle?: unknown; brake?: unknown; handbrake?: unknown;
+}) {
   const s = Number(p?.steer);
   const t = Number(p?.throttle);
   const b = Number(p?.brake);
@@ -226,9 +249,49 @@ channel.on('broadcast', { event: 'control' }, ({ payload }) => {
   if (Number.isFinite(t)) target.throttle = clamp(t, 0, 1);
   if (Number.isFinite(b)) target.brake    = clamp(b, 0, 1);
   target.handbrake = !!p?.handbrake;
+}
+
+// ---- phone → desktop handlers ----
+channel.on('broadcast', { event: EV.join }, ({ payload }) => {
+  const id = String((payload as { id?: unknown })?.id ?? '');
+  if (!id) return;
+  const color = (payload as { color?: string })?.color;
+  const r = lobby.join(id, color, Date.now());
+  if (r.slot === null) {
+    channel.send({ type: 'broadcast', event: EV.full, payload: { id } }); // lobby full
+  } else if (r.changed) {
+    broadcastLobby();
+  }
 });
 
+channel.on('broadcast', { event: EV.color }, ({ payload }) => {
+  const id = String((payload as { id?: unknown })?.id ?? '');
+  const color = (payload as { color?: string })?.color;
+  if (!id || !color) return;
+  if (lobby.setColor(id, color, Date.now()).changed) broadcastLobby();
+});
+
+channel.on('broadcast', { event: EV.leave }, ({ payload }) => {
+  const id = String((payload as { id?: unknown })?.id ?? '');
+  if (id && lobby.leave(id).changed) broadcastLobby();
+});
+
+channel.on('broadcast', { event: EV.control }, ({ payload }) => {
+  const id = String((payload as { id?: unknown })?.id ?? '');
+  // STEP 1: only slot 0 drives the existing single car. Other slots' control
+  // is accepted (keeps them connected) but not yet simulated.
+  if (!id) { applyControl(payload); return; }     // legacy id-less → drive car
+  const r = lobby.join(id, undefined, Date.now()); // lazy-join if join was missed
+  if (r.changed) broadcastLobby();
+  if (r.slot === 0) applyControl(payload);
+});
+
+// ---- disconnect sweep + periodic lobby re-sync ----
+setInterval(() => { if (lobby.sweep(Date.now()).changed) broadcastLobby(); }, 1000);
+setInterval(() => { if (lobby.size()) broadcastLobby(); }, LOBBY_SYNC_MS);
+
 channel.subscribe();
+renderLobbyUI();
 
 // ---------- Skids ----------
 // We draw skid lines straight onto the persistent skidCanvas every physics

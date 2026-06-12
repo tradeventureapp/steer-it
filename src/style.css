@@ -85,6 +85,29 @@ body.desktop #hud-tr {
   color: rgba(154, 166, 192, 0.55);
 }
 
+/* Live player roster — fills live as phones join/leave/pick colours. */
+#lobby-roster {
+  display: flex; flex-direction: column; gap: 5px;
+  width: 100%;
+}
+#lobby-roster:empty { display: none; }
+.roster-row {
+  display: flex; align-items: center; gap: 7px;
+  font-family: 'Orbitron', ui-monospace, monospace;
+  font-size: 10px; letter-spacing: 1px; color: #cdd6f4;
+  padding: 4px 7px; border-radius: 7px;
+  background: rgba(45, 226, 230, 0.06);
+  border: 1px solid rgba(45, 226, 230, 0.16);
+}
+.roster-dot {
+  width: 11px; height: 11px; border-radius: 50%; flex: 0 0 auto;
+}
+.roster-name { font-weight: 800; letter-spacing: 1.5px; }
+.roster-color { text-transform: uppercase; color: #9aa6c0; margin-left: auto; }
+.roster-ok {
+  color: #5dffb0; font-size: 9px; text-shadow: 0 0 6px rgba(57, 255, 140, 0.85);
+}
+
 body.desktop #hud-bl {
   position: fixed; bottom: 56px; /* clear of the fake taskbar */ left: 24px;
   z-index: 10; pointer-events: none;
@@ -497,6 +520,48 @@ body.phone {
   transform: translate(-50%, -50%) scale(0.98);
   filter: drop-shadow(0 0 26px rgba(255, 45, 149, 1))
           drop-shadow(0 0 60px rgba(255, 138, 61, 0.85));
+}
+
+/* ---- Lobby: slot label (top) + car-colour picker (bottom) on the
+   TAP TO STEER screen. Sit clear of the centred unlock tap-target. ---- */
+#lobby-slot {
+  position: absolute; top: 7%; left: 50%; transform: translateX(-50%);
+  z-index: 4; pointer-events: none; white-space: nowrap;
+  font-weight: 900; font-size: clamp(16px, 4.6vmin, 30px); letter-spacing: 5px;
+  color: #2de2e6;
+  text-shadow: 0 0 10px rgba(45, 226, 230, 0.9), 0 0 26px rgba(45, 226, 230, 0.5);
+}
+#lobby-slot.full {
+  color: #ff3b3b;
+  text-shadow: 0 0 12px rgba(255, 59, 59, 0.95), 0 0 28px rgba(255, 59, 59, 0.5);
+}
+#lobby-colors {
+  position: absolute; bottom: 7%; left: 50%; transform: translateX(-50%);
+  z-index: 4;
+  display: flex; flex-wrap: wrap; justify-content: center;
+  gap: clamp(7px, 1.8vmin, 14px);
+  max-width: 92vmax;
+  padding: 9px 13px; border-radius: 16px;
+  background: rgba(8, 4, 18, 0.55);
+  border: 1px solid rgba(255, 45, 149, 0.28);
+  box-shadow: 0 0 22px rgba(255, 45, 149, 0.18), inset 0 0 30px rgba(45, 226, 230, 0.05);
+}
+.swatch {
+  appearance: none; -webkit-appearance: none; border: none;
+  width: clamp(26px, 5.6vmin, 42px); height: clamp(26px, 5.6vmin, 42px);
+  border-radius: 50%; cursor: pointer; pointer-events: auto;
+  background: var(--sw);
+  box-shadow: 0 0 10px var(--sw), inset 0 0 0 2px rgba(255, 255, 255, 0.18);
+  outline: 2px solid transparent; outline-offset: 3px;
+  transition: transform 90ms ease-out, box-shadow 140ms ease-out,
+    outline-color 140ms ease-out;
+  touch-action: none;
+}
+.swatch.selected {
+  outline-color: #ffffff;
+  transform: scale(1.14);
+  box-shadow: 0 0 18px var(--sw), 0 0 36px var(--sw),
+    inset 0 0 0 2px rgba(255, 255, 255, 0.45);
 }
 
 /* Error fallback */
