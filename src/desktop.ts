@@ -4,6 +4,7 @@ import {
   CONFIG, makeCar, step, bodyToWorld, collideWithRects,
   type CarState, type Inputs,
 } from './physics';
+import { spawnPose, collideCars, applyInputs } from './cars';
 import {
   layoutDesktop, drawWallpaper, drawOverlay, drawClock,
   rebuildRects, iconAt, clampIconToBounds, resolveIconDrop,
@@ -255,14 +256,86 @@ canvas.addEventListener('pointercancel', (e) => {
 resize();
 window.addEventListener('resize', resize);
 
-// ---------- Car ----------
+// ---------- Cars — one per connected lobby slot (built for N) ----------
 const PX = () => CONFIG.pxPerMeter;
-// Spawn at center of screen, heading "up" (matches canvas: -PI/2 = -y).
-const car: CarState = makeCar(
-  window.innerWidth  / 2 / PX(),
-  window.innerHeight / 2 / PX(),
-  -Math.PI / 2,
-);
+
+// A skid trail remembers a rear wheel's last pixel position so we can draw a
+// continuous line while it slides. One pair per car.
+type WheelTrail = { px: number; py: number; active: boolean };
+
+// One playable car: physics state + the slot's colour (+ a precomputed skid
+// stroke style) + that slot's smoothed inputs + its own rear-wheel skid trails.
+interface Car {
+  slot: number;
+  state: CarState;
+  color: string;
+  skidStyle: string;
+  target: Inputs;
+  current: Inputs;
+  skidL: WheelTrail;
+  skidR: WheelTrail;
+}
+
+// Keyed by slot so routing/lookup is O(1) and nothing is hardcoded to 2 cars.
+const cars = new Map<number, Car>();
+const DEFAULT_CAR_COLOR = '#1d3fa0';
+
+function makeManagedCar(slot: number, color: string): Car {
+  const cx = window.innerWidth / 2 / PX();
+  const cy = window.innerHeight / 2 / PX();
+  const pose = spawnPose(slot, cx, cy);
+  return {
+    slot,
+    state: makeCar(pose.x, pose.y, pose.heading),
+    color,
+    skidStyle: skidColorFor(color),
+    target: { steer: 0, throttle: 0, brake: 0, handbrake: false },
+    current: { steer: 0, throttle: 0, brake: 0, handbrake: false },
+    skidL: { px: 0, py: 0, active: false },
+    skidR: { px: 0, py: 0, active: false },
+  };
+}
+
+// The "primary" car drives the single HUD / engine sound / race timer — the
+// lowest connected slot (slot 0 in the solo case, so nothing changes there).
+function primaryCar(): Car | null {
+  let best: Car | null = null;
+  for (const c of cars.values()) if (!best || c.slot < best.slot) best = c;
+  return best;
+}
+
+// Reconcile the car set with the lobby: spawn a car when a slot connects,
+// remove it when the slot frees (disconnect / timeout), and keep colours live.
+// Never resets an existing car, so periodic lobby re-syncs don't teleport
+// anyone back to spawn. Reconnect (slot reclaim) re-spawns the car here.
+function syncCars() {
+  const snap = lobby.snapshot();
+  const live = new Set<number>();
+  for (const p of snap) {
+    live.add(p.slot);
+    const existing = cars.get(p.slot);
+    if (!existing) {
+      cars.set(p.slot, makeManagedCar(p.slot, p.color || DEFAULT_CAR_COLOR));
+    } else if (existing.color !== p.color) {
+      existing.color = p.color;            // live colour change
+      existing.skidStyle = skidColorFor(p.color);
+    }
+  }
+  for (const slot of [...cars.keys()]) if (!live.has(slot)) cars.delete(slot);
+}
+
+// Skid stroke for a car: its colour darkened toward tarmac, semi-transparent so
+// the marks read on the green lawn while still hinting whose they are. Cheap
+// (one rgba string, recomputed only on colour change).
+function skidColorFor(hex: string): string {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return 'rgba(28, 28, 32, 0.42)';
+  const n = parseInt(m[1], 16);
+  const r = Math.round(((n >> 16) & 255) * 0.45);
+  const g = Math.round(((n >> 8) & 255) * 0.45);
+  const b = Math.round((n & 255) * 0.45);
+  return `rgba(${r}, ${g}, ${b}, 0.42)`;
+}
 
 // ---------- Race elements ----------
 // The desktop starts EMPTY — free-drift sandbox. The track editor (key E)
@@ -345,12 +418,6 @@ document.getElementById('editor-clear')?.addEventListener('click', () => {
   updateEditorStatus();
 });
 
-// ---------- Control input ----------
-// target: latest from the phone. current: lerped toward target each frame for
-// silky steering even when broadcast packets arrive choppy.
-const target: Inputs = { steer: 0, throttle: 0, brake: 0, handbrake: false };
-const current: Inputs = { steer: 0, throttle: 0, brake: 0, handbrake: false };
-
 // ---------- Supabase channel ----------
 const channel = supabase.channel(channelName(code), {
   config: { broadcast: { self: false } },
@@ -369,11 +436,6 @@ function broadcastLobby() {
   });
   renderLobbyUI();
 }
-
-// The single car (slot 0) is painted in slot 0's chosen colour; a sensible
-// default until a player is in slot 0. (Step 2 will colour per-car.)
-const DEFAULT_CAR_COLOR = '#1d3fa0';
-let carColor = DEFAULT_CAR_COLOR;
 
 // Lighten (f>1) / darken (f<1) a #rrggbb colour for cohesive body accents.
 function shadeHex(hex: string, f: number): string {
@@ -397,9 +459,8 @@ function renderLobbyUI() {
   statusEl.classList.toggle('connected', n > 0);
 
   const snap = lobby.snapshot();
-  // Slot 0 drives the existing car → paint it that colour (live).
-  const slot0 = snap.find((p) => p.slot === 0);
-  carColor = slot0 ? slot0.color : DEFAULT_CAR_COLOR;
+  // Reconcile the live cars with the lobby (spawn/remove/recolour per slot).
+  syncCars();
 
   if (!rosterEl) return;
   rosterEl.innerHTML = n === 0 ? '' : snap.map((p) => {
@@ -411,18 +472,6 @@ function renderLobbyUI() {
       `<span class="roster-ok">●</span>` +
     `</div>`;
   }).join('');
-}
-
-function applyControl(p: {
-  steer?: unknown; throttle?: unknown; brake?: unknown; handbrake?: unknown;
-}) {
-  const s = Number(p?.steer);
-  const t = Number(p?.throttle);
-  const b = Number(p?.brake);
-  if (Number.isFinite(s)) target.steer    = clamp(s, -1, 1);
-  if (Number.isFinite(t)) target.throttle = clamp(t, 0, 1);
-  if (Number.isFinite(b)) target.brake    = clamp(b, 0, 1);
-  target.handbrake = !!p?.handbrake;
 }
 
 // ---- phone → desktop handlers ----
@@ -459,12 +508,18 @@ channel.on('broadcast', { event: EV.leave }, ({ payload }) => {
 
 channel.on('broadcast', { event: EV.control }, ({ payload }) => {
   const id = String((payload as { id?: unknown })?.id ?? '');
-  // STEP 1: only slot 0 drives the existing single car. Other slots' control
-  // is accepted (keeps them connected) but not yet simulated.
-  if (!id) { applyControl(payload); return; }     // legacy id-less → drive car
+  // STEP 2: every connected slot drives its OWN car. Route by the desktop's
+  // authoritative id→slot map (never trust the phone's self-reported slot).
+  if (!id) {                                       // legacy id-less → drive slot 0
+    const c0 = cars.get(0);
+    if (c0) applyInputs(c0.target, payload as Inputs);
+    return;
+  }
   const r = lobby.join(id, undefined, Date.now()); // lazy-join if join was missed
-  if (r.changed) broadcastLobby();
-  if (r.slot === 0) applyControl(payload);
+  if (r.changed) broadcastLobby();                 // → syncCars spawns the car
+  if (r.slot === null) return;                     // lobby full
+  const car = cars.get(r.slot);
+  if (car) applyInputs(car.target, payload as Inputs);
 });
 
 // ---- disconnect sweep + periodic lobby re-sync ----
@@ -474,23 +529,22 @@ setInterval(() => { if (lobby.size()) broadcastLobby(); }, LOBBY_SYNC_MS);
 channel.subscribe();
 renderLobbyUI();
 
-// ---------- Skids ----------
-// We draw skid lines straight onto the persistent skidCanvas every physics
-// step. Each rear wheel keeps a "previous pixel position" so we can draw a
-// continuous line while it's skidding.
-type WheelTrail = { px: number; py: number; active: boolean };
-const skidRearL: WheelTrail = { px: 0, py: 0, active: false };
-const skidRearR: WheelTrail = { px: 0, py: 0, active: false };
-
-function rearWheelPositions() {
+// ---------- Skids (per car) ----------
+// We draw skid lines straight onto the shared persistent skidCanvas every
+// physics step. Each car's rear wheels keep their own "previous pixel position"
+// (car.skidL/skidR) so a continuous line is drawn while that wheel slides, and
+// each car's marks are tinted with its colour (car.skidStyle).
+function rearWheelPositions(state: CarState) {
   const halfTrack = CONFIG.trackWidth / 2;
   const rearOffset = -CONFIG.wheelbase / 2;
-  const L = bodyToWorld(car, rearOffset, +halfTrack);
-  const R = bodyToWorld(car, rearOffset, -halfTrack);
+  const L = bodyToWorld(state, rearOffset, +halfTrack);
+  const R = bodyToWorld(state, rearOffset, -halfTrack);
   return { L, R };
 }
 
-function drawSkidSegment(trail: WheelTrail, wx: number, wy: number, sliding: boolean) {
+function drawSkidSegment(
+  trail: WheelTrail, wx: number, wy: number, sliding: boolean, style: string,
+) {
   const px = wx * PX();
   const py = wy * PX();
   if (sliding) {
@@ -498,7 +552,7 @@ function drawSkidSegment(trail: WheelTrail, wx: number, wy: number, sliding: boo
       // Don't draw across an edge-wrap jump.
       const dx = px - trail.px, dy = py - trail.py;
       if (dx * dx + dy * dy < 10000) {
-        skidCtx.strokeStyle = 'rgba(28, 28, 32, 0.45)';
+        skidCtx.strokeStyle = style;
         skidCtx.lineWidth = 3;
         skidCtx.lineCap = 'round';
         skidCtx.beginPath();
@@ -515,33 +569,56 @@ function drawSkidSegment(trail: WheelTrail, wx: number, wy: number, sliding: boo
   }
 }
 
-function recordSkids() {
+function recordSkids(car: Car) {
+  const s = car.state;
   const driftingRear =
-    car.isRearSliding || Math.abs(car.rearSlip) > CONFIG.slipThresholdForSkid;
-  const { L, R } = rearWheelPositions();
-  drawSkidSegment(skidRearL, L.x, L.y, driftingRear);
-  drawSkidSegment(skidRearR, R.x, R.y, driftingRear);
+    s.isRearSliding || Math.abs(s.rearSlip) > CONFIG.slipThresholdForSkid;
+  const { L, R } = rearWheelPositions(s);
+  drawSkidSegment(car.skidL, L.x, L.y, driftingRear, car.skidStyle);
+  drawSkidSegment(car.skidR, R.x, R.y, driftingRear, car.skidStyle);
 }
 
-// ---------- World wrap ----------
+// ---------- World wrap (per car) ----------
 // Wrap on left/right/top only — the bottom edge is the taskbar, a solid
 // wall the car collides with (see world.rects).
-function wrap() {
+function wrap(car: Car) {
+  const s = car.state;
   const W = window.innerWidth / PX();
   const M = 2; // margin in meters
-  if (car.x < -M)       { car.x = W + M; invalidateSkidTrails(); }
-  else if (car.x > W + M) { car.x = -M;    invalidateSkidTrails(); }
-  if (car.y < -M) {
+  if (s.x < -M)       { s.x = W + M; invalidateSkidTrails(car); }
+  else if (s.x > W + M) { s.x = -M;    invalidateSkidTrails(car); }
+  if (s.y < -M) {
     // Re-enter from the bottom, emerging from just above the taskbar wall.
-    car.y = window.innerHeight / PX() - world.taskbarHeight -
+    s.y = window.innerHeight / PX() - world.taskbarHeight -
       CONFIG.carCollisionRadius - 0.2;
-    invalidateSkidTrails();
+    invalidateSkidTrails(car);
   }
 }
-function invalidateSkidTrails() {
+function invalidateSkidTrails(car: Car) {
   // After wrapping we don't want a long streak across the screen.
-  skidRearL.active = false;
-  skidRearR.active = false;
+  car.skidL.active = false;
+  car.skidR.active = false;
+}
+
+// Tire smoke from one car's rear wheels while drifting or spinning — the visual
+// twin of the squeal. state.rearSlip is speed-gated in physics, so a parked car
+// (slip == 0) only smokes from genuine WSPIN (standing burnout), never atan2
+// noise. Emission is capped globally by the shared Effects pool.
+function emitCarSmoke(car: Car, realDt: number) {
+  const s = car.state;
+  const slipNorm = Math.min(1,
+    Math.abs(s.rearSlip) / (CONFIG.slipThresholdForSkid * 2.5));
+  const smokeIntensity = Math.max(s.wheelSpin, slipNorm > 0.4 ? slipNorm : 0);
+  if (smokeIntensity <= 0.2) return;
+  // Spawn slightly BEHIND the rear wheels (along -heading) and keep puffs
+  // modest near a slow car so a standing burnout never hides it.
+  const back = 0.45;
+  const bx = -Math.cos(s.heading) * back;
+  const by = -Math.sin(s.heading) * back;
+  const sizeScale = 0.55 + 0.45 * Math.min(1, s.speed / 6);
+  const { L, R } = rearWheelPositions(s);
+  fx.emitSmoke(L.x + bx, L.y + by, s.vx, s.vy, smokeIntensity, realDt, sizeScale);
+  fx.emitSmoke(R.x + bx, R.y + by, s.vx, s.vy, smokeIntensity, realDt, sizeScale);
 }
 
 // ---------- Main loop with fixed-timestep accumulator ----------
@@ -562,32 +639,46 @@ function frame(now: number) {
 
   // The single pause gate: skip the entire SIMULATION (physics, race detection,
   // skids, smoke, particles, engine sound) — but never the render below.
+  const lead = primaryCar();  // drives the single HUD / sound / race timer
   if (!isPaused) {
     accumulator += realDt;
     let steps = 0;
     while (accumulator >= FIXED_DT && steps < MAX_SUBSTEPS) {
-      // Smooth incoming inputs inside the fixed step so the smoothing rate is
-      // frame-rate independent. Steer gets the heaviest smoothing. Throttle /
-      // brake get a light lerp so 30Hz network steps don't visibly jump the
-      // 60Hz physics. Handbrake is binary — snap.
-      current.steer    += (target.steer    - current.steer)    * CONFIG.inputLerp;
-      // p15b: throttle lerp 0.3 → 0.5. A pinned pedal must reach near-full FAST,
-      // before the standing car accelerates past the boost-fade window — at 0.3
-      // the throttle ramp lagged so far that a full-pedal launch never lit the
-      // burnout (the boost had already faded by the time throttle maxed).
-      current.throttle += (target.throttle - current.throttle) * 0.5;
-      current.brake    += (target.brake    - current.brake)    * 0.3;
-      current.handbrake = target.handbrake;
+      // Advance every car: smooth its inputs, integrate, then resolve obstacle
+      // collisions. The smoothing/step is IDENTICAL to the old single-car path,
+      // so each car drives exactly as the solo car always did.
+      for (const car of cars.values()) {
+        const { current, target } = car;
+        // Smooth incoming inputs inside the fixed step so the smoothing rate is
+        // frame-rate independent. Steer gets the heaviest smoothing. Throttle /
+        // brake get a light lerp so 30Hz network steps don't visibly jump the
+        // 60Hz physics. Handbrake is binary — snap.
+        current.steer    += (target.steer    - current.steer)    * CONFIG.inputLerp;
+        // p15b: throttle lerp 0.3 → 0.5. A pinned pedal must reach near-full FAST,
+        // before the standing car accelerates past the boost-fade window — at 0.3
+        // the throttle ramp lagged so far that a full-pedal launch never lit the
+        // burnout (the boost had already faded by the time throttle maxed).
+        current.throttle += (target.throttle - current.throttle) * 0.5;
+        current.brake    += (target.brake    - current.brake)    * 0.3;
+        current.handbrake = target.handbrake;
 
-      step(car, current, FIXED_DT);
-      const impact = collideWithRects(car, world.rects);
-      if (impact > 0.8) {
-        sound.impact(impact);
-        fx.impact(car.x, car.y, impact);
+        step(car.state, current, FIXED_DT);
+        const impact = collideWithRects(car.state, world.rects);
+        if (impact > 0.8) {
+          sound.impact(impact);
+          fx.impact(car.state.x, car.state.y, impact);
+        }
       }
-      recordSkids();
-      raceState.update(car.x, car.y, gameNow);  // gate/checkpoint passage detection
-      wrap();
+
+      // Cars bounce off EACH OTHER (arcade, clamped) after all have integrated.
+      if (cars.size > 1) {
+        const carImpact = collideCars([...cars.values()].map((c) => c.state));
+        if (carImpact > 0.8 && lead) fx.impact(lead.state.x, lead.state.y, carImpact);
+      }
+
+      // Per-car trails + edge wrap; race detection on the primary car only.
+      for (const car of cars.values()) { recordSkids(car); wrap(car); }
+      if (lead) raceState.update(lead.state.x, lead.state.y, gameNow);
 
       accumulator -= FIXED_DT;
       steps++;
@@ -595,33 +686,22 @@ function frame(now: number) {
     // Drop accumulated time if we fell way behind (prevents spiral of death).
     if (steps === MAX_SUBSTEPS) accumulator = 0;
 
-    // ---- Sound + effects (per render frame) ----
-    sound.update({
-      wheelSpeed: car.rearWheelSpeed,
-      speed: car.speed,
-      slipAngle: car.rearSlip,
-      wheelSpin: car.wheelSpin,
-      throttle: current.throttle,
-    });
-    // Tire smoke from the rear wheels while drifting or spinning — the
-    // visual twin of the squeal. car.rearSlip is speed-gated in physics, so
-    // a parked car (slip == 0) only smokes from genuine WSPIN (standing
-    // burnout), never from atan2 noise.
-    const slipNorm = Math.min(1,
-      Math.abs(car.rearSlip) / (CONFIG.slipThresholdForSkid * 2.5));
-    const smokeIntensity = Math.max(
-      car.wheelSpin, slipNorm > 0.4 ? slipNorm : 0);
-    if (smokeIntensity > 0.2) {
-      // Spawn slightly BEHIND the rear wheels (along -heading) and keep puffs
-      // modest near a slow car so a standing burnout never hides it.
-      const back = 0.45;
-      const bx = -Math.cos(car.heading) * back;
-      const by = -Math.sin(car.heading) * back;
-      const sizeScale = 0.55 + 0.45 * Math.min(1, car.speed / 6);
-      const { L, R } = rearWheelPositions();
-      fx.emitSmoke(L.x + bx, L.y + by, car.vx, car.vy, smokeIntensity, realDt, sizeScale);
-      fx.emitSmoke(R.x + bx, R.y + by, car.vx, car.vy, smokeIntensity, realDt, sizeScale);
+    // ---- Engine sound: the primary car only (one engine; keeps it cheap). ----
+    if (lead) {
+      sound.update({
+        wheelSpeed: lead.state.rearWheelSpeed,
+        speed: lead.state.speed,
+        slipAngle: lead.state.rearSlip,
+        wheelSpin: lead.state.wheelSpin,
+        throttle: lead.current.throttle,
+      });
+    } else {
+      sound.update({ wheelSpeed: 0, speed: 0, slipAngle: 0, wheelSpin: 0, throttle: 0 });
     }
+
+    // ---- Tire smoke — emitted PER CAR. The Effects pool is hard-capped
+    // (FX_CONFIG.maxParticles) and shared, so N cars can't blow the budget.
+    for (const car of cars.values()) emitCarSmoke(car, realDt);
     fx.update(realDt);
   } else {
     // Paused: idle the engine so it doesn't hold a note. Everything else frozen.
@@ -652,30 +732,36 @@ function render() {
   drawClock(ctx, world, CONFIG.pxPerMeter);
 
   drawRaceElements();
-  drawCar();
+  for (const car of cars.values()) drawCar(car);  // paint every connected car
   fx.draw(ctx, CONFIG.pxPerMeter);
 
   ctx.restore();
   updateHud();
 }
 
+// The single gameplay HUD reflects the PRIMARY car (lowest slot). With no car
+// connected it idles at zeros so nothing reads stale.
 function updateHud() {
+  const lead = primaryCar();
+  const s = lead?.state;
+  const cur = lead?.current;
+
   // Fake "km/h" so it reads like a dashboard. 1 m/s ≈ 3.6 km/h.
-  const kmh = Math.round(car.speed * 3.6);
+  const kmh = Math.round((s?.speed ?? 0) * 3.6);
   speedEl.textContent = String(kmh).padStart(3, '0');
 
   // GRIP / DRIFT badge — LATERAL sliding only (p9). A straight-line
   // burnout spins the wheels but isn't a drift; the badge keys off the
   // rear slip angle alone. (Skid marks still include pure wheelspin —
   // burnout stripes are a feature.)
-  const drifting = Math.abs(car.rearSlip) > CONFIG.slipThresholdForSkid;
+  const drifting = Math.abs(s?.rearSlip ?? 0) > CONFIG.slipThresholdForSkid;
   driftEl.textContent = drifting ? 'DRIFT' : 'GRIP';
   driftEl.classList.toggle('on', drifting);
 
   // Live rear slip angle in degrees. Signed (+ = sliding one way, - the
   // other) so the tuner can see direction at a glance.
   if (rearSlipValEl) {
-    const slipDeg = car.rearSlip * 180 / Math.PI;
+    const slipDeg = (s?.rearSlip ?? 0) * 180 / Math.PI;
     const sign = slipDeg >= 0 ? '+' : '';
     rearSlipValEl.textContent = sign + slipDeg.toFixed(1) + '°';
   }
@@ -684,27 +770,29 @@ function updateHud() {
   // throttle), >0% only when the rear is saturated — burnout, handbrake
   // lock, or power-over spin.
   if (wspinValEl) {
-    wspinValEl.textContent = Math.round(car.wheelSpin * 100) + '%';
+    wspinValEl.textContent = Math.round((s?.wheelSpin ?? 0) * 100) + '%';
   }
 
   // Pedal bars — show smoothed (current) values, what the physics actually
   // sees, not the raw 30Hz packet. 0 = empty, 1 = full.
-  if (throttleBarEl) throttleBarEl.style.height = (current.throttle * 100).toFixed(0) + '%';
-  if (brakeBarEl)    brakeBarEl.style.height    = (current.brake    * 100).toFixed(0) + '%';
-  if (handbrakeHudEl) handbrakeHudEl.classList.toggle('on', current.handbrake);
+  if (throttleBarEl) throttleBarEl.style.height = ((cur?.throttle ?? 0) * 100).toFixed(0) + '%';
+  if (brakeBarEl)    brakeBarEl.style.height    = ((cur?.brake    ?? 0) * 100).toFixed(0) + '%';
+  if (handbrakeHudEl) handbrakeHudEl.classList.toggle('on', !!cur?.handbrake);
 
-  if (debugOn) {
+  if (debugOn && s && cur) {
     // Mirror the physics gates so the screen shows WHY a burnout/spin did or
     // didn't fire from the real commanded values.
     const boostGate = Math.max(0, Math.min(1,
-      (current.throttle - CONFIG.burnoutThrottle) / (1 - CONFIG.burnoutThrottle)));
-    const armT = current.handbrake
+      (cur.throttle - CONFIG.burnoutThrottle) / (1 - CONFIG.burnoutThrottle)));
+    const armT = cur.handbrake
       ? CONFIG.spinReleaseThresholdHB : CONFIG.spinReleaseThreshold;
     debugEl.textContent =
-      `steer   ${current.steer.toFixed(2)}   (spin-arm ≥ ${armT.toFixed(2)}${current.handbrake ? ' HB' : ''})\n` +
-      `throttle ${current.throttle.toFixed(2)}  brake ${current.brake.toFixed(2)}  hb ${current.handbrake ? 'ON' : 'off'}\n` +
+      `slot ${lead!.slot}   steer ${cur.steer.toFixed(2)}   (spin-arm ≥ ${armT.toFixed(2)}${cur.handbrake ? ' HB' : ''})\n` +
+      `throttle ${cur.throttle.toFixed(2)}  brake ${cur.brake.toFixed(2)}  hb ${cur.handbrake ? 'ON' : 'off'}\n` +
       `burnout boost ${(boostGate * 100).toFixed(0)}%   (ignites ≥ ${CONFIG.burnoutThrottle.toFixed(2)})\n` +
-      `spinTimer ${car.spinTimer.toFixed(2)}  drift ${car.driftActive ? 'Y' : 'n'}  wspin ${(car.wheelSpin * 100).toFixed(0)}%`;
+      `spinTimer ${s.spinTimer.toFixed(2)}  drift ${s.driftActive ? 'Y' : 'n'}  wspin ${(s.wheelSpin * 100).toFixed(0)}%   cars ${cars.size}`;
+  } else if (debugOn) {
+    debugEl.textContent = `no car connected   cars ${cars.size}`;
   }
 }
 
@@ -814,23 +902,24 @@ function updateRaceHud(h: RaceHud) {
 // the original 4.5/1.85 sprite) so physics dimensions are untouched.
 // Bold shapes over fine detail: it must read as a rally car at ~35 px.
 
-function drawCar() {
+function drawCar(car: Car) {
   // Draw centered at the car's world position, rotated by heading.
   // Inner coordinates are METERS (ctx scaled by pxPerMeter); +x = front.
-  const sx = car.x * PX();
-  const sy = car.y * PX();
+  const s = car.state;
+  const sx = s.x * PX();
+  const sy = s.y * PX();
 
   ctx.save();
   ctx.translate(sx, sy);
-  ctx.rotate(car.heading);
+  ctx.rotate(s.heading);
   ctx.scale(PX(), PX());
 
   const halfL = 0.75;   // 1.5 m long
   const halfW = 0.309;  // 0.617 m wide
 
-  // Body — the slot-0 player's chosen colour, with a darker outline.
-  const bodyOutline = shadeHex(carColor, 0.55);
-  ctx.fillStyle = carColor;
+  // Body — this slot's chosen colour, with a darker outline.
+  const bodyOutline = shadeHex(car.color, 0.55);
+  ctx.fillStyle = car.color;
   roundRect(ctx, -halfL, -halfW, halfL * 2, halfW * 2, 0.12);
   ctx.fill();
   ctx.strokeStyle = bodyOutline;
@@ -860,8 +949,8 @@ function drawCar() {
 
   // Wheels — gold rims on dark tires; fronts steer with steerAngle.
   // Positions come from CONFIG (same source as the skid emitter).
-  drawWheel(+CONFIG.wheelbase / 2, -CONFIG.trackWidth / 2, car.steerAngle);
-  drawWheel(+CONFIG.wheelbase / 2, +CONFIG.trackWidth / 2, car.steerAngle);
+  drawWheel(+CONFIG.wheelbase / 2, -CONFIG.trackWidth / 2, s.steerAngle);
+  drawWheel(+CONFIG.wheelbase / 2, +CONFIG.trackWidth / 2, s.steerAngle);
   drawWheel(-CONFIG.wheelbase / 2, -CONFIG.trackWidth / 2, 0);
   drawWheel(-CONFIG.wheelbase / 2, +CONFIG.trackWidth / 2, 0);
 
@@ -876,7 +965,7 @@ function drawCar() {
   ctx.fill();
 
   // Roof panel — a brighter tint of the body colour.
-  ctx.fillStyle = shadeHex(carColor, 1.3);
+  ctx.fillStyle = shadeHex(car.color, 1.3);
   roundRect(ctx, -0.28, -0.26, 0.44, 0.52, 0.07);
   ctx.fill();
 
@@ -904,7 +993,8 @@ function drawCar() {
   ctx.font = 'bold 0.24px Arial, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText('7', -0.07, 0.015);
+  // Roof number = the player's slot (1-based) so cars are tellable apart.
+  ctx.fillText(String(car.slot + 1), -0.07, 0.015);
   ctx.textAlign = 'left';
   ctx.textBaseline = 'alphabetic';
 
@@ -915,7 +1005,7 @@ function drawCar() {
 
   // Rear wing — wider than the body, white plank with body-colour endplates.
   // Drawn last: it sits above everything in top-down view.
-  ctx.fillStyle = shadeHex(carColor, 0.7);
+  ctx.fillStyle = shadeHex(car.color, 0.7);
   ctx.fillRect(-0.80, -0.385, 0.16, 0.055);
   ctx.fillRect(-0.80,  0.330, 0.16, 0.055);
   ctx.fillStyle = '#e8ecf4';
@@ -957,9 +1047,4 @@ function roundRect(
   c.lineTo(x, y + r);
   c.quadraticCurveTo(x, y, x + r, y);
   c.closePath();
-}
-
-// ---------- Util ----------
-function clamp(v: number, lo: number, hi: number): number {
-  return v < lo ? lo : v > hi ? hi : v;
 }
