@@ -31,6 +31,8 @@ const handbrakeHudEl = document.getElementById('handbrake-hud') as HTMLDivElemen
 const rearSlipValEl  = document.getElementById('rear-slip-val') as HTMLSpanElement | null;
 const wspinValEl     = document.getElementById('wspin-val')     as HTMLSpanElement | null;
 const soundBtn       = document.getElementById('sound-toggle')  as HTMLButtonElement | null;
+const hudBlEl        = document.getElementById('hud-bl')         as HTMLElement | null;
+const hudTrEl        = document.getElementById('hud-tr')         as HTMLElement | null;
 
 // Physics-input debug overlay (toggle with D). Shows the steer/throttle as the
 // PHYSICS step actually receives them (post-expo, post-smoothing) plus the
@@ -66,11 +68,20 @@ soundBtn?.addEventListener('click', (e) => {
   e.stopPropagation();
   sound.toggleMute();
 });
+// QR join panel is visible by default; Q toggles it. The gameplay HUD
+// (speedo / SLIP / WSPIN / pedal bars / phys-debug) is HIDDEN by default and
+// revealed by D — so by default the screen is just the game world + QR.
+let qrOn = true;
 window.addEventListener('keydown', (e) => {
   if (e.key === 'm' || e.key === 'M') sound.toggleMute();
   if (e.key === 'd' || e.key === 'D') {
     debugOn = !debugOn;
     debugEl.style.display = debugOn ? 'block' : 'none';
+    if (hudBlEl) hudBlEl.style.display = debugOn ? 'flex' : 'none';
+  }
+  if (e.key === 'q' || e.key === 'Q') {
+    qrOn = !qrOn;
+    if (hudTrEl) hudTrEl.style.display = qrOn ? 'block' : 'none';
   }
 });
 
