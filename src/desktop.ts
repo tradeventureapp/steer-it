@@ -27,7 +27,14 @@ const code = Array.from(
   { length: 4 },
   () => ALPHABET[Math.floor(Math.random() * ALPHABET.length)]
 ).join('');
-const playUrl = `${window.location.origin}/play?s=${code}`;
+// Build the phone URL from a FIXED production base so the QR always points at
+// the stable public domain — never the Vercel deployment URL the desktop page
+// happened to be opened from (those are auth-walled per-deploy). Falls back to
+// the current origin for local dev when the env var isn't set.
+const publicBase = (
+  import.meta.env.VITE_PUBLIC_BASE_URL || window.location.origin
+).replace(/\/+$/, '');
+const playUrl = `${publicBase}/play?s=${code}`;
 
 const qrCanvas = document.getElementById('qr') as HTMLCanvasElement;
 const codeText = document.getElementById('code-text') as HTMLDivElement;
