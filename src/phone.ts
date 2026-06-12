@@ -1,6 +1,7 @@
 import { supabase, channelName } from './supabase';
 import {
-  getClientId, CAR_COLORS, EV, PHONE_HEARTBEAT_MS, type LobbyPlayer,
+  getClientId, CAR_COLORS, EV, PHONE_HEARTBEAT_MS, sanitizeName,
+  type LobbyPlayer,
 } from './lobby';
 
 // ---------- Tuning ----------
@@ -48,11 +49,13 @@ const errorEl     = document.getElementById('error')          as HTMLDivElement;
 const debugEl     = document.getElementById('debug')          as HTMLDivElement | null;
 const lobbySlotEl   = document.getElementById('lobby-slot')   as HTMLDivElement | null;
 const lobbyColorsEl = document.getElementById('lobby-colors') as HTMLDivElement | null;
+const lobbyNameEl   = document.getElementById('lobby-name')   as HTMLInputElement | null;
 
-// ---------- Lobby (this phone's slot + colour) ----------
+// ---------- Lobby (this phone's slot + colour + name) ----------
 const clientId = getClientId();
 let mySlot: number | null = null;     // assigned by the desktop authority
 let selectedColor = '';                // '' until picked / adopted from server
+let selectedName = '';                 // '' → desktop shows "PLAYER n"
 let lobbyFull = false;
 
 // ---------- State ----------
@@ -120,7 +123,17 @@ const channel = supabase.channel(channelName(code), {
 function sendJoin() {
   channel.send({
     type: 'broadcast', event: EV.join,
-    payload: { id: clientId, color: selectedColor || undefined },
+    payload: {
+      id: clientId,
+      color: selectedColor || undefined,
+      name: selectedName || undefined,
+    },
+  });
+}
+function sendName() {
+  channel.send({
+    type: 'broadcast', event: EV.name,
+    payload: { id: clientId, name: selectedName },
   });
 }
 function sendLeave() {
@@ -145,6 +158,11 @@ channel.on('broadcast', { event: EV.lobby }, ({ payload }) => {
     lobbyFull = false;
     mySlot = me.slot;
     if (!selectedColor) { selectedColor = me.color; highlightSwatch(); }
+    // Adopt a server-side name we haven't locally typed (restores it on reclaim).
+    if (!selectedName && me.name) {
+      selectedName = me.name;
+      if (lobbyNameEl && document.activeElement !== lobbyNameEl) lobbyNameEl.value = me.name;
+    }
   }
   renderLobby();
 });
@@ -194,7 +212,29 @@ function renderLobby() {
       : 'PLAYER ' + (mySlot + 1);
     lobbySlotEl.classList.toggle('full', lobbyFull);
   }
+  // Placeholder mirrors the default slot label so the field reads "PLAYER n".
+  if (lobbyNameEl) {
+    lobbyNameEl.placeholder = mySlot === null ? 'YOUR NAME' : 'PLAYER ' + (mySlot + 1);
+  }
 }
+
+// ---------- Name input ----------
+if (lobbyNameEl) {
+  const onName = () => {
+    const clean = sanitizeName(lobbyNameEl.value);
+    if (clean === selectedName) return;
+    selectedName = clean;
+    sendName();   // immediate; the join heartbeat also carries it
+  };
+  lobbyNameEl.addEventListener('input', onName);
+  lobbyNameEl.addEventListener('change', onName);
+  // Tapping the field must not bubble to the unlock button behind it.
+  lobbyNameEl.addEventListener('pointerdown', (e) => e.stopPropagation());
+  lobbyNameEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') lobbyNameEl.blur();
+  });
+}
+
 buildColorPicker();
 
 // ---------- Render ----------
@@ -207,6 +247,7 @@ function renderUI() {
   const showLobby = stage === 'before-unlock';
   if (lobbySlotEl)   lobbySlotEl.hidden   = !showLobby;
   if (lobbyColorsEl) lobbyColorsEl.hidden = !showLobby;
+  if (lobbyNameEl)   lobbyNameEl.hidden   = !showLobby;
 
   if (stage === 'error') {
     errorEl.hidden = false;

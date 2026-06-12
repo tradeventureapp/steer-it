@@ -43,6 +43,17 @@ export const CAR_COLORS: CarColor[] = [
   { name: 'lime',    hex: '#b6ff3d' },
 ];
 
+// Player names: short, sanitized (also HTML-unsafe chars stripped because the
+// desktop roster renders them). Empty → the roster falls back to "PLAYER n".
+export const NAME_MAX = 12;
+export function sanitizeName(raw: unknown): string {
+  return String(raw ?? '')
+    .replace(/[\u0000-\u001f<>&"'`\\]/g, '') // strip control + HTML-unsafe chars
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, NAME_MAX);
+}
+
 export function colorName(hex: string): string {
   const c = CAR_COLORS.find((c) => c.hex.toLowerCase() === hex.toLowerCase());
   return c ? c.name : hex;
@@ -55,8 +66,9 @@ export function defaultColorForSlot(slot: number): string {
 // ---- Broadcast event names ----
 export const EV = {
   // phone → desktop
-  join: 'join',       // { id, color }  — join request + keepalive heartbeat
+  join: 'join',       // { id, color, name? }  — join + keepalive heartbeat
   color: 'color',     // { id, color }  — colour choice (immediate)
+  name: 'name',       // { id, name }   — player rename (immediate)
   leave: 'leave',     // { id }         — clean disconnect (best-effort)
   control: 'control', // { id, slot, steer, throttle, brake, handbrake }
   // desktop → phone
@@ -69,6 +81,7 @@ export interface LobbyPlayer {
   slot: number;
   id: string;
   color: string;
+  name?: string;      // empty/absent → UI shows "PLAYER n"
   connected: boolean;
 }
 export interface LobbyMsg { players: LobbyPlayer[]; cap: number; }
@@ -81,7 +94,7 @@ export interface LobbyMsg { players: LobbyPlayer[]; cap: number; }
 //  Slot assignment: the lowest free slot in [0, cap). A known id keeps its slot
 //  (reclaim on reconnect). All mutators take an explicit `now` (testable time).
 // =============================================================================
-export interface LobbyStatePlayer { id: string; color: string; lastSeen: number; }
+export interface LobbyStatePlayer { id: string; color: string; name?: string; lastSeen: number; }
 
 export class LobbyState {
   readonly cap: number;
@@ -104,30 +117,50 @@ export class LobbyState {
   snapshot(): LobbyPlayer[] {
     const arr: LobbyPlayer[] = [];
     for (const [slot, p] of this.players) {
-      arr.push({ slot, id: p.id, color: p.color, connected: true });
+      arr.push({ slot, id: p.id, color: p.color, name: p.name, connected: true });
     }
     return arr.sort((a, b) => a.slot - b.slot);
   }
 
   // Join or reclaim. Returns the assigned slot (null = lobby full) and whether
-  // the visible lobby changed (new slot / colour). Always refreshes lastSeen.
-  join(id: string, color: string | undefined, now: number): { slot: number | null; changed: boolean } {
+  // the visible lobby changed (new slot / colour / name). Always refreshes
+  // lastSeen. The join heartbeat carries colour + name so both survive reclaim.
+  join(
+    id: string, color: string | undefined, now: number, name?: string,
+  ): { slot: number | null; changed: boolean } {
+    const cleanName = name === undefined ? undefined : (sanitizeName(name) || '');
     let slot = this.slotOf(id);
     if (slot !== null) {
       const p = this.players.get(slot)!;
       p.lastSeen = now;
-      if (color && color !== p.color) { p.color = color; return { slot, changed: true }; }
-      return { slot, changed: false };
+      let changed = false;
+      if (color && color !== p.color) { p.color = color; changed = true; }
+      if (cleanName !== undefined && cleanName !== (p.name ?? '')) {
+        p.name = cleanName || undefined;
+        changed = true;
+      }
+      return { slot, changed };
     }
     slot = this.firstFreeSlot();
     if (slot === null) return { slot: null, changed: false };
-    this.players.set(slot, { id, color: color || defaultColorForSlot(slot), lastSeen: now });
+    this.players.set(slot, {
+      id,
+      color: color || defaultColorForSlot(slot),
+      name: cleanName ? cleanName : undefined,
+      lastSeen: now,
+    });
     return { slot, changed: true };
   }
 
   // Colour pick — updates an existing player (joins if there is room).
   setColor(id: string, color: string, now: number): { changed: boolean } {
     const r = this.join(id, color, now);
+    return { changed: r.slot !== null && r.changed };
+  }
+
+  // Name change — same join path, carrying only the name.
+  setName(id: string, name: string, now: number): { changed: boolean } {
+    const r = this.join(id, undefined, now, name);
     return { changed: r.slot !== null && r.changed };
   }
 

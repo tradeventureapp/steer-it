@@ -224,19 +224,47 @@ function broadcastLobby() {
   renderLobbyUI();
 }
 
+// The single car (slot 0) is painted in slot 0's chosen colour; a sensible
+// default until a player is in slot 0. (Step 2 will colour per-car.)
+const DEFAULT_CAR_COLOR = '#1d3fa0';
+let carColor = DEFAULT_CAR_COLOR;
+
+// Lighten (f>1) / darken (f<1) a #rrggbb colour for cohesive body accents.
+function shadeHex(hex: string, f: number): string {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return hex;
+  const n = parseInt(m[1], 16);
+  const r = Math.max(0, Math.min(255, Math.round(((n >> 16) & 255) * f)));
+  const g = Math.max(0, Math.min(255, Math.round(((n >> 8) & 255) * f)));
+  const b = Math.max(0, Math.min(255, Math.round((n & 255) * f)));
+  return '#' + ((r << 16) | (g << 8) | b).toString(16).padStart(6, '0');
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
+}
+
 function renderLobbyUI() {
   const n = lobby.size();
   statusEl.textContent = n === 0 ? 'Waiting for phone…' : `${n}/${PLAYER_CAP} connected`;
   statusEl.classList.toggle('connected', n > 0);
+
+  const snap = lobby.snapshot();
+  // Slot 0 drives the existing car → paint it that colour (live).
+  const slot0 = snap.find((p) => p.slot === 0);
+  carColor = slot0 ? slot0.color : DEFAULT_CAR_COLOR;
+
   if (!rosterEl) return;
-  rosterEl.innerHTML = n === 0 ? '' : lobby.snapshot().map((p) =>
-    `<div class="roster-row">` +
+  rosterEl.innerHTML = n === 0 ? '' : snap.map((p) => {
+    const label = p.name ? escapeHtml(p.name) : `PLAYER ${p.slot + 1}`;
+    return `<div class="roster-row">` +
       `<span class="roster-dot" style="background:${p.color};box-shadow:0 0 8px ${p.color}"></span>` +
-      `<span class="roster-name">PLAYER ${p.slot + 1}</span>` +
+      `<span class="roster-name">${label}</span>` +
       `<span class="roster-color">${colorName(p.color)}</span>` +
       `<span class="roster-ok">●</span>` +
-    `</div>`
-  ).join('');
+    `</div>`;
+  }).join('');
 }
 
 function applyControl(p: {
@@ -253,10 +281,10 @@ function applyControl(p: {
 
 // ---- phone → desktop handlers ----
 channel.on('broadcast', { event: EV.join }, ({ payload }) => {
-  const id = String((payload as { id?: unknown })?.id ?? '');
+  const p = payload as { id?: unknown; color?: string; name?: string };
+  const id = String(p?.id ?? '');
   if (!id) return;
-  const color = (payload as { color?: string })?.color;
-  const r = lobby.join(id, color, Date.now());
+  const r = lobby.join(id, p?.color, Date.now(), p?.name);
   if (r.slot === null) {
     channel.send({ type: 'broadcast', event: EV.full, payload: { id } }); // lobby full
   } else if (r.changed) {
@@ -269,6 +297,13 @@ channel.on('broadcast', { event: EV.color }, ({ payload }) => {
   const color = (payload as { color?: string })?.color;
   if (!id || !color) return;
   if (lobby.setColor(id, color, Date.now()).changed) broadcastLobby();
+});
+
+channel.on('broadcast', { event: EV.name }, ({ payload }) => {
+  const id = String((payload as { id?: unknown })?.id ?? '');
+  const name = (payload as { name?: string })?.name;
+  if (!id || name === undefined) return;
+  if (lobby.setName(id, name, Date.now()).changed) broadcastLobby();
 });
 
 channel.on('broadcast', { event: EV.leave }, ({ payload }) => {
@@ -531,11 +566,12 @@ function drawCar() {
   const halfL = 0.75;   // 1.5 m long
   const halfW = 0.309;  // 0.617 m wide
 
-  // Body — deep rally blue with a darker outline.
-  ctx.fillStyle = '#1d3fa0';
+  // Body — the slot-0 player's chosen colour, with a darker outline.
+  const bodyOutline = shadeHex(carColor, 0.55);
+  ctx.fillStyle = carColor;
   roundRect(ctx, -halfL, -halfW, halfL * 2, halfW * 2, 0.12);
   ctx.fill();
-  ctx.strokeStyle = '#12265e';
+  ctx.strokeStyle = bodyOutline;
   ctx.lineWidth = 0.03;
   ctx.stroke();
 
@@ -577,8 +613,8 @@ function drawCar() {
   ctx.closePath();
   ctx.fill();
 
-  // Roof panel.
-  ctx.fillStyle = '#2b54c4';
+  // Roof panel — a brighter tint of the body colour.
+  ctx.fillStyle = shadeHex(carColor, 1.3);
   roundRect(ctx, -0.28, -0.26, 0.44, 0.52, 0.07);
   ctx.fill();
 
@@ -611,13 +647,13 @@ function drawCar() {
   ctx.textBaseline = 'alphabetic';
 
   // Side mirrors at the windshield base.
-  ctx.fillStyle = '#12265e';
+  ctx.fillStyle = bodyOutline;
   ctx.fillRect(0.27, -halfW - 0.045, 0.08, 0.05);
   ctx.fillRect(0.27,  halfW - 0.005, 0.08, 0.05);
 
-  // Rear wing — wider than the body, white plank with dark endplates.
+  // Rear wing — wider than the body, white plank with body-colour endplates.
   // Drawn last: it sits above everything in top-down view.
-  ctx.fillStyle = '#142c73';
+  ctx.fillStyle = shadeHex(carColor, 0.7);
   ctx.fillRect(-0.80, -0.385, 0.16, 0.055);
   ctx.fillRect(-0.80,  0.330, 0.16, 0.055);
   ctx.fillStyle = '#e8ecf4';

@@ -102,7 +102,7 @@ body.desktop #hud-tr {
 .roster-dot {
   width: 11px; height: 11px; border-radius: 50%; flex: 0 0 auto;
 }
-.roster-name { font-weight: 800; letter-spacing: 1.5px; }
+.roster-name { font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase; }
 .roster-color { text-transform: uppercase; color: #9aa6c0; margin-left: auto; }
 .roster-ok {
   color: #5dffb0; font-size: 9px; text-shadow: 0 0 6px rgba(57, 255, 140, 0.85);
@@ -534,6 +534,30 @@ body.phone {
 #lobby-slot.full {
   color: #ff3b3b;
   text-shadow: 0 0 12px rgba(255, 59, 59, 0.95), 0 0 28px rgba(255, 59, 59, 0.5);
+}
+/* Name field — neon glass input, just under the slot label. */
+#lobby-name {
+  position: absolute; top: 19%; left: 50%; transform: translateX(-50%);
+  z-index: 4; pointer-events: auto;
+  width: min(56vmax, 360px); max-width: 80vw;
+  text-align: center;
+  font-family: 'Orbitron', system-ui, sans-serif;
+  font-weight: 800; font-size: clamp(13px, 3vmin, 20px); letter-spacing: 3px;
+  text-transform: uppercase;
+  color: #ffdcec; caret-color: #ff5fa2;
+  background: rgba(8, 4, 18, 0.6);
+  border: 1.5px solid rgba(255, 45, 149, 0.45);
+  border-radius: 12px;
+  padding: 8px 14px;
+  outline: none;
+  box-shadow: 0 0 16px rgba(255, 45, 149, 0.18), inset 0 0 18px rgba(45, 226, 230, 0.05);
+  -webkit-appearance: none; appearance: none;
+  transition: border-color 140ms ease-out, box-shadow 140ms ease-out;
+}
+#lobby-name::placeholder { color: rgba(154, 166, 192, 0.55); letter-spacing: 3px; }
+#lobby-name:focus {
+  border-color: rgba(45, 226, 230, 0.8);
+  box-shadow: 0 0 22px rgba(45, 226, 230, 0.35), inset 0 0 18px rgba(255, 45, 149, 0.06);
 }
 #lobby-colors {
   position: absolute; bottom: 7%; left: 50%; transform: translateX(-50%);
