@@ -11,12 +11,19 @@
 //  within its radius (gate-as-circle), on the ENTER edge (you must leave and
 //  re-enter to trigger again — no re-collecting while parked on it).
 //
+//  TRACK TYPE is implied by whether a FINISH gate is placed (no extra toggle):
+//    SPRINT  (a FINISH exists): cross START → timing begins → collect ALL
+//            checkpoints (any order) → cross FINISH → lap complete.
+//    CIRCUIT (only START, no FINISH): the START gate is ALSO the finish line.
+//            Cross START → timing begins; after collecting all checkpoints,
+//            cross START AGAIN → lap complete. 0 checkpoints ⇒ START→START.
+//
 //  Lap rule (order of checkpoints NOT enforced for now):
-//    cross START → timing begins → collect ALL placed checkpoints (any order)
-//    → cross FINISH → lap complete. 0 checkpoints ⇒ START→FINISH completes it.
-//    A FINISH crossing with checkpoints still missing is ignored (tolerant).
-//    With laps>1, a completed lap clears the checkpoints and the next lap runs;
-//    the final lap's FINISH ends the race and records the elapsed time.
+//    0 checkpoints ⇒ a single line crossing completes the lap (sprint:
+//    START→FINISH; circuit: START→START). A finish/lap crossing with
+//    checkpoints still missing is ignored (tolerant). With laps>1, a completed
+//    lap clears the checkpoints and the next lap runs; the final lap's crossing
+//    ends the race and records the elapsed time. laps is clamped to 1..10.
 // =============================================================================
 
 export type RaceType = 'start' | 'finish' | 'checkpoint';
@@ -68,6 +75,9 @@ export class RaceState {
   private readonly elements: RaceElement[];
   private readonly cfg: RaceConfig;
   private readonly cpTotal: number;
+  // Track type, derived from the placed elements: a FINISH ⇒ sprint; only a
+  // START (no finish) ⇒ circuit, where the start gate doubles as the finish.
+  readonly isCircuit: boolean;
 
   private inside: boolean[];     // per-element overlap (for enter-edge detect)
   private phase: RacePhase = 'pre';
@@ -80,6 +90,9 @@ export class RaceState {
     this.elements = elements;
     this.cfg = { ...cfg, laps: clampLaps(cfg.laps) };
     this.cpTotal = elements.filter((e) => e.type === 'checkpoint').length;
+    const hasStart = elements.some((e) => e.type === 'start');
+    const hasFinish = elements.some((e) => e.type === 'finish');
+    this.isCircuit = hasStart && !hasFinish;
     this.inside = elements.map(() => false);
   }
 
@@ -109,10 +122,15 @@ export class RaceState {
     const e = this.elements[i];
     if (e.type === 'start') {
       if (this.phase === 'pre') {
+        // First crossing always starts timing.
         this.phase = 'racing';
         this.startMs = now;
         this.lap = 1;
         this.collected.clear();
+      } else if (this.isCircuit && this.phase === 'racing') {
+        // Circuit: the START gate is ALSO the finish line — re-crossing it
+        // (after the checkpoints) completes the lap.
+        this.tryCompleteLap(now);
       }
       return;
     }
@@ -121,15 +139,19 @@ export class RaceState {
       this.collected.add(i);
       return;
     }
-    // finish — only when every placed checkpoint has been collected
-    if (e.type === 'finish' && this.collected.size >= this.cpTotal) {
-      if (this.lap < this.cfg.laps) {
-        this.lap += 1;
-        this.collected.clear();   // next lap
-      } else {
-        this.phase = 'finished';
-        this.finishMs = now;
-      }
+    if (e.type === 'finish') this.tryCompleteLap(now);   // sprint finish line
+  }
+
+  // Complete a lap (or the whole race on the final lap) — but only once every
+  // placed checkpoint has been collected (a premature crossing is ignored).
+  private tryCompleteLap(now: number) {
+    if (this.collected.size < this.cpTotal) return;
+    if (this.lap < this.cfg.laps) {
+      this.lap += 1;
+      this.collected.clear();   // next lap
+    } else {
+      this.phase = 'finished';
+      this.finishMs = now;
     }
   }
 
@@ -165,6 +187,14 @@ export function countCheckpoints(elements: RaceElement[]): number {
   let n = 0;
   for (const e of elements) if (e.type === 'checkpoint') n++;
   return n;
+}
+
+// Track type from the placed elements (same rule as RaceState.isCircuit): a
+// FINISH ⇒ sprint; only a START (no finish) ⇒ circuit. Used by the desktop for
+// the editor status line and to render the start gate as a start/finish line.
+export function isCircuitTrack(elements: RaceElement[]): boolean {
+  return elements.some((e) => e.type === 'start')
+    && !elements.some((e) => e.type === 'finish');
 }
 
 // Renumber checkpoints 1..n in array (= placement) order.

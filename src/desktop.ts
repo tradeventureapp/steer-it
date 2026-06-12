@@ -18,7 +18,7 @@ import {
 import {
   RaceState, RACE_CONFIG, formatRaceTime,
   placeElement, removeElementAt, clearElements, findElementIndexAt,
-  countCheckpoints,
+  countCheckpoints, isCircuitTrack,
   type RaceElement, type RaceHud, type RaceType,
 } from './race';
 
@@ -342,8 +342,13 @@ function skidColorFor(hex: string): string {
 // mutates this RaceElement[] (world metres) in place; RaceState is rebuilt from
 // it whenever the structure changes. No START/FINISH ⇒ no active race.
 const raceElements: RaceElement[] = [];
-let raceState = new RaceState(raceElements, RACE_CONFIG);
-function rebuildRace() { raceState = new RaceState(raceElements, RACE_CONFIG); }
+// Lap count is an editor setting (1..10, default from RACE_CONFIG). The built
+// track uses it; the race HUD shows LAP n/m off it.
+let editorLaps = RACE_CONFIG.laps;
+let raceState = new RaceState(raceElements, { ...RACE_CONFIG, laps: editorLaps });
+function rebuildRace() {
+  raceState = new RaceState(raceElements, { ...RACE_CONFIG, laps: editorLaps });
+}
 
 // ---------- Track editor (key E) — place/drag/delete into raceElements ----------
 type EditorTool = RaceType | 'delete';
@@ -398,15 +403,26 @@ function updateEditorStatus() {
   if (editorStatusEl) {
     const hasStart = raceElements.some((el) => el.type === 'start');
     const hasFinish = raceElements.some((el) => el.type === 'finish');
+    const circuit = isCircuitTrack(raceElements);
     const cp = countCheckpoints(raceElements);
-    editorStatusEl.innerHTML =
-      `<span class="${hasStart ? 'ok' : 'no'}">START ${hasStart ? '✓' : '·'}</span>` +
-      `<span class="${hasFinish ? 'ok' : 'no'}">FINISH ${hasFinish ? '✓' : '·'}</span>` +
-      `<span class="cp">CP ${cp}/${RACE_CONFIG.maxCheckpoints}</span>`;
+    // Mode: SPRINT (a finish exists), CIRCUIT (only a start), or — (no start yet).
+    const mode = hasFinish ? 'SPRINT' : hasStart ? 'CIRCUIT' : '—';
+    const sep = `<span class="sep">·</span>`;
+    let html = `<span class="mode">${mode}</span>` + sep +
+      `<span class="${hasStart ? 'ok' : 'no'}">START ${hasStart ? '✓' : '·'}</span>`;
+    // Sprint shows FINISH; circuit's start IS the finish, so it's implied.
+    if (!circuit) {
+      html += sep +
+        `<span class="${hasFinish ? 'ok' : 'no'}">FINISH ${hasFinish ? '✓' : '·'}</span>`;
+    }
+    html += sep + `<span class="cp">CP ${cp}/${RACE_CONFIG.maxCheckpoints}</span>` +
+      sep + `<span class="laps">LAPS ${editorLaps}</span>`;
+    editorStatusEl.innerHTML = html;
   }
   for (const b of Array.from(document.querySelectorAll('#editor-palette .etool')) as HTMLElement[]) {
     b.classList.toggle('sel', b.dataset.tool === editorTool);
   }
+  if (lapsValEl) lapsValEl.textContent = String(editorLaps);
 }
 
 // Palette buttons (exist in index.html). Selecting a tool never touches the map.
@@ -417,6 +433,16 @@ document.getElementById('editor-clear')?.addEventListener('click', () => {
   clearElements(raceElements);
   updateEditorStatus();
 });
+
+// Lap-count stepper (1..10). Changing laps only updates the editor setting; the
+// race rebuilds with it when the editor is exited (E).
+const lapsValEl = document.getElementById('laps-val') as HTMLSpanElement | null;
+function setEditorLaps(n: number) {
+  editorLaps = Math.max(1, Math.min(10, n));
+  updateEditorStatus();
+}
+document.getElementById('laps-dec')?.addEventListener('click', () => setEditorLaps(editorLaps - 1));
+document.getElementById('laps-inc')?.addEventListener('click', () => setEditorLaps(editorLaps + 1));
 
 // ---------- Supabase channel ----------
 const channel = supabase.channel(channelName(code), {
@@ -801,41 +827,50 @@ const RACE_GREEN = '#39ff6a';
 const RACE_MAGENTA = '#ff2d95';
 const RACE_CYAN = '#2de2e6';
 
+type GateKind = 'start' | 'finish' | 'startfinish';
+
 function drawRaceElements() {
   const px = PX();
   const collected = raceState.collectedElementIndices();
+  // In a circuit (start, no finish) the START gate is also the finish line.
+  const circuit = isCircuitTrack(raceElements);
   raceElements.forEach((e, i) => {
     const sx = e.x * px, sy = e.y * px;
     const rPx = (e.radius ?? RACE_CONFIG.gateRadius) * px;
     if (e.type === 'checkpoint') {
       drawCheckpoint(sx, sy, rPx, e.index ?? 0, !editorMode && collected.has(i));
     } else {
-      drawGate(sx, sy, rPx, e.angle ?? 0, e.type === 'start');
+      const kind: GateKind =
+        e.type === 'finish' ? 'finish' : circuit ? 'startfinish' : 'start';
+      drawGate(sx, sy, rPx, e.angle ?? 0, kind);
     }
   });
 }
 
-function drawGate(sx: number, sy: number, rPx: number, angle: number, isStart: boolean) {
-  const color = isStart ? RACE_GREEN : RACE_MAGENTA;
+function drawGate(sx: number, sy: number, rPx: number, angle: number, kind: GateKind) {
+  const startish = kind === 'start' || kind === 'startfinish';
+  const color = startish ? RACE_GREEN : RACE_MAGENTA;
   const half = rPx;            // bar half-width ≈ the trigger zone
   ctx.save();
   // faint trigger-zone wash
-  ctx.fillStyle = isStart ? 'rgba(57,255,106,0.06)' : 'rgba(255,45,149,0.06)';
+  ctx.fillStyle = startish ? 'rgba(57,255,106,0.06)' : 'rgba(255,45,149,0.06)';
   ctx.beginPath(); ctx.arc(sx, sy, rPx, 0, Math.PI * 2); ctx.fill();
 
   ctx.translate(sx, sy);
   ctx.rotate(angle);
   ctx.lineCap = 'round';
-  if (isStart) {
+  if (kind === 'start') {
+    // Plain start line — solid green bar.
     ctx.shadowColor = color; ctx.shadowBlur = 16;
     ctx.strokeStyle = color; ctx.lineWidth = 4;
     ctx.beginPath(); ctx.moveTo(-half, 0); ctx.lineTo(half, 0); ctx.stroke();
   } else {
-    // FINISH — checkered bar.
+    // Checkered bar — magenta for a sprint FINISH, green when the circuit's
+    // START gate doubles as the finish line.
     ctx.shadowColor = color; ctx.shadowBlur = 12;
     const n = 8, sw = (half * 2) / n;
     for (let i = 0; i < n; i++) {
-      ctx.fillStyle = i % 2 === 0 ? RACE_MAGENTA : '#ffffff';
+      ctx.fillStyle = i % 2 === 0 ? color : '#ffffff';
       ctx.fillRect(-half + i * sw, -4.5, sw, 9);
     }
   }
@@ -847,12 +882,14 @@ function drawGate(sx: number, sy: number, rPx: number, angle: number, isStart: b
   ctx.restore();
 
   // Label above (unrotated).
+  const label = kind === 'finish' ? 'FINISH'
+    : kind === 'startfinish' ? 'START / FINISH' : 'START';
   ctx.save();
   ctx.shadowColor = color; ctx.shadowBlur = 10;
   ctx.fillStyle = color;
   ctx.font = '700 13px Orbitron, ui-monospace, monospace';
   ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
-  ctx.fillText(isStart ? 'START' : 'FINISH', sx, sy - rPx - 9);
+  ctx.fillText(label, sx, sy - rPx - 9);
   ctx.restore();
 }
 

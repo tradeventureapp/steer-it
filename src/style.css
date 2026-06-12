@@ -204,6 +204,29 @@ body.desktop #editor {
 .etool[data-tool="checkpoint"] { color: #bff4ff; border-color: rgba(45, 226, 230, 0.5); }
 .etool[data-tool="delete"]     { color: #ffb3b3; border-color: rgba(255, 59, 59, 0.45); }
 #editor-clear { color: #ff8a8a; border-color: rgba(255, 59, 59, 0.45); margin-left: 4px; }
+/* Lap-count stepper — compact +/- with the value between. */
+#editor-laps {
+  display: flex; align-items: center; gap: 7px; margin-left: 8px;
+  padding: 4px 9px; border-radius: 9px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1.5px solid rgba(255, 226, 61, 0.45);
+  font-weight: 800; letter-spacing: 2px; color: #ffe9a6;
+}
+#editor-laps .laps-label { font-size: 11px; opacity: 0.8; }
+#editor-laps #laps-val {
+  font-size: 13px; min-width: 14px; text-align: center; color: #ffe23d;
+  text-shadow: 0 0 8px rgba(255, 226, 61, 0.6);
+}
+.lapbtn {
+  appearance: none; -webkit-appearance: none; cursor: pointer;
+  font-family: inherit; font-weight: 900; font-size: 15px; line-height: 1;
+  width: 22px; height: 22px; border-radius: 6px;
+  color: #ffe9a6; background: rgba(255, 255, 255, 0.05);
+  border: 1.5px solid rgba(255, 226, 61, 0.45);
+  transition: background 120ms, box-shadow 120ms, transform 80ms;
+}
+.lapbtn:hover { box-shadow: 0 0 12px rgba(255, 226, 61, 0.5); }
+.lapbtn:active { transform: translateY(1px); }
 .etool.sel {
   background: rgba(255, 255, 255, 0.12);
   box-shadow: 0 0 16px currentColor, inset 0 0 0 1.5px currentColor;
@@ -218,6 +241,11 @@ body.desktop #editor {
 #editor-status .ok { color: #5dffb0; text-shadow: 0 0 8px rgba(57, 255, 140, 0.6); }
 #editor-status .no { color: rgba(154, 166, 192, 0.55); }
 #editor-status .cp { color: #2de2e6; text-shadow: 0 0 8px rgba(45, 226, 230, 0.5); }
+#editor-status .mode {
+  color: #ff8a3d; text-shadow: 0 0 9px rgba(255, 138, 61, 0.6);
+}
+#editor-status .laps { color: #ffe23d; text-shadow: 0 0 8px rgba(255, 226, 61, 0.5); }
+#editor-status .sep { color: rgba(154, 166, 192, 0.4); }
 #editor-hint {
   position: absolute; bottom: 54px; left: 50%; transform: translateX(-50%);
   pointer-events: none;
