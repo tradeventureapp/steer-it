@@ -47,6 +47,12 @@ const wspinValEl     = document.getElementById('wspin-val')     as HTMLSpanEleme
 const soundBtn       = document.getElementById('sound-toggle')  as HTMLButtonElement | null;
 const hudBlEl        = document.getElementById('hud-bl')         as HTMLElement | null;
 const hudTrEl        = document.getElementById('hud-tr')         as HTMLElement | null;
+const pauseOverlayEl = document.getElementById('pause-overlay')  as HTMLElement | null;
+
+// ---------- Pause (key P) — freezes the simulation + race timer, not render ----------
+let isPaused = false;
+let pausedAccumMs = 0;   // total time spent paused (subtracted from the game clock)
+let pauseStartedAt = 0;  // performance.now() when the current pause began
 
 // Physics-input debug overlay (toggle with D). Shows the steer/throttle as the
 // PHYSICS step actually receives them (post-expo, post-smoothing) plus the
@@ -96,6 +102,16 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'q' || e.key === 'Q') {
     qrOn = !qrOn;
     if (hudTrEl) hudTrEl.style.display = qrOn ? 'block' : 'none';
+  }
+  if (e.key === 'p' || e.key === 'P') {
+    isPaused = !isPaused;
+    if (isPaused) {
+      pauseStartedAt = performance.now();
+    } else {
+      // Banked the elapsed pause so the game clock resumes seamlessly.
+      pausedAccumMs += performance.now() - pauseStartedAt;
+    }
+    if (pauseOverlayEl) pauseOverlayEl.hidden = !isPaused;
   }
 });
 
@@ -431,70 +447,84 @@ let accumulator = 0;
 function frame(now: number) {
   const realDt = Math.min(0.25, (now - lastTime) / 1000);
   lastTime = now;
-  accumulator += realDt;
 
-  let steps = 0;
-  while (accumulator >= FIXED_DT && steps < MAX_SUBSTEPS) {
-    // Smooth incoming inputs inside the fixed step so the smoothing rate is
-    // frame-rate independent. Steer gets the heaviest smoothing. Throttle /
-    // brake get a light lerp so 30Hz network steps don't visibly jump the
-    // 60Hz physics. Handbrake is binary — snap.
-    current.steer    += (target.steer    - current.steer)    * CONFIG.inputLerp;
-    // p15b: throttle lerp 0.3 → 0.5. A pinned pedal must reach near-full FAST,
-    // before the standing car accelerates past the boost-fade window — at 0.3
-    // the throttle ramp lagged so far that a full-pedal launch never lit the
-    // burnout (the boost had already faded by the time throttle maxed).
-    current.throttle += (target.throttle - current.throttle) * 0.5;
-    current.brake    += (target.brake    - current.brake)    * 0.3;
-    current.handbrake = target.handbrake;
+  // Monotonic game clock that EXCLUDES paused time, so the race timer freezes
+  // while paused and never jumps on resume. While paused it holds the value it
+  // had at the instant of pausing; pausedAccumMs grows by the pause length on
+  // resume, so `now - pausedAccumMs` continues seamlessly from there.
+  const gameNow = isPaused ? pauseStartedAt - pausedAccumMs : now - pausedAccumMs;
 
-    step(car, current, FIXED_DT);
-    const impact = collideWithRects(car, world.rects);
-    if (impact > 0.8) {
-      sound.impact(impact);
-      fx.impact(car.x, car.y, impact);
+  // The single pause gate: skip the entire SIMULATION (physics, race detection,
+  // skids, smoke, particles, engine sound) — but never the render below.
+  if (!isPaused) {
+    accumulator += realDt;
+    let steps = 0;
+    while (accumulator >= FIXED_DT && steps < MAX_SUBSTEPS) {
+      // Smooth incoming inputs inside the fixed step so the smoothing rate is
+      // frame-rate independent. Steer gets the heaviest smoothing. Throttle /
+      // brake get a light lerp so 30Hz network steps don't visibly jump the
+      // 60Hz physics. Handbrake is binary — snap.
+      current.steer    += (target.steer    - current.steer)    * CONFIG.inputLerp;
+      // p15b: throttle lerp 0.3 → 0.5. A pinned pedal must reach near-full FAST,
+      // before the standing car accelerates past the boost-fade window — at 0.3
+      // the throttle ramp lagged so far that a full-pedal launch never lit the
+      // burnout (the boost had already faded by the time throttle maxed).
+      current.throttle += (target.throttle - current.throttle) * 0.5;
+      current.brake    += (target.brake    - current.brake)    * 0.3;
+      current.handbrake = target.handbrake;
+
+      step(car, current, FIXED_DT);
+      const impact = collideWithRects(car, world.rects);
+      if (impact > 0.8) {
+        sound.impact(impact);
+        fx.impact(car.x, car.y, impact);
+      }
+      recordSkids();
+      raceState.update(car.x, car.y, gameNow);  // gate/checkpoint passage detection
+      wrap();
+
+      accumulator -= FIXED_DT;
+      steps++;
     }
-    recordSkids();
-    raceState.update(car.x, car.y, now);  // gate/checkpoint passage detection
-    wrap();
+    // Drop accumulated time if we fell way behind (prevents spiral of death).
+    if (steps === MAX_SUBSTEPS) accumulator = 0;
 
-    accumulator -= FIXED_DT;
-    steps++;
+    // ---- Sound + effects (per render frame) ----
+    sound.update({
+      wheelSpeed: car.rearWheelSpeed,
+      speed: car.speed,
+      slipAngle: car.rearSlip,
+      wheelSpin: car.wheelSpin,
+      throttle: current.throttle,
+    });
+    // Tire smoke from the rear wheels while drifting or spinning — the
+    // visual twin of the squeal. car.rearSlip is speed-gated in physics, so
+    // a parked car (slip == 0) only smokes from genuine WSPIN (standing
+    // burnout), never from atan2 noise.
+    const slipNorm = Math.min(1,
+      Math.abs(car.rearSlip) / (CONFIG.slipThresholdForSkid * 2.5));
+    const smokeIntensity = Math.max(
+      car.wheelSpin, slipNorm > 0.4 ? slipNorm : 0);
+    if (smokeIntensity > 0.2) {
+      // Spawn slightly BEHIND the rear wheels (along -heading) and keep puffs
+      // modest near a slow car so a standing burnout never hides it.
+      const back = 0.45;
+      const bx = -Math.cos(car.heading) * back;
+      const by = -Math.sin(car.heading) * back;
+      const sizeScale = 0.55 + 0.45 * Math.min(1, car.speed / 6);
+      const { L, R } = rearWheelPositions();
+      fx.emitSmoke(L.x + bx, L.y + by, car.vx, car.vy, smokeIntensity, realDt, sizeScale);
+      fx.emitSmoke(R.x + bx, R.y + by, car.vx, car.vy, smokeIntensity, realDt, sizeScale);
+    }
+    fx.update(realDt);
+  } else {
+    // Paused: idle the engine so it doesn't hold a note. Everything else frozen.
+    sound.update({ wheelSpeed: 0, speed: 0, slipAngle: 0, wheelSpin: 0, throttle: 0 });
   }
-  // Drop accumulated time if we fell way behind (prevents spiral of death).
-  if (steps === MAX_SUBSTEPS) accumulator = 0;
 
-  // ---- Sound + effects (per render frame) ----
-  sound.update({
-    wheelSpeed: car.rearWheelSpeed,
-    speed: car.speed,
-    slipAngle: car.rearSlip,
-    wheelSpin: car.wheelSpin,
-    throttle: current.throttle,
-  });
-  // Tire smoke from the rear wheels while drifting or spinning — the
-  // visual twin of the squeal. car.rearSlip is speed-gated in physics, so
-  // a parked car (slip == 0) only smokes from genuine WSPIN (standing
-  // burnout), never from atan2 noise.
-  const slipNorm = Math.min(1,
-    Math.abs(car.rearSlip) / (CONFIG.slipThresholdForSkid * 2.5));
-  const smokeIntensity = Math.max(
-    car.wheelSpin, slipNorm > 0.4 ? slipNorm : 0);
-  if (smokeIntensity > 0.2) {
-    // Spawn slightly BEHIND the rear wheels (along -heading) and keep puffs
-    // modest near a slow car so a standing burnout never hides it.
-    const back = 0.45;
-    const bx = -Math.cos(car.heading) * back;
-    const by = -Math.sin(car.heading) * back;
-    const sizeScale = 0.55 + 0.45 * Math.min(1, car.speed / 6);
-    const { L, R } = rearWheelPositions();
-    fx.emitSmoke(L.x + bx, L.y + by, car.vx, car.vy, smokeIntensity, realDt, sizeScale);
-    fx.emitSmoke(R.x + bx, R.y + by, car.vx, car.vy, smokeIntensity, realDt, sizeScale);
-  }
-  fx.update(realDt);
-
+  // Render ALWAYS (paused frame still draws the frozen car + overlay on top).
   render();
-  updateRaceHud(raceState.hud(now));
+  updateRaceHud(raceState.hud(gameNow));
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
