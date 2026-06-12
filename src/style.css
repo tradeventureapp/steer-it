@@ -108,6 +108,48 @@ body.desktop #hud-tr {
   color: #5dffb0; font-size: 9px; text-shadow: 0 0 6px rgba(57, 255, 140, 0.85);
 }
 
+/* ---- Race HUD: live timer + CP/LAP, top-centre. On-brand, not debug. ---- */
+body.desktop #race-hud {
+  position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+  z-index: 11; pointer-events: none; text-align: center;
+  font-family: 'Orbitron', ui-monospace, monospace;
+}
+#race-timer {
+  font-weight: 900; font-size: 34px; letter-spacing: 3px;
+  color: #2de2e6; line-height: 1;
+  text-shadow: 0 0 12px rgba(45, 226, 230, 0.85), 0 0 28px rgba(45, 226, 230, 0.4);
+  font-variant-numeric: tabular-nums;
+}
+#race-meta {
+  margin-top: 6px; display: flex; gap: 14px; justify-content: center;
+  font-weight: 800; font-size: 12px; letter-spacing: 2px;
+}
+#race-cp  { color: #2de2e6; text-shadow: 0 0 8px rgba(45, 226, 230, 0.7); }
+#race-cp:empty { display: none; }
+#race-lap { color: #ff8a3d; text-shadow: 0 0 8px rgba(255, 138, 61, 0.7); }
+
+/* Finish banner — big gradient wordmark, centred. */
+body.desktop #race-finish {
+  position: fixed; top: 38%; left: 50%; transform: translate(-50%, -50%);
+  z-index: 12; pointer-events: none; text-align: center;
+  font-family: 'Orbitron', ui-monospace, monospace;
+}
+#race-finish .rf-title {
+  font-weight: 900; font-size: clamp(48px, 9vw, 110px); letter-spacing: 8px;
+  line-height: 1;
+  background-image: linear-gradient(100deg, #ff2d95 0%, #ff5fa2 42%, #ff8a3d 100%);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent;
+  filter: drop-shadow(0 0 16px rgba(255, 45, 149, 0.7))
+          drop-shadow(0 0 34px rgba(255, 138, 61, 0.5));
+}
+#race-finish-time {
+  margin-top: 10px;
+  font-weight: 900; font-size: clamp(26px, 4vw, 52px); letter-spacing: 4px;
+  color: #2de2e6; font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 14px rgba(45, 226, 230, 0.9), 0 0 32px rgba(45, 226, 230, 0.45);
+}
+
 body.desktop #hud-bl {
   position: fixed; bottom: 56px; /* clear of the fake taskbar */ left: 24px;
   z-index: 10; pointer-events: none;

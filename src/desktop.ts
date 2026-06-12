@@ -14,6 +14,10 @@ import { Effects } from './effects';
 import {
   PLAYER_CAP, LOBBY_SYNC_MS, EV, colorName, LobbyState,
 } from './lobby';
+import {
+  RaceState, RACE_CONFIG, formatRaceTime,
+  type RaceElement, type RaceHud,
+} from './race';
 
 // ---------- Session ----------
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -27,6 +31,12 @@ const qrCanvas = document.getElementById('qr') as HTMLCanvasElement;
 const codeText = document.getElementById('code-text') as HTMLDivElement;
 const statusEl = document.getElementById('status') as HTMLDivElement;
 const rosterEl = document.getElementById('lobby-roster') as HTMLDivElement | null;
+const raceHudEl       = document.getElementById('race-hud')         as HTMLElement | null;
+const raceTimerEl     = document.getElementById('race-timer')       as HTMLDivElement | null;
+const raceCpEl        = document.getElementById('race-cp')          as HTMLSpanElement | null;
+const raceLapEl       = document.getElementById('race-lap')         as HTMLSpanElement | null;
+const raceFinishEl    = document.getElementById('race-finish')      as HTMLElement | null;
+const raceFinishTimeEl = document.getElementById('race-finish-time') as HTMLDivElement | null;
 const speedEl = document.getElementById('speed') as HTMLDivElement;
 const driftEl = document.getElementById('drift') as HTMLDivElement;
 const throttleBarEl  = document.getElementById('throttle-bar')  as HTMLDivElement;
@@ -198,6 +208,20 @@ const car: CarState = makeCar(
   window.innerHeight / 2 / PX(),
   -Math.PI / 2,
 );
+
+// ---------- Race elements (STEP 3a: hardcoded; editor writes this next) ----
+// Positions are WORLD METRES — the exact RaceElement[] a future click-to-place
+// editor will produce. Laid out around the spawn so the loop fits on screen:
+// drive UP through START, collect both CHECKPOINTS (any order), come back DOWN
+// through FINISH. (Counts are CONFIG-driven via RACE_CONFIG / RaceState.)
+const _cx = car.x, _cy = car.y;
+const RACE_ELEMENTS: RaceElement[] = [
+  { type: 'start',      x: _cx,     y: _cy - 7, angle: 0 },
+  { type: 'checkpoint', x: _cx - 9, y: _cy - 1, index: 1 },
+  { type: 'checkpoint', x: _cx + 9, y: _cy - 1, index: 2 },
+  { type: 'finish',     x: _cx,     y: _cy + 7, angle: 0 },
+];
+const raceState = new RaceState(RACE_ELEMENTS, RACE_CONFIG);
 
 // ---------- Control input ----------
 // target: latest from the phone. current: lerped toward target each frame for
@@ -431,6 +455,7 @@ function frame(now: number) {
       fx.impact(car.x, car.y, impact);
     }
     recordSkids();
+    raceState.update(car.x, car.y, now);  // gate/checkpoint passage detection
     wrap();
 
     accumulator -= FIXED_DT;
@@ -469,6 +494,7 @@ function frame(now: number) {
   fx.update(realDt);
 
   render();
+  updateRaceHud(raceState.hud(now));
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
@@ -489,6 +515,7 @@ function render() {
   ctx.drawImage(overlayCanvas, 0, 0, W, H);
   drawClock(ctx, world, CONFIG.pxPerMeter);
 
+  drawRaceElements();
   drawCar();
   fx.draw(ctx, CONFIG.pxPerMeter);
 
@@ -542,6 +569,100 @@ function updateHud() {
       `throttle ${current.throttle.toFixed(2)}  brake ${current.brake.toFixed(2)}  hb ${current.handbrake ? 'ON' : 'off'}\n` +
       `burnout boost ${(boostGate * 100).toFixed(0)}%   (ignites ≥ ${CONFIG.burnoutThrottle.toFixed(2)})\n` +
       `spinTimer ${car.spinTimer.toFixed(2)}  drift ${car.driftActive ? 'Y' : 'n'}  wspin ${(car.wheelSpin * 100).toFixed(0)}%`;
+  }
+}
+
+// ---------- Race elements: synthwave gates + checkpoint rings ----------
+const RACE_GREEN = '#39ff6a';
+const RACE_MAGENTA = '#ff2d95';
+const RACE_CYAN = '#2de2e6';
+
+function drawRaceElements() {
+  const px = PX();
+  const collected = raceState.collectedElementIndices();
+  RACE_ELEMENTS.forEach((e, i) => {
+    const sx = e.x * px, sy = e.y * px;
+    const rPx = (e.radius ?? RACE_CONFIG.gateRadius) * px;
+    if (e.type === 'checkpoint') {
+      drawCheckpoint(sx, sy, rPx, e.index ?? 0, collected.has(i));
+    } else {
+      drawGate(sx, sy, rPx, e.angle ?? 0, e.type === 'start');
+    }
+  });
+}
+
+function drawGate(sx: number, sy: number, rPx: number, angle: number, isStart: boolean) {
+  const color = isStart ? RACE_GREEN : RACE_MAGENTA;
+  const half = rPx;            // bar half-width ≈ the trigger zone
+  ctx.save();
+  // faint trigger-zone wash
+  ctx.fillStyle = isStart ? 'rgba(57,255,106,0.06)' : 'rgba(255,45,149,0.06)';
+  ctx.beginPath(); ctx.arc(sx, sy, rPx, 0, Math.PI * 2); ctx.fill();
+
+  ctx.translate(sx, sy);
+  ctx.rotate(angle);
+  ctx.lineCap = 'round';
+  if (isStart) {
+    ctx.shadowColor = color; ctx.shadowBlur = 16;
+    ctx.strokeStyle = color; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.moveTo(-half, 0); ctx.lineTo(half, 0); ctx.stroke();
+  } else {
+    // FINISH — checkered bar.
+    ctx.shadowColor = color; ctx.shadowBlur = 12;
+    const n = 8, sw = (half * 2) / n;
+    for (let i = 0; i < n; i++) {
+      ctx.fillStyle = i % 2 === 0 ? RACE_MAGENTA : '#ffffff';
+      ctx.fillRect(-half + i * sw, -4.5, sw, 9);
+    }
+  }
+  // Bright posts at the ends.
+  ctx.shadowColor = color; ctx.shadowBlur = 14;
+  ctx.fillStyle = color;
+  ctx.fillRect(-half - 3, -11, 6, 22);
+  ctx.fillRect(half - 3, -11, 6, 22);
+  ctx.restore();
+
+  // Label above (unrotated).
+  ctx.save();
+  ctx.shadowColor = color; ctx.shadowBlur = 10;
+  ctx.fillStyle = color;
+  ctx.font = '700 13px Orbitron, ui-monospace, monospace';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+  ctx.fillText(isStart ? 'START' : 'FINISH', sx, sy - rPx - 9);
+  ctx.restore();
+}
+
+function drawCheckpoint(sx: number, sy: number, rPx: number, index: number, done: boolean) {
+  ctx.save();
+  ctx.shadowColor = RACE_CYAN; ctx.shadowBlur = done ? 5 : 16;
+  ctx.strokeStyle = done ? 'rgba(45,226,230,0.32)' : RACE_CYAN;
+  ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.arc(sx, sy, rPx, 0, Math.PI * 2); ctx.stroke();
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = done ? 'rgba(45,226,230,0.03)' : 'rgba(45,226,230,0.08)';
+  ctx.beginPath(); ctx.arc(sx, sy, rPx, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = done ? 'rgba(45,226,230,0.5)' : RACE_CYAN;
+  ctx.font = '700 15px Orbitron, ui-monospace, monospace';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(String(index), sx, sy + 1);
+  ctx.restore();
+}
+
+// ---------- Race HUD (functional readout; independent of the D/Q debug toggles) ----------
+function updateRaceHud(h: RaceHud) {
+  if (!raceHudEl) return;
+  if (!h.active) {
+    raceHudEl.hidden = true;
+    if (raceFinishEl) raceFinishEl.hidden = true;
+    return;
+  }
+  raceHudEl.hidden = false;
+  if (raceTimerEl) raceTimerEl.textContent = formatRaceTime(h.elapsedMs);
+  if (raceCpEl)  raceCpEl.textContent  = h.cpTotal > 0 ? `CP ${h.cpCollected}/${h.cpTotal}` : '';
+  if (raceLapEl) raceLapEl.textContent = `LAP ${h.lap}/${h.laps}`;
+  if (raceFinishEl) {
+    raceFinishEl.hidden = !h.finished;
+    if (h.finished && raceFinishTimeEl) raceFinishTimeEl.textContent = formatRaceTime(h.finishMs);
   }
 }
 

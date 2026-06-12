@@ -15,6 +15,20 @@
   <body class="desktop">
     <canvas id="game"></canvas>
 
+    <!-- Race readout (functional, on-brand). Shown only while race elements
+         are active; independent of the D/Q debug toggles. -->
+    <aside id="race-hud" hidden>
+      <div id="race-timer">0:00.0</div>
+      <div id="race-meta">
+        <span id="race-cp"></span>
+        <span id="race-lap"></span>
+      </div>
+    </aside>
+    <div id="race-finish" hidden>
+      <div class="rf-title">FINISH</div>
+      <div id="race-finish-time">0:00.0</div>
+    </div>
+
     <aside id="hud-tr">
       <div id="qr-panel">
         <div id="qr-logo">STEER&nbsp;IT</div>
