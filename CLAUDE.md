@@ -162,6 +162,15 @@ phone→desktop `join | color | name | leave | control`; desktop→phone `lobby 
   roof number = slot number (1-based), per-slot color.
 - **Logo** — retro-synthwave "STEER IT" (chrome + magenta->orange gradient, neon).
 - **Neon phone UI** — TAP TO STEER + GAS/BRAKE/E-BRAKE pedals, synthwave style.
+- **Main menu + map select (host front-end)** — at startup the desktop shows a
+  synthwave main menu (STEER IT logo + START RACE; extensible `.menu-actions` for
+  OPTIONS/LEADERBOARDS later). START RACE → map-select tiles built from
+  `listMaps()`, each with a REAL rendered mini-preview; clicking a tile calls
+  `switchMap(id)` and drops into gameplay. The menu freezes the sim (`menuOpen` in
+  the freeze gate) and hides the QR; the QR/join panel shows only once a map is
+  loaded. Host picks the map for everyone; phones are controllers only. Dev hooks
+  (`steerSwitchMap`) still work. (HTML `#main-menu`/`#map-select` in index.html,
+  styling in style.css, wiring in desktop.ts.)
 - **Clean surface** — default shows only the game world + styled QR panel. Keys:
   **D** = debug HUD (speedo/slip/wspin/pedals), **Q** = hide QR panel, **P** = pause,
   **E** = editor, **M** = sound on/off (sound OFF by default).

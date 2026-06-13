@@ -15,6 +15,29 @@
   <body class="desktop">
     <canvas id="game"></canvas>
 
+    <!-- ===== Host front-end: main menu → map select (synthwave). Shown at
+         startup; dismissed into gameplay once a map is chosen. ===== -->
+    <div id="main-menu" class="menu-screen">
+      <div class="menu-card">
+        <div class="menu-logo">STEER&nbsp;IT</div>
+        <div class="menu-sub">DRIFT&nbsp;THE&nbsp;DESKTOP</div>
+        <div class="menu-actions">
+          <button type="button" class="menu-btn primary" id="btn-start-race">START RACE</button>
+          <!-- More items (OPTIONS, LEADERBOARDS) slot in here later — none yet. -->
+        </div>
+        <div class="menu-foot">HOST SCREEN · PHONES JOIN ONCE A MAP LOADS</div>
+      </div>
+    </div>
+
+    <div id="map-select" class="menu-screen" hidden>
+      <div class="menu-card wide">
+        <div class="menu-title">CHOOSE MAP</div>
+        <!-- Tiles injected from the maps registry (listMaps()). -->
+        <div id="map-tiles" class="map-tiles"></div>
+        <button type="button" class="menu-btn ghost" id="btn-map-back">◄ BACK</button>
+      </div>
+    </div>
+
     <!-- Race readout (functional, on-brand). Shown only while race elements
          are active; independent of the D/Q debug toggles. -->
     <aside id="race-hud" hidden>

@@ -60,25 +60,29 @@ const pauseOverlayEl = document.getElementById('pause-overlay')  as HTMLElement 
 const editorEl       = document.getElementById('editor')         as HTMLElement | null;
 const editorStatusEl = document.getElementById('editor-status')  as HTMLDivElement | null;
 const editorHintEl   = document.getElementById('editor-hint')    as HTMLDivElement | null;
+const mainMenuEl     = document.getElementById('main-menu')       as HTMLElement | null;
+const mapSelectEl    = document.getElementById('map-select')      as HTMLElement | null;
+const mapTilesEl     = document.getElementById('map-tiles')       as HTMLElement | null;
 
-// ---------- Freeze: pause (P) OR editor (E) both halt the simulation + race
-// timer (not the render). isPaused is the combined gate read by the loop. ----
+// ---------- Freeze: the main menu, pause (P), and the editor (E) each halt the
+// simulation + race timer (not the render). isPaused is the combined gate. ----
 let userPaused = false;  // toggled by P
 let editorMode = false;  // toggled by E
-let isPaused = false;    // = userPaused || editorMode (the frame-loop gate)
+let menuOpen = true;     // the host front-end (menu) shows at startup
+let isPaused = false;    // = userPaused || editorMode || menuOpen (loop gate)
 let pausedAccumMs = 0;   // total frozen time, subtracted from the game clock
 let pauseStartedAt = 0;  // performance.now() when the current freeze began
 
 function refreshFreeze() {
-  const want = userPaused || editorMode;
+  const want = userPaused || editorMode || menuOpen;
   if (want !== isPaused) {
     isPaused = want;
     if (isPaused) pauseStartedAt = performance.now();
     else pausedAccumMs += performance.now() - pauseStartedAt;  // bank frozen time
   }
-  // PAUSED overlay only for a manual pause (not while editing); editor UI only
-  // while editing.
-  if (pauseOverlayEl) pauseOverlayEl.hidden = !(userPaused && !editorMode);
+  // PAUSED overlay only for a manual pause (not while editing / in a menu);
+  // editor UI only while editing.
+  if (pauseOverlayEl) pauseOverlayEl.hidden = !(userPaused && !editorMode && !menuOpen);
   if (editorEl) editorEl.hidden = !editorMode;
   document.body.classList.toggle('editing', editorMode);
 }
@@ -121,7 +125,12 @@ soundBtn?.addEventListener('click', (e) => {
 // (speedo / SLIP / WSPIN / pedal bars / phys-debug) is HIDDEN by default and
 // revealed by D — so by default the screen is just the game world + QR.
 let qrOn = true;
+// The QR/join panel shows only once a map is loaded (menu dismissed) and qrOn.
+function updateQrVisibility() {
+  if (hudTrEl) hudTrEl.style.display = (qrOn && !menuOpen) ? 'block' : 'none';
+}
 window.addEventListener('keydown', (e) => {
+  if (menuOpen) return;   // game keys are inert while the host menu is open
   if (e.key === 'm' || e.key === 'M') sound.toggleMute();
   if (e.key === 'd' || e.key === 'D') {
     debugOn = !debugOn;
@@ -130,7 +139,7 @@ window.addEventListener('keydown', (e) => {
   }
   if (e.key === 'q' || e.key === 'Q') {
     qrOn = !qrOn;
-    if (hudTrEl) hudTrEl.style.display = qrOn ? 'block' : 'none';
+    updateQrVisibility();
   }
   if (e.key === 'p' || e.key === 'P') {
     if (!editorMode) { userPaused = !userPaused; refreshFreeze(); }  // P is a no-op in the editor
@@ -146,6 +155,79 @@ window.addEventListener('keydown', (e) => {
 
 codeText.textContent = code;
 QRCode.toCanvas(qrCanvas, playUrl, { width: 160, margin: 1 }).catch(console.error);
+
+// ================= HOST FRONT-END: main menu → map select =================
+// The desktop (host) picks the map for everyone. Phones are controllers only.
+// At startup the menu holds the game frozen (no QR yet); choosing a map calls
+// switchMap(id) — which respawns connected cars — and drops into gameplay.
+function openMainMenu() {
+  menuOpen = true;
+  if (mainMenuEl) mainMenuEl.hidden = false;
+  if (mapSelectEl) mapSelectEl.hidden = true;
+  refreshFreeze();
+  updateQrVisibility();
+}
+function openMapSelect() {
+  if (mainMenuEl) mainMenuEl.hidden = true;
+  if (mapSelectEl) mapSelectEl.hidden = false;
+  buildMapTiles();
+}
+function closeMenusIntoGame() {
+  menuOpen = false;
+  if (mainMenuEl) mainMenuEl.hidden = true;
+  if (mapSelectEl) mapSelectEl.hidden = true;
+  refreshFreeze();
+  updateQrVisibility();   // QR/join panel appears now a map is live
+}
+function chooseMap(id: string) {
+  switchMap(id);          // load the map + respawn any connected cars
+  closeMenusIntoGame();
+}
+
+// Build the map-select tiles from the registry (so new maps appear here
+// automatically). Each tile renders a REAL mini-preview of the map.
+function buildMapTiles() {
+  if (!mapTilesEl) return;
+  mapTilesEl.innerHTML = '';
+  const dpr = window.devicePixelRatio || 1;
+  const RW = 440, RH = 240, DW = 220, DH = 120;   // render 2×, display 1× (crisp)
+  for (const { id, name } of listMaps()) {
+    const def = getMap(id);
+    if (!def) continue;
+    const tile = document.createElement('button');
+    tile.type = 'button';
+    tile.className = 'map-tile';
+
+    const thumb = document.createElement('span');
+    thumb.className = 'map-thumb';
+    const cvs = document.createElement('canvas');
+    cvs.width = Math.floor(RW * dpr); cvs.height = Math.floor(RH * dpr);
+    cvs.style.width = DW + 'px'; cvs.style.height = DH + 'px';
+    const c = cvs.getContext('2d');
+    if (c) {
+      c.setTransform(dpr, 0, 0, dpr, 0, 0);
+      try {
+        const w = def.createWorld(RW / CONFIG.pxPerMeter, RH / CONFIG.pxPerMeter);
+        def.drawBackground(c, RW, RH);
+        def.drawObstacles(c, w, CONFIG.pxPerMeter, null);
+      } catch { /* a preview must never break the menu */ }
+    }
+    thumb.appendChild(cvs);
+
+    const label = document.createElement('span');
+    label.className = 'map-name';
+    label.textContent = name;
+
+    tile.appendChild(thumb);
+    tile.appendChild(label);
+    tile.addEventListener('click', () => chooseMap(id));
+    mapTilesEl.appendChild(tile);
+  }
+}
+
+document.getElementById('btn-start-race')?.addEventListener('click', openMapSelect);
+document.getElementById('btn-map-back')?.addEventListener('click', openMainMenu);
+openMainMenu();   // show the host menu at startup
 
 // ---------- Canvases ----------
 // Layered rendering (back to front):

@@ -26,6 +26,96 @@ body {
 body.desktop { background: #ffffff; }
 body.desktop #game { display: block; width: 100vw; height: 100vh; }
 
+/* ============ HOST FRONT-END: MAIN MENU + MAP SELECT ============ */
+.menu-screen {
+  position: fixed; inset: 0; z-index: 100;
+  display: flex; align-items: center; justify-content: center;
+  font-family: 'Orbitron', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  color: #e7ecff;
+  /* deep navy + subtle synthwave grid + magenta horizon glow */
+  background:
+    radial-gradient(120% 80% at 50% 8%, rgba(255, 45, 149, 0.16), transparent 55%),
+    radial-gradient(120% 90% at 50% 108%, rgba(45, 226, 230, 0.12), transparent 55%),
+    linear-gradient(90deg, rgba(45, 226, 230, 0.05) 1px, transparent 1px) 0 0 / 46px 46px,
+    linear-gradient(rgba(255, 45, 149, 0.05) 1px, transparent 1px) 0 0 / 46px 46px,
+    linear-gradient(180deg, #160a31 0%, #0b0622 60%, #07030f 100%);
+}
+.menu-card {
+  display: flex; flex-direction: column; align-items: center; gap: 18px;
+  padding: 40px 52px 30px; border-radius: 22px;
+  border: 1.5px solid rgba(255, 45, 149, 0.5);
+  background:
+    radial-gradient(135% 80% at 50% 0%, rgba(255, 45, 149, 0.16), transparent 60%),
+    linear-gradient(180deg, rgba(26, 11, 51, 0.92) 0%, rgba(12, 7, 32, 0.94) 100%);
+  box-shadow:
+    0 0 40px rgba(255, 45, 149, 0.3),
+    0 24px 70px rgba(0, 0, 0, 0.6),
+    inset 0 0 60px rgba(45, 226, 230, 0.06);
+}
+.menu-card.wide { padding: 32px 40px 26px; }
+.menu-logo {
+  font-weight: 900; font-size: 60px; letter-spacing: 5px; line-height: 1;
+  background-image: linear-gradient(100deg, #ff2d95 0%, #ff5fa2 42%, #ff8a3d 100%);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent;
+  filter: drop-shadow(0 0 12px rgba(255, 45, 149, 0.6))
+          drop-shadow(0 0 26px rgba(255, 138, 61, 0.4));
+}
+.menu-sub, .menu-title {
+  font-weight: 800; font-size: 13px; letter-spacing: 6px;
+  color: #2de2e6; text-shadow: 0 0 10px rgba(45, 226, 230, 0.8);
+}
+.menu-title { font-size: 18px; letter-spacing: 7px; margin-bottom: 4px; }
+.menu-actions { display: flex; flex-direction: column; gap: 12px; width: 280px; margin-top: 6px; }
+.menu-btn {
+  appearance: none; -webkit-appearance: none; cursor: pointer;
+  font-family: inherit; font-weight: 800; letter-spacing: 3px; font-size: 16px;
+  padding: 15px 20px; border-radius: 12px; color: #fff;
+  border: 1.5px solid transparent;
+  transition: transform 90ms, box-shadow 140ms, filter 140ms;
+}
+.menu-btn.primary {
+  background: linear-gradient(180deg, #ff8a3d 0%, #ff2d95 55%, #b3146a 100%);
+  box-shadow: 0 0 22px rgba(255, 45, 149, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+.menu-btn.primary:hover { transform: translateY(-2px); filter: brightness(1.08); box-shadow: 0 0 34px rgba(255, 45, 149, 0.8); }
+.menu-btn.ghost {
+  background: rgba(255, 255, 255, 0.04); color: #bff4ff;
+  border-color: rgba(45, 226, 230, 0.5); font-size: 13px; letter-spacing: 2px; padding: 10px 18px;
+  margin-top: 4px;
+}
+.menu-btn.ghost:hover { box-shadow: 0 0 16px rgba(45, 226, 230, 0.5); transform: translateY(-1px); }
+.menu-btn:active { transform: translateY(1px); }
+.menu-foot {
+  font-size: 9px; letter-spacing: 2px; text-transform: uppercase;
+  color: rgba(154, 166, 192, 0.5);
+}
+/* Map tiles — neon cards with a rendered mini-preview. */
+.map-tiles { display: flex; flex-wrap: wrap; gap: 18px; justify-content: center; max-width: 760px; }
+.map-tile {
+  appearance: none; -webkit-appearance: none; cursor: pointer;
+  font-family: inherit; padding: 10px 10px 12px; border-radius: 14px;
+  display: flex; flex-direction: column; align-items: center; gap: 9px;
+  background: linear-gradient(180deg, rgba(45, 226, 230, 0.07), rgba(10, 6, 24, 0.6));
+  border: 1.5px solid rgba(45, 226, 230, 0.35);
+  transition: transform 100ms, box-shadow 160ms, border-color 160ms;
+}
+.map-tile:hover {
+  transform: translateY(-3px);
+  border-color: rgba(255, 45, 149, 0.7);
+  box-shadow: 0 0 26px rgba(255, 45, 149, 0.45), 0 14px 36px rgba(0, 0, 0, 0.5);
+}
+.map-thumb {
+  display: block; line-height: 0; border-radius: 9px; overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.4);
+}
+.map-thumb canvas { display: block; }
+.map-name {
+  font-weight: 800; font-size: 13px; letter-spacing: 3px; color: #ffe9f4;
+  text-shadow: 0 0 9px rgba(255, 45, 149, 0.6);
+}
+
 body.desktop #hud-tr {
   position: fixed; top: 20px; right: 20px;
   z-index: 10; pointer-events: none;
