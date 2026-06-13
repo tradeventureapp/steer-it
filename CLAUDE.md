@@ -184,10 +184,14 @@ phone→desktop `join | color | name | leave | control`; desktop→phone `lobby 
   (`steerSwitchMap`) still work. (HTML `#main-menu`/`#map-select` in index.html,
   styling in style.css, wiring in desktop.ts.)
 - **Clean surface** — default shows only the game world + styled QR panel. Keys:
-  **D** = debug HUD (speedo/slip/wspin/pedals), **Q** = hide QR panel, **P** = pause,
-  **E** = editor, **M** = sound on/off (sound OFF by default).
-- **Pause (P)** — freezes simulation + timer (not render), PAUSED overlay, phone stays
-  connected. Shares one freeze gate with the editor (`refreshFreeze` in desktop.ts).
+  **D** = debug HUD (speedo/slip/wspin/pedals), **Q** = hide QR panel, **P**/**Esc** =
+  pause menu, **E** = editor, **M** = sound on/off (sound OFF by default).
+- **Pause MENU (P / Esc)** — freezes simulation + timer (not render); phones stay
+  connected. Synthwave card (reuses the main-menu styling) with **RESUME**,
+  **RESTART** (respawn all cars at the map spawn + `raceState.reset()` → laps/time/
+  checkpoints zero; track + editor elements stay), and **EXIT TO MENU** (back to the
+  main menu; lobby/cars preserved, QR held until a map is re-picked — no rescan).
+  Shares one freeze gate with the editor + main menu (`refreshFreeze` in desktop.ts).
 - **Race core (`race.ts`)** — start/checkpoint/finish, passage detection, time, laps,
   **sprint vs circuit** (circuit = start only, no finish, so start = finish too),
   lap count 1–10. Tested live (FINISH 0:15.3).

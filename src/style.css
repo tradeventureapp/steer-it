@@ -241,27 +241,35 @@ body.desktop #race-finish {
 }
 
 /* ---- Pause overlay (key P): dim backdrop + gradient PAUSED wordmark ---- */
+/* Pause MENU — same full-screen synthwave treatment as the main menu. */
 body.desktop #pause-overlay {
-  position: fixed; inset: 0; z-index: 50;
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 14px; pointer-events: none;
-  background: rgba(7, 3, 15, 0.55);
-  backdrop-filter: blur(1.5px);
+  position: fixed; inset: 0; z-index: 100;
+  display: flex; align-items: center; justify-content: center;
   font-family: 'Orbitron', ui-monospace, monospace;
+  background:
+    radial-gradient(120% 80% at 50% 8%, rgba(255, 45, 149, 0.16), transparent 55%),
+    radial-gradient(120% 90% at 50% 108%, rgba(45, 226, 230, 0.12), transparent 55%),
+    linear-gradient(90deg, rgba(45, 226, 230, 0.05) 1px, transparent 1px) 0 0 / 46px 46px,
+    linear-gradient(rgba(255, 45, 149, 0.05) 1px, transparent 1px) 0 0 / 46px 46px,
+    linear-gradient(180deg, rgba(22, 10, 49, 0.92) 0%, rgba(11, 6, 34, 0.93) 60%, rgba(7, 3, 15, 0.95) 100%);
+  backdrop-filter: blur(2px);
 }
 #pause-title {
-  font-weight: 900; font-size: clamp(54px, 11vw, 140px); letter-spacing: 10px;
-  line-height: 1;
+  font-weight: 900; font-size: clamp(40px, 7vw, 72px); letter-spacing: 8px;
+  line-height: 1; margin-bottom: 4px;
   background-image: linear-gradient(100deg, #ff2d95 0%, #ff5fa2 42%, #ff8a3d 100%);
   -webkit-background-clip: text; background-clip: text;
   -webkit-text-fill-color: transparent; color: transparent;
-  filter: drop-shadow(0 0 18px rgba(255, 45, 149, 0.7))
-          drop-shadow(0 0 40px rgba(255, 138, 61, 0.5));
+  filter: drop-shadow(0 0 14px rgba(255, 45, 149, 0.7))
+          drop-shadow(0 0 30px rgba(255, 138, 61, 0.45));
 }
-#pause-hint {
-  font-weight: 800; font-size: clamp(11px, 1.6vw, 16px); letter-spacing: 4px;
-  text-transform: uppercase; color: #2de2e6;
-  text-shadow: 0 0 10px rgba(45, 226, 230, 0.7);
+/* RESTART — cyan accent, between the magenta RESUME and the ghost EXIT. */
+.menu-btn.alt {
+  background: rgba(45, 226, 230, 0.10); color: #bff4ff;
+  border-color: rgba(45, 226, 230, 0.55);
+}
+.menu-btn.alt:hover {
+  box-shadow: 0 0 22px rgba(45, 226, 230, 0.5); transform: translateY(-2px);
 }
 
 /* ---- Track editor (key E): palette + status. The container is click-through

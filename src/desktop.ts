@@ -142,8 +142,9 @@ window.addEventListener('keydown', (e) => {
     qrOn = !qrOn;
     updateQrVisibility();
   }
-  if (e.key === 'p' || e.key === 'P') {
-    if (!editorMode) { userPaused = !userPaused; refreshFreeze(); }  // P is a no-op in the editor
+  if (e.key === 'p' || e.key === 'P' || e.key === 'Escape') {
+    if (e.key === 'Escape') e.preventDefault();   // just toggle the menu, nothing else
+    if (!editorMode) { userPaused = !userPaused; refreshFreeze(); }  // no-op in the editor
   }
   if (e.key === 'e' || e.key === 'E') {
     editorMode = !editorMode;
@@ -229,6 +230,44 @@ function buildMapTiles() {
 document.getElementById('btn-start-race')?.addEventListener('click', openMapSelect);
 document.getElementById('btn-map-back')?.addEventListener('click', openMainMenu);
 openMainMenu();   // show the host menu at startup
+
+// ---------- Pause menu (P / Esc) — RESUME / RESTART / EXIT TO MENU ----------
+// The pause-overlay element IS the menu (shown by refreshFreeze while userPaused
+// && !editorMode && !menuOpen). The keydown handler toggles userPaused; these
+// buttons drive the three actions. The Supabase channel + lobby are never torn
+// down — phones stay connected through pause / restart / exit.
+function resumeGame() {
+  userPaused = false;
+  refreshFreeze();
+}
+// Reset the race on the CURRENT map: respawn every car at the map's spawn and
+// zero the race (laps, time, checkpoints, phase). The map + editor-placed track
+// elements STAY — only progress resets. Then resume.
+function restartRace() {
+  skidCtx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+  for (const car of cars.values()) {
+    const pose = currentMap.spawn(car.slot, world);
+    car.state = makeCar(pose.x, pose.y, pose.heading);
+    car.target = { steer: 0, throttle: 0, brake: 0, handbrake: false };
+    car.current = { steer: 0, throttle: 0, brake: 0, handbrake: false };
+    car.skidL.active = false;
+    car.skidR.active = false;
+    car.lastInputAt = performance.now();
+  }
+  raceState.reset();   // laps + elapsed time + collected checkpoints + phase → zero
+  userPaused = false;
+  refreshFreeze();
+}
+// Back to the MAIN MENU. Players stay connected (lobby/cars preserved); the game
+// is held (menuOpen freeze, QR hidden) until the host picks a map again, which
+// respawns the cars via switchMap. No phone is dropped, no QR rescan.
+function exitToMainMenu() {
+  userPaused = false;
+  openMainMenu();
+}
+document.getElementById('btn-resume')?.addEventListener('click', resumeGame);
+document.getElementById('btn-restart')?.addEventListener('click', restartRace);
+document.getElementById('btn-exit-menu')?.addEventListener('click', exitToMainMenu);
 
 // ---------- Canvases ----------
 // Layered rendering (back to front):
