@@ -630,9 +630,10 @@ function emitCarSmoke(car: Car, realDt: number) {
   const bx = -Math.cos(s.heading) * back;
   const by = -Math.sin(s.heading) * back;
   const sizeScale = 0.55 + 0.45 * Math.min(1, s.speed / 6);
+  const tint = currentMap.smokeColor;   // undefined ⇒ default white smoke
   const { L, R } = rearWheelPositions(s);
-  fx.emitSmoke(L.x + bx, L.y + by, s.vx, s.vy, smokeIntensity, realDt, sizeScale);
-  fx.emitSmoke(R.x + bx, R.y + by, s.vx, s.vy, smokeIntensity, realDt, sizeScale);
+  fx.emitSmoke(L.x + bx, L.y + by, s.vx, s.vy, smokeIntensity, realDt, sizeScale, tint);
+  fx.emitSmoke(R.x + bx, R.y + by, s.vx, s.vy, smokeIntensity, realDt, sizeScale, tint);
 }
 
 // ---------- Main loop with fixed-timestep accumulator ----------

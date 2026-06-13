@@ -33,12 +33,17 @@ export const FX_CONFIG = {
   shakeFullImpulse: 14,    // m/s normal impact = full magnitude
 };
 
+// Default tire-smoke tint — whitish warm grey (the desktop surface). Maps can
+// override per emission (e.g. the dirt oval kicks up brown dust).
+export const DEFAULT_SMOKE_RGB: [number, number, number] = [248, 248, 251];
+
 interface Particle {
   kind: 'smoke' | 'spark';
   x: number; y: number;     // meters
   vx: number; vy: number;   // m/s
   age: number; life: number;
   size: number;
+  tint: [number, number, number];  // smoke colour (sparks ignore it)
 }
 
 export class Effects {
@@ -51,6 +56,7 @@ export class Effects {
   emitSmoke(
     x: number, y: number, carVx: number, carVy: number,
     intensity: number, dt: number, sizeScale = 1,
+    tint: [number, number, number] = DEFAULT_SMOKE_RGB,
   ) {
     const C = FX_CONFIG;
     if (intensity <= 0) return;
@@ -71,6 +77,7 @@ export class Effects {
         // standing burnout never fully obscures it (p10).
         life: C.smokeLife + (Math.random() - 0.5) * 2 * C.smokeLifeVar,
         size: C.smokeSize * (0.8 + Math.random() * 0.4) * sizeScale,
+        tint,   // per-map surface colour (white smoke / brown dust / …)
       });
     }
   }
@@ -95,6 +102,7 @@ export class Effects {
           age: 0,
           life: C.sparkLife * (0.6 + Math.random() * 0.8),
           size: FX_CONFIG.sparkSize,
+          tint: DEFAULT_SMOKE_RGB,   // unused by sparks (they draw a fixed colour)
         });
       }
     }
@@ -135,15 +143,17 @@ export class Effects {
     for (const p of this.particles) {
       const t = p.age / p.life;
       if (p.kind === 'smoke') {
-        // Whitish, airy rubber smoke: a SOFT radial gradient per puff (opaque
-        // core fading to fully transparent at the rim) reads far better than a
-        // flat disc and keeps the car visible THROUGH the smoke.
+        // Airy, see-through surface smoke/dust: a SOFT radial gradient per puff
+        // (opaque core fading to fully transparent at the rim) keeps the car
+        // visible THROUGH it. Colour is the emitting map's surface tint (white
+        // rubber smoke on the desktop, brown dust on the dirt oval, …).
         const a = FX_CONFIG.smokeAlpha * (1 - t);
         const cx = p.x * px, cy = p.y * px, r = p.size * px;
+        const [tr, tg, tb] = p.tint;
         const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
-        g.addColorStop(0,    `rgba(249, 249, 252, ${a.toFixed(3)})`);
-        g.addColorStop(0.55, `rgba(244, 245, 250, ${(a * 0.5).toFixed(3)})`);
-        g.addColorStop(1,    `rgba(244, 245, 250, 0)`);
+        g.addColorStop(0,    `rgba(${tr}, ${tg}, ${tb}, ${a.toFixed(3)})`);
+        g.addColorStop(0.55, `rgba(${tr}, ${tg}, ${tb}, ${(a * 0.5).toFixed(3)})`);
+        g.addColorStop(1,    `rgba(${tr}, ${tg}, ${tb}, 0)`);
         ctx.fillStyle = g;
         ctx.beginPath();
         ctx.arc(cx, cy, r, 0, Math.PI * 2);

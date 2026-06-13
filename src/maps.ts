@@ -39,6 +39,11 @@ export interface MapDefinition {
   id: string;
   name: string;
 
+  // Optional tire-smoke/dust tint [r,g,b] for this surface. Omitted ⇒ the
+  // default whitish rubber smoke (the desktop). The dirt oval, say, kicks up
+  // brown dust. Only the COLOUR changes — emission/cap/growth/fade are shared.
+  smokeColor?: [number, number, number];
+
   // ---- World construction ----
   // Build the world state for a canvas of (widthM × heightM) METRES: obstacles,
   // collision rects, bounds. Called on load, on resize, and on switch.
@@ -354,6 +359,9 @@ function drawFloodlight(ctx: CanvasRenderingContext2D, x: number, y: number) {
 export const flatTrackMap: MapDefinition = {
   id: 'flat',
   name: 'Flat Track',
+
+  // Dirt surface → warm brown/tan DUST instead of white rubber smoke.
+  smokeColor: [170, 126, 84],
 
   createWorld(widthM, heightM) {
     const g = computeStadium(widthM, heightM);

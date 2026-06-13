@@ -51,6 +51,9 @@ Domain (goal): `steerit.app`. Currently running on `steer-it.vercel.app`.
   + semicircle turns; barriers ONLY on the inner/outer edges (straights = thin
   rects, turns = small squares strictly off-band) so the band drives freely;
   grandstands/neon banners/floodlights decor; grid spawn on the start line).
+  Per-map smoke tint via `MapDefinition.smokeColor` ([r,g,b], default white):
+  desktop = white rubber smoke, flat = brown dust (`effects.ts` stores the tint
+  per particle).
   desktop.ts reads everything through the active `MapDefinition`; `switchMap(id)`
   swaps it. Dev hooks: `window.steerMaps()` / `window.steerSwitchMap(id)`.
 - `lobby.ts` — N-player lobby state machine (`LobbyState`): slots, colors, names,
