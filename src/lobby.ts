@@ -176,13 +176,21 @@ export class LobbyState {
     return { changed: true };
   }
 
-  // Free slots whose phone has gone quiet beyond the timeout.
-  sweep(now: number, timeout: number = IDLE_TIMEOUT_MS): { changed: boolean } {
-    let changed = false;
+  // Free slots whose phone has gone quiet beyond the timeout. Returns the freed
+  // slots (with id + how long they'd been silent) so the caller can log WHY a
+  // car vanished — distinguishing a genuinely-gone phone from other causes.
+  sweep(
+    now: number, timeout: number = IDLE_TIMEOUT_MS,
+  ): { changed: boolean; freed: Array<{ slot: number; id: string; ageMs: number }> } {
+    const freed: Array<{ slot: number; id: string; ageMs: number }> = [];
     for (const [slot, p] of [...this.players]) {
-      if (now - p.lastSeen > timeout) { this.players.delete(slot); changed = true; }
+      const ageMs = now - p.lastSeen;
+      if (ageMs > timeout) {
+        this.players.delete(slot);
+        freed.push({ slot, id: p.id, ageMs });
+      }
     }
-    return { changed };
+    return { changed: freed.length > 0, freed };
   }
 }
 

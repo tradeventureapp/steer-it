@@ -1,5 +1,6 @@
 import QRCode from 'qrcode';
-import { supabase, channelName } from './supabase';
+import type { RealtimeChannel } from '@supabase/supabase-js';
+import { channelName, createResilientChannel } from './supabase';
 import {
   CONFIG, makeCar, step, bodyToWorld, collideWithRects,
   type CarState, type Inputs,
@@ -12,7 +13,7 @@ import {
 import { SoundEngine } from './sound';
 import { Effects } from './effects';
 import {
-  PLAYER_CAP, LOBBY_SYNC_MS, EV, colorName, LobbyState,
+  PLAYER_CAP, LOBBY_SYNC_MS, IDLE_TIMEOUT_MS, EV, colorName, LobbyState,
 } from './lobby';
 import {
   RaceState, RACE_CONFIG, formatRaceTime,
@@ -523,19 +524,22 @@ function setEditorLaps(n: number) {
 document.getElementById('laps-dec')?.addEventListener('click', () => setEditorLaps(editorLaps - 1));
 document.getElementById('laps-inc')?.addEventListener('click', () => setEditorLaps(editorLaps + 1));
 
-// ---------- Supabase channel ----------
-const channel = supabase.channel(channelName(code), {
-  config: { broadcast: { self: false } },
-});
-
 // ================= LOBBY — the desktop is the authority =================
 // The desktop owns the ONLY LobbyState; phones never self-assign slots (no
 // races — Supabase delivers to this single JS thread, processed in order).
 // Built for N: the cap lives in lobby.ts (PLAYER_CAP).
 const lobby = new LobbyState(PLAYER_CAP);
 
+// Realtime health: the idle-sweep must NOT free everyone just because OUR own
+// channel dropped — only when a phone genuinely went quiet. So the sweep is
+// gated on channelReady, plus a grace window after a reconnect for phones to
+// re-announce (they heartbeat ~PHONE_HEARTBEAT_MS).
+let channelReady = false;
+let sweepGraceUntil = 0;
+const nowIso = () => new Date().toISOString();
+
 function broadcastLobby() {
-  channel.send({
+  rc.send({
     type: 'broadcast', event: EV.lobby,
     payload: { players: lobby.snapshot(), cap: PLAYER_CAP },
   });
@@ -579,59 +583,93 @@ function renderLobbyUI() {
   }).join('');
 }
 
-// ---- phone → desktop handlers ----
-channel.on('broadcast', { event: EV.join }, ({ payload }) => {
-  const p = payload as { id?: unknown; color?: string; name?: string };
-  const id = String(p?.id ?? '');
-  if (!id) return;
-  const r = lobby.join(id, p?.color, Date.now(), p?.name);
-  if (r.slot === null) {
-    channel.send({ type: 'broadcast', event: EV.full, payload: { id } }); // lobby full
-  } else if (r.changed) {
-    broadcastLobby();
-  }
-});
+// ---- phone → desktop handlers (re-attached to every (re)created channel) ----
+function wireDesktop(ch: RealtimeChannel) {
+  ch.on('broadcast', { event: EV.join }, ({ payload }) => {
+    const p = payload as { id?: unknown; color?: string; name?: string };
+    const id = String(p?.id ?? '');
+    if (!id) return;
+    const r = lobby.join(id, p?.color, Date.now(), p?.name);
+    if (r.slot === null) {
+      rc.send({ type: 'broadcast', event: EV.full, payload: { id } }); // lobby full
+    } else if (r.changed) {
+      broadcastLobby();
+    }
+  });
 
-channel.on('broadcast', { event: EV.color }, ({ payload }) => {
-  const id = String((payload as { id?: unknown })?.id ?? '');
-  const color = (payload as { color?: string })?.color;
-  if (!id || !color) return;
-  if (lobby.setColor(id, color, Date.now()).changed) broadcastLobby();
-});
+  ch.on('broadcast', { event: EV.color }, ({ payload }) => {
+    const id = String((payload as { id?: unknown })?.id ?? '');
+    const color = (payload as { color?: string })?.color;
+    if (!id || !color) return;
+    if (lobby.setColor(id, color, Date.now()).changed) broadcastLobby();
+  });
 
-channel.on('broadcast', { event: EV.name }, ({ payload }) => {
-  const id = String((payload as { id?: unknown })?.id ?? '');
-  const name = (payload as { name?: string })?.name;
-  if (!id || name === undefined) return;
-  if (lobby.setName(id, name, Date.now()).changed) broadcastLobby();
-});
+  ch.on('broadcast', { event: EV.name }, ({ payload }) => {
+    const id = String((payload as { id?: unknown })?.id ?? '');
+    const name = (payload as { name?: string })?.name;
+    if (!id || name === undefined) return;
+    if (lobby.setName(id, name, Date.now()).changed) broadcastLobby();
+  });
 
-channel.on('broadcast', { event: EV.leave }, ({ payload }) => {
-  const id = String((payload as { id?: unknown })?.id ?? '');
-  if (id && lobby.leave(id).changed) broadcastLobby();
-});
+  ch.on('broadcast', { event: EV.leave }, ({ payload }) => {
+    const id = String((payload as { id?: unknown })?.id ?? '');
+    if (id && lobby.leave(id).changed) broadcastLobby();
+  });
 
-channel.on('broadcast', { event: EV.control }, ({ payload }) => {
-  const id = String((payload as { id?: unknown })?.id ?? '');
-  // STEP 2: every connected slot drives its OWN car. Route by the desktop's
-  // authoritative id→slot map (never trust the phone's self-reported slot).
-  if (!id) {                                       // legacy id-less → drive slot 0
-    const c0 = cars.get(0);
-    if (c0) applyInputs(c0.target, payload as Inputs);
-    return;
-  }
-  const r = lobby.join(id, undefined, Date.now()); // lazy-join if join was missed
-  if (r.changed) broadcastLobby();                 // → syncCars spawns the car
-  if (r.slot === null) return;                     // lobby full
-  const car = cars.get(r.slot);
-  if (car) applyInputs(car.target, payload as Inputs);
-});
+  ch.on('broadcast', { event: EV.control }, ({ payload }) => {
+    const id = String((payload as { id?: unknown })?.id ?? '');
+    // STEP 2: every connected slot drives its OWN car. Route by the desktop's
+    // authoritative id→slot map (never trust the phone's self-reported slot).
+    if (!id) {                                       // legacy id-less → drive slot 0
+      const c0 = cars.get(0);
+      if (c0) applyInputs(c0.target, payload as Inputs);
+      return;
+    }
+    const r = lobby.join(id, undefined, Date.now()); // lazy-join if join was missed
+    if (r.changed) broadcastLobby();                 // → syncCars spawns the car
+    if (r.slot === null) return;                     // lobby full
+    const car = cars.get(r.slot);
+    if (car) applyInputs(car.target, payload as Inputs);
+  });
+}
+
+// Resilient channel: auto-reconnects on a dropped socket (the ~60s idle/timeout)
+// and re-accepts the existing players by id — no QR rescan.
+const rc = createResilientChannel(
+  channelName(code), { broadcast: { self: false } }, wireDesktop,
+  {
+    label: 'desktop',
+    onReady: () => {
+      channelReady = true;
+      // After ANY (re)subscribe, give phones a grace window to re-announce
+      // before the idle-sweep may free anyone. Harmless on first connect.
+      sweepGraceUntil = Date.now() + IDLE_TIMEOUT_MS;
+      broadcastLobby();   // push current roster to (re)connected phones
+    },
+    onDrop: (status) => {
+      channelReady = false;   // STOP the sweep — our channel died, the phones didn't
+      console.warn(`[desktop] ${nowIso()} channel dropped (${status}); reconnecting, NOT freeing slots`);
+    },
+  },
+);
 
 // ---- disconnect sweep + periodic lobby re-sync ----
-setInterval(() => { if (lobby.sweep(Date.now()).changed) broadcastLobby(); }, 1000);
+// Frees a slot ONLY when its phone truly went quiet — never as a side effect of
+// the desktop's own channel dropping (gated on channelReady + reconnect grace).
+setInterval(() => {
+  if (!channelReady || Date.now() < sweepGraceUntil) return;
+  const r = lobby.sweep(Date.now());
+  if (r.changed) {
+    for (const f of r.freed) {
+      console.info(
+        `[desktop] ${nowIso()} idle-sweep freed slot ${f.slot} (id=${f.id}, silent ${Math.round(f.ageMs)}ms)`,
+      );
+    }
+    broadcastLobby();
+  }
+}, 1000);
 setInterval(() => { if (lobby.size()) broadcastLobby(); }, LOBBY_SYNC_MS);
 
-channel.subscribe();
 renderLobbyUI();
 
 // ---------- Skids (per car) ----------

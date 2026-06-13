@@ -1,4 +1,5 @@
-import { supabase, channelName } from './supabase';
+import type { RealtimeChannel } from '@supabase/supabase-js';
+import { channelName, createResilientChannel } from './supabase';
 import {
   getClientId, CAR_COLORS, EV, PHONE_HEARTBEAT_MS, sanitizeName,
   type LobbyPlayer,
@@ -113,15 +114,14 @@ if (!code) {
   errorMsg = 'No session code in URL. Scan the QR on the desktop screen.';
   stage = 'error';
 }
-const channel = supabase.channel(channelName(code), {
-  config: { broadcast: { self: false } },
-});
-
 // ---------- Lobby messaging (desktop is the authority) ----------
 // We never self-assign a slot — we announce ourselves (join, doubling as a
 // keepalive heartbeat) and adopt whatever slot/colour the desktop broadcasts.
+// All sends go through the resilient channel `rc` (no-op while reconnecting,
+// resumes automatically — the heartbeat re-announces us by id so the desktop
+// reclaims our slot WITHOUT a QR rescan).
 function sendJoin() {
-  channel.send({
+  rc.send({
     type: 'broadcast', event: EV.join,
     payload: {
       id: clientId,
@@ -131,14 +131,11 @@ function sendJoin() {
   });
 }
 function sendName() {
-  channel.send({
-    type: 'broadcast', event: EV.name,
-    payload: { id: clientId, name: selectedName },
-  });
+  rc.send({ type: 'broadcast', event: EV.name, payload: { id: clientId, name: selectedName } });
 }
 function sendLeave() {
   try {
-    channel.send({ type: 'broadcast', event: EV.leave, payload: { id: clientId } });
+    rc.send({ type: 'broadcast', event: EV.leave, payload: { id: clientId } });
   } catch { /* best-effort */ }
 }
 
@@ -150,32 +147,39 @@ function startLobby() {
   setInterval(sendJoin, PHONE_HEARTBEAT_MS);
 }
 
-// Desktop → phone: full lobby state. Find our own entry to learn our slot.
-channel.on('broadcast', { event: EV.lobby }, ({ payload }) => {
-  const list = ((payload as { players?: LobbyPlayer[] })?.players ?? []) as LobbyPlayer[];
-  const me = list.find((p) => p.id === clientId);
-  if (me) {
-    lobbyFull = false;
-    mySlot = me.slot;
-    if (!selectedColor) { selectedColor = me.color; highlightSwatch(); }
-    // Adopt a server-side name we haven't locally typed (restores it on reclaim).
-    if (!selectedName && me.name) {
-      selectedName = me.name;
-      if (lobbyNameEl && document.activeElement !== lobbyNameEl) lobbyNameEl.value = me.name;
+// Desktop → phone handlers (re-attached to every (re)created channel).
+function wirePhone(ch: RealtimeChannel) {
+  ch.on('broadcast', { event: EV.lobby }, ({ payload }) => {
+    const list = ((payload as { players?: LobbyPlayer[] })?.players ?? []) as LobbyPlayer[];
+    const me = list.find((p) => p.id === clientId);
+    if (me) {
+      lobbyFull = false;
+      mySlot = me.slot;
+      if (!selectedColor) { selectedColor = me.color; highlightSwatch(); }
+      // Adopt a server-side name we haven't locally typed (restores on reclaim).
+      if (!selectedName && me.name) {
+        selectedName = me.name;
+        if (lobbyNameEl && document.activeElement !== lobbyNameEl) lobbyNameEl.value = me.name;
+      }
     }
-  }
-  renderLobby();
-});
-channel.on('broadcast', { event: EV.full }, ({ payload }) => {
-  if ((payload as { id?: string })?.id === clientId && mySlot === null) {
-    lobbyFull = true;
     renderLobby();
-  }
-});
+  });
+  ch.on('broadcast', { event: EV.full }, ({ payload }) => {
+    if ((payload as { id?: string })?.id === clientId && mySlot === null) {
+      lobbyFull = true;
+      renderLobby();
+    }
+  });
+}
 
-channel.subscribe((status) => {
-  if (status === 'SUBSCRIBED') startLobby();
-});
+// Resilient channel: reconnects after a blip so input resumes without a rescan.
+const rc = createResilientChannel(
+  channelName(code), { broadcast: { self: false } }, wirePhone,
+  {
+    label: 'phone',
+    onReady: () => { startLobby(); sendJoin(); },  // re-announce on every (re)connect
+  },
+);
 window.addEventListener('pagehide', sendLeave);
 
 // ---------- Colour picker (on the TAP TO STEER screen) ----------
@@ -196,7 +200,7 @@ function pickColor(hex: string) {
   selectedColor = hex;
   highlightSwatch();
   // Immediate colour message + refresh the join payload so it sticks.
-  channel.send({ type: 'broadcast', event: EV.color, payload: { id: clientId, color: hex } });
+  rc.send({ type: 'broadcast', event: EV.color, payload: { id: clientId, color: hex } });
   sendJoin();
 }
 function highlightSwatch() {
@@ -733,7 +737,7 @@ function sendControlNow() {
     brake:     pedalValue('brake'),
     handbrake: handbrakeOn(),
   };
-  channel.send({ type: 'broadcast', event: EV.control, payload });
+  rc.send({ type: 'broadcast', event: EV.control, payload });
 }
 
 function startBroadcast() {

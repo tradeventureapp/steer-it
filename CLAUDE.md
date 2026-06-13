@@ -68,9 +68,14 @@ Domain (goal): `steerit.app`. Currently running on `steer-it.vercel.app`.
 - `effects.ts` — particles (tire smoke, impact sparks, screen shake). Global hard cap
   (`FX_CONFIG.maxParticles`); emission stops at the cap.
 - `sound.ts` — `SoundEngine` (WebAudio). OFF by default; toggled by the M key / button.
-- `supabase.ts` — Supabase client + `channelName(code)`. Throws if
-  `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` are missing (this gates the whole app,
-  so headless preview without env vars won't boot).
+- `supabase.ts` — Supabase client + `channelName(code)` + `createResilientChannel`
+  (auto-reconnect wrapper: 15s heartbeat keepalive, and on CLOSED/TIMED_OUT/
+  CHANNEL_ERROR it removes + re-creates + re-wires + re-subscribes a fresh channel
+  for the same room with backoff — survives the ~60s Realtime idle drop without a
+  QR rescan). Throws if `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` are missing
+  (this gates the whole app, so headless preview without env vars won't boot).
+  The desktop gates its idle-sweep on channel health (`channelReady` + a reconnect
+  grace) so its OWN dropped channel never mass-frees every slot.
 
 ### Build / test / run commands
 - `npm run dev` — Vite dev server (port 5173).
