@@ -47,7 +47,9 @@ Domain (goal): `steerit.app`. Currently running on `steer-it.vercel.app`.
 - `maps.ts` — MAP SYSTEM. `MapDefinition` (background/obstacles/spawn/bounds/wrap/
   drag), a registry (`registerMap`/`getMap`/`listMaps`/`hasMap`, `DEFAULT_MAP_ID`),
   `desktopMap` (map 1, delegating to `world.ts`), and `flatTrackMap` (map 2 — a
-  dirt oval: `computeOval`/`ellipseRects` tessellate the barriers into AABB rects;
+  STADIUM dirt oval via `computeStadium`/`stadiumPath`/`stadiumBarriers`: straights
+  + semicircle turns; barriers ONLY on the inner/outer edges (straights = thin
+  rects, turns = small squares strictly off-band) so the band drives freely;
   grandstands/neon banners/floodlights decor; grid spawn on the start line).
   desktop.ts reads everything through the active `MapDefinition`; `switchMap(id)`
   swaps it. Dev hooks: `window.steerMaps()` / `window.steerSwitchMap(id)`.

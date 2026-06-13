@@ -172,48 +172,77 @@ export const desktopMap: MapDefinition = {
 //  so createWorld (rects/spawn) and drawBackground (which gets no world) agree.
 // =============================================================================
 
-interface OvalGeom {
-  cx: number; cy: number;          // centre (metres)
-  outerRx: number; outerRy: number;
-  innerRx: number; innerRy: number;
-  trackW: number;                  // dirt band width (metres)
+// STADIUM oval (rounded rectangle): top & bottom STRAIGHTS joined by left & right
+// SEMICIRCULAR turns. Wider than tall (classic short-track). The inner boundary
+// is the outer offset inward by the band width — under such an offset the arc
+// CENTRES (cx±sx, cy) and the straight half-length `sx` are preserved, only the
+// turn radius shrinks (OYh → IYh). The drivable dirt band is everything between.
+interface StadiumGeom {
+  cx: number; cy: number;
+  sx: number;     // straight half-length (shared by inner & outer)
+  OYh: number;    // outer half-height = outer turn radius
+  IYh: number;    // inner half-height = inner turn radius (infield)
+  bandW: number;  // track width = OYh - IYh
 }
-interface FlatWorld extends MapWorld { geom: OvalGeom; }
+interface FlatWorld extends MapWorld { geom: StadiumGeom; }
 
-function computeOval(wM: number, hM: number): OvalGeom {
+function computeStadium(wM: number, hM: number): StadiumGeom {
   const cx = wM / 2, cy = hM / 2;
-  const outerRx = wM / 2 - wM * 0.07;
-  const outerRy = hM / 2 - hM * 0.08;
-  const trackW = Math.min(outerRx, outerRy) * 0.36;   // dirt band width
-  return {
-    cx, cy, outerRx, outerRy,
-    innerRx: Math.max(2, outerRx - trackW),
-    innerRy: Math.max(2, outerRy - trackW),
-    trackW,
-  };
+  const OXw = wM / 2 - wM * 0.05;        // outer half-width
+  const OYh = hM / 2 - hM * 0.07;        // outer half-height = turn radius
+  const sx = Math.max(2, OXw - OYh);     // straight half-length (landscape ⇒ > 0)
+  // Generous, car-friendly band; never so wide it eats the whole infield.
+  const bandW = Math.min(Math.max(OYh * 0.5, 3.2), Math.max(1.0, OYh - 0.8));
+  return { cx, cy, sx, OYh, IYh: OYh - bandW, bandW };
 }
 
-// Tessellate an ellipse perimeter into overlapping AABB squares (a curved wall
-// the box-collision can handle). Squares are auto-sized to the widest sample
-// gap × 1.5 so there are never holes a car could slip through.
-function ellipseRects(
-  cx: number, cy: number, rx: number, ry: number, minSize: number,
-): ObstacleRect[] {
-  const h = ((rx - ry) ** 2) / ((rx + ry) ** 2);
-  const perim = Math.PI * (rx + ry) * (1 + (3 * h) / (10 + Math.sqrt(4 - 3 * h)));
-  const n = Math.max(24, Math.ceil(perim / 1.4));
-  const pts: Array<[number, number]> = [];
-  for (let i = 0; i < n; i++) {
-    const t = (i / n) * Math.PI * 2;
-    pts.push([cx + rx * Math.cos(t), cy + ry * Math.sin(t)]);
-  }
-  let maxGap = 0;
-  for (let i = 0; i < n; i++) {
-    const a = pts[i], b = pts[(i + 1) % n];
-    maxGap = Math.max(maxGap, Math.hypot(a[0] - b[0], a[1] - b[1]));
-  }
-  const s = Math.max(minSize, maxGap * 1.5);
-  return pts.map(([x, y]) => ({ x: x - s / 2, y: y - s / 2, w: s, h: s }));
+// Trace a stadium outline (sx, Yh) in the ctx's current units; arc centres at
+// (cx±sx, cy). Used for the dirt fill, grooves, and the neon barrier strokes.
+function stadiumPath(
+  ctx: CanvasRenderingContext2D, cx: number, cy: number, sx: number, Yh: number,
+) {
+  ctx.beginPath();
+  ctx.moveTo(cx - sx, cy - Yh);
+  ctx.lineTo(cx + sx, cy - Yh);
+  ctx.arc(cx + sx, cy, Yh, -Math.PI / 2, Math.PI / 2);
+  ctx.lineTo(cx - sx, cy + Yh);
+  ctx.arc(cx - sx, cy, Yh, Math.PI / 2, Math.PI * 1.5);
+  ctx.closePath();
+}
+
+// Barriers hug ONLY the inner + outer edges — the dirt band between is left
+// completely rect-free so a car can drive it freely. Straights = one thin AABB
+// each; turns = small overlapping squares pushed strictly OUTSIDE the outer
+// radius / INSIDE the inner radius (so they never intrude onto the band).
+function stadiumBarriers(g: StadiumGeom): ObstacleRect[] {
+  const { cx, cy, sx, OYh, IYh } = g;
+  const sq = Math.max(1.0, g.bandW * 0.16);   // wall thickness
+  const ext = sq;                              // straight↔turn overlap
+  const rects: ObstacleRect[] = [
+    { x: cx - sx - ext, y: cy - OYh - sq, w: 2 * sx + 2 * ext, h: sq }, // outer top
+    { x: cx - sx - ext, y: cy + OYh,      w: 2 * sx + 2 * ext, h: sq }, // outer bottom
+    { x: cx - sx - ext, y: cy - IYh,      w: 2 * sx + 2 * ext, h: sq }, // inner top
+    { x: cx - sx - ext, y: cy + IYh - sq, w: 2 * sx + 2 * ext, h: sq }, // inner bottom
+  ];
+  const arc = (ccx: number, ccy: number, R: number, a0: number, a1: number, side: number) => {
+    const Rc = R + side * sq * 0.72;      // square corners stay clear of radius R
+    const pad = 0.14;                      // overrun to meet the straight walls
+    const span = a1 - a0 + pad * 2;
+    const n = Math.max(6, Math.ceil((R * span) / (sq * 0.5)));
+    for (let i = 0; i <= n; i++) {
+      const t = a0 - pad + span * (i / n);
+      rects.push({
+        x: ccx + Rc * Math.cos(t) - sq / 2,
+        y: ccy + Rc * Math.sin(t) - sq / 2,
+        w: sq, h: sq,
+      });
+    }
+  };
+  arc(cx + sx, cy, OYh, -Math.PI / 2, Math.PI / 2, +1);    // outer right turn
+  arc(cx - sx, cy, OYh, Math.PI / 2, Math.PI * 1.5, +1);   // outer left turn
+  arc(cx + sx, cy, IYh, -Math.PI / 2, Math.PI / 2, -1);    // inner right turn
+  arc(cx - sx, cy, IYh, Math.PI / 2, Math.PI * 1.5, -1);   // inner left turn
+  return rects;
 }
 
 // Stable pseudo-random in [0,1) for deterministic crowd dots (no per-frame
@@ -259,23 +288,24 @@ function drawBanner(
   ctx.restore();
 }
 
-function drawBarrier(
-  ctx: CanvasRenderingContext2D, cx: number, cy: number, rx: number, ry: number,
+// Neon tyre-wall along a stadium outline (sx, Yh): a dark base + offset
+// magenta/cyan dashes (the retro armco look).
+function drawStadiumWall(
+  ctx: CanvasRenderingContext2D, cx: number, cy: number, sx: number, Yh: number,
   thickness: number,
 ) {
   ctx.save();
-  // Tyre wall base.
+  ctx.lineJoin = 'round';
   ctx.lineWidth = thickness;
   ctx.strokeStyle = '#0e1116';
-  ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2); ctx.stroke();
-  // Neon armco accents (magenta + cyan dashes offset against each other).
+  stadiumPath(ctx, cx, cy, sx, Yh); ctx.stroke();
   ctx.lineWidth = Math.max(2, thickness * 0.32);
   ctx.setLineDash([14, 11]);
   ctx.strokeStyle = 'rgba(255,45,149,0.8)';
-  ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2); ctx.stroke();
+  stadiumPath(ctx, cx, cy, sx, Yh); ctx.stroke();
   ctx.lineDashOffset = 12.5;
   ctx.strokeStyle = 'rgba(45,226,230,0.7)';
-  ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2); ctx.stroke();
+  stadiumPath(ctx, cx, cy, sx, Yh); ctx.stroke();
   ctx.setLineDash([]);
   ctx.restore();
 }
@@ -326,55 +356,50 @@ export const flatTrackMap: MapDefinition = {
   name: 'Flat Track',
 
   createWorld(widthM, heightM) {
-    const g = computeOval(widthM, heightM);
-    // Barriers on the OUTER edge (push cars in) and INNER edge (push cars out).
-    const rects = [
-      ...ellipseRects(g.cx, g.cy, g.outerRx, g.outerRy, 1.2),
-      ...ellipseRects(g.cx, g.cy, g.innerRx, g.innerRy, 1.2),
-    ];
-    const world: FlatWorld = { width: widthM, height: heightM, rects, geom: g };
+    const g = computeStadium(widthM, heightM);
+    // Barriers ONLY on the inner + outer edges; the band between is rect-free.
+    const world: FlatWorld = {
+      width: widthM, height: heightM, rects: stadiumBarriers(g), geom: g,
+    };
     return world;
   },
 
-  // Surface layer (UNDER the skids): night ground, dirt ring, racing-line
+  // Surface layer (UNDER the skids): night ground, dirt band, racing-line
   // grooves, infield, start/finish stripe. Recomputed from the pixel size.
   drawBackground(ctx, wPx, hPx) {
     const px = CONFIG.pxPerMeter;
-    const g = computeOval(wPx / px, hPx / px);
-    const cx = g.cx * px, cy = g.cy * px;
-    const oRx = g.outerRx * px, oRy = g.outerRy * px;
-    const iRx = g.innerRx * px, iRy = g.innerRy * px;
+    const g = computeStadium(wPx / px, hPx / px);
+    const cx = g.cx * px, cy = g.cy * px, sx = g.sx * px;
+    const OYh = g.OYh * px, IYh = g.IYh * px, midYh = (OYh + IYh) / 2;
 
     const bg = ctx.createLinearGradient(0, 0, 0, hPx);
     bg.addColorStop(0, '#241a33'); bg.addColorStop(1, '#130d1d');
     ctx.fillStyle = bg; ctx.fillRect(0, 0, wPx, hPx);
 
-    // Dirt ring (warm brown radial).
-    const dirt = ctx.createRadialGradient(cx, cy, Math.min(iRx, iRy), cx, cy, Math.max(oRx, oRy));
+    // Dirt band (warm brown) — fill the outer stadium.
+    const dirt = ctx.createRadialGradient(cx, cy, IYh, cx, cy, sx + OYh);
     dirt.addColorStop(0, '#8a5226'); dirt.addColorStop(1, '#693d1b');
     ctx.fillStyle = dirt;
-    ctx.beginPath(); ctx.ellipse(cx, cy, oRx, oRy, 0, 0, Math.PI * 2); ctx.fill();
+    stadiumPath(ctx, cx, cy, sx, OYh); ctx.fill();
 
-    // Worn racing line (lighter band at mid radius) + faint grooves.
+    // Worn racing line (lighter band at mid) + faint grooves.
+    ctx.lineJoin = 'round';
     ctx.strokeStyle = 'rgba(176,124,72,0.45)';
-    ctx.lineWidth = (oRx - iRx) * 0.32;
-    ctx.beginPath();
-    ctx.ellipse(cx, cy, (oRx + iRx) / 2, (oRy + iRy) / 2, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.lineWidth = (OYh - IYh) * 0.32;
+    stadiumPath(ctx, cx, cy, sx, midYh); ctx.stroke();
     ctx.strokeStyle = 'rgba(80,48,22,0.5)'; ctx.lineWidth = 2;
     for (const f of [0.72, 0.5, 0.28]) {
-      ctx.beginPath();
-      ctx.ellipse(cx, cy, iRx + (oRx - iRx) * f, iRy + (oRy - iRy) * f, 0, 0, Math.PI * 2);
-      ctx.stroke();
+      stadiumPath(ctx, cx, cy, sx, IYh + (OYh - IYh) * f); ctx.stroke();
     }
 
-    // Infield (carve the dark-green centre).
-    const inf = ctx.createLinearGradient(0, cy - iRy, 0, cy + iRy);
+    // Infield — carve the dark-green centre (inner stadium).
+    const inf = ctx.createLinearGradient(0, cy - IYh, 0, cy + IYh);
     inf.addColorStop(0, '#22382b'); inf.addColorStop(1, '#192c21');
     ctx.fillStyle = inf;
-    ctx.beginPath(); ctx.ellipse(cx, cy, iRx, iRy, 0, 0, Math.PI * 2); ctx.fill();
+    stadiumPath(ctx, cx, cy, sx, IYh); ctx.fill();
 
     // Start/finish — checkered stripe across the bottom straight (x = cx).
-    const yTop = cy + iRy, yBot = cy + oRy, segs = 9;
+    const yTop = cy + IYh, yBot = cy + OYh, segs = 9;
     const segH = (yBot - yTop) / segs, lw = 1.2 * px;
     for (let i = 0; i < segs; i++) {
       ctx.fillStyle = i % 2 ? '#0c0c0c' : '#eef0f2';
@@ -385,57 +410,56 @@ export const flatTrackMap: MapDefinition = {
   // Decor + barriers (ABOVE the skids).
   drawObstacles(ctx, world, px, _dragged) {
     const g = (world as FlatWorld).geom;
-    const cx = g.cx * px, cy = g.cy * px;
-    const oRx = g.outerRx * px, oRy = g.outerRy * px;
-    const iRx = g.innerRx * px, iRy = g.innerRy * px;
-    const barrierPx = g.trackW * px * 0.14;
+    const cx = g.cx * px, cy = g.cy * px, sx = g.sx * px;
+    const OYh = g.OYh * px, IYh = g.IYh * px;
+    const barrierPx = Math.max(3, g.bandW * px * 0.16);
 
-    // Grandstands outside (top, left, right) — rise away from the track.
-    const standH = Math.min(46, oRy * 0.3);
-    drawStand(ctx, cx, cy - oRy - 6, 0, oRx * 0.9, standH);
-    drawStand(ctx, cx - oRx - 6, cy, -Math.PI / 2, oRy * 0.9, standH);
-    drawStand(ctx, cx + oRx + 6, cy, Math.PI / 2, oRy * 0.9, standH);
+    // Grandstands: along the top straight + behind each turn (rise away).
+    const standH = Math.min(48, OYh * 0.36);
+    drawStand(ctx, cx, cy - OYh - 7, 0, sx * 2 + OYh, standH);
+    drawStand(ctx, cx - sx - OYh - 7, cy, -Math.PI / 2, OYh * 1.6, standH);
+    drawStand(ctx, cx + sx + OYh + 7, cy, Math.PI / 2, OYh * 1.6, standH);
 
-    // Floodlights at the four diagonal corners.
-    for (const d of [-45, 45, 135, 225]) {
-      const t = (d * Math.PI) / 180;
-      drawFloodlight(ctx, cx + (oRx + 14) * Math.cos(t), cy + (oRy + 14) * Math.sin(t));
+    // Floodlights at the four outside corners.
+    for (const [gx, gy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) {
+      drawFloodlight(ctx, cx + gx * (sx + OYh * 0.55), cy + gy * (OYh + 9));
     }
 
-    // Trackside ad banners around the outside (skip the bottom start area).
-    const angles = [-62, -22, 22, 62, 118, 158, 202, 242];
-    angles.forEach((deg, i) => {
-      const t = (deg * Math.PI) / 180;
-      const ex = cx + (oRx + barrierPx + 10) * Math.cos(t);
-      const ey = cy + (oRy + barrierPx + 10) * Math.sin(t);
-      // Tangent to the ellipse, normalised to [-90°,90°] so text never reads
-      // upside-down on the lower half of the oval.
-      let tang = Math.atan2(oRy * Math.cos(t), -oRx * Math.sin(t));
-      if (tang > Math.PI / 2) tang -= Math.PI;
-      else if (tang < -Math.PI / 2) tang += Math.PI;
-      drawBanner(ctx, ex, ey, tang, Math.min(oRx, oRy) * 0.5, 26,
-        FLAT_ADS[i % FLAT_ADS.length], BANNER_COLORS[i % BANNER_COLORS.length]);
-    });
+    // Trackside ad banners: along both straights (skip the start centre) + a
+    // tall banner behind each turn. All read upright.
+    let bi = 0;
+    const next = () => FLAT_ADS[bi % FLAT_ADS.length];
+    const col = () => BANNER_COLORS[bi % BANNER_COLORS.length];
+    const bw = Math.min(sx * 0.7, OYh * 1.1);
+    for (const fx of [-0.6, 0, 0.6]) {                 // top straight
+      drawBanner(ctx, cx + fx * sx, cy - OYh - barrierPx - 11, 0, bw, 26, next(), col()); bi++;
+    }
+    for (const fx of [-0.62, 0.62]) {                  // bottom straight (skip centre)
+      drawBanner(ctx, cx + fx * sx, cy + OYh + barrierPx + 11, 0, bw, 26, next(), col()); bi++;
+    }
+    drawBanner(ctx, cx + sx + OYh + barrierPx + 11, cy, Math.PI / 2, OYh * 0.9, 24, next(), col()); bi++;
+    drawBanner(ctx, cx - sx - OYh - barrierPx - 11, cy, Math.PI / 2, OYh * 0.9, 24, next(), col()); bi++;
 
     // Barriers (tyre walls) on the inner + outer edges — match the collision.
-    drawBarrier(ctx, cx, cy, oRx, oRy, barrierPx);
-    drawBarrier(ctx, cx, cy, iRx, iRy, barrierPx);
+    drawStadiumWall(ctx, cx, cy, sx, OYh, barrierPx);
+    drawStadiumWall(ctx, cx, cy, sx, IYh, barrierPx);
 
     // Prominent infield banners (the headline ad space).
-    drawBanner(ctx, cx, cy, 0, iRx * 1.05, 34, 'STEER IT SPEEDWAY', '#ff8a3d');
-    drawBanner(ctx, cx, cy - iRy * 0.5, 0, iRx * 0.62, 24, 'DRIFT KING 9000', '#2de2e6');
-    drawBanner(ctx, cx, cy + iRy * 0.5, 0, iRx * 0.62, 24, 'PIXELCO RACING', '#ff2d95');
+    const iw = sx + IYh;
+    drawBanner(ctx, cx, cy, 0, iw * 1.5, 34, 'STEER IT SPEEDWAY', '#ff8a3d');
+    drawBanner(ctx, cx, cy - IYh * 0.52, 0, iw * 0.95, 24, 'DRIFT KING 9000', '#2de2e6');
+    drawBanner(ctx, cx, cy + IYh * 0.52, 0, iw * 0.95, 24, 'PIXELCO RACING', '#ff2d95');
   },
 
   // Grid spawn: 2-wide, lined up behind the start line (x = cx) on the bottom
   // straight, facing +x (along the track). Non-overlapping for N.
   spawn(slot, world) {
     const g = (world as FlatWorld).geom;
-    const inner = g.cy + g.innerRy, outer = g.cy + g.outerRy;
+    const inner = g.cy + g.IYh, outer = g.cy + g.OYh;
     const lane0 = inner + (outer - inner) * 0.34;
     const lane1 = inner + (outer - inner) * 0.66;
     const col = slot % 2, row = Math.floor(slot / 2);
-    return { x: g.cx - 1.5 - row * 3.0, y: col === 0 ? lane0 : lane1, heading: 0 };
+    return { x: g.cx - 1.5 - row * 2.6, y: col === 0 ? lane0 : lane1, heading: 0 };
   },
 
   // Closed track: the barriers do the real containment. wrap() just clamps a
