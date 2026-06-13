@@ -942,116 +942,176 @@ function updateRaceHud(h: RaceHud) {
 function drawCar(car: Car) {
   // Draw centered at the car's world position, rotated by heading.
   // Inner coordinates are METERS (ctx scaled by pxPerMeter); +x = front.
+  // ALL shading derives from the slot's base colour (shadeHex lightens >1 /
+  // darkens <1, clamped) so every player's car reads as a polished 3D body.
   const s = car.state;
-  const sx = s.x * PX();
-  const sy = s.y * PX();
+  const base = car.color;
+  const edge    = shadeHex(base, 0.58);   // dark flanks / ambient occlusion
+  const outline = shadeHex(base, 0.42);   // crisp body outline
+  const crown   = shadeHex(base, 1.22);   // top-down highlight along the spine
+  const roofCol = shadeHex(base, 1.34);   // roof panel (brightest)
+  const roofLip = shadeHex(base, 0.80);   // AO lip around the roof
+  const hood    = shadeHex(base, 0.90);   // hood panel (slightly recessed)
+  const wingCol = shadeHex(base, 0.72);   // wing endplates
+  const archCol = shadeHex(base, 0.40);   // wheel-arch recesses
 
   ctx.save();
-  ctx.translate(sx, sy);
+  ctx.translate(s.x * PX(), s.y * PX());
   ctx.rotate(s.heading);
   ctx.scale(PX(), PX());
 
   const halfL = 0.75;   // 1.5 m long
   const halfW = 0.309;  // 0.617 m wide
 
-  // Body — this slot's chosen colour, with a darker outline.
-  const bodyOutline = shadeHex(car.color, 0.55);
-  ctx.fillStyle = car.color;
-  roundRect(ctx, -halfL, -halfW, halfL * 2, halfW * 2, 0.12);
+  // ---- 1. Ground drop shadow. Cast from the body silhouette; offsets are in
+  // SCREEN space (shadow* ignores the transform) so the light direction stays
+  // fixed as the car rotates and the body sits ON the surface, not floating. --
+  ctx.save();
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.40)';
+  ctx.shadowBlur = 13;
+  ctx.shadowOffsetX = 3;
+  ctx.shadowOffsetY = 7;
+  ctx.fillStyle = '#000';
+  roundRect(ctx, -halfL, -halfW, halfL * 2, halfW * 2, 0.14);
   ctx.fill();
-  ctx.strokeStyle = bodyOutline;
-  ctx.lineWidth = 0.03;
+  ctx.restore();   // clears the shadow state (body is drawn over the black fill)
+
+  // ---- 2. Body shell — cross-width gradient: bright crown down the centre,
+  // darker toward both flanks = a rounded, lit 3D form. ----
+  const bodyGrad = ctx.createLinearGradient(0, -halfW, 0, halfW);
+  bodyGrad.addColorStop(0.00, edge);
+  bodyGrad.addColorStop(0.32, base);
+  bodyGrad.addColorStop(0.50, crown);
+  bodyGrad.addColorStop(0.68, base);
+  bodyGrad.addColorStop(1.00, edge);
+  ctx.fillStyle = bodyGrad;
+  roundRect(ctx, -halfL, -halfW, halfL * 2, halfW * 2, 0.13);
+  ctx.fill();
+  ctx.strokeStyle = outline;
+  ctx.lineWidth = 0.025;
   ctx.stroke();
 
-  // Bumpers — dark caps front and rear.
-  ctx.fillStyle = '#1a1d24';
-  roundRect(ctx, halfL - 0.09, -0.28, 0.09, 0.56, 0.04); ctx.fill();
-  roundRect(ctx, -halfL, -0.28, 0.08, 0.56, 0.04); ctx.fill();
+  // Soft specular sheen down the spine.
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.10)';
+  roundRect(ctx, -halfL + 0.12, -0.085, halfL * 2 - 0.24, 0.17, 0.07);
+  ctx.fill();
 
-  // Livery — twin white stripes down the hood and tail (the cabin glass
-  // overdraws them mid-car, which reads as stripes passing the roofline).
-  ctx.fillStyle = 'rgba(244, 246, 250, 0.95)';
-  ctx.fillRect(-0.62, -0.10, 1.24, 0.055);
-  ctx.fillRect(-0.62,  0.045, 1.24, 0.055);
+  // ---- 3. Bumpers (dark caps), front + rear ----
+  ctx.fillStyle = '#1b1e26';
+  roundRect(ctx, halfL - 0.10, -0.27, 0.10, 0.54, 0.05); ctx.fill();
+  roundRect(ctx, -halfL, -0.27, 0.09, 0.54, 0.05); ctx.fill();
 
-  // Headlights (pale) + taillights (red).
-  ctx.fillStyle = '#f3f0d8';
+  // ---- 4. Hood — recessed panel + centre scoop + a hood panel line ----
+  ctx.fillStyle = hood;
+  roundRect(ctx, 0.30, -0.215, 0.33, 0.43, 0.05); ctx.fill();
+  ctx.fillStyle = shadeHex(base, 0.5);
+  roundRect(ctx, 0.40, -0.075, 0.15, 0.15, 0.03); ctx.fill();   // scoop bezel
+  ctx.fillStyle = '#10131b';
+  roundRect(ctx, 0.43, -0.05, 0.09, 0.10, 0.02); ctx.fill();    // scoop mouth
+  ctx.strokeStyle = 'rgba(0, 0, 0, 0.22)'; ctx.lineWidth = 0.012;
+  ctx.beginPath(); ctx.moveTo(0.30, -0.215); ctx.lineTo(0.30, 0.215); ctx.stroke();
+
+  // ---- 5. Headlights (warm glow) + taillights (soft red glow) ----
+  ctx.save();
+  ctx.shadowColor = 'rgba(255, 238, 190, 0.95)'; ctx.shadowBlur = 6;
+  ctx.fillStyle = '#fff7df';
   ctx.beginPath();
-  ctx.arc(0.69, -0.19, 0.047, 0, Math.PI * 2);
-  ctx.arc(0.69,  0.19, 0.047, 0, Math.PI * 2);
+  ctx.arc(0.635, -0.185, 0.05, 0, Math.PI * 2);
+  ctx.arc(0.635,  0.185, 0.05, 0, Math.PI * 2);
   ctx.fill();
-  ctx.fillStyle = '#d23b2f';
-  ctx.fillRect(-0.72, -0.24, 0.05, 0.09);
-  ctx.fillRect(-0.72,  0.15, 0.05, 0.09);
+  ctx.restore();
+  ctx.save();
+  ctx.shadowColor = 'rgba(255, 45, 45, 0.9)'; ctx.shadowBlur = 6;
+  ctx.fillStyle = '#ff3b34';
+  roundRect(ctx, -0.715, -0.25, 0.055, 0.10, 0.02); ctx.fill();
+  roundRect(ctx, -0.715,  0.15, 0.055, 0.10, 0.02); ctx.fill();
+  ctx.restore();
 
-  // Wheels — gold rims on dark tires; fronts steer with steerAngle.
-  // Positions come from CONFIG (same source as the skid emitter).
-  drawWheel(+CONFIG.wheelbase / 2, -CONFIG.trackWidth / 2, s.steerAngle);
-  drawWheel(+CONFIG.wheelbase / 2, +CONFIG.trackWidth / 2, s.steerAngle);
-  drawWheel(-CONFIG.wheelbase / 2, -CONFIG.trackWidth / 2, 0);
-  drawWheel(-CONFIG.wheelbase / 2, +CONFIG.trackWidth / 2, 0);
+  // ---- 6. Wheel arches (dark recesses) then wheels ON TOP (fronts steer) ----
+  const wheelPts: Array<[number, number, number]> = [
+    [+CONFIG.wheelbase / 2, -CONFIG.trackWidth / 2, s.steerAngle],
+    [+CONFIG.wheelbase / 2, +CONFIG.trackWidth / 2, s.steerAngle],
+    [-CONFIG.wheelbase / 2, -CONFIG.trackWidth / 2, 0],
+    [-CONFIG.wheelbase / 2, +CONFIG.trackWidth / 2, 0],
+  ];
+  ctx.fillStyle = archCol;
+  for (const [ax, ay] of wheelPts) {
+    roundRect(ctx, ax - 0.15, ay - 0.072, 0.30, 0.144, 0.05);
+    ctx.fill();
+  }
+  for (const [ax, ay, ang] of wheelPts) drawWheel(ax, ay, ang);
 
-  // Windshield — dark glass, wider at the roofline.
-  ctx.fillStyle = '#141c2e';
-  ctx.beginPath();
-  ctx.moveTo(0.36, -0.21);
-  ctx.lineTo(0.36,  0.21);
-  ctx.lineTo(0.16,  0.26);
-  ctx.lineTo(0.16, -0.26);
-  ctx.closePath();
-  ctx.fill();
+  // ---- 7. Greenhouse — windshield, roof panel, rear window (tinted glass
+  // with a reflection sheen + AO lip around the roof) ----
+  drawGlass([[0.34, -0.21], [0.34, 0.21], [0.15, 0.255], [0.15, -0.255]]);
+  ctx.fillStyle = roofLip;
+  roundRect(ctx, -0.30, -0.265, 0.47, 0.53, 0.08); ctx.fill();
+  ctx.fillStyle = roofCol;
+  roundRect(ctx, -0.275, -0.24, 0.43, 0.48, 0.07); ctx.fill();
+  drawGlass([[-0.275, -0.235], [-0.275, 0.235], [-0.45, 0.195], [-0.45, -0.195]]);
 
-  // Roof panel — a brighter tint of the body colour.
-  ctx.fillStyle = shadeHex(car.color, 1.3);
-  roundRect(ctx, -0.28, -0.26, 0.44, 0.52, 0.07);
-  ctx.fill();
-
-  // Rear window.
-  ctx.fillStyle = '#141c2e';
-  ctx.beginPath();
-  ctx.moveTo(-0.28, -0.25);
-  ctx.lineTo(-0.28,  0.25);
-  ctx.lineTo(-0.44,  0.21);
-  ctx.lineTo(-0.44, -0.21);
-  ctx.closePath();
-  ctx.fill();
-
-  // Roof scoop hint at the windshield edge.
-  ctx.fillStyle = '#0f1524';
-  roundRect(ctx, 0.06, -0.07, 0.10, 0.14, 0.02);
-  ctx.fill();
-
-  // Racing roundel + number on the roof.
+  // ---- 8. Roof roundel + slot number ----
   ctx.fillStyle = '#f4f6fa';
-  ctx.beginPath();
-  ctx.arc(-0.07, 0, 0.155, 0, Math.PI * 2);
-  ctx.fill();
+  ctx.beginPath(); ctx.arc(-0.06, 0, 0.15, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = 'rgba(0, 0, 0, 0.22)'; ctx.lineWidth = 0.012;
+  ctx.beginPath(); ctx.arc(-0.06, 0, 0.15, 0, Math.PI * 2); ctx.stroke();
   ctx.fillStyle = '#1a1d24';
-  ctx.font = 'bold 0.24px Arial, sans-serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  // Roof number = the player's slot (1-based) so cars are tellable apart.
-  ctx.fillText(String(car.slot + 1), -0.07, 0.015);
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'alphabetic';
+  ctx.font = 'bold 0.23px Arial, sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(String(car.slot + 1), -0.06, 0.012);
+  ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
 
-  // Side mirrors at the windshield base.
-  ctx.fillStyle = bodyOutline;
-  ctx.fillRect(0.27, -halfW - 0.045, 0.08, 0.05);
-  ctx.fillRect(0.27,  halfW - 0.005, 0.08, 0.05);
+  // ---- 9. Side mirrors at the windshield base ----
+  ctx.fillStyle = edge;
+  roundRect(ctx, 0.235, -halfW - 0.05, 0.085, 0.055, 0.02); ctx.fill();
+  roundRect(ctx, 0.235,  halfW - 0.005, 0.085, 0.055, 0.02); ctx.fill();
 
-  // Rear wing — wider than the body, white plank with body-colour endplates.
-  // Drawn last: it sits above everything in top-down view.
-  ctx.fillStyle = shadeHex(car.color, 0.7);
-  ctx.fillRect(-0.80, -0.385, 0.16, 0.055);
-  ctx.fillRect(-0.80,  0.330, 0.16, 0.055);
-  ctx.fillStyle = '#e8ecf4';
-  roundRect(ctx, -0.78, -0.36, 0.12, 0.72, 0.03);
+  // ---- 10. Rear wing — endplates + a lit plank, with its own drop shadow on
+  // the body beneath it (so it reads as raised). ----
+  ctx.save();
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.45)'; ctx.shadowBlur = 5;
+  ctx.shadowOffsetX = 2; ctx.shadowOffsetY = 4;
+  ctx.fillStyle = wingCol;
+  roundRect(ctx, -0.82, -0.40, 0.17, 0.06, 0.02); ctx.fill();   // endplates
+  roundRect(ctx, -0.82,  0.34, 0.17, 0.06, 0.02); ctx.fill();
+  const wg = ctx.createLinearGradient(0, -0.37, 0, 0.37);
+  wg.addColorStop(0, '#ccd3e2'); wg.addColorStop(0.5, '#eef1f7'); wg.addColorStop(1, '#ccd3e2');
+  ctx.fillStyle = wg;
+  roundRect(ctx, -0.80, -0.37, 0.13, 0.74, 0.03); ctx.fill();    // plank
+  ctx.restore();
+  ctx.strokeStyle = '#9aa6bd'; ctx.lineWidth = 0.018;
+  roundRect(ctx, -0.80, -0.37, 0.13, 0.74, 0.03); ctx.stroke();
+
+  ctx.restore();
+}
+
+// Tinted glass pane (windshield / rear window) with a soft reflection sheen
+// clipped to the pane. `pts` are body-space metres.
+function drawGlass(pts: Array<[number, number]>) {
+  let minX = Infinity, maxX = -Infinity;
+  for (const p of pts) { if (p[0] < minX) minX = p[0]; if (p[0] > maxX) maxX = p[0]; }
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+  ctx.closePath();
+  // Slight gradient across the glass — darker at the base, lighter toward front.
+  const gg = ctx.createLinearGradient(minX, 0, maxX, 0);
+  gg.addColorStop(0, '#0e1421');
+  gg.addColorStop(1, '#1c2b45');
+  ctx.fillStyle = gg;
   ctx.fill();
-  ctx.strokeStyle = '#9aa6bd';
-  ctx.lineWidth = 0.02;
-  ctx.stroke();
-
+  // Reflection streak — a soft light band, clipped inside the pane.
+  ctx.clip();
+  const w = maxX - minX;
+  ctx.fillStyle = 'rgba(150, 182, 226, 0.16)';
+  ctx.beginPath();
+  ctx.moveTo(minX, -1);
+  ctx.lineTo(minX + w * 0.45, -1);
+  ctx.lineTo(minX + w * 0.28, 1);
+  ctx.lineTo(minX, 1);
+  ctx.closePath();
+  ctx.fill();
   ctx.restore();
 }
 
@@ -1059,14 +1119,21 @@ function drawWheel(bx: number, by: number, angle: number) {
   ctx.save();
   ctx.translate(bx, by);
   ctx.rotate(angle);
-  // Tire
-  ctx.fillStyle = '#15161a';
-  roundRect(ctx, -0.12, -0.05, 0.24, 0.10, 0.025);
-  ctx.fill();
-  // Gold rim
-  ctx.fillStyle = '#d9b13b';
-  roundRect(ctx, -0.065, -0.028, 0.13, 0.056, 0.015);
-  ctx.fill();
+  // Tyre — near-black with a faint sidewall sheen for roundness.
+  ctx.fillStyle = '#0e0f12';
+  roundRect(ctx, -0.125, -0.052, 0.25, 0.104, 0.03); ctx.fill();
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.06)';
+  roundRect(ctx, -0.125, -0.052, 0.25, 0.032, 0.02); ctx.fill();
+  // Gold rim — a vertical gradient gives it a machined, 3D sheen.
+  const rg = ctx.createLinearGradient(0, -0.03, 0, 0.03);
+  rg.addColorStop(0, '#f2d273');
+  rg.addColorStop(0.5, '#d9b13b');
+  rg.addColorStop(1, '#a8841f');
+  ctx.fillStyle = rg;
+  roundRect(ctx, -0.07, -0.03, 0.14, 0.06, 0.018); ctx.fill();
+  // Hub cap.
+  ctx.fillStyle = '#7a5e16';
+  ctx.beginPath(); ctx.arc(0, 0, 0.017, 0, Math.PI * 2); ctx.fill();
   ctx.restore();
 }
 

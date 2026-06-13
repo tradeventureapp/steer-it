@@ -15,7 +15,8 @@ export const FX_CONFIG = {
   smokeLifeVar: 0.35,
   smokeSize: 0.42,         // m initial radius
   smokeGrow: 1.5,          // m/s radius growth
-  smokeAlpha: 0.38,        // initial opacity
+  smokeAlpha: 0.20,        // initial opacity — light & see-through (was 0.38);
+                           //   real rubber smoke is airy, never hides the car
   smokeDrift: 0.8,         // m/s random drift velocity
   smokeInheritVel: 0.25,   // fraction of car velocity inherited
 
@@ -134,11 +135,18 @@ export class Effects {
     for (const p of this.particles) {
       const t = p.age / p.life;
       if (p.kind === 'smoke') {
-        // Light warm grey — pops against both the green lawn and the sky.
-        ctx.fillStyle =
-          `rgba(168, 168, 172, ${(FX_CONFIG.smokeAlpha * (1 - t)).toFixed(3)})`;
+        // Whitish, airy rubber smoke: a SOFT radial gradient per puff (opaque
+        // core fading to fully transparent at the rim) reads far better than a
+        // flat disc and keeps the car visible THROUGH the smoke.
+        const a = FX_CONFIG.smokeAlpha * (1 - t);
+        const cx = p.x * px, cy = p.y * px, r = p.size * px;
+        const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+        g.addColorStop(0,    `rgba(249, 249, 252, ${a.toFixed(3)})`);
+        g.addColorStop(0.55, `rgba(244, 245, 250, ${(a * 0.5).toFixed(3)})`);
+        g.addColorStop(1,    `rgba(244, 245, 250, 0)`);
+        ctx.fillStyle = g;
         ctx.beginPath();
-        ctx.arc(p.x * px, p.y * px, p.size * px, 0, Math.PI * 2);
+        ctx.arc(cx, cy, r, 0, Math.PI * 2);
         ctx.fill();
       } else {
         ctx.fillStyle = `rgba(255, 214, 107, ${(0.9 * (1 - t)).toFixed(3)})`;
