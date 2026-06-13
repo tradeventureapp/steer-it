@@ -132,6 +132,15 @@ export const CONFIG = {
   dragCoeff: 2.5,                   // air drag, force = dragCoeff * v * |v|
   rollingResistance: 50,            // rolling drag, force = rollingResistance * v
 
+  // ---------- Rest threshold (static-friction style STOP) ----------
+  // Resistance forces only asymptote toward zero, so a coasting car creeps
+  // forever at micro-speed. With NO drive input (throttle off + handbrake off),
+  // below these thresholds we bleed velocity hard to a true STOP so the car
+  // stays put. Gated on no-input + low-speed, so it never affects driving,
+  // throttle-feathered crawls, or drifting.
+  restSpeed: 0.35,                  // m/s — below this (idle) snap linear vel to 0
+  restYawRate: 0.25,                // rad/s — below this (idle) snap yaw to 0
+
   // ---------- Steering ----------
   // More lock and higher high-speed authority so countersteer can actually
   // CATCH a slide. With the old falloff a drift at speed had ~55% of full
@@ -1041,13 +1050,26 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
     }
   }
 
-  car.x  += car.vx * dt;
-  car.y  += car.vy * dt;
-
-  // ---- 10. Snap tiny velocities to zero (clean rest state) ----
+  // ---- 10. Rest snap (static-friction style) — BEFORE integrating position so
+  // a resting car doesn't crawl another sub-pixel. With no drive input (throttle
+  // off + handbrake off) and below restSpeed, bleed linear velocity hard to zero
+  // and kill small residual yaw, so the car fully STOPS instead of creeping /
+  // slowly rotating forever on asymptotic micro-velocity. The instant throttle
+  // (or handbrake) returns, this is skipped and it drives normally; drifting and
+  // throttle-feathered crawls keep throttle/handbrake on, so they're untouched.
+  const idle = input.throttle < 0.02 && !input.handbrake;
+  if (idle && car.vx * car.vx + car.vy * car.vy < c.restSpeed * c.restSpeed) {
+    car.vx = 0;
+    car.vy = 0;
+    if (Math.abs(car.angularVel) < c.restYawRate) car.angularVel = 0;
+  }
+  // Tiny-snap safety (also covers the last sliver while braking/steering input).
   if (Math.abs(car.vx) < 0.01) car.vx = 0;
   if (Math.abs(car.vy) < 0.01) car.vy = 0;
   if (Math.abs(car.angularVel) < 0.005) car.angularVel = 0;
+
+  car.x  += car.vx * dt;
+  car.y  += car.vy * dt;
   if (car.flipTimer > 0) car.flipTimer = Math.max(0, car.flipTimer - dt);
 
   // ---- 11. Derived state for HUD / skids ----
