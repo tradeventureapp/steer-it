@@ -62,10 +62,10 @@
           <button class="etool" type="button" data-tool="checkpoint">CHECKPOINT</button>
           <button class="etool" type="button" data-tool="delete">DELETE</button>
           <button id="editor-clear" type="button">CLEAR ALL</button>
-          <div id="editor-laps" title="Laps (1–10)">
+          <div id="editor-laps" title="Laps (open 1–10 · circuit 0–99, 0 = free roam)">
             <button id="laps-dec" type="button" class="lapbtn">−</button>
             <span class="laps-label">LAPS</span>
-            <span id="laps-val">1</span>
+            <input id="laps-val" type="number" min="0" max="99" step="1" value="1" />
             <button id="laps-inc" type="button" class="lapbtn">+</button>
           </div>
         </div>

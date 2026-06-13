@@ -68,7 +68,9 @@ export interface RaceHud {
 }
 
 function clampLaps(n: number): number {
-  return Math.max(1, Math.min(10, Math.floor(n)));
+  // 1..99 (circuit maps go up to 99; the open editor still offers 1..10). 0 laps
+  // = free-roam is handled by the caller (no race elements), not here.
+  return Math.max(1, Math.min(99, Math.floor(n)));
 }
 
 export class RaceState {

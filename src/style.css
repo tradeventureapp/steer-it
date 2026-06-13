@@ -311,10 +311,19 @@ body.desktop #editor {
   font-weight: 800; letter-spacing: 2px; color: #ffe9a6;
 }
 #editor-laps .laps-label { font-size: 11px; opacity: 0.8; }
+/* Type-able number input (0–99). Strip the native spinners for a clean look. */
 #editor-laps #laps-val {
-  font-size: 13px; min-width: 14px; text-align: center; color: #ffe23d;
+  appearance: textfield; -moz-appearance: textfield;
+  font-family: inherit; font-weight: 800; font-size: 14px; letter-spacing: 1px;
+  width: 2.6ch; text-align: center; color: #ffe23d;
+  background: transparent; border: none; outline: none; padding: 0;
   text-shadow: 0 0 8px rgba(255, 226, 61, 0.6);
 }
+#editor-laps #laps-val::-webkit-inner-spin-button,
+#editor-laps #laps-val::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+/* CIRCUIT maps: laps-only editor — hide the place-elements palette + clear. */
+body.circuit-edit #editor-palette .etool,
+body.circuit-edit #editor-clear { display: none; }
 .lapbtn {
   appearance: none; -webkit-appearance: none; cursor: pointer;
   font-family: inherit; font-weight: 900; font-size: 15px; line-height: 1;

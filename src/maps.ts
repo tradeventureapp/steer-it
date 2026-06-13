@@ -16,6 +16,7 @@
 
 import { CONFIG, type CarState, type ObstacleRect } from './physics';
 import { spawnPose } from './cars';
+import type { RaceElement } from './race';
 import {
   layoutDesktop, drawWallpaper, drawOverlay, drawClock,
   rebuildRects, iconAt, clampIconToBounds, resolveIconDrop,
@@ -35,9 +36,20 @@ export interface SpawnPose { x: number; y: number; heading: number; }
 // Opaque handle for a draggable obstacle (the desktop uses DesktopIcon).
 export type MapObstacle = unknown;
 
+// 'open'    — a free surface; the full place-elements editor builds the track
+//             (start/finish/checkpoints), e.g. the desktop.
+// 'circuit' — a bounded loop with a BUILT-IN start/finish line; the editor shows
+//             only a LAPS panel (0 = free-roam, N = N-lap race), e.g. the oval.
+export type TrackType = 'open' | 'circuit';
+
 export interface MapDefinition {
   id: string;
   name: string;
+  trackType: TrackType;
+
+  // Circuit maps only: the built-in start/finish line as a race START element
+  // (acts as start AND finish in circuit mode). Open maps omit it.
+  startLine?(world: MapWorld): RaceElement;
 
   // Optional tire-smoke/dust tint [r,g,b] for this surface. Omitted ⇒ the
   // default whitish rubber smoke (the desktop). The dirt oval, say, kicks up
@@ -107,6 +119,7 @@ export const DEFAULT_MAP_ID = 'desktop';
 export const desktopMap: MapDefinition = {
   id: 'desktop',
   name: 'Desktop',
+  trackType: 'open',   // free surface → full place-elements editor
 
   createWorld(widthM, heightM) {
     return layoutDesktop(widthM, heightM);
@@ -339,9 +352,24 @@ function drawFloodlight(ctx: CanvasRenderingContext2D, x: number, y: number) {
 export const flatTrackMap: MapDefinition = {
   id: 'flat',
   name: 'Flat Track',
+  trackType: 'circuit',   // bounded oval → laps-only editor; built-in start line
 
   // Dirt surface → warm brown/tan DUST instead of white rubber smoke.
   smokeColor: [170, 126, 84],
+
+  // Built-in start/finish: a START gate centred on the checkered line across the
+  // bottom straight (x = cx), with a trigger spanning the dirt band so a car
+  // always trips it. In circuit mode this single gate is start AND finish.
+  startLine(world) {
+    const g = (world as FlatWorld).geom;
+    return {
+      type: 'start',
+      x: g.cx,
+      y: g.cy + (g.IYh + g.OYh) / 2,   // band centre on the bottom straight
+      radius: g.bandW / 2,             // covers the band width
+      angle: Math.PI / 2,              // vertical (across the straight)
+    };
+  },
 
   createWorld(widthM, heightM) {
     const g = computeStadium(widthM, heightM);

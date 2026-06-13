@@ -464,16 +464,24 @@ function skidColorFor(hex: string): string {
 }
 
 // ---------- Race elements ----------
-// The desktop starts EMPTY — free-drift sandbox. The track editor (key E)
-// mutates this RaceElement[] (world metres) in place; RaceState is rebuilt from
-// it whenever the structure changes. No START/FINISH ⇒ no active race.
+// OPEN maps (desktop): the editor (E) mutates this RaceElement[] (world metres)
+// in place — place/drag/delete start/finish/checkpoints. CIRCUIT maps (oval):
+// the array is DERIVED from the map's built-in start line + the laps panel
+// (0 laps ⇒ empty ⇒ free-roam; N laps ⇒ [startLine] ⇒ N-lap circuit race).
 const raceElements: RaceElement[] = [];
-// Lap count is an editor setting (1..10, default from RACE_CONFIG). The built
-// track uses it; the race HUD shows LAP n/m off it.
+// Lap count is an editor setting. Open maps use 1..10; circuit maps 0..99 (0 =
+// free-roam). The built track uses it; the race HUD shows LAP n/m off it.
 let editorLaps = RACE_CONFIG.laps;
 let raceState = new RaceState(raceElements, { ...RACE_CONFIG, laps: editorLaps });
+const isCircuitMap = () => currentMap.trackType === 'circuit';
 function rebuildRace() {
-  raceState = new RaceState(raceElements, { ...RACE_CONFIG, laps: editorLaps });
+  if (isCircuitMap()) {
+    // Circuit: the race IS the built-in start/finish line. Rebuild it from the
+    // laps panel — 0 = free-roam (no element → inactive HUD), N = circuit race.
+    raceElements.length = 0;
+    if (editorLaps >= 1 && currentMap.startLine) raceElements.push(currentMap.startLine(world));
+  }
+  raceState = new RaceState(raceElements, { ...RACE_CONFIG, laps: Math.max(1, editorLaps) });
 }
 
 // ---------- Track editor (key E) — place/drag/delete into raceElements ----------
@@ -485,6 +493,7 @@ const EDITOR_GRAB_R = 1.8;  // metres — generous hit radius for drag/delete
 const EDITOR_DEFAULT_HINT = 'click to place · drag to move · E to exit';
 
 function editorPointerDown(e: PointerEvent) {
+  if (isCircuitMap()) return;   // circuit maps have no place-elements editor
   e.preventDefault();
   const mx = e.clientX / PX(), my = e.clientY / PX();
   const idx = findElementIndexAt(raceElements, mx, my, EDITOR_GRAB_R);
@@ -526,29 +535,44 @@ function showEditorHint(msg: string) {
 }
 
 function updateEditorStatus() {
+  const sep = `<span class="sep">·</span>`;
   if (editorStatusEl) {
-    const hasStart = raceElements.some((el) => el.type === 'start');
-    const hasFinish = raceElements.some((el) => el.type === 'finish');
-    const circuit = isCircuitTrack(raceElements);
-    const cp = countCheckpoints(raceElements);
-    // Mode: SPRINT (a finish exists), CIRCUIT (only a start), or — (no start yet).
-    const mode = hasFinish ? 'SPRINT' : hasStart ? 'CIRCUIT' : '—';
-    const sep = `<span class="sep">·</span>`;
-    let html = `<span class="mode">${mode}</span>` + sep +
-      `<span class="${hasStart ? 'ok' : 'no'}">START ${hasStart ? '✓' : '·'}</span>`;
-    // Sprint shows FINISH; circuit's start IS the finish, so it's implied.
-    if (!circuit) {
-      html += sep +
-        `<span class="${hasFinish ? 'ok' : 'no'}">FINISH ${hasFinish ? '✓' : '·'}</span>`;
+    if (isCircuitMap()) {
+      // CIRCUIT: a laps-only editor on the built-in start/finish line.
+      const race = editorLaps >= 1
+        ? `<span class="ok">RACE · ${editorLaps} LAP${editorLaps > 1 ? 'S' : ''}</span>`
+        : `<span class="no">FREE ROAM · no timer</span>`;
+      editorStatusEl.innerHTML = `<span class="mode">CIRCUIT</span>${sep}${race}`;
+    } else {
+      // OPEN: the full place-elements editor (unchanged).
+      const hasStart = raceElements.some((el) => el.type === 'start');
+      const hasFinish = raceElements.some((el) => el.type === 'finish');
+      const circuit = isCircuitTrack(raceElements);
+      const cp = countCheckpoints(raceElements);
+      const mode = hasFinish ? 'SPRINT' : hasStart ? 'CIRCUIT' : '—';
+      let html = `<span class="mode">${mode}</span>` + sep +
+        `<span class="${hasStart ? 'ok' : 'no'}">START ${hasStart ? '✓' : '·'}</span>`;
+      if (!circuit) {
+        html += sep +
+          `<span class="${hasFinish ? 'ok' : 'no'}">FINISH ${hasFinish ? '✓' : '·'}</span>`;
+      }
+      html += sep + `<span class="cp">CP ${cp}/${RACE_CONFIG.maxCheckpoints}</span>` +
+        sep + `<span class="laps">LAPS ${editorLaps}</span>`;
+      editorStatusEl.innerHTML = html;
     }
-    html += sep + `<span class="cp">CP ${cp}/${RACE_CONFIG.maxCheckpoints}</span>` +
-      sep + `<span class="laps">LAPS ${editorLaps}</span>`;
-    editorStatusEl.innerHTML = html;
   }
   for (const b of Array.from(document.querySelectorAll('#editor-palette .etool')) as HTMLElement[]) {
     b.classList.toggle('sel', b.dataset.tool === editorTool);
   }
-  if (lapsValEl) lapsValEl.textContent = String(editorLaps);
+  // The laps value lives in a number input; don't clobber it while it's focused.
+  if (lapsValEl && document.activeElement !== lapsValEl) lapsValEl.value = String(editorLaps);
+  if (editorHintEl && !editorHintEl.classList.contains('flash')) {
+    editorHintEl.textContent = isCircuitMap()
+      ? 'set laps · 0 = free roam · E to exit'
+      : EDITOR_DEFAULT_HINT;
+  }
+  // CSS hides the place-elements palette on circuit maps (laps-only editor).
+  document.body.classList.toggle('circuit-edit', editorMode && isCircuitMap());
 }
 
 // Palette buttons (exist in index.html). Selecting a tool never touches the map.
@@ -560,15 +584,20 @@ document.getElementById('editor-clear')?.addEventListener('click', () => {
   updateEditorStatus();
 });
 
-// Lap-count stepper (1..10). Changing laps only updates the editor setting; the
-// race rebuilds with it when the editor is exited (E).
-const lapsValEl = document.getElementById('laps-val') as HTMLSpanElement | null;
+// Lap-count control. Range depends on the map: OPEN 1..10, CIRCUIT 0..99 (0 =
+// free-roam). The value is a type-able number input + / − steppers, so any
+// 0..99 is reachable without 99 clicks. Changing laps only updates the editor
+// setting; the race rebuilds with it on editor exit (E).
+const lapsValEl = document.getElementById('laps-val') as HTMLInputElement | null;
+function lapsRange(): [number, number] { return isCircuitMap() ? [0, 99] : [1, 10]; }
 function setEditorLaps(n: number) {
-  editorLaps = Math.max(1, Math.min(10, n));
+  const [lo, hi] = lapsRange();
+  editorLaps = Math.max(lo, Math.min(hi, Math.round(Number.isFinite(n) ? n : lo)));
   updateEditorStatus();
 }
 document.getElementById('laps-dec')?.addEventListener('click', () => setEditorLaps(editorLaps - 1));
 document.getElementById('laps-inc')?.addEventListener('click', () => setEditorLaps(editorLaps + 1));
+lapsValEl?.addEventListener('change', () => setEditorLaps(Number(lapsValEl.value)));
 
 // ================= LOBBY — the desktop is the authority =================
 // The desktop owns the ONLY LobbyState; phones never self-assign slots (no
@@ -1003,6 +1032,9 @@ const RACE_CYAN = '#2de2e6';
 type GateKind = 'start' | 'finish' | 'startfinish';
 
 function drawRaceElements() {
+  // Circuit maps draw their OWN start/finish line (the map's checkered band);
+  // the built-in race element is detection-only, so skip drawing gates here.
+  if (isCircuitMap()) return;
   const px = PX();
   const collected = raceState.collectedElementIndices();
   // In a circuit (start, no finish) the START gate is also the finish line.
@@ -1347,10 +1379,13 @@ function switchMap(id: string): boolean {
   redrawOverlay();
   skidCtx.clearRect(0, 0, w, h);                 // drop the previous map's skids
 
-  // Reset the (per-map) race track and leave the editor if it was open.
+  // Reset the (per-map) race track and leave the editor if it was open. Lap
+  // default per type: OPEN → 1 lap (RACE_CONFIG); CIRCUIT → 0 = free-roam (just
+  // cruise/drift the oval until the host sets a lap count). rebuildRace then
+  // regenerates the circuit's built-in start line (or leaves it empty at 0).
   if (editorMode) { editorMode = false; refreshFreeze(); }
   clearElements(raceElements);
-  editorLaps = RACE_CONFIG.laps;
+  editorLaps = currentMap.trackType === 'circuit' ? 0 : RACE_CONFIG.laps;
   rebuildRace();
   updateEditorStatus();
 

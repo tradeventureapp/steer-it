@@ -201,10 +201,17 @@ phone→desktop `join | color | name | leave | control`; desktop→phone `lobby 
 - **Race core (`race.ts`)** — start/checkpoint/finish, passage detection, time, laps,
   **sprint vs circuit** (circuit = start only, no finish, so start = finish too),
   lap count 1–10. Tested live (FINISH 0:15.3).
-- **Track editor (E)** — palette [START][FINISH][CHECKPOINT][DELETE][CLEAR ALL] + a
-  +/- LAPS stepper (1–10). Click = place, drag = move, delete tool removes. Status line
-  shows the mode, e.g. "CIRCUIT · START ✓ · CP 0/5 · LAPS 3" or
-  "SPRINT · START ✓ · FINISH ✓ · CP 2/5 · LAPS 1". No saving yet. Default surface empty.
+- **Track editor (E) — per map type** (`MapDefinition.trackType`):
+  - OPEN maps (desktop): full place-elements editor — palette
+    [START][FINISH][CHECKPOINT][DELETE][CLEAR ALL] + a LAPS 1–10 control. Click =
+    place, drag = move, delete removes. Status e.g. "SPRINT · START ✓ · FINISH ✓ ·
+    CP 2/5 · LAPS 1". Default surface empty.
+  - CIRCUIT maps (flat oval): NO place palette — just a **LAPS 0–99** panel
+    (type-able number input + steppers) on the map's BUILT-IN start/finish line
+    (`MapDefinition.startLine`). LAPS 0 = free-roam (no timer, drift the loop);
+    LAPS N = N-lap timed race (circuit mode, the oval's start line = start AND
+    finish). Status "CIRCUIT · FREE ROAM" / "CIRCUIT · RACE · 3 LAPS".
+  - Lap clamp raised to 1–99 in race.ts; `body.circuit-edit` hides the palette.
 - **Lobby (`lobby.ts`)** — N-slot, QR join, color pick (10 colors), rename, on-desktop
   roster, connect/disconnect/reclaim/full. Tested live (2nd player joined, named, readied).
 - **N-car multiplayer (`cars.ts`)** — car per slot, spawn in center with offset (function
