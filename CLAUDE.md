@@ -50,7 +50,10 @@ Domain (goal): `steerit.app`. Currently running on `steer-it.vercel.app`.
   STADIUM dirt oval via `computeStadium`/`stadiumPath`/`stadiumBarriers`: straights
   + semicircle turns; barriers ONLY on the inner/outer edges (straights = thin
   rects, turns = small squares strictly off-band) so the band drives freely;
-  grandstands/neon banners/floodlights decor; grid spawn on the start line).
+  grandstands (crowd only) + floodlights decor; grid spawn on the start line.
+  NO ads yet — all placeholder banners removed; real ad surfaces come later
+  beside the stands + in the infield. Band widened ~⅓ INWARD (outer edge fixed,
+  inner moved toward centre)).
   Per-map smoke tint via `MapDefinition.smokeColor` ([r,g,b], default white):
   desktop = white rubber smoke, flat = brown dust (`effects.ts` stores the tint
   per particle).

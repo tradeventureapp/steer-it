@@ -196,8 +196,11 @@ function computeStadium(wM: number, hM: number): StadiumGeom {
   const OXw = wM / 2 - wM * 0.05;        // outer half-width
   const OYh = hM / 2 - hM * 0.07;        // outer half-height = turn radius
   const sx = Math.max(2, OXw - OYh);     // straight half-length (landscape ⇒ > 0)
-  // Generous, car-friendly band; never so wide it eats the whole infield.
-  const bandW = Math.min(Math.max(OYh * 0.5, 3.2), Math.max(1.0, OYh - 0.8));
+  // Generous, car-friendly band, ~33% WIDER than before — the OUTER edge (OYh)
+  // stays put (grandstands have no room outside) and the band grows INWARD, so
+  // the inner edge moves toward the centre and the green infield shrinks.
+  // (×4/3 widening; capped so a sliver of infield always remains.)
+  const bandW = Math.min(Math.max(OYh * 0.5, 3.2) * (4 / 3), Math.max(1.0, OYh - 0.6));
   return { cx, cy, sx, OYh, IYh: OYh - bandW, bandW };
 }
 
@@ -266,32 +269,9 @@ function frr(
   c.lineTo(x, y + r); c.quadraticCurveTo(x, y, x + r, y); c.closePath();
 }
 
-// On-brand placeholder ads (fake brands / jokes, like the desktop's folder
-// names). A real ad system comes later.
-const FLAT_ADS = [
-  'DEFRAG ENERGY', 'BSOD INSURANCE', '404 TIRES', 'CTRL+ALT+DEFEAT',
-  'NULL-POINTER OIL', 'YE OLDE DIAL-UP', 'SUS MOTORS', 'RANSOMWARE RACING',
-  'CLIPPY OIL CO', 'TURBO.EXE', 'Y2K-READY FUEL', 'BIGCORP™',
-];
-const BANNER_COLORS = ['#2de2e6', '#ff2d95', '#ff8a3d', '#39ff6a'];
+// Spectator colours for the grandstand crowd dots. (No ads anywhere yet — real
+// ad surfaces will be added later beside the grandstands and in the infield.)
 const CROWD = ['#ff6b6b', '#ffe23d', '#2de2e6', '#ff8a3d', '#b15cff', '#e8ecf4'];
-
-function drawBanner(
-  ctx: CanvasRenderingContext2D, x: number, y: number, angle: number,
-  w: number, h: number, text: string, color: string,
-) {
-  ctx.save();
-  ctx.translate(x, y); ctx.rotate(angle);
-  ctx.fillStyle = '#0d1020'; frr(ctx, -w / 2, -h / 2, w, h, 4); ctx.fill();
-  ctx.strokeStyle = color; ctx.lineWidth = 2.5;
-  ctx.shadowColor = color; ctx.shadowBlur = 9; ctx.stroke(); ctx.shadowBlur = 0;
-  ctx.fillStyle = color;
-  ctx.font = `700 ${Math.min(h * 0.46, 14).toFixed(1)}px Orbitron, ui-monospace, monospace`;
-  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillText(text, 0, 1);
-  ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
-  ctx.restore();
-}
 
 // Neon tyre-wall along a stadium outline (sx, Yh): a dark base + offset
 // magenta/cyan dashes (the retro armco look).
@@ -415,14 +395,15 @@ export const flatTrackMap: MapDefinition = {
     }
   },
 
-  // Decor + barriers (ABOVE the skids).
+  // Decor + barriers (ABOVE the skids). NO ads/banners — grandstands hold
+  // spectators only; real ad surfaces come later (beside the stands + infield).
   drawObstacles(ctx, world, px, _dragged) {
     const g = (world as FlatWorld).geom;
     const cx = g.cx * px, cy = g.cy * px, sx = g.sx * px;
     const OYh = g.OYh * px, IYh = g.IYh * px;
     const barrierPx = Math.max(3, g.bandW * px * 0.16);
 
-    // Grandstands: along the top straight + behind each turn (rise away).
+    // Grandstands (crowd only): along the top straight + behind each turn.
     const standH = Math.min(48, OYh * 0.36);
     drawStand(ctx, cx, cy - OYh - 7, 0, sx * 2 + OYh, standH);
     drawStand(ctx, cx - sx - OYh - 7, cy, -Math.PI / 2, OYh * 1.6, standH);
@@ -433,30 +414,9 @@ export const flatTrackMap: MapDefinition = {
       drawFloodlight(ctx, cx + gx * (sx + OYh * 0.55), cy + gy * (OYh + 9));
     }
 
-    // Trackside ad banners: along both straights (skip the start centre) + a
-    // tall banner behind each turn. All read upright.
-    let bi = 0;
-    const next = () => FLAT_ADS[bi % FLAT_ADS.length];
-    const col = () => BANNER_COLORS[bi % BANNER_COLORS.length];
-    const bw = Math.min(sx * 0.7, OYh * 1.1);
-    for (const fx of [-0.6, 0, 0.6]) {                 // top straight
-      drawBanner(ctx, cx + fx * sx, cy - OYh - barrierPx - 11, 0, bw, 26, next(), col()); bi++;
-    }
-    for (const fx of [-0.62, 0.62]) {                  // bottom straight (skip centre)
-      drawBanner(ctx, cx + fx * sx, cy + OYh + barrierPx + 11, 0, bw, 26, next(), col()); bi++;
-    }
-    drawBanner(ctx, cx + sx + OYh + barrierPx + 11, cy, Math.PI / 2, OYh * 0.9, 24, next(), col()); bi++;
-    drawBanner(ctx, cx - sx - OYh - barrierPx - 11, cy, Math.PI / 2, OYh * 0.9, 24, next(), col()); bi++;
-
     // Barriers (tyre walls) on the inner + outer edges — match the collision.
     drawStadiumWall(ctx, cx, cy, sx, OYh, barrierPx);
     drawStadiumWall(ctx, cx, cy, sx, IYh, barrierPx);
-
-    // Prominent infield banners (the headline ad space).
-    const iw = sx + IYh;
-    drawBanner(ctx, cx, cy, 0, iw * 1.5, 34, 'STEER IT SPEEDWAY', '#ff8a3d');
-    drawBanner(ctx, cx, cy - IYh * 0.52, 0, iw * 0.95, 24, 'DRIFT KING 9000', '#2de2e6');
-    drawBanner(ctx, cx, cy + IYh * 0.52, 0, iw * 0.95, 24, 'PIXELCO RACING', '#ff2d95');
   },
 
   // Grid spawn: 2-wide, lined up behind the start line (x = cx) on the bottom
