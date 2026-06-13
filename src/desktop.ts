@@ -4,12 +4,11 @@ import {
   CONFIG, makeCar, step, bodyToWorld, collideWithRects,
   type CarState, type Inputs,
 } from './physics';
-import { spawnPose, collideCars, applyInputs } from './cars';
+import { collideCars, applyInputs } from './cars';
 import {
-  layoutDesktop, drawWallpaper, drawOverlay, drawClock,
-  rebuildRects, iconAt, clampIconToBounds, resolveIconDrop,
-  type DesktopWorld, type DesktopIcon,
-} from './world';
+  getMap, listMaps, DEFAULT_MAP_ID,
+  type MapDefinition, type MapWorld, type MapObstacle,
+} from './maps';
 import { SoundEngine } from './sound';
 import { Effects } from './effects';
 import {
@@ -163,8 +162,12 @@ const overlayCtx = overlayCanvas.getContext('2d')!;
 
 let dpr = window.devicePixelRatio || 1;
 
-// ---------- The desktop world (icons, taskbar, collision rects) ----------
-let world: DesktopWorld = layoutDesktop(
+// ---------- The active MAP (background, obstacles, spawn, bounds, wrap) ------
+// Everything below reads through `currentMap` rather than hardcoding the
+// desktop, so the game is map-driven. Default = the desktop map → behaviour is
+// byte-for-byte identical to before. switchMap(id) swaps it (see below).
+let currentMap: MapDefinition = getMap(DEFAULT_MAP_ID)!;
+let world: MapWorld = currentMap.createWorld(
   window.innerWidth / CONFIG.pxPerMeter,
   window.innerHeight / CONFIG.pxPerMeter,
 );
@@ -185,36 +188,35 @@ function resize() {
   canvas.style.width = w + 'px';
   canvas.style.height = h + 'px';
 
-  // Re-lay-out the desktop for the new window and re-render the static
+  // Re-lay-out the active map for the new window and re-render the static
   // layers. (Naive: previous skids are cleared on resize, and dragged
-  // icons return to the default layout.)
-  draggedIcon = null;
-  world = layoutDesktop(w / CONFIG.pxPerMeter, h / CONFIG.pxPerMeter);
-  drawWallpaper(wallpaperCtx, w, h);
+  // obstacles return to the default layout.)
+  draggedObstacle = null;
+  world = currentMap.createWorld(w / CONFIG.pxPerMeter, h / CONFIG.pxPerMeter);
+  currentMap.drawBackground(wallpaperCtx, w, h);
   redrawOverlay();
 }
 
-// ---------- Icon dragging (mouse builds the track; phone drives) ----------
-// Handlers only mutate icon data + collision rects — the game loop and
-// the phone input path are untouched. Rects rebuild live during the drag
-// so the car reacts to the icon's current position at all times.
-let draggedIcon: DesktopIcon | null = null;
-let dragOffX = 0, dragOffY = 0;
+// ---------- Obstacle dragging (mouse builds the track; phone drives) --------
+// Only active for maps whose obstacles are draggable (the desktop). Handlers
+// route through the active map's drag API, which mutates obstacle data +
+// collision rects — the game loop and the phone input path are untouched.
+let draggedObstacle: MapObstacle | null = null;
 
 function redrawOverlay() {
   overlayCtx.clearRect(0, 0, window.innerWidth, window.innerHeight);
-  drawOverlay(overlayCtx, world, CONFIG.pxPerMeter, draggedIcon);
+  currentMap.drawObstacles(overlayCtx, world, CONFIG.pxPerMeter, draggedObstacle);
 }
 
 canvas.addEventListener('pointerdown', (e) => {
   if (editorMode) { editorPointerDown(e); return; }  // editor owns the mouse
+  if (!currentMap.draggableObstacles) return;
   const mx = e.clientX / PX(), my = e.clientY / PX();
-  const ic = iconAt(world, mx, my);
-  if (!ic) return;
+  const obs = currentMap.obstacleAt?.(world, mx, my) ?? null;
+  if (!obs) return;
   e.preventDefault();
-  draggedIcon = ic;
-  dragOffX = mx - ic.x;
-  dragOffY = my - ic.y;
+  draggedObstacle = obs;
+  currentMap.beginDragObstacle?.(world, obs, mx, my);
   try { canvas.setPointerCapture(e.pointerId); } catch { /* ignore */ }
   canvas.style.cursor = 'grabbing';
   redrawOverlay();
@@ -222,34 +224,31 @@ canvas.addEventListener('pointerdown', (e) => {
 
 canvas.addEventListener('pointermove', (e) => {
   if (editorMode) { editorPointerMove(e); return; }
+  if (!currentMap.draggableObstacles) return;
   const mx = e.clientX / PX(), my = e.clientY / PX();
-  if (draggedIcon) {
-    draggedIcon.x = mx - dragOffX;
-    draggedIcon.y = my - dragOffY;
-    clampIconToBounds(world, draggedIcon);
-    rebuildRects(world);
+  if (draggedObstacle) {
+    currentMap.dragObstacleTo?.(world, draggedObstacle, mx, my);
     redrawOverlay();
   } else {
-    canvas.style.cursor = iconAt(world, mx, my) ? 'grab' : 'default';
+    canvas.style.cursor = currentMap.obstacleAt?.(world, mx, my) ? 'grab' : 'default';
   }
 });
 
-function endIconDrag() {
-  if (!draggedIcon) return;
-  resolveIconDrop(world, draggedIcon);
-  rebuildRects(world);
-  draggedIcon = null;
-  canvas.style.cursor = 'grab';
+function endObstacleDrag() {
+  if (!draggedObstacle) return;
+  currentMap.dropObstacle?.(world, draggedObstacle);
+  draggedObstacle = null;
+  canvas.style.cursor = currentMap.draggableObstacles ? 'grab' : 'default';
   redrawOverlay();
 }
 canvas.addEventListener('pointerup', (e) => {
   if (editorMode) { editorPointerUp(); return; }
-  endIconDrag();
+  endObstacleDrag();
   void e;
 });
 canvas.addEventListener('pointercancel', (e) => {
   if (editorMode) { editorPointerUp(); return; }
-  endIconDrag();
+  endObstacleDrag();
   void e;
 });
 
@@ -281,9 +280,7 @@ const cars = new Map<number, Car>();
 const DEFAULT_CAR_COLOR = '#1d3fa0';
 
 function makeManagedCar(slot: number, color: string): Car {
-  const cx = window.innerWidth / 2 / PX();
-  const cy = window.innerHeight / 2 / PX();
-  const pose = spawnPose(slot, cx, cy);
+  const pose = currentMap.spawn(slot, world);   // per-map spawn layout
   return {
     slot,
     state: makeCar(pose.x, pose.y, pose.heading),
@@ -604,21 +601,12 @@ function recordSkids(car: Car) {
   drawSkidSegment(car.skidR, R.x, R.y, driftingRear, car.skidStyle);
 }
 
-// ---------- World wrap (per car) ----------
-// Wrap on left/right/top only — the bottom edge is the taskbar, a solid
-// wall the car collides with (see world.rects).
+// ---------- World wrap (per car) — delegated to the active map ----------
+// The map owns its bounds + wrap behaviour (the desktop wraps L/R/top and
+// re-enters above the taskbar). Returns true when the car teleported, so we
+// break its skid trail.
 function wrap(car: Car) {
-  const s = car.state;
-  const W = window.innerWidth / PX();
-  const M = 2; // margin in meters
-  if (s.x < -M)       { s.x = W + M; invalidateSkidTrails(car); }
-  else if (s.x > W + M) { s.x = -M;    invalidateSkidTrails(car); }
-  if (s.y < -M) {
-    // Re-enter from the bottom, emerging from just above the taskbar wall.
-    s.y = window.innerHeight / PX() - world.taskbarHeight -
-      CONFIG.carCollisionRadius - 0.2;
-    invalidateSkidTrails(car);
-  }
+  if (currentMap.wrap(car.state, world)) invalidateSkidTrails(car);
 }
 function invalidateSkidTrails(car: Car) {
   // After wrapping we don't want a long streak across the screen.
@@ -751,11 +739,11 @@ function render() {
   ctx.save();
   ctx.translate(shake.x, shake.y);
 
-  // Layered desktop: wallpaper → skids → icons/taskbar → clock → car → fx.
+  // Layered: background → skids → obstacles → dynamic foreground → cars → fx.
   ctx.drawImage(wallpaperCanvas, 0, 0, W, H);
   ctx.drawImage(skidCanvas, 0, 0, W, H);
   ctx.drawImage(overlayCanvas, 0, 0, W, H);
-  drawClock(ctx, world, CONFIG.pxPerMeter);
+  currentMap.drawForeground?.(ctx, world, CONFIG.pxPerMeter);
 
   drawRaceElements();
   for (const car of cars.values()) drawCar(car);  // paint every connected car
@@ -1152,3 +1140,54 @@ function roundRect(
   c.quadraticCurveTo(x, y, x + r, y);
   c.closePath();
 }
+
+// ---------- Map switching ----------
+// Swap the active map: rebuild the world + static layers, clear skids, reset
+// the race track (per-map; cleared on switch for now), exit the editor, and
+// respawn every connected car at the new map's spawn layout. The render loop,
+// collisions, spawn and wrap already read `currentMap`/`world`, so they follow
+// automatically. Returns false for an unknown id.
+function switchMap(id: string): boolean {
+  const def = getMap(id);
+  if (!def) {
+    console.warn(`[map] unknown id "${id}". available:`, listMaps().map((m) => m.id));
+    return false;
+  }
+  currentMap = def;
+
+  const w = window.innerWidth, h = window.innerHeight;
+  world = currentMap.createWorld(w / CONFIG.pxPerMeter, h / CONFIG.pxPerMeter);
+  draggedObstacle = null;
+  currentMap.drawBackground(wallpaperCtx, w, h);
+  redrawOverlay();
+  skidCtx.clearRect(0, 0, w, h);                 // drop the previous map's skids
+
+  // Reset the (per-map) race track and leave the editor if it was open.
+  if (editorMode) { editorMode = false; refreshFreeze(); }
+  clearElements(raceElements);
+  editorLaps = RACE_CONFIG.laps;
+  rebuildRace();
+  updateEditorStatus();
+
+  // Respawn each connected car at the new map's spawn (fresh physics state,
+  // keep its colour/inputs). No car ⇒ nothing to respawn.
+  for (const [slot, car] of cars) {
+    const pose = currentMap.spawn(slot, world);
+    car.state = makeCar(pose.x, pose.y, pose.heading);
+    car.skidL.active = false;
+    car.skidR.active = false;
+  }
+  console.info(`[map] switched to "${def.id}" (${def.name})`);
+  return true;
+}
+
+// Temporary DEV verification hook (no menu yet — that lands once a 2nd map
+// exists). In the console: `steerMaps()` lists registered maps; `steerSwitchMap('id')`
+// switches. Proves switchMap() works without any UI.
+(window as unknown as {
+  steerSwitchMap: (id: string) => boolean;
+  steerMaps: () => Array<{ id: string; name: string }>;
+}).steerSwitchMap = switchMap;
+(window as unknown as {
+  steerMaps: () => Array<{ id: string; name: string }>;
+}).steerMaps = listMaps;

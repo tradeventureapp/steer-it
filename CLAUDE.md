@@ -44,6 +44,11 @@ Domain (goal): `steerit.app`. Currently running on `steer-it.vercel.app`.
 - `world.ts` — the drawn desktop: `layoutDesktop`, `drawWallpaper`, `drawOverlay`,
   `drawClock`, collision rects (`rebuildRects`), icon hit-test/drag
   (`iconAt`/`clampIconToBounds`/`resolveIconDrop`), types `DesktopWorld`/`DesktopIcon`.
+- `maps.ts` — MAP SYSTEM. `MapDefinition` (background/obstacles/spawn/bounds/wrap/
+  drag), a registry (`registerMap`/`getMap`/`listMaps`/`hasMap`, `DEFAULT_MAP_ID`),
+  and `desktopMap` (the desktop wrapped as map 1, delegating to `world.ts`).
+  desktop.ts reads everything through the active `MapDefinition`; `switchMap(id)`
+  swaps it. Dev hooks: `window.steerMaps()` / `window.steerSwitchMap(id)`.
 - `lobby.ts` — N-player lobby state machine (`LobbyState`): slots, colors, names,
   join/leave/sweep/reclaim. Pure (no DOM/transport). Config + `EV` event names live here.
 - `cars.ts` — multiplayer math (pure): `spawnOffset`/`spawnPose` (non-overlapping
@@ -169,6 +174,11 @@ phone→desktop `join | color | name | leave | control`; desktop→phone `lobby 
   car-car collisions (clamped arcade bounce), connect/disconnect/reclaim. Per-car skids
   (color-tinted) + smoke. Verified through the real channel pipeline; AWAITING a
   two-device live test.
+- **Map system — STEP 1 (`maps.ts`)** — the map is now a switchable `MapDefinition`
+  (background, obstacles+collision, spawn, bounds+wrap, optional decor, draggable
+  flag). The desktop is map 1 (`desktopMap`), behaviour byte-identical to before.
+  `switchMap(id)` rebuilds world + layers, clears skids, resets the (per-map) race
+  track, exits the editor, and respawns cars. Dev hooks only, no menu yet.
 - **Vercel/QR blocker FIXED** — the QR pointed to a protected deployment-hash URL
   (login wall for other players). Fix: the QR is built from env var `VITE_PUBLIC_BASE_URL`
   (= production domain), not window.location.origin. + disable Vercel Authentication.
