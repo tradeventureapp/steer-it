@@ -356,11 +356,17 @@ interface Car {
   current: Inputs;
   skidL: WheelTrail;
   skidR: WheelTrail;
+  lastInputAt: number;   // performance.now() of the last control packet (safety)
 }
 
 // Keyed by slot so routing/lookup is O(1) and nothing is hardcoded to 2 cars.
 const cars = new Map<number, Car>();
 const DEFAULT_CAR_COLOR = '#1d3fa0';
+// If a slot's input goes silent for this long (channel blip, phone stall) the
+// car's controls are ZEROED so it coasts to a stop instead of running away on
+// the last value. Restored the instant the next packet lands. Phones send at
+// SEND_HZ (~tens/s), so this is many missed packets — a real stall, not jitter.
+const STALE_INPUT_MS = 600;
 
 function makeManagedCar(slot: number, color: string): Car {
   const pose = currentMap.spawn(slot, world);   // per-map spawn layout
@@ -373,6 +379,7 @@ function makeManagedCar(slot: number, color: string): Car {
     current: { steer: 0, throttle: 0, brake: 0, handbrake: false },
     skidL: { px: 0, py: 0, active: false },
     skidR: { px: 0, py: 0, active: false },
+    lastInputAt: performance.now(),
   };
 }
 
@@ -622,14 +629,14 @@ function wireDesktop(ch: RealtimeChannel) {
     // authoritative id→slot map (never trust the phone's self-reported slot).
     if (!id) {                                       // legacy id-less → drive slot 0
       const c0 = cars.get(0);
-      if (c0) applyInputs(c0.target, payload as Inputs);
+      if (c0) { applyInputs(c0.target, payload as Inputs); c0.lastInputAt = performance.now(); }
       return;
     }
     const r = lobby.join(id, undefined, Date.now()); // lazy-join if join was missed
     if (r.changed) broadcastLobby();                 // → syncCars spawns the car
     if (r.slot === null) return;                     // lobby full
     const car = cars.get(r.slot);
-    if (car) applyInputs(car.target, payload as Inputs);
+    if (car) { applyInputs(car.target, payload as Inputs); car.lastInputAt = performance.now(); }
   });
 }
 
@@ -776,6 +783,19 @@ function frame(now: number) {
   // skids, smoke, particles, engine sound) — but never the render below.
   const lead = primaryCar();  // drives the single HUD / sound / race timer
   if (!isPaused) {
+    // SAFETY: zero the controls of any car whose input has gone stale — the
+    // channel dropped (channelReady) or no packet for STALE_INPUT_MS — so it
+    // coasts to a stop instead of running away on the last value. The next
+    // packet refreshes lastInputAt and restores live input immediately.
+    const tnow = performance.now();
+    for (const car of cars.values()) {
+      if (!channelReady || tnow - car.lastInputAt > STALE_INPUT_MS) {
+        car.target.steer = 0;
+        car.target.throttle = 0;
+        car.target.brake = 0;
+        car.target.handbrake = false;
+      }
+    }
     accumulator += realDt;
     let steps = 0;
     while (accumulator >= FIXED_DT && steps < MAX_SUBSTEPS) {

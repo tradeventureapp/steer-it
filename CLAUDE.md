@@ -68,14 +68,18 @@ Domain (goal): `steerit.app`. Currently running on `steer-it.vercel.app`.
 - `effects.ts` — particles (tire smoke, impact sparks, screen shake). Global hard cap
   (`FX_CONFIG.maxParticles`); emission stops at the cap.
 - `sound.ts` — `SoundEngine` (WebAudio). OFF by default; toggled by the M key / button.
-- `supabase.ts` — Supabase client + `channelName(code)` + `createResilientChannel`
-  (auto-reconnect wrapper: 15s heartbeat keepalive, and on CLOSED/TIMED_OUT/
-  CHANNEL_ERROR it removes + re-creates + re-wires + re-subscribes a fresh channel
-  for the same room with backoff — survives the ~60s Realtime idle drop without a
-  QR rescan). Throws if `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` are missing
-  (this gates the whole app, so headless preview without env vars won't boot).
-  The desktop gates its idle-sweep on channel health (`channelReady` + a reconnect
-  grace) so its OWN dropped channel never mass-frees every slot.
+- `supabase.ts` — Supabase client + `channelName(code)` + `createResilientChannel`.
+  Realtime client config: 15s heartbeat with **`worker: true`** (the heartbeat
+  runs in an inline-blob Web Worker so it ISN'T throttled when the host tab is
+  unfocused — that background-tab `setInterval` throttling was the ~60s socket
+  idle-drop root cause) + fast `reconnectAfterMs` (250ms→2.5s). The wrapper
+  auto-reconnects: on CLOSED/TIMED_OUT/CHANNEL_ERROR it removes + re-creates +
+  re-wires + re-subscribes a fresh channel for the same room (250ms→3s backoff) —
+  no QR rescan. Throws if env vars missing (gates the whole app; headless preview
+  without env vars won't boot). The desktop gates its idle-sweep on channel health
+  (`channelReady` + reconnect grace) so its OWN dropped channel never mass-frees
+  slots, and ZEROES a car's controls when its input goes stale (`STALE_INPUT_MS`
+  600ms, or channel down) so a car never runs away on a frozen last value.
 
 ### Build / test / run commands
 - `npm run dev` — Vite dev server (port 5173).

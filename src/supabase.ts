@@ -12,12 +12,23 @@ if (!url || !key) {
 export const supabase = createClient(url, key, {
   realtime: {
     params: { eventsPerSecond: 60 },
-    // Keepalive: ping the socket well INSIDE the server's ~60s idle window so an
-    // active game never gets torn down for "inactivity". (Default is 25s; we go
-    // tighter to be safe across flaky Wi-Fi.)
+    // SOCKET-LEVEL heartbeat (Phoenix ping) — this is what resets the server's
+    // idle timer, NOT broadcast traffic. Ping every 15s, well inside the ~60s
+    // idle window, so an active game's socket is never torn down for inactivity.
     heartbeatIntervalMs: 15000,
-    // Channel join timeout.
-    timeout: 12000,
+    // ROOT CAUSE of the ~60s drop: a main-thread setInterval heartbeat is
+    // THROTTLED to ≥1/min when the desktop tab is unfocused (the host watches the
+    // phones), so the 15s ping stretches past 60s and the socket idles out.
+    // `worker: true` runs the heartbeat in a Web Worker (an inline blob — no
+    // external fetch) that browsers DON'T throttle in the background, so the
+    // ping keeps firing every 15s no matter what the tab is doing.
+    worker: true,
+    // Channel/socket join timeout.
+    timeout: 10000,
+    // FAST socket reconnect: if the WS does drop, re-open it near-instantly
+    // (the default stepped backoff goes 1s→2s→5s→10s, which is the 5-10s blip we
+    // saw). 250ms → 2.5s cap means a blip recovers in well under a second.
+    reconnectAfterMs: (tries: number) => [250, 500, 1000, 1500, 2500][tries - 1] ?? 2500,
   },
 });
 
@@ -65,7 +76,9 @@ export function createResilientChannel(
 
   function scheduleReconnect(reason: string) {
     if (reconnectTimer) return;
-    const delay = Math.min(1000 * 2 ** attempts, 8000); // 1s,2s,4s,8s…cap 8s
+    // Fast, short backoff (the socket itself reconnects fast via reconnectAfterMs;
+    // this just re-creates the channel on top). 250ms→3s cap.
+    const delay = Math.min(250 * 2 ** attempts, 3000); // 250,500,1000,2000,3000…
     attempts++;
     log(`reconnecting in ${delay}ms (attempt ${attempts}) after ${reason}`);
     reconnectTimer = setTimeout(() => {
