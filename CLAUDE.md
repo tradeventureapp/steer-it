@@ -104,10 +104,12 @@ Domain (goal): `steerit.app`. Currently running on `steer-it.vercel.app`.
 - `STEER_EXPO = 1.7` (phone.ts) — tilt expo curve `steer = sign(t)·|t|^1.7`.
 - `RACE_CONFIG = { laps: 1, maxCheckpoints: 5, gateRadius: 1.7 }` (race.ts); laps clamped 1–10.
 - `SPAWN_GAP = 2.4` m (cars.ts) — > 2× `carCollisionRadius`, so spawns never overlap.
-- `CONFIG.restSpeed = 0.35` m/s, `CONFIG.restYawRate = 0.25` rad/s (physics.ts) —
-  static-friction REST SNAP: with no throttle + no handbrake below these, linear
-  vel + tiny residual yaw are bled hard to 0 so a coasting car fully STOPS (no
-  perpetual micro-creep). Gated on idle+low-speed, so driving/drift untouched.
+- `CONFIG.restSpeed = 0.6` m/s (physics.ts) — static-friction HARD PARK: with no
+  throttle/brake/handbrake below this, linear vel AND yaw are locked to exactly 0
+  every frame so a coasting/just-braked car fully STOPS (the coast tail sits
+  ~0.4-0.5 m/s, so 0.35 was too low to catch it → it crept several metres over
+  10+ s; 0.6 catches it). Gated on idle+low-speed, so driving/throttle-crawl/drift
+  are untouched. `phys-debug` (D) shows `|v|`/`yaw`/`rest=Y` to verify 0 at rest.
 - `CONFIG.pxPerMeter = 22`, `CONFIG.carCollisionRadius = 0.85` (physics.ts). Physics
   body is the 1/3-scale car (`wheelbase 2.6/3`, `trackWidth 1.6/3`).
 - `FX_CONFIG.maxParticles = 340` (effects.ts) — shared cap across all cars.

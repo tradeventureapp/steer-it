@@ -132,14 +132,16 @@ export const CONFIG = {
   dragCoeff: 2.5,                   // air drag, force = dragCoeff * v * |v|
   rollingResistance: 50,            // rolling drag, force = rollingResistance * v
 
-  // ---------- Rest threshold (static-friction style STOP) ----------
-  // Resistance forces only asymptote toward zero, so a coasting car creeps
-  // forever at micro-speed. With NO drive input (throttle off + handbrake off),
-  // below these thresholds we bleed velocity hard to a true STOP so the car
-  // stays put. Gated on no-input + low-speed, so it never affects driving,
-  // throttle-feathered crawls, or drifting.
-  restSpeed: 0.35,                  // m/s — below this (idle) snap linear vel to 0
-  restYawRate: 0.25,                // rad/s — below this (idle) snap yaw to 0
+  // ---------- Rest threshold (static-friction style HARD PARK) ----------
+  // Resistance only asymptotes toward zero, AND rolling resistance is weak, so a
+  // coasting/just-braked car drifts at ~0.4-0.5 m/s for 10+ s before resting —
+  // a visible creep of several metres. restSpeed must sit ABOVE that coast tail
+  // (it was 0.35, BELOW it → the snap never caught it). With NO drive input
+  // (throttle + brake + handbrake all off) below restSpeed we HARD-LOCK linear
+  // AND angular velocity to 0 every frame — a true parked state nothing can
+  // re-inject. Gated on idle + low-speed: the instant any input returns, full
+  // physics resumes, so driving / slow throttle crawls / drifting are untouched.
+  restSpeed: 0.6,                   // m/s (~2.2 km/h) — below this (idle) → parked
 
   // ---------- Steering ----------
   // More lock and higher high-speed authority so countersteer can actually
@@ -1057,11 +1059,11 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   // slowly rotating forever on asymptotic micro-velocity. The instant throttle
   // (or handbrake) returns, this is skipped and it drives normally; drifting and
   // throttle-feathered crawls keep throttle/handbrake on, so they're untouched.
-  const idle = input.throttle < 0.02 && !input.handbrake;
+  const idle = input.throttle < 0.02 && input.brake < 0.02 && !input.handbrake;
   if (idle && car.vx * car.vx + car.vy * car.vy < c.restSpeed * c.restSpeed) {
     car.vx = 0;
     car.vy = 0;
-    if (Math.abs(car.angularVel) < c.restYawRate) car.angularVel = 0;
+    car.angularVel = 0;   // hard park: kill ALL residual so it can't creep / rotate
   }
   // Tiny-snap safety (also covers the last sliver while braking/steering input).
   if (Math.abs(car.vx) < 0.01) car.vx = 0;

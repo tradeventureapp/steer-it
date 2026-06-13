@@ -980,9 +980,14 @@ function updateHud() {
       (cur.throttle - CONFIG.burnoutThrottle) / (1 - CONFIG.burnoutThrottle)));
     const armT = cur.handbrake
       ? CONFIG.spinReleaseThresholdHB : CONFIG.spinReleaseThreshold;
+    // |v| and yaw with 3 decimals so a true rest reads EXACTLY 0.000 (the
+    // creep-fix verification); `rest=Y` when the hard-park lock is engaged.
+    const parked = cur.throttle < 0.02 && cur.brake < 0.02 && !cur.handbrake
+      && s.speed < CONFIG.restSpeed;
     debugEl.textContent =
       `slot ${lead!.slot}   steer ${cur.steer.toFixed(2)}   (spin-arm ≥ ${armT.toFixed(2)}${cur.handbrake ? ' HB' : ''})\n` +
       `throttle ${cur.throttle.toFixed(2)}  brake ${cur.brake.toFixed(2)}  hb ${cur.handbrake ? 'ON' : 'off'}\n` +
+      `|v| ${s.speed.toFixed(3)} m/s   yaw ${s.angularVel.toFixed(3)} rad/s   rest=${parked ? 'Y' : 'n'} (≤${CONFIG.restSpeed})\n` +
       `burnout boost ${(boostGate * 100).toFixed(0)}%   (ignites ≥ ${CONFIG.burnoutThrottle.toFixed(2)})\n` +
       `spinTimer ${s.spinTimer.toFixed(2)}  drift ${s.driftActive ? 'Y' : 'n'}  wspin ${(s.wheelSpin * 100).toFixed(0)}%   cars ${cars.size}`;
   } else if (debugOn) {
