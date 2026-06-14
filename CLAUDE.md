@@ -42,7 +42,8 @@ Domain (goal): `steerit.app`. Currently running on `steer-it.vercel.app`.
 - `phone.ts` — phone controller: gyro steering (gravity vector), analog pedals,
   handbrake, lobby UI (slot/color/name pick), control broadcast. Force-landscape
   is **pure CSS** now: `#phone-stage` is sized 100vmax×100vmin and `@media
-  (orientation: portrait)` sets `--rot: -90deg` to rotate it to landscape —
+  (orientation: portrait)` sets `--rot: 90deg` to rotate it to landscape
+  (player turns the phone LEFT; flip the sign to swap turn direction) —
   viewport-driven, so it works with NO device-motion permission and NEVER leaves
   a broken portrait layout (the old gravity-driven JS `computeRot` returned 0°
   for the portrait case → the bug). Gravity is still read for STEERING only.

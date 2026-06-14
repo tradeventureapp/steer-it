@@ -546,7 +546,7 @@ body.phone {
    gravity vector separately; this rotation is purely visual.
    ---------------------------------------------------------------------- */
 :root { --rot: 0deg; }
-@media (orientation: portrait) { :root { --rot: -90deg; } }
+@media (orientation: portrait) { :root { --rot: 90deg; } }
 
 /* Neon grid + faint scanlines, painted behind all controls. */
 #phone-stage::before {
