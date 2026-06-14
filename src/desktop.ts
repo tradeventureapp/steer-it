@@ -188,8 +188,37 @@ function closeMenusIntoGame() {
   updateQrVisibility();   // QR/join panel appears now a map is live
 }
 function chooseMap(id: string) {
+  goFullscreen();         // gameplay starts — fill the host screen (gesture)
   switchMap(id);          // load the map + respawn any connected cars
   closeMenusIntoGame();
+}
+
+// Fullscreen on the HOST PC only (phones never call this). MUST run inside a
+// user gesture (the START RACE / map-tile click) — browsers reject auto-
+// fullscreen. Standard Fullscreen API with the webkit fallback for Safari/macOS.
+// We only request; we NEVER auto re-request, so a manual Esc-exit is not fought
+// (the next START RACE click may request again, which is fine). Any rejection
+// (denied / unsupported / older browser) is swallowed — gameplay continues.
+function goFullscreen() {
+  // Already fullscreen → don't re-fire (covers START RACE then tile click).
+  if (document.fullscreenElement ||
+      (document as { webkitFullscreenElement?: Element }).webkitFullscreenElement) {
+    return;
+  }
+  const el = document.documentElement as HTMLElement & {
+    webkitRequestFullscreen?: () => Promise<void> | void;
+  };
+  try {
+    const req = el.requestFullscreen
+      ? el.requestFullscreen()
+      : el.webkitRequestFullscreen?.();
+    // Standard API returns a promise; swallow rejection so nothing breaks.
+    if (req && typeof (req as Promise<void>).then === 'function') {
+      (req as Promise<void>).catch(() => { /* denied / unsupported — ignore */ });
+    }
+  } catch {
+    /* API missing / threw synchronously — ignore, keep playing windowed */
+  }
 }
 
 // Build the map-select tiles from the registry (so new maps appear here
@@ -233,7 +262,10 @@ function buildMapTiles() {
   }
 }
 
-document.getElementById('btn-start-race')?.addEventListener('click', openMapSelect);
+document.getElementById('btn-start-race')?.addEventListener('click', () => {
+  goFullscreen();   // START RACE is the user gesture — fill the host screen
+  openMapSelect();
+});
 document.getElementById('btn-map-back')?.addEventListener('click', openMainMenu);
 openMainMenu();   // show the host menu at startup
 
