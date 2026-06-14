@@ -530,6 +530,24 @@ body.phone {
     radial-gradient(125% 95% at 50% 100%, rgba(45, 226, 230, 0.10), transparent 55%),
     linear-gradient(180deg, #160a31 0%, #0b0622 58%, #07030f 100%);
 }
+
+/* ----------------------------------------------------------------------
+   FORCE LANDSCAPE — pure CSS, gravity- and permission-INDEPENDENT.
+
+   The stage is always sized to the screen's landscape rectangle
+   (100vmax × 100vmin). --rot rotates it. Whenever the VIEWPORT is portrait
+   (the phone is physically portrait, OR the browser is rotation-locked to
+   portrait), rotate the stage 90° so it presents as landscape — the player
+   just turns the phone. In a landscape viewport, --rot is 0.
+
+   This is driven SOLELY by the viewport aspect (the `orientation` media
+   feature), so it NEVER leaves a broken portrait layout and needs no device-
+   motion permission. Works on iOS Safari + Android. Steering still reads the
+   gravity vector separately; this rotation is purely visual.
+   ---------------------------------------------------------------------- */
+:root { --rot: 0deg; }
+@media (orientation: portrait) { :root { --rot: -90deg; } }
+
 /* Neon grid + faint scanlines, painted behind all controls. */
 #phone-stage::before {
   content: '';
@@ -855,6 +873,10 @@ body.phone {
 
 /* Live state strip — sits in real viewport coords (outside the rotated
    stage) so it's never affected by the gravity-driven rotation. */
+/* Orientation/steering debug readout — HIDDEN by default; a 3-finger tap on the
+   controller toggles `.on`. */
+#debug { display: none; }
+#debug.on { display: block; }
 #debug {
   position: fixed;
   top: max(4px, env(safe-area-inset-top));

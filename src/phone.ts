@@ -83,11 +83,10 @@ let calibAx = 0, calibAy = 0;
 let calibrated = false;
 let recalibrating = false;
 
-// Current physical orientation (from smoothed gravity) and applied stage
-// rotation in degrees. Cached so we only touch the DOM when they change.
+// Current physical orientation (from smoothed gravity) — used ONLY for the
+// debug readout now. The force-landscape rotation is pure CSS (see below).
 type Phys = 'L-pri' | 'L-sec' | 'portrait' | 'port-down' | 'flat';
 let currentPhys: Phys = 'flat';
-let appliedRotDeg: number | null = null;
 
 // Analog pedals: per-zone map of pointerId -> current 0..1 value. We take the
 // MAX across active pointers so an aggressive second finger can pin the pedal
@@ -324,35 +323,17 @@ function classifyOrientation(ax: number, ay: number, current: Phys): Phys {
 //  flat → keep last applied rotation (don't flip when the phone is
 //          briefly horizontal).
 // ----------------------------------------------------------------------
-function computeRot(phys: Phys, browserLandscape: boolean): number | null {
-  if (phys === 'flat') return null;
-
-  if (browserLandscape) {
-    if (phys === 'L-pri' || phys === 'L-sec') return 0;
-    if (phys === 'portrait')                  return -90;
-    return 90; // port-down
-  }
-  // Browser portrait.
-  if (phys === 'L-pri')      return -90;
-  if (phys === 'L-sec')      return  90;
-  if (phys === 'port-down')  return 180;
-  return 0; // portrait
-}
-
+// The force-landscape rotation is now PURE CSS — a `@media (orientation: portrait)`
+// rule sets `--rot` (see style.css). That is gravity- and permission-INDEPENDENT
+// and viewport-driven, so the controller is ALWAYS landscape (or rotated to
+// prompt a turn) and NEVER a broken portrait layout. The old JS mapping returned
+// 0° for the physically-portrait case (leaving the landscape-sized stage
+// overflowing → the reported bug) and also did nothing without motion
+// permission. Here we only keep the gravity-derived orientation for the debug
+// readout; it no longer touches the layout.
 function applyTransform() {
   if (!hasMotionReading) return;
-
-  const newPhys = classifyOrientation(smoothedAx, smoothedAy, currentPhys);
-  currentPhys = newPhys;
-
-  const browserLandscape = window.innerWidth > window.innerHeight;
-  const desired = computeRot(newPhys, browserLandscape);
-  if (desired == null) return; // flat: keep last rotation
-
-  if (desired !== appliedRotDeg) {
-    appliedRotDeg = desired;
-    document.documentElement.style.setProperty('--rot', desired + 'deg');
-  }
+  currentPhys = classifyOrientation(smoothedAx, smoothedAy, currentPhys);
 }
 
 // rAF coalescer so per-event motion fires don't spam DOM writes.
@@ -398,11 +379,14 @@ function steerFromTilt(): number {
 function updateDebug() {
   if (!debugEl) return;
   const browserLandscape = window.innerWidth > window.innerHeight;
+  // The applied rotation is now CSS-driven (the --rot var). Read it back so the
+  // strip shows EXACTLY what the layout is using on the device.
+  const cssRot = getComputedStyle(document.documentElement).getPropertyValue('--rot').trim() || '0deg';
   const tilt = steeringTiltDeg();
   const steer = steerFromTilt();
   debugEl.textContent =
     `stage=${stage} perm=${permState} cal=${calibrated ? 'yes' : 'no'}${recalibrating ? ' RE' : ''}\n` +
-    `phys=${currentPhys}  browser=${browserLandscape ? 'L' : 'P'}  rot=${appliedRotDeg ?? '—'}°\n` +
+    `phys=${currentPhys}  viewport=${browserLandscape ? 'L' : 'P'}  rot=${cssRot}\n` +
     `ax=${lastAx.toFixed(1)} ay=${lastAy.toFixed(1)} az=${lastAz.toFixed(1)}  ` +
     `sm=(${smoothedAx.toFixed(1)},${smoothedAy.toFixed(1)})\n` +
     `calAx=${calibAx.toFixed(1)} calAy=${calibAy.toFixed(1)}\n` +
@@ -757,8 +741,14 @@ window.addEventListener('resize', scheduleApplyTransform);
 // Debug poll for live readouts between motion events.
 setInterval(updateDebug, 250);
 
-// stageEl is referenced for future tweaks; for now CSS handles the
-// rotation via the --rot custom property on documentElement.
+// TEMPORARY debug toggle: a 3-finger tap shows/hides the orientation readout
+// (hidden by default). 3 fingers so it never fires during 1–2-finger pedal play.
+window.addEventListener('touchstart', (e) => {
+  if (e.touches.length === 3) debugEl?.classList.toggle('on');
+}, { passive: true });
+
+// stageEl is referenced for future tweaks; the force-landscape rotation is
+// handled purely in CSS now (the --rot custom property, set by a media query).
 void stageEl;
 
 // ---------- Initial render ----------

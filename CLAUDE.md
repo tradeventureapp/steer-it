@@ -40,7 +40,13 @@ Domain (goal): `steerit.app`. Currently running on `steer-it.vercel.app`.
   render, obstacle + car-car collisions, car drawing, HUD, skids/smoke, the track
   editor (key E), lobby wiring, QR.
 - `phone.ts` — phone controller: gyro steering (gravity vector), analog pedals,
-  handbrake, lobby UI (slot/color/name pick), control broadcast.
+  handbrake, lobby UI (slot/color/name pick), control broadcast. Force-landscape
+  is **pure CSS** now: `#phone-stage` is sized 100vmax×100vmin and `@media
+  (orientation: portrait)` sets `--rot: -90deg` to rotate it to landscape —
+  viewport-driven, so it works with NO device-motion permission and NEVER leaves
+  a broken portrait layout (the old gravity-driven JS `computeRot` returned 0°
+  for the portrait case → the bug). Gravity is still read for STEERING only.
+  3-finger tap toggles the orientation debug strip (hidden by default).
 - `world.ts` — the drawn desktop: `layoutDesktop`, `drawWallpaper`, `drawOverlay`,
   `drawClock`, collision rects (`rebuildRects`), icon hit-test/drag
   (`iconAt`/`clampIconToBounds`/`resolveIconDrop`), types `DesktopWorld`/`DesktopIcon`.
