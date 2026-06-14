@@ -4,6 +4,12 @@ import {
   getClientId, CAR_COLORS, EV, PHONE_HEARTBEAT_MS, sanitizeName,
   type LobbyPlayer,
 } from './lobby';
+import { inject } from '@vercel/analytics';
+
+// Vercel Web Analytics — framework-agnostic vanilla init (NOT the React
+// <Analytics/> component). Injects the tracking script for the phone controller
+// page (play.html) so phone joins are counted too.
+inject();
 
 // ---------- Tuning ----------
 // Steering response (PHONE INPUT MAPPING ONLY — nothing downstream changes;

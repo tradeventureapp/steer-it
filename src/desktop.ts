@@ -21,6 +21,12 @@ import {
   countCheckpoints, isCircuitTrack,
   type RaceElement, type RaceHud, type RaceType,
 } from './race';
+import { inject } from '@vercel/analytics';
+
+// Vercel Web Analytics — framework-agnostic vanilla init (NOT the React
+// <Analytics/> component). Injects the tracking script for the desktop/host
+// page (index.html). Safe no-op in local/dev where the endpoint isn't present.
+inject();
 
 // ---------- Session ----------
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';

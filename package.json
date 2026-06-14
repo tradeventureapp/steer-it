@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",
+    "@vercel/analytics": "^2.0.1",
     "qrcode": "^1.5.4"
   },
   "devDependencies": {
