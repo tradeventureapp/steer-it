@@ -577,31 +577,29 @@ body.phone {
 
 #pedals { position: absolute; inset: 0; z-index: 1; }
 
-/* Neon-lined divider down the centre seam: a thin dark gap with a pink edge
-   facing BRAKE (left) and a green edge facing GAS (right), instead of a hard
-   flat line. It must NOT intrude into the E-BRAKE button, so it STOPS flush at
-   the handbrake's top edge (no overlap) and sits BEHIND the handbrake (z-index 1
-   < the handbrake's 2) — the opaque E-BRAKE covers any sub-pixel overlap. The
-   seam therefore only shows in the area beside the E-BRAKE (between the two
-   pedal zones). Decorative — pointer-events:none keeps both halves tappable. */
+/* Centre seam between BRAKE and GAS: a THIN GLOWING LINE only — NO dark fill, so
+   the two zone colours meet directly with no dark gap. The line is pink toward
+   BRAKE (left) and green toward GAS (right), with a soft glow each side. It runs
+   DOWN past the E-BRAKE's top edge (into the button); the overlap is hidden
+   because the line is z-index 1, behind the opaque E-BRAKE (z-index 2), so it
+   only shows in the area beside the E-BRAKE. Decorative — pointer-events:none
+   keeps both halves fully tappable. */
 #pedals::after {
   content: '';
   position: absolute;
   top: 7%;
-  /* Runs DOWN past the E-BRAKE's top edge (into the button) so its full-width
-     end meets the button with no rounded-corner notch; the overlap is hidden
-     because the divider is z-index 1, behind the opaque E-BRAKE (z-index 2). */
   bottom: calc(var(--hb-margin) + var(--hb-h) - 12px);
   left: 50%;
   transform: translateX(-50%);
-  width: 6px;
-  border-radius: 4px;
-  background: linear-gradient(180deg, #0a0518 0%, #06030f 100%);
+  width: 2px;
+  border-radius: 2px;
+  /* bright hairline, pink (BRAKE) → green (GAS); no dark background */
+  background: linear-gradient(90deg,
+    rgba(255, 45, 149, 0.95) 0%,
+    rgba(57, 255, 140, 0.95) 100%);
   box-shadow:
-    inset 1px 0 0 rgba(255, 45, 149, 0.75),   /* left edge  → BRAKE pink */
-    inset -1px 0 0 rgba(57, 255, 140, 0.75),  /* right edge → GAS green  */
-    -2px 0 12px rgba(255, 45, 149, 0.35),     /* soft glow left  */
-    2px 0 12px rgba(57, 255, 140, 0.35);      /* soft glow right */
+    -1px 0 10px rgba(255, 45, 149, 0.5),   /* soft glow toward BRAKE */
+    1px 0 10px rgba(57, 255, 140, 0.5);    /* soft glow toward GAS   */
   z-index: 1;
   pointer-events: none;
 }
