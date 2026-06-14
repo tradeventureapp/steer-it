@@ -64,6 +64,15 @@ Domain (goal): `steerit.app`. Currently running on `steer-it.vercel.app`.
   Per-map smoke tint via `MapDefinition.smokeColor` ([r,g,b], default white):
   desktop = white rubber smoke, flat = brown dust (`effects.ts` stores the tint
   per particle).
+  FIXED-WORLD scaling via `MapDefinition.fixedWorld` ({widthM,heightM}): when set
+  (the oval, `FLAT_LOGICAL` ≈ 1920×1080 / pxPerMeter = 16:9), the map is ALWAYS
+  built at that exact logical size — so `computeStadium` yields the SAME wide oval
+  regardless of window — and desktop.ts renders it with a SINGLE UNIFORM scale-to-
+  fit (letterbox/pillarbox), never stretching an axis. Result: a bigger window
+  zooms the whole world up (oval+cars+stands together), a smaller one down; the
+  shape is constant and a lap is the same effort at any size. Maps WITHOUT
+  fixedWorld (the desktop) keep the old behaviour: world = viewport, fills the
+  screen, wraps. (Fixes the oval squashing when exiting fullscreen.)
   desktop.ts reads everything through the active `MapDefinition`; `switchMap(id)`
   swaps it. Dev hooks: `window.steerMaps()` / `window.steerSwitchMap(id)`.
 - `lobby.ts` — N-player lobby state machine (`LobbyState`): slots, colors, names,

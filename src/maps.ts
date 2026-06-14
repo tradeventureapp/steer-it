@@ -56,6 +56,13 @@ export interface MapDefinition {
   // brown dust. Only the COLOUR changes — emission/cap/growth/fade are shared.
   smokeColor?: [number, number, number];
 
+  // FIXED logical world size (METRES). When set, the map is ALWAYS built at this
+  // exact size regardless of the window, and rendered with a SINGLE UNIFORM scale
+  // that fits it into the viewport (letterbox/pillarbox) — so its shape never
+  // deforms and a lap is the same effort at any window size. When omitted, the
+  // world is sized to the viewport (the desktop, which fills the screen + wraps).
+  fixedWorld?: { widthM: number; heightM: number };
+
   // ---- World construction ----
   // Build the world state for a canvas of (widthM × heightM) METRES: obstacles,
   // collision rects, bounds. Called on load, on resize, and on switch.
@@ -355,6 +362,15 @@ function drawFloodlight(ctx: CanvasRenderingContext2D, x: number, y: number, dir
   ctx.restore();
 }
 
+// FIXED logical world for the oval: a 16:9 rectangle (≈1920×1080 at the base
+// scale) — wide enough for a proper short-track stadium. Because the world is
+// always this size, computeStadium() always yields the SAME wide oval; the
+// renderer just scales the whole thing uniformly to fit the window.
+const FLAT_LOGICAL = {
+  widthM: 1920 / CONFIG.pxPerMeter,
+  heightM: 1080 / CONFIG.pxPerMeter,
+};
+
 export const flatTrackMap: MapDefinition = {
   id: 'flat',
   name: 'Flat Track',
@@ -362,6 +378,10 @@ export const flatTrackMap: MapDefinition = {
 
   // Dirt surface → warm brown/tan DUST instead of white rubber smoke.
   smokeColor: [170, 126, 84],
+
+  // Fixed-shape world: built at FLAT_LOGICAL metres regardless of the window and
+  // rendered with a uniform scale-to-fit, so the oval never squashes on resize.
+  fixedWorld: FLAT_LOGICAL,
 
   // Built-in start/finish: a START gate centred on the checkered line across the
   // bottom straight (x = cx), with a trigger spanning the dirt band so a car

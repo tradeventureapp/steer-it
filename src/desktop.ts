@@ -282,7 +282,7 @@ function resumeGame() {
 // zero the race (laps, time, checkpoints, phase). The map + editor-placed track
 // elements STAY — only progress resets. Then resume.
 function restartRace() {
-  skidCtx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+  skidCtx.clearRect(0, 0, logicalPxW, logicalPxH);
   for (const car of cars.values()) {
     const pose = currentMap.spawn(car.slot, world);
     car.state = makeCar(pose.x, pose.y, pose.heading);
@@ -332,29 +332,89 @@ let world: MapWorld = currentMap.createWorld(
   window.innerHeight / CONFIG.pxPerMeter,
 );
 
-function resize() {
-  dpr = window.devicePixelRatio || 1;
-  const w = window.innerWidth;
-  const h = window.innerHeight;
+// ---------- View transform (logical world px → screen px) -------------------
+// A FIXED-world map (the oval) is built at a constant logical size and rendered
+// with a SINGLE UNIFORM scale that fits it into the viewport, centred, with
+// letterbox/pillarbox margins — so the shape never deforms and a lap is the same
+// effort at any window size. The desktop map has no fixedWorld, so the logical
+// size equals the viewport and the transform is identity (behaviour unchanged).
+//
+// The offscreen layers (wallpaper/skids/overlay) live at the LOGICAL pixel size;
+// render() blits them into the fitted rectangle. The dynamic layers (cars, fx,
+// gates, foreground) draw in logical space under the same translate+scale. All
+// physics/collision stay in logical world METRES, untouched by the view.
+let viewScale = 1;              // logical px → screen px (uniform, both axes)
+let viewOffX = 0, viewOffY = 0; // letterbox offset in screen CSS px
+let logicalPxW = 0, logicalPxH = 0;  // offscreen layer size in CSS px
+let layerDpr = 0;               // dpr the offscreen layers were last built at
 
+// Logical world size in METRES: the map's fixed size, or the viewport.
+function logicalMeters(): { wM: number; hM: number } {
+  const f = currentMap.fixedWorld;
+  if (f) return { wM: f.widthM, hM: f.heightM };
+  return {
+    wM: window.innerWidth / CONFIG.pxPerMeter,
+    hM: window.innerHeight / CONFIG.pxPerMeter,
+  };
+}
+
+// Invert the view transform: screen client px → world METRES. Identity-safe for
+// the desktop (scale 1, offset 0 ⇒ clientX / pxPerMeter, as before).
+function screenToWorld(clientX: number, clientY: number): { x: number; y: number } {
+  return {
+    x: (clientX - viewOffX) / viewScale / CONFIG.pxPerMeter,
+    y: (clientY - viewOffY) / viewScale / CONFIG.pxPerMeter,
+  };
+}
+
+// Size the MAIN canvas to the viewport, recompute the uniform fit transform, and
+// — only when the logical pixel size or dpr actually changed — (re)size the
+// offscreen layers. Returns true when those layers were (re)sized (hence cleared
+// and needing a redraw). A pure window-resize of a fixed-world map returns false,
+// so the oval keeps its world, skids and race progress; only the view updates.
+function syncCanvasesAndView(): boolean {
+  dpr = window.devicePixelRatio || 1;
+  const W = window.innerWidth, H = window.innerHeight;
+
+  canvas.width = Math.floor(W * dpr);
+  canvas.height = Math.floor(H * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+
+  const { wM, hM } = logicalMeters();
+  const lpW = Math.max(1, Math.round(wM * CONFIG.pxPerMeter));
+  const lpH = Math.max(1, Math.round(hM * CONFIG.pxPerMeter));
+
+  // Uniform scale-to-fit + centre. Desktop: lpW=W, lpH=H ⇒ scale 1, offset 0.
+  viewScale = Math.min(W / lpW, H / lpH);
+  viewOffX = (W - lpW * viewScale) / 2;
+  viewOffY = (H - lpH * viewScale) / 2;
+
+  if (lpW === logicalPxW && lpH === logicalPxH && dpr === layerDpr) return false;
+  logicalPxW = lpW; logicalPxH = lpH; layerDpr = dpr;
   for (const [cv, cx] of [
-    [canvas, ctx], [skidCanvas, skidCtx],
+    [skidCanvas, skidCtx],
     [wallpaperCanvas, wallpaperCtx], [overlayCanvas, overlayCtx],
   ] as Array<[HTMLCanvasElement, CanvasRenderingContext2D]>) {
-    cv.width = Math.floor(w * dpr);
-    cv.height = Math.floor(h * dpr);
+    cv.width = Math.floor(lpW * dpr);
+    cv.height = Math.floor(lpH * dpr);
     cx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
-  canvas.style.width = w + 'px';
-  canvas.style.height = h + 'px';
+  return true;
+}
 
-  // Re-lay-out the active map for the new window and re-render the static
-  // layers. (Naive: previous skids are cleared on resize, and dragged
-  // obstacles return to the default layout.)
-  draggedObstacle = null;
-  world = currentMap.createWorld(w / CONFIG.pxPerMeter, h / CONFIG.pxPerMeter);
-  currentMap.drawBackground(wallpaperCtx, w, h);
-  redrawOverlay();
+function resize() {
+  // Layers are only rebuilt when their logical size/dpr changed: every time for
+  // the desktop (logical = viewport), but for the fixed oval only on first build,
+  // a map switch, or a dpr change — so a plain resize keeps its skids + race.
+  if (syncCanvasesAndView()) {
+    draggedObstacle = null;
+    const { wM, hM } = logicalMeters();
+    world = currentMap.createWorld(wM, hM);
+    currentMap.drawBackground(wallpaperCtx, logicalPxW, logicalPxH);
+    redrawOverlay();
+  }
 }
 
 // ---------- Obstacle dragging (mouse builds the track; phone drives) --------
@@ -364,14 +424,14 @@ function resize() {
 let draggedObstacle: MapObstacle | null = null;
 
 function redrawOverlay() {
-  overlayCtx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+  overlayCtx.clearRect(0, 0, logicalPxW, logicalPxH);
   currentMap.drawObstacles(overlayCtx, world, CONFIG.pxPerMeter, draggedObstacle);
 }
 
 canvas.addEventListener('pointerdown', (e) => {
   if (editorMode) { editorPointerDown(e); return; }  // editor owns the mouse
   if (!currentMap.draggableObstacles) return;
-  const mx = e.clientX / PX(), my = e.clientY / PX();
+  const { x: mx, y: my } = screenToWorld(e.clientX, e.clientY);
   const obs = currentMap.obstacleAt?.(world, mx, my) ?? null;
   if (!obs) return;
   e.preventDefault();
@@ -385,7 +445,7 @@ canvas.addEventListener('pointerdown', (e) => {
 canvas.addEventListener('pointermove', (e) => {
   if (editorMode) { editorPointerMove(e); return; }
   if (!currentMap.draggableObstacles) return;
-  const mx = e.clientX / PX(), my = e.clientY / PX();
+  const { x: mx, y: my } = screenToWorld(e.clientX, e.clientY);
   if (draggedObstacle) {
     currentMap.dragObstacleTo?.(world, draggedObstacle, mx, my);
     redrawOverlay();
@@ -538,7 +598,7 @@ const EDITOR_DEFAULT_HINT = 'click to place · drag to move · E to exit';
 function editorPointerDown(e: PointerEvent) {
   if (isCircuitMap()) return;   // circuit maps have no place-elements editor
   e.preventDefault();
-  const mx = e.clientX / PX(), my = e.clientY / PX();
+  const { x: mx, y: my } = screenToWorld(e.clientX, e.clientY);
   const idx = findElementIndexAt(raceElements, mx, my, EDITOR_GRAB_R);
   if (idx >= 0) {
     if (editorTool === 'delete') {
@@ -559,7 +619,7 @@ function editorPointerDown(e: PointerEvent) {
 }
 function editorPointerMove(e: PointerEvent) {
   if (editorDragIdx === null) return;
-  const mx = e.clientX / PX(), my = e.clientY / PX();
+  const { x: mx, y: my } = screenToWorld(e.clientX, e.clientY);
   raceElements[editorDragIdx].x = mx - editorDragOff.x;
   raceElements[editorDragIdx].y = my - editorDragOff.y;
 }
@@ -1010,20 +1070,33 @@ function render() {
   const W = window.innerWidth;
   const H = window.innerHeight;
 
+  // Fill the whole viewport first so the letterbox/pillarbox margins of a fixed-
+  // world map are clean. The desktop world fully overdraws this.
+  ctx.fillStyle = '#05030d';
+  ctx.fillRect(0, 0, W, H);
+
   // Screen shake wraps every world layer (HUD is HTML, unaffected).
   const shake = fx.shakeOffset();
   ctx.save();
   ctx.translate(shake.x, shake.y);
 
-  // Layered: background → skids → obstacles → dynamic foreground → cars → fx.
-  ctx.drawImage(wallpaperCanvas, 0, 0, W, H);
-  ctx.drawImage(skidCanvas, 0, 0, W, H);
-  ctx.drawImage(overlayCanvas, 0, 0, W, H);
-  currentMap.drawForeground?.(ctx, world, CONFIG.pxPerMeter);
+  // Static layers (logical bitmaps) → blit into the fitted, centred rectangle
+  // with a UNIFORM scale (never stretched). Desktop: offset 0, scale 1 ⇒ 1:1.
+  const dw = logicalPxW * viewScale, dh = logicalPxH * viewScale;
+  ctx.drawImage(wallpaperCanvas, viewOffX, viewOffY, dw, dh);
+  ctx.drawImage(skidCanvas, viewOffX, viewOffY, dw, dh);
+  ctx.drawImage(overlayCanvas, viewOffX, viewOffY, dw, dh);
 
+  // Dynamic layers draw in LOGICAL pixel space; the same uniform scale + offset
+  // fits them to the window, so cars/gates/fx track the world exactly.
+  ctx.save();
+  ctx.translate(viewOffX, viewOffY);
+  ctx.scale(viewScale, viewScale);
+  currentMap.drawForeground?.(ctx, world, CONFIG.pxPerMeter);
   drawRaceElements();
   for (const car of cars.values()) drawCar(car);  // paint every connected car
   fx.draw(ctx, CONFIG.pxPerMeter);
+  ctx.restore();
 
   ctx.restore();
   updateHud();
@@ -1439,12 +1512,12 @@ function switchMap(id: string): boolean {
   }
   currentMap = def;
 
-  const w = window.innerWidth, h = window.innerHeight;
-  world = currentMap.createWorld(w / CONFIG.pxPerMeter, h / CONFIG.pxPerMeter);
-  draggedObstacle = null;
-  currentMap.drawBackground(wallpaperCtx, w, h);
-  redrawOverlay();
-  skidCtx.clearRect(0, 0, w, h);                 // drop the previous map's skids
+  // Force a full re-layout at the NEW map's logical size (fixed for the oval,
+  // viewport for the desktop): mark the offscreen layers stale so resize()
+  // rebuilds the world + static layers + view transform for this map.
+  logicalPxW = logicalPxH = 0;
+  resize();
+  skidCtx.clearRect(0, 0, logicalPxW, logicalPxH);   // drop the previous map's skids
 
   // Reset the (per-map) race track and leave the editor if it was open. Lap
   // default per type: OPEN → 1 lap (RACE_CONFIG); CIRCUIT → 0 = free-roam (just
