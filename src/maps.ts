@@ -362,13 +362,24 @@ function drawFloodlight(ctx: CanvasRenderingContext2D, x: number, y: number, dir
   ctx.restore();
 }
 
-// FIXED logical world for the oval: a 16:9 rectangle (≈1920×1080 at the base
-// scale) — wide enough for a proper short-track stadium. Because the world is
-// always this size, computeStadium() always yields the SAME wide oval; the
-// renderer just scales the whole thing uniformly to fit the window.
+// FIXED logical world for the oval — sized to the ACTUAL fullscreen (the screen's
+// CSS resolution), NOT a hardcoded 1920×1080. This is the fix for "car too small
+// relative to the oval": the world is what the oval filled BEFORE the scaling
+// work (the viewport at fullscreen), so AT FULLSCREEN viewScale ≈ 1 → the oval
+// fills the screen and the car renders at its ORIGINAL on-screen size — exactly
+// the pre-scaling tuned look the drift was built on. A smaller window then
+// uniformly scales the WHOLE scene (oval + car together) down to fit (letterbox/
+// pillarbox, never crop, never squash), so the car-to-oval RATIO stays constant
+// and equals the original fullscreen ratio on ANY display / OS-scaling, with no
+// per-machine tuning. (A 1920 panel at 125% Windows scaling reports 1536 CSS px,
+// which is why a hardcoded 1920 made the fixed oval ~25% too big → car ~80%.)
+// computeStadium() builds the oval from whatever size this is, so the wide
+// stadium shape is preserved. Falls back to 1920×1080 off-DOM (unit tests).
+const SCREEN_W = (typeof window !== 'undefined' && window.screen?.width)  || 1920;
+const SCREEN_H = (typeof window !== 'undefined' && window.screen?.height) || 1080;
 const FLAT_LOGICAL = {
-  widthM: 1920 / CONFIG.pxPerMeter,
-  heightM: 1080 / CONFIG.pxPerMeter,
+  widthM:  SCREEN_W / CONFIG.pxPerMeter,
+  heightM: SCREEN_H / CONFIG.pxPerMeter,
 };
 
 export const flatTrackMap: MapDefinition = {
