@@ -561,18 +561,44 @@ body.phone {
     linear-gradient(90deg, rgba(45, 226, 230, 0.06) 1px, transparent 1px) 0 0 / 46px 100%;
 }
 
-/* Pedals — full-half-width strips with an L-shaped clip-path notch in the
-   bottom-inner corner that carves out the handbrake's touch zone.
-   `clip-path` clips POINTER EVENTS too (CSS Masking spec) so the notched
-   region is transparent to touch and the handbrake (stacked on top via
-   z-index) receives those touches cleanly. Zero overlap, no dead gaps. */
+/* Pedals — full-half-width zones (BRAKE left, GAS right). The handbrake is a
+   separate OPAQUE rounded button stacked ON TOP (z-index 2) over the pedals'
+   bottom-centre. Because it's opaque, the pedals run full-bleed BEHIND it with
+   NO clip-path notch — so there is no black dead-gap and the E-BRAKE reads as
+   inset into the controls. z-index (not clip-path) routes touches in the
+   overlap to the handbrake, so touch zones are unchanged. Dropping the clip-path
+   also lets the zones carry real rounded corners. */
 :root {
   --hb-w:      clamp(170px, 26vmax, 240px); /* handbrake width                */
   --hb-h:      clamp(100px, 16vmax, 160px); /* handbrake height               */
-  --hb-margin: 8px;                          /* gap between handbrake and pedal edges */
+  --hb-margin: 8px;                          /* handbrake bottom inset         */
+  --zone-radius: 22px;                       /* rounded outer corners, all zones */
 }
 
 #pedals { position: absolute; inset: 0; z-index: 1; }
+
+/* Neon-lined divider down the centre seam: a thin dark gap with a pink edge
+   facing BRAKE (left) and a green edge facing GAS (right), instead of a hard
+   flat line. Stops just above the handbrake. Decorative — pointer-events:none
+   keeps both halves fully tappable. */
+#pedals::after {
+  content: '';
+  position: absolute;
+  top: 7%;
+  bottom: calc(var(--hb-margin) + var(--hb-h) - 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: 6px;
+  border-radius: 4px;
+  background: linear-gradient(180deg, #0a0518 0%, #06030f 100%);
+  box-shadow:
+    inset 1px 0 0 rgba(255, 45, 149, 0.75),   /* left edge  → BRAKE pink */
+    inset -1px 0 0 rgba(57, 255, 140, 0.75),  /* right edge → GAS green  */
+    -2px 0 12px rgba(255, 45, 149, 0.35),     /* soft glow left  */
+    2px 0 12px rgba(57, 255, 140, 0.35);      /* soft glow right */
+  z-index: 2;
+  pointer-events: none;
+}
 
 .pedal, #handbrake {
   appearance: none;
@@ -586,7 +612,8 @@ body.phone {
   position: absolute;
   overflow: hidden;
   touch-action: none;
-  transition: filter 80ms ease-out, box-shadow 140ms ease-out;
+  transition: filter 90ms ease-out, box-shadow 140ms ease-out,
+    background 140ms ease-out, transform 90ms ease-out;
   cursor: pointer;
 }
 
@@ -596,47 +623,44 @@ body.phone {
   width: 50%;
   font-size: 22px;
 }
+/* Depth recipe (shared spirit, per-zone colour): a vertical gradient (lighter
+   top → darker bottom) + an inset bevel — a bright hairline along the top edge
+   and a soft dark shadow pooling at the bottom — so the zone reads as a raised,
+   physical surface. The neon border is an inset coloured ring (a glowing tube)
+   and an outer glow bleeds into the stage. NO clip-path: the pedal runs behind
+   the opaque handbrake, which fills the old gap. Inner (centre) corners barely
+   rounded so the divider seats cleanly; outer corners fully rounded. */
 #pedal-brake {
   left: 0;
+  border-radius: var(--zone-radius) 7px 7px var(--zone-radius);
   background:
-    linear-gradient(180deg, rgba(255, 45, 149, 0.12), rgba(22, 8, 28, 0.62) 42%, rgba(8, 4, 16, 0.94));
+    linear-gradient(180deg,
+      rgba(255, 72, 162, 0.24) 0%,
+      rgba(40, 12, 30, 0.66) 40%,
+      rgba(10, 4, 16, 0.96) 100%);
   box-shadow:
-    inset 0 0 0 2px rgba(255, 45, 149, 0.8),
-    inset 0 0 34px rgba(255, 45, 149, 0.22),
-    inset 0 0 80px rgba(255, 122, 24, 0.1);
+    inset 0 2px 0 rgba(255, 150, 200, 0.35),   /* top bevel highlight   */
+    inset 0 0 0 2px rgba(255, 45, 149, 0.85),  /* neon tube ring        */
+    inset 0 -26px 42px rgba(0, 0, 0, 0.55),    /* bottom inner shadow   */
+    inset 0 0 44px rgba(255, 45, 149, 0.22),   /* inner neon haze       */
+    0 0 26px rgba(255, 45, 149, 0.30),         /* outer glow            */
+    0 0 64px rgba(255, 122, 24, 0.12);
 }
 #pedal-throttle {
   right: 0;
+  border-radius: 7px var(--zone-radius) var(--zone-radius) 7px;
   background:
-    linear-gradient(180deg, rgba(57, 255, 140, 0.12), rgba(8, 22, 26, 0.62) 42%, rgba(6, 12, 18, 0.94));
+    linear-gradient(180deg,
+      rgba(72, 255, 152, 0.24) 0%,
+      rgba(10, 36, 30, 0.66) 40%,
+      rgba(6, 14, 18, 0.96) 100%);
   box-shadow:
-    inset 0 0 0 2px rgba(45, 255, 170, 0.8),
-    inset 0 0 34px rgba(45, 255, 170, 0.2),
-    inset 0 0 80px rgba(45, 226, 230, 0.1);
-}
-
-/* Brake notch — bottom-RIGHT corner of brake (its inner-bottom in player view). */
-#pedal-brake {
-  clip-path: polygon(
-    0%   0%,
-    100% 0%,
-    100% calc(100% - var(--hb-h) - var(--hb-margin)),
-    calc(100% - var(--hb-w) / 2 - var(--hb-margin)) calc(100% - var(--hb-h) - var(--hb-margin)),
-    calc(100% - var(--hb-w) / 2 - var(--hb-margin)) 100%,
-    0%   100%
-  );
-}
-
-/* Throttle notch — bottom-LEFT corner of throttle. */
-#pedal-throttle {
-  clip-path: polygon(
-    0%   0%,
-    100% 0%,
-    100% 100%,
-    calc(var(--hb-w) / 2 + var(--hb-margin)) 100%,
-    calc(var(--hb-w) / 2 + var(--hb-margin)) calc(100% - var(--hb-h) - var(--hb-margin)),
-    0%   calc(100% - var(--hb-h) - var(--hb-margin))
-  );
+    inset 0 2px 0 rgba(190, 255, 215, 0.35),
+    inset 0 0 0 2px rgba(45, 255, 170, 0.85),
+    inset 0 -26px 42px rgba(0, 0, 0, 0.55),
+    inset 0 0 44px rgba(45, 255, 170, 0.20),
+    0 0 26px rgba(45, 255, 140, 0.28),
+    0 0 64px rgba(45, 226, 230, 0.12);
 }
 
 /* Analog fill — grows from the strip's bottom (inner end) toward the top.
@@ -706,26 +730,62 @@ body.phone {
   color: #dcffe6;
   text-shadow: 0 0 9px rgba(57, 255, 110, 0.95), 0 0 22px rgba(45, 226, 230, 0.65);
 }
-.pedal.active { filter: brightness(1.14) saturate(1.12); }
+/* PRESS FEEDBACK — driven by the real .active state (set by phone.ts the moment
+   a finger is down, the same state that sends throttle/brake). The zone presses
+   "in" (the top-edge highlight flips to an inset shadow), the neon ring + glow
+   brighten and the fill saturates. Release returns to the raised resting look. */
+.pedal.active { filter: brightness(1.18) saturate(1.2); }
+#pedal-brake.active {
+  background:
+    linear-gradient(180deg,
+      rgba(255, 96, 178, 0.36) 0%,
+      rgba(54, 16, 38, 0.66) 38%,
+      rgba(14, 5, 20, 0.96) 100%);
+  box-shadow:
+    inset 0 3px 16px rgba(0, 0, 0, 0.5),        /* pushed-in shadow at top */
+    inset 0 0 0 2px rgba(255, 110, 185, 1),     /* ring brightens          */
+    inset 0 0 56px rgba(255, 45, 149, 0.42),
+    0 0 40px rgba(255, 45, 149, 0.55),          /* glow swells             */
+    0 0 92px rgba(255, 122, 24, 0.2);
+}
+#pedal-throttle.active {
+  background:
+    linear-gradient(180deg,
+      rgba(96, 255, 176, 0.36) 0%,
+      rgba(12, 44, 36, 0.66) 38%,
+      rgba(8, 18, 22, 0.96) 100%);
+  box-shadow:
+    inset 0 3px 16px rgba(0, 0, 0, 0.5),
+    inset 0 0 0 2px rgba(120, 255, 200, 1),
+    inset 0 0 56px rgba(45, 255, 170, 0.4),
+    0 0 40px rgba(45, 255, 140, 0.52),
+    0 0 92px rgba(45, 226, 230, 0.2);
+}
 
 /* Handbrake — its own rounded button at bottom-center, on top of the
    pedals' notched-out area. z-index ensures it wins hit-tests where it
    visually sits (which is where the pedals are clipped out anyway). */
+/* OPAQUE so the pedals running behind it stay hidden (this is what fills the
+   old black gap). Raised drop-shadow + top bevel highlight = a physical button
+   sitting on the control surface; orange neon tube ring; matched corner radius. */
 #handbrake {
   left: 50%;
   bottom: var(--hb-margin);
   transform: translateX(-50%);
   width: var(--hb-w);
   height: var(--hb-h);
-  border-radius: 16px;
+  border-radius: 20px;
   font-size: 18px;
   color: #ffe9c7;
   background:
-    linear-gradient(180deg, rgba(255, 138, 61, 0.14), rgba(22, 11, 8, 0.9));
+    linear-gradient(180deg, #4a2a12 0%, #2a1608 52%, #160b05 100%);
   box-shadow:
-    inset 0 0 0 2px rgba(255, 150, 40, 0.85),
-    inset 0 0 28px rgba(255, 138, 61, 0.2),
-    0 0 24px rgba(255, 138, 61, 0.28);
+    inset 0 2px 0 rgba(255, 200, 130, 0.4),    /* top bevel highlight   */
+    inset 0 0 0 2px rgba(255, 150, 40, 0.9),   /* neon tube ring        */
+    inset 0 -22px 36px rgba(0, 0, 0, 0.6),     /* bottom inner shadow   */
+    inset 0 0 30px rgba(255, 138, 61, 0.25),   /* inner amber haze      */
+    0 0 30px rgba(255, 138, 61, 0.4),          /* outer glow onto pedals */
+    0 7px 20px rgba(0, 0, 0, 0.55);            /* drop shadow = raised  */
   z-index: 2;
 }
 #handbrake .pedal-label {
@@ -736,15 +796,20 @@ body.phone {
   letter-spacing: 4px;
   text-shadow: 0 0 9px rgba(255, 150, 40, 0.95), 0 0 22px rgba(255, 90, 40, 0.6);
 }
-/* Engaged → bright amber bloom. */
+/* Engaged → presses DOWN into the surface (shrinks, drop-shadow collapses, the
+   top bevel flips to an inset shadow) and blooms bright amber. */
 #handbrake.active {
-  background: linear-gradient(180deg, rgba(255, 172, 64, 0.55), rgba(124, 45, 18, 0.9));
-  filter: brightness(1.12);
+  background: linear-gradient(180deg, #ffb04a 0%, #c2570f 60%, #7c2d12 100%);
+  color: #fff3df;
+  filter: brightness(1.06);
+  transform: translateX(-50%) translateY(2px) scale(0.985);
   box-shadow:
-    inset 0 0 0 2px rgba(255, 200, 110, 1),
-    inset 0 0 40px rgba(255, 165, 55, 0.55),
-    0 0 50px rgba(255, 140, 40, 0.85),
-    0 0 100px rgba(255, 90, 30, 0.45);
+    inset 0 3px 18px rgba(70, 18, 0, 0.55),     /* pushed-in shadow at top */
+    inset 0 0 0 2px rgba(255, 215, 130, 1),     /* ring blazes             */
+    inset 0 0 48px rgba(255, 170, 60, 0.6),
+    0 0 56px rgba(255, 140, 40, 0.85),          /* glow swells             */
+    0 0 110px rgba(255, 90, 30, 0.4),
+    0 2px 8px rgba(0, 0, 0, 0.5);               /* drop-shadow collapses   */
 }
 
 /* "TAP TO STEER" — the pre-game tap (enables motion + calibrates neutral).
