@@ -225,6 +225,98 @@ export class RaceState {
 }
 
 // =============================================================================
+//  MULTI-CAR RACE — one RaceState per car (each races the same elements/laps
+//  independently, reusing the directional + armed-lap counting), plus a
+//  FINISHING ORDER recorded as each car completes. Pure + testable.
+//
+//  The host feeds EVERY car's position each step (`update(slot, …)`), reads
+//  `finishers()` for the live feed + `isComplete(connectedSlots)` for the podium.
+//  Disconnect = `remove(slot)`: an unfinished car is dropped and never blocks the
+//  race end; a finished car keeps its result. The race ends only when every
+//  STILL-CONNECTED car has finished.
+// =============================================================================
+export interface Finisher {
+  slot: number;
+  position: number;   // 1-based finishing position (assigned in finish order)
+  finishMs: number;   // race time at finish (ms)
+}
+
+const EMPTY_SET: ReadonlySet<number> = new Set();
+
+export class RaceManager {
+  private readonly elements: RaceElement[];
+  private readonly cfg: RaceConfig;
+  private readonly cars = new Map<number, RaceState>();
+  private order: Finisher[] = [];
+  private finished = new Set<number>();
+
+  constructor(elements: RaceElement[], cfg: RaceConfig = RACE_CONFIG) {
+    this.elements = elements;
+    this.cfg = cfg;
+  }
+
+  private state(slot: number): RaceState {
+    let rs = this.cars.get(slot);
+    if (!rs) { rs = new RaceState(this.elements, this.cfg); this.cars.set(slot, rs); }
+    return rs;
+  }
+
+  // Register a car so it exists before it moves (optional; update() also creates).
+  add(slot: number): void { this.state(slot); }
+
+  // Advance one car. When its RaceState transitions to finished, append it to the
+  // finishing order with the next position + its finish time. No-op once a car
+  // has finished (its result is locked) — so it never double-records.
+  update(slot: number, x: number, y: number, now: number, vx = 0, vy = 0): void {
+    if (this.finished.has(slot)) return;
+    const rs = this.state(slot);
+    rs.update(x, y, now, vx, vy);
+    const h = rs.hud(now);
+    if (h.finished) {
+      this.finished.add(slot);
+      this.order.push({ slot, position: this.order.length + 1, finishMs: h.finishMs });
+    }
+  }
+
+  // Disconnect: stop tracking the car. Its finishing-order entry (if any) stays —
+  // a finished-then-left player can still appear in results — but it is no longer
+  // "connected", so isComplete() never waits on it. Clearing `finished` lets the
+  // slot race fresh if it's later reclaimed by a new player.
+  remove(slot: number): void {
+    this.cars.delete(slot);
+    this.finished.delete(slot);
+  }
+
+  // Rematch: zero every car's progress + the finishing order, keep the car set.
+  reset(): void {
+    for (const rs of this.cars.values()) rs.reset();
+    this.order = [];
+    this.finished.clear();
+  }
+
+  // Per-car HUD (lap/time) for a readout. Unknown slot ⇒ an inactive HUD.
+  hud(slot: number, now: number): RaceHud {
+    return (this.cars.get(slot) ?? new RaceState(this.elements, this.cfg)).hud(now);
+  }
+  // A car's collected checkpoints (open-map render dimming).
+  collectedElementIndices(slot: number): ReadonlySet<number> {
+    return this.cars.get(slot)?.collectedElementIndices() ?? EMPTY_SET;
+  }
+
+  finishers(): Finisher[] { return this.order.slice(); }
+  hasFinishers(): boolean { return this.order.length > 0; }
+  isFinished(slot: number): boolean { return this.finished.has(slot); }
+
+  // COMPLETE when ≥1 car is connected and EVERY connected car has finished.
+  // Disconnected cars are ignored — they never block the race end.
+  isComplete(connectedSlots: Iterable<number>): boolean {
+    const slots = [...connectedSlots];
+    if (slots.length === 0) return false;
+    return slots.every((s) => this.finished.has(s));
+  }
+}
+
+// =============================================================================
 //  Editor mutators — operate on the live RaceElement[] (the single source of
 //  truth shared with RaceState). Pure (mutate the passed array), unit-testable.
 //  After any structural change the desktop rebuilds its RaceState from the

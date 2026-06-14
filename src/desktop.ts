@@ -16,7 +16,7 @@ import {
   PLAYER_CAP, LOBBY_SYNC_MS, IDLE_TIMEOUT_MS, EV, colorName, LobbyState,
 } from './lobby';
 import {
-  RaceState, RACE_CONFIG, formatRaceTime,
+  RaceManager, RACE_CONFIG, formatRaceTime,
   placeElement, removeElementAt, clearElements, findElementIndexAt,
   countCheckpoints, isCircuitTrack,
   type RaceElement, type RaceHud, type RaceType,
@@ -56,7 +56,9 @@ const raceTimerEl     = document.getElementById('race-timer')       as HTMLDivEl
 const raceCpEl        = document.getElementById('race-cp')          as HTMLSpanElement | null;
 const raceLapEl       = document.getElementById('race-lap')         as HTMLSpanElement | null;
 const raceFinishEl    = document.getElementById('race-finish')      as HTMLElement | null;
-const raceFinishTimeEl = document.getElementById('race-finish-time') as HTMLDivElement | null;
+const finishFeedEl    = document.getElementById('finish-feed')      as HTMLElement | null;
+const raceResultsEl   = document.getElementById('race-results')     as HTMLElement | null;
+const resultsRestEl   = document.getElementById('results-rest')     as HTMLElement | null;
 const xpHudEl       = document.getElementById('xp-hud')        as HTMLElement | null;
 const xpScoreEl     = document.getElementById('xp-score')      as HTMLDivElement | null;
 const xpMultEl      = document.getElementById('xp-mult')       as HTMLDivElement | null;
@@ -88,12 +90,13 @@ const mapTilesEl     = document.getElementById('map-tiles')       as HTMLElement
 let userPaused = false;  // toggled by P
 let editorMode = false;  // toggled by E
 let menuOpen = true;     // the host front-end (menu) shows at startup
-let isPaused = false;    // = userPaused || editorMode || menuOpen (loop gate)
+let raceResultsOpen = false;  // the multi-car podium is up (freezes the sim)
+let isPaused = false;    // = userPaused || editorMode || menuOpen || results (loop gate)
 let pausedAccumMs = 0;   // total frozen time, subtracted from the game clock
 let pauseStartedAt = 0;  // performance.now() when the current freeze began
 
 function refreshFreeze() {
-  const want = userPaused || editorMode || menuOpen;
+  const want = userPaused || editorMode || menuOpen || raceResultsOpen;
   if (want !== isPaused) {
     isPaused = want;
     if (isPaused) pauseStartedAt = performance.now();
@@ -306,7 +309,8 @@ function restartRace() {
     car.skidR.active = false;
     car.lastInputAt = performance.now();
   }
-  raceState.reset();   // laps + elapsed time + collected checkpoints + phase → zero
+  raceManager.reset();   // every car's laps/time/phase → zero
+  resetRaceFeed();       // clear finish feed + podium + raceResultsOpen
   userPaused = false;
   refreshFreeze();
 }
@@ -315,11 +319,16 @@ function restartRace() {
 // respawns the cars via switchMap. No phone is dropped, no QR rescan.
 function exitToMainMenu() {
   userPaused = false;
+  resetRaceFeed();   // drop any finish feed / podium so it's clean next race
   openMainMenu();
 }
 document.getElementById('btn-resume')?.addEventListener('click', resumeGame);
 document.getElementById('btn-restart')?.addEventListener('click', restartRace);
 document.getElementById('btn-exit-menu')?.addEventListener('click', exitToMainMenu);
+// Race results (podium): REMATCH re-runs the race (reuses restartRace); EXIT goes
+// to the main menu. Both clear the podium + feed.
+document.getElementById('btn-rematch')?.addEventListener('click', restartRace);
+document.getElementById('btn-results-menu')?.addEventListener('click', exitToMainMenu);
 
 // ---------- Canvases ----------
 // Layered rendering (back to front):
@@ -564,7 +573,12 @@ function syncCars() {
       existing.skidStyle = skidColorFor(p.color);
     }
   }
-  for (const slot of [...cars.keys()]) if (!live.has(slot)) cars.delete(slot);
+  for (const slot of [...cars.keys()]) {
+    if (!live.has(slot)) {
+      cars.delete(slot);
+      raceManager.remove(slot);   // a gone car never blocks the race end
+    }
+  }
 }
 
 // Skid stroke for a car: its colour darkened toward tarmac, semi-transparent so
@@ -589,8 +603,87 @@ const raceElements: RaceElement[] = [];
 // Lap count is an editor setting. Open maps use 1..10; circuit maps 0..99 (0 =
 // free-roam). The built track uses it; the race HUD shows LAP n/m off it.
 let editorLaps = RACE_CONFIG.laps;
-let raceState = new RaceState(raceElements, { ...RACE_CONFIG, laps: editorLaps });
+// MULTI-CAR race: one RaceManager drives per-car lap counting + finishing order.
+// The lead car (lowest slot) still feeds the single lap/timer HUD; the manager
+// adds the live finish feed + podium for N players.
+let raceManager = new RaceManager(raceElements, { ...RACE_CONFIG, laps: editorLaps });
 const isCircuitMap = () => currentMap.trackType === 'circuit';
+
+// Live finish feed (captured per finisher with the NAME/COLOUR at finish time, so
+// a later disconnect/reclaim can't corrupt the display). Drives the corner feed
+// while racing and the podium once the race completes.
+interface FeedEntry { position: number; slot: number; name: string; color: string; finishMs: number; }
+let finishFeed: FeedEntry[] = [];
+let lastFinisherCount = 0;
+// A race is "live" (feed + podium apply) only when there are race elements AND
+// we're not in XP mode — i.e. circuit RACE (laps≥1) or an open-map sprint/circuit.
+const isRaceLive = () => raceElements.length > 0 && !isXpMode();
+
+function resetRaceFeed() {
+  finishFeed = [];
+  lastFinisherCount = 0;
+  raceResultsOpen = false;
+  if (finishFeedEl) { finishFeedEl.innerHTML = ''; finishFeedEl.hidden = true; }
+  if (raceResultsEl) raceResultsEl.hidden = true;
+}
+
+function playerName(slot: number): string {
+  const p = lobby.snapshot().find((q) => q.slot === slot);
+  return (p?.name && p.name.trim()) || `P${slot + 1}`;
+}
+
+// Ingest any cars that finished since last frame: snapshot their name/colour into
+// the feed and render the corner notice. Does NOT block still-racing cars.
+function pollFinishers() {
+  const fs = raceManager.finishers();
+  for (let i = lastFinisherCount; i < fs.length; i++) {
+    const f = fs[i];
+    finishFeed.push({
+      position: f.position, slot: f.slot, name: playerName(f.slot),
+      color: cars.get(f.slot)?.color || DEFAULT_CAR_COLOR, finishMs: f.finishMs,
+    });
+  }
+  if (fs.length !== lastFinisherCount) { lastFinisherCount = fs.length; renderFinishFeed(); }
+}
+
+function renderFinishFeed(): void {
+  if (!finishFeedEl) return;
+  if (finishFeed.length === 0 || raceResultsOpen) { finishFeedEl.hidden = true; return; }
+  finishFeedEl.hidden = false;
+  finishFeedEl.innerHTML = finishFeed.map((e) =>
+    `<div class="ff-row" style="--c:${e.color}">` +
+    `<span class="ff-pos">✓ P${e.position}</span>` +
+    `<span class="ff-name">${escapeHtml(e.name)}</span>` +
+    `<span class="ff-time">${formatRaceTime(e.finishMs)}</span></div>`,
+  ).join('');
+}
+
+// All connected cars finished → freeze + show the podium (top 3) + rest list.
+function openRaceResults() {
+  raceResultsOpen = true;
+  refreshFreeze();
+  if (finishFeedEl) finishFeedEl.hidden = true;
+  // Podium steps: P2 (left), P1 (centre, tallest), P3 (right).
+  for (const pos of [1, 2, 3]) {
+    const e = finishFeed.find((x) => x.position === pos);
+    const pod = raceResultsEl?.querySelector(`.pod-${pos}`) as HTMLElement | null;
+    if (!pod) continue;
+    pod.hidden = !e;
+    if (e) {
+      (pod.querySelector('.pod-name') as HTMLElement).textContent = e.name;
+      (pod.querySelector('.pod-time') as HTMLElement).textContent = formatRaceTime(e.finishMs);
+      pod.style.setProperty('--c', e.color);
+    }
+  }
+  // 4th onward as a plain list.
+  if (resultsRestEl) {
+    resultsRestEl.innerHTML = finishFeed.filter((e) => e.position >= 4).map((e) =>
+      `<div class="rr-row"><span>P${e.position}</span>` +
+      `<span class="rr-name" style="color:${e.color}">${escapeHtml(e.name)}</span>` +
+      `<span>${formatRaceTime(e.finishMs)}</span></div>`).join('');
+  }
+  if (raceResultsEl) raceResultsEl.hidden = false;
+}
 
 // ---------- XP MODE (circuit maps) — a third mode beside LAPS ----------
 // SOLO + LOCAL: the run READS the primary car's speed/slip (never writes physics)
@@ -652,7 +745,8 @@ function rebuildRace() {
       raceElements.push(currentMap.startLine(world));
     }
   }
-  raceState = new RaceState(raceElements, { ...RACE_CONFIG, laps: Math.max(1, editorLaps) });
+  raceManager = new RaceManager(raceElements, { ...RACE_CONFIG, laps: Math.max(1, editorLaps) });
+  resetRaceFeed();
 }
 
 // ---------- Track editor (key E) — place/drag/delete into raceElements ----------
@@ -1123,16 +1217,29 @@ function frame(now: number) {
         if (carImpact > 0.8 && lead) fx.impact(lead.state.x, lead.state.y, carImpact);
       }
 
-      // Per-car trails + edge wrap; race detection on the primary car only.
+      // Per-car trails + edge wrap; race detection PER CAR (multi-car race).
       for (const car of cars.values()) { recordSkids(car); wrap(car); }
-      // Pass velocity too → directional start-line crossing (circuit anti-cheat).
-      if (lead) raceState.update(lead.state.x, lead.state.y, gameNow, lead.state.vx, lead.state.vy);
+      // Each car races independently — velocity drives the directional start-line
+      // crossing (circuit anti-cheat). The manager records finishing order.
+      if (isRaceLive()) {
+        for (const [slot, car] of cars) {
+          raceManager.update(slot, car.state.x, car.state.y, gameNow, car.state.vx, car.state.vy);
+        }
+      }
 
       accumulator -= FIXED_DT;
       steps++;
     }
     // Drop accumulated time if we fell way behind (prevents spiral of death).
     if (steps === MAX_SUBSTEPS) accumulator = 0;
+
+    // ---- MULTI-CAR RACE: surface new finishers in the live corner feed (the
+    // still-racing cars keep going), and once EVERY connected car has finished,
+    // freeze + raise the podium.
+    if (isRaceLive()) {
+      pollFinishers();
+      if (!raceResultsOpen && raceManager.isComplete(cars.keys())) openRaceResults();
+    }
 
     // ---- XP MODE: read the SOLO car's speed + sideways slip and accrue score.
     // Pure read — physics/drift untouched. Banks + shows the end card on end.
@@ -1165,7 +1272,7 @@ function frame(now: number) {
 
   // Render ALWAYS (paused frame still draws the frozen car + overlay on top).
   render();
-  updateRaceHud(raceState.hud(gameNow));
+  updateRaceHud(raceManager.hud(primaryCar()?.slot ?? -1, gameNow));
   updateXpHud();
   requestAnimationFrame(frame);
 }
@@ -1282,7 +1389,7 @@ function drawRaceElements() {
   // the built-in race element is detection-only, so skip drawing gates here.
   if (isCircuitMap()) return;
   const px = PX();
-  const collected = raceState.collectedElementIndices();
+  const collected = raceManager.collectedElementIndices(primaryCar()?.slot ?? -1);
   // In a circuit (start, no finish) the START gate is also the finish line.
   const circuit = isCircuitTrack(raceElements);
   raceElements.forEach((e, i) => {
@@ -1377,10 +1484,8 @@ function updateRaceHud(h: RaceHud) {
   if (raceTimerEl) raceTimerEl.textContent = formatRaceTime(h.elapsedMs);
   if (raceCpEl)  raceCpEl.textContent  = h.cpTotal > 0 ? `CP ${h.cpCollected}/${h.cpTotal}` : '';
   if (raceLapEl) raceLapEl.textContent = `LAP ${h.lap}/${h.laps}`;
-  if (raceFinishEl) {
-    raceFinishEl.hidden = !h.finished;
-    if (h.finished && raceFinishTimeEl) raceFinishTimeEl.textContent = formatRaceTime(h.finishMs);
-  }
+  // The single-car "FINISH" card is superseded by the live feed + podium.
+  if (raceFinishEl) raceFinishEl.hidden = true;
 }
 
 // XP MODE HUD: big score top-centre + drift multiplier, blinking under the slow

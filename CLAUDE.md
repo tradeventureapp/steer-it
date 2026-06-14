@@ -15,7 +15,8 @@ several people around one monitor, each phone = their own car. Target situation:
 
 Core hook: **phone as a steering wheel + drifting across a desktop + zero-friction QR join.**
 
-Domain (goal): `steerit.app`. Currently running on `steer-it.vercel.app`.
+Live at **`steerit.app`** (the QR is built from `VITE_PUBLIC_BASE_URL`, not the
+deployment-hash URL); `steer-it.vercel.app` also serves it.
 
 ---
 
@@ -95,6 +96,13 @@ Domain (goal): `steerit.app`. Currently running on `steer-it.vercel.app`.
   at the line never progress a lap. Editor mutators (`placeElement`,
   `removeElementAt`, `clearElements`, `findElementIndexAt`, `renumberCheckpoints`,
   `countCheckpoints`), `isCircuitTrack`, `formatRaceTime`, `RACE_CONFIG`.
+  MULTI-CAR: `RaceManager` (pure) holds one `RaceState` per slot (each races the
+  same elements/laps independently) + a finishing ORDER. `update(slot,…)` per car;
+  `finishers()` → `Finisher[]` (slot, 1-based position, finishMs, in finish order);
+  `isComplete(connectedSlots)` true when every CONNECTED car has finished;
+  `remove(slot)` on disconnect (a gone car never blocks the end; a finished one
+  keeps its result); `reset()` for rematch. desktop.ts feeds every car, shows a
+  live corner finish feed + a podium (top-3 steps, winner centre) with REMATCH.
 - `xp.ts` — XP MODE logic (pure, unit-testable; the third circuit mode beside
   LAPS). `XpRunState` + `makeXpRun`/`updateXpRun(run,dt,speed,slipRad,crashed)`.
   Drive without crashing → XP accrues (rate ∝ speed × drift multiplier); a
@@ -136,9 +144,11 @@ Domain (goal): `steerit.app`. Currently running on `steer-it.vercel.app`.
 - **Env:** copy `.env.example` → `.env` with `VITE_SUPABASE_URL`,
   `VITE_SUPABASE_ANON_KEY`, and (for prod) `VITE_PUBLIC_BASE_URL`. `.env` is gitignored.
 - **Tests:** no test runner is configured (no `test` script, no vitest/jest). The pure
-  modules (`lobby.ts`, `race.ts`, `cars.ts`) are written to be unit-testable and are
-  smoke-tested ad-hoc by bundling the REAL module with esbuild into a temp `.mjs` and
-  asserting in Node (these scratch test files are not committed). esbuild ships with Vite.
+  modules (`lobby.ts`, `race.ts` incl. `RaceManager`, `cars.ts`, `xp.ts`, and the
+  pure `computeViewport`/`carRenderPx` in `maps.ts`) are written to be unit-testable
+  and are smoke-tested ad-hoc by bundling the REAL module with esbuild into a temp
+  `.mjs` and asserting in Node (these scratch test files are not committed). esbuild
+  ships with Vite.
 
 ### Key constants (read from code — change these, not hidden gates)
 - `PLAYER_CAP = 8` (lobby.ts) — max simultaneous players (built for N; tested with 2).
@@ -224,6 +234,10 @@ phone→desktop `join | color | name | leave | control`; desktop→phone `lobby 
   roof number = slot number (1-based), per-slot color.
 - **Logo** — retro-synthwave "STEER IT" (chrome + magenta->orange gradient, neon).
 - **Neon phone UI** — TAP TO STEER + GAS/BRAKE/E-BRAKE pedals, synthwave style.
+  Force-landscape is pure CSS (viewport `--rot`, gravity/permission-independent;
+  steering calibration reads gravity only in the landscape pose). Buttons polished:
+  depth/bevel, neon-tube borders, press feedback (active glow), the E-BRAKE sits
+  INSET into the GAS/BRAKE fills (no black gap), thin neon GAS/BRAKE divider.
 - **Main menu + map select (host front-end)** — at startup the desktop shows a
   synthwave main menu (STEER IT logo + START RACE; extensible `.menu-actions` for
   OPTIONS/LEADERBOARDS later). START RACE → map-select tiles built from
@@ -238,13 +252,49 @@ phone→desktop `join | color | name | leave | control`; desktop→phone `lobby 
   pause menu, **E** = editor, **M** = sound on/off (sound OFF by default).
 - **Pause MENU (P / Esc)** — freezes simulation + timer (not render); phones stay
   connected. Synthwave card (reuses the main-menu styling) with **RESUME**,
-  **RESTART** (respawn all cars at the map spawn + `raceState.reset()` → laps/time/
-  checkpoints zero; track + editor elements stay), and **EXIT TO MENU** (back to the
+  **RESTART** (respawn all cars at the map spawn + `raceManager.reset()` + clear the
+  finish feed/podium → laps/time/checkpoints zero; track + editor elements stay; also
+  the **REMATCH** action on the podium), and **EXIT TO MENU** (back to the
   main menu; lobby/cars preserved, QR held until a map is re-picked — no rescan).
-  Shares one freeze gate with the editor + main menu (`refreshFreeze` in desktop.ts).
+  Shares one freeze gate with the editor + main menu + the race-results podium
+  (`refreshFreeze` in desktop.ts).
 - **Race core (`race.ts`)** — start/checkpoint/finish, passage detection, time, laps,
   **sprint vs circuit** (circuit = start only, no finish, so start = finish too),
-  lap count 1–10. Tested live (FINISH 0:15.3).
+  lap count 1–10 (open) / 0–99 (circuit). Circuit anti-cheat: a lap counts only on
+  a FORWARD, ARMED start-line crossing (armed by reaching the far point) — no
+  reverse-spam, no near-line circling. Tested live (FINISH 0:15.3).
+- **Multi-car race (`RaceManager` in `race.ts`)** — per-car independent lap
+  counting (one `RaceState` per slot) + a finishing ORDER. Desktop shows a LIVE
+  finish feed (unobtrusive corner `✓ P1 NAME time` as each car finishes — does NOT
+  block still-racing cars) and, once EVERY connected car has finished, a 90s-arcade
+  PODIUM (3 steps, winner centre/tallest, 4th+ listed below with times) with
+  **REMATCH** (reuses RESTART) + EXIT. Disconnect = ignored (a gone car never
+  blocks the end; a finished-then-left car keeps its result). Unit-tested (15
+  cases). AWAITING a 2-phone live test.
+- **XP MODE (`xp.ts`)** — the third circuit mode (editor toggle LAPS / XP). Endless
+  SOLO score run: XP accrues ∝ speed × a drift multiplier (a sustained slide builds
+  `×mult`, caps + decays); the run ARMS only once the car first reaches the min
+  speed (45% of `maxSpeed`); dropping below that blinks then ends after a 2 s grace;
+  a crash ends instantly. Big top-centre counter + `×mult`, end card (final + best +
+  NEW RECORD) + RETRY; best in localStorage per map. All tunables in `XP_CONFIG`
+  (`slowSpeedFrac 0.45`, `slowGraceMs 2000`, `multMax`, …). Only READS speed/slip —
+  physics/drift untouched.
+- **Fixed render scale (car size consistent across maps)** — `RENDER_PX_PER_M`
+  (= `CONFIG.pxPerMeter`) is the ONE metres→pixels scale every map renders at, so
+  the car is the same on-screen size everywhere. `computeViewport(map,w,h)` (pure)
+  returns the world-pixel rect + centring offset, always at that scale. Fixed-world
+  (circuit) maps are sized to the ACTUAL fullscreen (`window.screen`) so at
+  fullscreen the oval fills the screen and the car-to-oval ratio matches the
+  ORIGINAL tuned look on any display/DPI; smaller windows uniformly scale the whole
+  scene (never crop/squash). Load-time assertion in desktop.ts catches any map that
+  renders the car at a different scale.
+- **Fullscreen on START RACE** — the host page requests fullscreen (standard API +
+  webkit fallback) on the START RACE / map-tile click (a user gesture). Rejection is
+  swallowed; a manual Esc-exit isn't fought; the pause menu still works.
+- **Vercel Web Analytics** — `inject()` (framework-agnostic, NOT the React
+  component) at the top of BOTH entries (`desktop.ts` + `phone.ts`), so desktop
+  visits and phone joins are both counted. Enable Web Analytics in the Vercel
+  dashboard for data to flow.
 - **Track editor (E) — per map type** (`MapDefinition.trackType`):
   - OPEN maps (desktop): full place-elements editor — palette
     [START][FINISH][CHECKPOINT][DELETE][CLEAR ALL] + a LAPS 1–10 control. Click =
@@ -269,14 +319,15 @@ phone→desktop `join | color | name | leave | control`; desktop→phone `lobby 
   (color-tinted) + smoke. Verified through the real channel pipeline; AWAITING a
   two-device live test.
 - **Map system (`maps.ts`)** — the map is a switchable `MapDefinition` (background,
-  obstacles+collision, spawn, bounds+wrap, optional decor, draggable flag). The
-  desktop is map 1 (`desktopMap`), behaviour byte-identical to before.
-  `switchMap(id)` rebuilds world + layers, clears skids, resets the (per-map) race
-  track, exits the editor, and respawns cars. **Map 2 = `flatTrackMap`** ('flat',
-  90s dirt oval): brown dirt ring + green infield + purple night ground, tyre-wall
-  barriers (FIXED, tessellated AABB rects), grandstands + neon ad banners (fake
-  funny brands) + floodlights, 2-wide grid spawn on the start/finish line. Switch
-  via `steerSwitchMap('flat')`. Dev hooks only, no menu yet.
+  obstacles+collision, spawn, bounds+wrap, `trackType` 'open'|'circuit', optional
+  decor + `smokeColor` + `fixedWorld`, draggable flag). The desktop is map 1
+  (`desktopMap`, 'open'). `switchMap(id)` rebuilds world + layers, clears skids,
+  resets the (per-map) race track, exits the editor, and respawns cars. **Map 2 =
+  `flatTrackMap`** ('flat', 'circuit', 90s dirt oval): brown dirt ring + green
+  infield + purple night ground, tyre-wall barriers (FIXED, edge-only AABB rects),
+  grandstands (crowd only — NO ads yet) + floodlights, 2-wide grid spawn on the
+  start/finish line, brown DUST `smokeColor`. Maps are picked via the START RACE →
+  map-select tiles (real previews); `steerSwitchMap('flat')` dev hook still works.
 - **Vercel/QR blocker FIXED** — the QR pointed to a protected deployment-hash URL
   (login wall for other players). Fix: the QR is built from env var `VITE_PUBLIC_BASE_URL`
   (= production domain), not window.location.origin. + disable Vercel Authentication.
@@ -285,34 +336,54 @@ phone→desktop `join | color | name | leave | control`; desktop→phone `lobby 
 
 ## 5. STATUS — PENDING
 
-1. **Two-device live test** — two cars, two real phones, steering simultaneously,
-   collisions, disconnect. (Pipeline verified via simulated messages; full 2-device test missing.)
-2. **Multi-car race** — race detection currently runs only on the PRIMARY (lowest-slot)
-   car. Needed: per-car detection, ranking (1st/2nd/3rd), **finish/race-end only after
-   ALL players finish** (not after the first), winner/ranking display, rematch.
-3. **Interactive taskbar** — turn the bottom bar into a control panel (settings, launching
+### Next (live verification — needs real phones)
+1. **2-phone live test of the multi-car race** — two real phones racing the flat
+   oval: the live finish feed (P1 then P2…), the podium once both finish (correct
+   order + times), REMATCH, and a mid-race disconnect being ignored. The logic is
+   unit-tested (15 cases) and the podium/feed render correctly in preview, but the
+   driving + transport can't be tested headless. **Scheduled for the next session.**
+2. **General live multiplayer test** — two cars steering simultaneously, car-car
+   collisions, disconnect/reclaim, all through real Supabase (preview has no real
+   WebSocket). The pipeline is verified via simulated messages only.
+
+### Deferred (do later, in this order)
+3. **Monetization** — Stripe; free vs premium split (see §6). Deferred until the
+   reel confirms interest.
+4. **Accounts + global leaderboards/records** (XP scores + lap times, online) —
+   deferred, to be built TOGETHER WITH monetization (accounts gate paid features +
+   persist records; today XP best is local-only `localStorage`).
+5. **Onboarding** (first-run guidance / how-to-play) — deferred until after the
+   monetization / free-vs-premium decision (what to show free users depends on it).
+
+### Other planned (still on the roadmap)
+6. **Interactive taskbar** — turn the bottom bar into a control panel (launch
    editor/pause/laps via buttons instead of keys). UI shell over existing functions.
-4. **REEL** — film a viral video (phone as a wheel -> multiple cars racing across the
-   desktop), 10–20s, show the phone-as-wheel in the first 2s. Primarily TikTok / YT Shorts.
-5. **Scaling** — BEFORE the reel verify: how many concurrent games the Supabase plan can
-   hold (Realtime connection limits) under a viral spike (e.g. 3000 people in 2-3s). Vercel
-   Pro handles serving; the bottleneck is Supabase. Upgrade if needed.
+7. **REEL** — a 10–20s viral video (phone-as-wheel in the first 2s, multiple cars
+   racing the desktop). Primarily TikTok / YT Shorts.
+8. **Scaling check** — BEFORE the reel, verify how many concurrent games the
+   Supabase Realtime plan holds under a viral spike (e.g. 3000 people in 2–3s).
+   Vercel Pro serves fine; Supabase is the bottleneck. Upgrade if needed.
 
 ### After the reel (once interest is confirmed)
-- More maps, screenshot of one's own desktop as background, saving/library of tracks
-- Premium tier, Steam wishlist page, influencer key platforms (Keymailer/Woovit/Lurkit —
-  once there's a Steam build; for now browser = direct TikTok/influencer outreach)
-- Sound (4 synthesis attempts failed — deferred; the WAV pipeline stays, just drop a CC0
-  recording into public/audio/. Sound is OFF by default.)
-- Discord, Ludum Dare, itch.io devlogs
+- More maps, screenshot-your-own-desktop background, saving/library of tracks.
+- Steam wishlist page; influencer key platforms (Keymailer/Woovit/Lurkit — once
+  there's a Steam build; for now browser = direct TikTok/influencer outreach).
+- Sound (4 synthesis attempts failed — deferred; WAV pipeline stays, just drop a
+  CC0 recording into public/audio/. Sound is OFF by default.)
+- Discord, Ludum Dare, itch.io devlogs.
 
 ---
 
 ## 6. MONETIZATION (plan — do not implement until the reel confirms interest)
 
+- **Payments:** Stripe.
 - **Free:** 1 map (desktop), 2-player multiplayer, basic race mode.
   (Principle: with party games, let people taste the main fun — don't hide it all behind a paywall.)
 - **Premium $4.99:** 3–4+ players, all maps, track editor, battle mode, chaos mode, future content.
+- **Accounts + global leaderboards/records** (online XP scores + lap times) are
+  built TOGETHER WITH monetization — accounts gate the paid features and persist
+  records (today XP best is local-only `localStorage`). Onboarding lands after the
+  free-vs-premium split is decided.
 
 ---
 
@@ -336,8 +407,11 @@ phone→desktop `join | color | name | leave | control`; desktop→phone `lobby 
   against grippy corners — left as is.
 - Multiplayer: with no phone connected there's no car on the surface (cars = slots, spawned
   on connect). If the host should have a car even without a phone, that's to be resolved.
-- Race: detection currently runs on the PRIMARY (lowest-slot) car only — and so does the
-  single engine sound / HUD / race timer (see pending item 2).
+- Race: lap detection is now PER-CAR (`RaceManager`). The single engine SOUND and the
+  lap/timer HUD readout still follow the PRIMARY (lowest-slot) car only — intentional
+  (one engine, one timer readout); the live feed/podium cover all cars.
+- XP best + the race results are LOCAL only (`localStorage` / in-memory) — no accounts
+  or online leaderboards yet (deferred, see §5/§6).
 - The START gate in the editor can be hard to see against the sky (cosmetic, to polish).
 - The simulation loop is `requestAnimationFrame`-driven, so it throttles in a backgrounded /
   headless tab — keep that in mind when verifying timing-dependent behavior in preview.

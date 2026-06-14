@@ -436,6 +436,66 @@ body.desktop.editing #game { cursor: crosshair; }
   margin: 10px 0 18px;
 }
 
+/* ===== MULTI-CAR RACE — live finish feed (corner) + podium results ======== */
+/* Finish feed: small unobtrusive stack, top-left, doesn't cover the action. */
+#finish-feed {
+  position: fixed; top: 16px; left: 16px; z-index: 28;
+  display: flex; flex-direction: column; gap: 6px; pointer-events: none;
+}
+.ff-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 11px; border-radius: 9px;
+  background: rgba(8, 4, 18, 0.72); border: 1px solid var(--c, #2de2e6);
+  box-shadow: 0 0 16px color-mix(in srgb, var(--c, #2de2e6) 45%, transparent);
+  font-weight: 800; font-size: 13px; letter-spacing: 1px;
+  animation: ffIn 0.3s ease-out;
+}
+@keyframes ffIn { from { transform: translateX(-12px); opacity: 0; } to { transform: none; opacity: 1; } }
+.ff-pos  { color: var(--c, #2de2e6); text-shadow: 0 0 8px var(--c, #2de2e6); font-weight: 900; }
+.ff-name { color: #eafff6; max-width: 12ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ff-time { color: rgba(154, 166, 192, 0.85); margin-left: auto; font-variant-numeric: tabular-nums; }
+
+/* Podium overlay — synthwave card; 3 steps (centre tallest = winner) + rest list. */
+#race-results {
+  position: fixed; inset: 0; z-index: 60;
+  display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(120% 90% at 50% 25%, rgba(255, 45, 149, 0.10), transparent 60%),
+    rgba(5, 3, 13, 0.62); backdrop-filter: blur(3px);
+}
+#race-results .menu-card { text-align: center; min-width: 420px; }
+#podium {
+  display: flex; align-items: flex-end; justify-content: center; gap: 14px;
+  margin: 18px 0 6px;
+}
+.pod { display: flex; flex-direction: column; align-items: center; width: 116px; }
+.pod-name {
+  font-weight: 900; font-size: 16px; letter-spacing: 1px; color: #eafff6;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  text-shadow: 0 0 10px color-mix(in srgb, var(--c, #2de2e6) 60%, transparent);
+}
+.pod-time { font-weight: 700; font-size: 12px; color: rgba(154,166,192,0.9); margin-bottom: 6px; font-variant-numeric: tabular-nums; }
+.pod-block {
+  width: 100%; border-radius: 10px 10px 0 0;
+  display: flex; align-items: flex-start; justify-content: center; padding-top: 8px;
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--c, #2de2e6) 55%, #120a22), #120a22);
+  border: 1.5px solid var(--c, #2de2e6);
+  box-shadow: inset 0 0 22px color-mix(in srgb, var(--c, #2de2e6) 30%, transparent),
+    0 0 24px color-mix(in srgb, var(--c, #2de2e6) 30%, transparent);
+}
+.pod-rank { font-family: 'Orbitron', system-ui, sans-serif; font-weight: 900; font-size: 30px; color: #fff; text-shadow: 0 0 12px var(--c, #2de2e6); }
+.pod-1 .pod-block { height: 132px; }   /* winner — tallest, centre */
+.pod-2 .pod-block { height: 96px; }
+.pod-3 .pod-block { height: 70px; }
+.pod-1 .pod-name { font-size: 19px; }
+#results-rest { display: flex; flex-direction: column; gap: 4px; margin: 12px auto 16px; max-width: 320px; }
+.rr-row {
+  display: flex; gap: 10px; align-items: center;
+  font-weight: 700; font-size: 13px; letter-spacing: 1px; color: rgba(200,210,230,0.9);
+}
+.rr-row .rr-name { flex: 1; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rr-row span:last-child { font-variant-numeric: tabular-nums; color: rgba(154,166,192,0.85); }
+
 body.desktop #hud-bl {
   position: fixed; bottom: 56px; /* clear of the fake taskbar */ left: 24px;
   z-index: 10; pointer-events: none;

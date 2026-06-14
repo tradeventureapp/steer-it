@@ -69,6 +69,34 @@
       </div>
     </div>
 
+    <!-- Multi-car race: live finish feed (corner notice as each car finishes,
+         doesn't block still-racing cars) + the podium results once all finish. -->
+    <div id="finish-feed" hidden></div>
+    <div id="race-results" hidden>
+      <div class="menu-card wide">
+        <div class="menu-title">RESULTS</div>
+        <div id="podium">
+          <div class="pod pod-2" hidden>
+            <div class="pod-name"></div><div class="pod-time"></div>
+            <div class="pod-block"><span class="pod-rank">2</span></div>
+          </div>
+          <div class="pod pod-1" hidden>
+            <div class="pod-name"></div><div class="pod-time"></div>
+            <div class="pod-block"><span class="pod-rank">1</span></div>
+          </div>
+          <div class="pod pod-3" hidden>
+            <div class="pod-name"></div><div class="pod-time"></div>
+            <div class="pod-block"><span class="pod-rank">3</span></div>
+          </div>
+        </div>
+        <div id="results-rest"></div>
+        <div class="menu-actions">
+          <button type="button" class="menu-btn primary" id="btn-rematch">REMATCH ▸</button>
+          <button type="button" class="menu-btn ghost" id="btn-results-menu">EXIT TO MENU</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Track editor (key E): tool palette + status. The canvas behind stays
          clickable for placing/dragging elements; only the palette takes input. -->
     <div id="editor" hidden>
