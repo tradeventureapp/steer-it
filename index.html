@@ -52,6 +52,23 @@
       <div id="race-finish-time">0:00.0</div>
     </div>
 
+    <!-- XP MODE HUD (circuit + XP mode only): big score top-centre + drift
+         multiplier. Blinks red under the slow-speed warning. -->
+    <div id="xp-hud" hidden>
+      <div id="xp-score">0</div>
+      <div id="xp-mult" hidden>×1.0</div>
+    </div>
+    <!-- XP MODE end card: final score, local best, NEW RECORD, quick retry. -->
+    <div id="xp-end" hidden>
+      <div class="menu-card">
+        <div id="xp-end-record" hidden>NEW RECORD!</div>
+        <div id="xp-end-label">RUN OVER</div>
+        <div id="xp-end-score">0</div>
+        <div id="xp-end-best">BEST 0</div>
+        <button type="button" class="menu-btn primary" id="xp-retry">RETRY ▸</button>
+      </div>
+    </div>
+
     <!-- Track editor (key E): tool palette + status. The canvas behind stays
          clickable for placing/dragging elements; only the palette takes input. -->
     <div id="editor" hidden>
@@ -62,6 +79,11 @@
           <button class="etool" type="button" data-tool="checkpoint">CHECKPOINT</button>
           <button class="etool" type="button" data-tool="delete">DELETE</button>
           <button id="editor-clear" type="button">CLEAR ALL</button>
+          <!-- Circuit maps only: choose LAPS (0–99 timed/free-roam) or XP MODE. -->
+          <div id="editor-mode" title="Circuit game mode">
+            <button type="button" class="emode sel" data-mode="laps">LAPS</button>
+            <button type="button" class="emode" data-mode="xp">XP MODE</button>
+          </div>
           <div id="editor-laps" title="Laps (open 1–10 · circuit 0–99, 0 = free roam)">
             <button id="laps-dec" type="button" class="lapbtn">−</button>
             <span class="laps-label">LAPS</span>

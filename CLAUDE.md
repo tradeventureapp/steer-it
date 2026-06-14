@@ -95,6 +95,17 @@ Domain (goal): `steerit.app`. Currently running on `steer-it.vercel.app`.
   at the line never progress a lap. Editor mutators (`placeElement`,
   `removeElementAt`, `clearElements`, `findElementIndexAt`, `renumberCheckpoints`,
   `countCheckpoints`), `isCircuitTrack`, `formatRaceTime`, `RACE_CONFIG`.
+- `xp.ts` — XP MODE logic (pure, unit-testable; the third circuit mode beside
+  LAPS). `XpRunState` + `makeXpRun`/`updateXpRun(run,dt,speed,slipRad,crashed)`.
+  Drive without crashing → XP accrues (rate ∝ speed × drift multiplier); a
+  sustained DRIFT (|rearSlip|) builds the multiplier (length-of-slide, scaled by
+  speed/slip depth, caps at `multMax`, decays when gripping); drop below
+  `slowSpeedFrac`×`maxSpeed` for `slowGraceMs` → run ends (`warning` blinks first,
+  launch-grace so a standing start never trips it); crash (impact > `crashImpact`)
+  → instant end. All feel-numbers in `XP_CONFIG`. It only READS speed/slip — never
+  writes physics. desktop.ts owns the localStorage best (`steerit.xp.best.<map>`),
+  the HUD (`#xp-hud` score+`×mult`, blink, `#xp-end` card + RETRY), the circuit
+  editor LAPS/XP toggle (`circuitMode`), and feeds it the SOLO (lowest-slot) car.
 - `effects.ts` — particles (tire smoke, impact sparks, screen shake). Global hard cap
   (`FX_CONFIG.maxParticles`); emission stops at the cap.
 - `sound.ts` — `SoundEngine` (WebAudio). OFF by default; toggled by the M key / button.
@@ -245,6 +256,11 @@ phone→desktop `join | color | name | leave | control`; desktop→phone `lobby 
     LAPS N = N-lap timed race (circuit mode, the oval's start line = start AND
     finish). Status "CIRCUIT · FREE ROAM" / "CIRCUIT · RACE · 3 LAPS".
   - Lap clamp raised to 1–99 in race.ts; `body.circuit-edit` hides the palette.
+  - A **LAPS / XP MODE** toggle (`#editor-mode`) sits in the circuit editor.
+    XP MODE = endless SOLO score run (see `xp.ts`): big top-centre XP counter +
+    `×mult`, blinks red on the slow warning, end card (final + best + NEW RECORD)
+    with RETRY; best saved in localStorage. Picking XP hides the laps panel + the
+    lap/timer HUD; LAPS restores them. Physics/drift untouched (XP only reads).
 - **Lobby (`lobby.ts`)** — N-slot, QR join, color pick (10 colors), rename, on-desktop
   roster, connect/disconnect/reclaim/full. Tested live (2nd player joined, named, readied).
 - **N-car multiplayer (`cars.ts`)** — car per slot, spawn in center with offset (function

@@ -21,6 +21,10 @@ import {
   countCheckpoints, isCircuitTrack,
   type RaceElement, type RaceHud, type RaceType,
 } from './race';
+import {
+  XP_CONFIG, makeXpRun, updateXpRun, formatXp,
+  type XpRunState,
+} from './xp';
 import { inject } from '@vercel/analytics';
 
 // Vercel Web Analytics — framework-agnostic vanilla init (NOT the React
@@ -53,6 +57,14 @@ const raceCpEl        = document.getElementById('race-cp')          as HTMLSpanE
 const raceLapEl       = document.getElementById('race-lap')         as HTMLSpanElement | null;
 const raceFinishEl    = document.getElementById('race-finish')      as HTMLElement | null;
 const raceFinishTimeEl = document.getElementById('race-finish-time') as HTMLDivElement | null;
+const xpHudEl       = document.getElementById('xp-hud')        as HTMLElement | null;
+const xpScoreEl     = document.getElementById('xp-score')      as HTMLDivElement | null;
+const xpMultEl      = document.getElementById('xp-mult')       as HTMLDivElement | null;
+const xpEndEl       = document.getElementById('xp-end')        as HTMLElement | null;
+const xpEndRecordEl = document.getElementById('xp-end-record') as HTMLDivElement | null;
+const xpEndLabelEl  = document.getElementById('xp-end-label')  as HTMLDivElement | null;
+const xpEndScoreEl  = document.getElementById('xp-end-score')  as HTMLDivElement | null;
+const xpEndBestEl   = document.getElementById('xp-end-best')   as HTMLDivElement | null;
 const speedEl = document.getElementById('speed') as HTMLDivElement;
 const driftEl = document.getElementById('drift') as HTMLDivElement;
 const throttleBarEl  = document.getElementById('throttle-bar')  as HTMLDivElement;
@@ -282,6 +294,8 @@ function resumeGame() {
 // zero the race (laps, time, checkpoints, phase). The map + editor-placed track
 // elements STAY — only progress resets. Then resume.
 function restartRace() {
+  // XP mode: RESTART = a fresh score run (respawn + zero XP), not a lap reset.
+  if (isXpMode()) { startXpRun(); userPaused = false; refreshFreeze(); return; }
   skidCtx.clearRect(0, 0, logicalPxW, logicalPxH);
   for (const car of cars.values()) {
     const pose = currentMap.spawn(car.slot, world);
@@ -577,12 +591,66 @@ const raceElements: RaceElement[] = [];
 let editorLaps = RACE_CONFIG.laps;
 let raceState = new RaceState(raceElements, { ...RACE_CONFIG, laps: editorLaps });
 const isCircuitMap = () => currentMap.trackType === 'circuit';
+
+// ---------- XP MODE (circuit maps) — a third mode beside LAPS ----------
+// SOLO + LOCAL: the run READS the primary car's speed/slip (never writes physics)
+// and banks a score; the best is persisted in localStorage per map. Rules: xp.ts.
+type CircuitMode = 'laps' | 'xp';
+let circuitMode: CircuitMode = 'laps';
+let xpRun: XpRunState = makeXpRun();
+let xpEndHandled = false;            // bank/record exactly once per ended run
+let xpBest = 0;                      // current map's stored best (refreshed on start)
+const isXpMode = () => isCircuitMap() && circuitMode === 'xp';
+
+function xpBestKey(): string { return `steerit.xp.best.${currentMap.id}`; }
+function loadXpBest(): number {
+  try { return Math.max(0, Math.floor(Number(localStorage.getItem(xpBestKey())) || 0)); }
+  catch { return 0; }
+}
+function saveXpBest(v: number): void {
+  try { localStorage.setItem(xpBestKey(), String(Math.floor(v))); } catch { /* ignore */ }
+}
+
+// (Re)start an XP run: fresh score, respawn the solo car at spawn, load the best,
+// hide the end card. Called on entering XP mode, on RETRY, and on RESTART.
+function startXpRun() {
+  xpRun = makeXpRun();
+  xpEndHandled = false;
+  xpBest = loadXpBest();
+  for (const [slot, car] of cars) {
+    const pose = currentMap.spawn(slot, world);
+    car.state = makeCar(pose.x, pose.y, pose.heading);
+    car.target = { steer: 0, throttle: 0, brake: 0, handbrake: false };
+    car.current = { steer: 0, throttle: 0, brake: 0, handbrake: false };
+    car.skidL.active = false; car.skidR.active = false;
+    car.lastInputAt = performance.now();
+  }
+  skidCtx.clearRect(0, 0, logicalPxW, logicalPxH);
+  if (xpEndEl) xpEndEl.hidden = true;
+}
+
+// End of a run: bank the score, beat-the-best check + persist, fill the end card.
+function handleXpEnd() {
+  xpEndHandled = true;
+  const score = Math.floor(xpRun.xp);
+  const isRecord = score > xpBest;
+  if (isRecord) { xpBest = score; saveXpBest(score); }
+  if (xpEndRecordEl) xpEndRecordEl.hidden = !isRecord;
+  if (xpEndLabelEl)  xpEndLabelEl.textContent = xpRun.endReason === 'crash' ? 'CRASHED' : 'TOO SLOW';
+  if (xpEndScoreEl)  xpEndScoreEl.textContent = formatXp(score);
+  if (xpEndBestEl)   xpEndBestEl.textContent  = `BEST ${formatXp(xpBest)}`;
+  if (xpEndEl) xpEndEl.hidden = false;
+}
+
 function rebuildRace() {
   if (isCircuitMap()) {
     // Circuit: the race IS the built-in start/finish line. Rebuild it from the
     // laps panel — 0 = free-roam (no element → inactive HUD), N = circuit race.
+    // XP mode has no lap timer at all, so it builds no race elements.
     raceElements.length = 0;
-    if (editorLaps >= 1 && currentMap.startLine) raceElements.push(currentMap.startLine(world));
+    if (circuitMode === 'laps' && editorLaps >= 1 && currentMap.startLine) {
+      raceElements.push(currentMap.startLine(world));
+    }
   }
   raceState = new RaceState(raceElements, { ...RACE_CONFIG, laps: Math.max(1, editorLaps) });
 }
@@ -641,11 +709,17 @@ function updateEditorStatus() {
   const sep = `<span class="sep">·</span>`;
   if (editorStatusEl) {
     if (isCircuitMap()) {
-      // CIRCUIT: a laps-only editor on the built-in start/finish line.
-      const race = editorLaps >= 1
-        ? `<span class="ok">RACE · ${editorLaps} LAP${editorLaps > 1 ? 'S' : ''}</span>`
-        : `<span class="no">FREE ROAM · no timer</span>`;
-      editorStatusEl.innerHTML = `<span class="mode">CIRCUIT</span>${sep}${race}`;
+      // CIRCUIT: choose LAPS (timed/free-roam) or XP MODE (endless score run).
+      let detail: string;
+      if (circuitMode === 'xp') {
+        detail = `<span class="ok">XP MODE · drift for score</span>`;
+      } else {
+        detail = editorLaps >= 1
+          ? `<span class="ok">RACE · ${editorLaps} LAP${editorLaps > 1 ? 'S' : ''}</span>`
+          : `<span class="no">FREE ROAM · no timer</span>`;
+      }
+      editorStatusEl.innerHTML = `<span class="mode">CIRCUIT</span>${sep}${detail}`;
+      syncModeButtons();
     } else {
       // OPEN: the full place-elements editor (unchanged).
       const hasStart = raceElements.some((el) => el.type === 'start');
@@ -701,6 +775,28 @@ function setEditorLaps(n: number) {
 document.getElementById('laps-dec')?.addEventListener('click', () => setEditorLaps(editorLaps - 1));
 document.getElementById('laps-inc')?.addEventListener('click', () => setEditorLaps(editorLaps + 1));
 lapsValEl?.addEventListener('change', () => setEditorLaps(Number(lapsValEl.value)));
+
+// Circuit game-mode toggle (LAPS / XP MODE). Switching to XP starts a fresh run;
+// switching back to LAPS rebuilds the lap/free-roam race and drops the XP HUD.
+function syncModeButtons() {
+  for (const b of Array.from(document.querySelectorAll('#editor-mode .emode')) as HTMLElement[]) {
+    b.classList.toggle('sel', b.dataset.mode === circuitMode);
+  }
+}
+function setCircuitMode(mode: CircuitMode) {
+  if (!isCircuitMap()) return;
+  circuitMode = mode;
+  document.body.classList.toggle('circuit-xp', mode === 'xp');
+  syncModeButtons();
+  rebuildRace();          // XP ⇒ no race elements (no lap timer)
+  updateEditorStatus();
+  if (mode === 'xp') startXpRun();
+  else if (xpEndEl) xpEndEl.hidden = true;
+}
+for (const b of Array.from(document.querySelectorAll('#editor-mode .emode')) as HTMLElement[]) {
+  b.addEventListener('click', () => setCircuitMode(b.dataset.mode as CircuitMode));
+}
+document.getElementById('xp-retry')?.addEventListener('click', () => startXpRun());
 
 // ================= LOBBY — the desktop is the authority =================
 // The desktop owns the ONLY LobbyState; phones never self-assign slots (no
@@ -990,6 +1086,7 @@ function frame(now: number) {
       }
       car.inputStale = stale;
     }
+    let xpCrash = false;   // set if the SOLO (lead) car hits a barrier this frame
     accumulator += realDt;
     let steps = 0;
     while (accumulator >= FIXED_DT && steps < MAX_SUBSTEPS) {
@@ -1017,6 +1114,7 @@ function frame(now: number) {
           sound.impact(impact);
           fx.impact(car.state.x, car.state.y, impact);
         }
+        if (car === lead && impact > XP_CONFIG.crashImpact) xpCrash = true;
       }
 
       // Cars bounce off EACH OTHER (arcade, clamped) after all have integrated.
@@ -1035,6 +1133,13 @@ function frame(now: number) {
     }
     // Drop accumulated time if we fell way behind (prevents spiral of death).
     if (steps === MAX_SUBSTEPS) accumulator = 0;
+
+    // ---- XP MODE: read the SOLO car's speed + sideways slip and accrue score.
+    // Pure read — physics/drift untouched. Banks + shows the end card on end.
+    if (isXpMode() && lead && xpRun.active) {
+      updateXpRun(xpRun, realDt, lead.state.speed, lead.state.rearSlip, xpCrash);
+      if (xpRun.ended && !xpEndHandled) handleXpEnd();
+    }
 
     // ---- Engine sound: the primary car only (one engine; keeps it cheap). ----
     if (lead) {
@@ -1061,6 +1166,7 @@ function frame(now: number) {
   // Render ALWAYS (paused frame still draws the frozen car + overlay on top).
   render();
   updateRaceHud(raceState.hud(gameNow));
+  updateXpHud();
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
@@ -1257,7 +1363,7 @@ function drawCheckpoint(sx: number, sy: number, rPx: number, index: number, done
 // ---------- Race HUD (functional readout; independent of the D/Q debug toggles) ----------
 function updateRaceHud(h: RaceHud) {
   if (!raceHudEl) return;
-  if (editorMode) {  // editor shows its own status; race HUD hidden
+  if (editorMode || isXpMode()) {  // editor/XP mode: lap+timer HUD hidden
     raceHudEl.hidden = true;
     if (raceFinishEl) raceFinishEl.hidden = true;
     return;
@@ -1275,6 +1381,26 @@ function updateRaceHud(h: RaceHud) {
     raceFinishEl.hidden = !h.finished;
     if (h.finished && raceFinishTimeEl) raceFinishTimeEl.textContent = formatRaceTime(h.finishMs);
   }
+}
+
+// XP MODE HUD: big score top-centre + drift multiplier, blinking under the slow
+// warning. The end card is shown by handleXpEnd / hidden by startXpRun; here we
+// only keep it (and the live HUD) tucked away when not actually playing XP mode.
+function updateXpHud() {
+  const playing = isXpMode() && !editorMode && !menuOpen;
+  if (xpHudEl) xpHudEl.hidden = !playing || xpRun.ended;
+  if (xpEndEl) {
+    if (!isXpMode() || editorMode || menuOpen) xpEndEl.hidden = true;
+    else if (xpRun.ended && xpEndHandled) xpEndEl.hidden = false;
+  }
+  if (!playing || xpRun.ended) return;
+  if (xpScoreEl) xpScoreEl.textContent = formatXp(xpRun.xp);
+  if (xpMultEl) {
+    const drifting = xpRun.mult > 1.05;
+    xpMultEl.hidden = !drifting;
+    if (drifting) xpMultEl.textContent = '×' + xpRun.mult.toFixed(1);
+  }
+  if (xpHudEl) xpHudEl.classList.toggle('warn', xpRun.warning);
 }
 
 // ---------- Drawing: top-down rally car ----------
@@ -1526,6 +1652,11 @@ function switchMap(id: string): boolean {
   if (editorMode) { editorMode = false; refreshFreeze(); }
   clearElements(raceElements);
   editorLaps = currentMap.trackType === 'circuit' ? 0 : RACE_CONFIG.laps;
+  // Every map starts in LAPS mode; the host opts into XP mode via the editor.
+  circuitMode = 'laps';
+  document.body.classList.remove('circuit-xp');
+  if (xpEndEl) xpEndEl.hidden = true;
+  syncModeButtons();
   rebuildRace();
   updateEditorStatus();
 

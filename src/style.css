@@ -334,6 +334,24 @@ body.circuit-edit #editor-clear { display: none; }
 }
 .lapbtn:hover { box-shadow: 0 0 12px rgba(255, 226, 61, 0.5); }
 .lapbtn:active { transform: translateY(1px); }
+
+/* Circuit game-mode toggle (LAPS / XP MODE). Hidden on open maps; shown only in
+   the circuit (laps-only) editor. When XP mode is picked, the laps panel hides. */
+#editor-mode { display: none; gap: 4px; margin-left: 8px;
+  padding: 3px; border-radius: 9px; background: rgba(8, 4, 18, 0.5);
+  border: 1px solid rgba(45, 226, 230, 0.2); }
+body.circuit-edit #editor-mode { display: flex; }
+body.circuit-xp.circuit-edit #editor-laps { display: none; }
+.emode {
+  appearance: none; -webkit-appearance: none; cursor: pointer;
+  font-family: inherit; font-weight: 800; font-size: 11px; letter-spacing: 2px;
+  padding: 5px 10px; border-radius: 7px; color: rgba(154, 166, 192, 0.8);
+  background: transparent; border: none; transition: all 120ms;
+}
+.emode.sel {
+  color: #2de2e6; background: rgba(45, 226, 230, 0.14);
+  box-shadow: inset 0 0 0 1.5px rgba(45, 226, 230, 0.6), 0 0 12px rgba(45, 226, 230, 0.3);
+}
 .etool.sel {
   background: rgba(255, 255, 255, 0.12);
   box-shadow: 0 0 16px currentColor, inset 0 0 0 1.5px currentColor;
@@ -361,6 +379,62 @@ body.circuit-edit #editor-clear { display: none; }
 }
 #editor-hint.flash { color: #ffe23d; text-shadow: 0 0 10px rgba(255, 226, 61, 0.85); }
 body.desktop.editing #game { cursor: crosshair; }
+
+/* ===== XP MODE HUD — big score top-centre + drift multiplier ============== */
+#xp-hud {
+  position: fixed; top: 18px; left: 50%; transform: translateX(-50%);
+  z-index: 30; pointer-events: none; text-align: center;
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+}
+#xp-score {
+  font-family: 'Orbitron', system-ui, sans-serif;
+  font-weight: 900; font-size: clamp(40px, 7vw, 86px); line-height: 1;
+  letter-spacing: 3px; color: #eafff6;
+  text-shadow: 0 0 14px rgba(45, 226, 230, 0.9), 0 0 40px rgba(57, 255, 140, 0.55);
+}
+#xp-mult {
+  font-family: 'Orbitron', system-ui, sans-serif;
+  font-weight: 900; font-size: clamp(20px, 3vw, 38px); letter-spacing: 2px;
+  color: #ffe23d; text-shadow: 0 0 12px rgba(255, 226, 61, 0.9), 0 0 30px rgba(255, 138, 61, 0.6);
+}
+/* Slow-speed warning → the whole HUD blinks red. */
+#xp-hud.warn #xp-score,
+#xp-hud.warn #xp-mult { animation: xpWarn 0.5s steps(1) infinite; }
+@keyframes xpWarn {
+  0%   { color: #ff3b3b; text-shadow: 0 0 16px rgba(255, 59, 59, 0.95), 0 0 44px rgba(255, 59, 59, 0.6); }
+  50%  { color: #eafff6; text-shadow: 0 0 10px rgba(255, 59, 59, 0.4); }
+}
+
+/* XP MODE end card — reuses the synthwave .menu-card; sits above the world. */
+#xp-end {
+  position: fixed; inset: 0; z-index: 60;
+  display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(120% 90% at 50% 30%, rgba(45, 226, 230, 0.08), transparent 60%),
+    rgba(5, 3, 13, 0.55); backdrop-filter: blur(3px);
+}
+#xp-end .menu-card { text-align: center; min-width: 320px; }
+#xp-end-record {
+  font-family: 'Orbitron', system-ui, sans-serif;
+  font-weight: 900; font-size: 26px; letter-spacing: 4px; color: #ffe23d;
+  text-shadow: 0 0 14px rgba(255, 226, 61, 0.95), 0 0 34px rgba(255, 138, 61, 0.6);
+  margin-bottom: 6px; animation: xpRecord 0.7s ease-in-out infinite alternate;
+}
+@keyframes xpRecord { from { transform: scale(1); } to { transform: scale(1.06); } }
+#xp-end-label {
+  font-weight: 800; font-size: 13px; letter-spacing: 5px;
+  color: rgba(154, 166, 192, 0.85); margin-bottom: 8px;
+}
+#xp-end-score {
+  font-family: 'Orbitron', system-ui, sans-serif;
+  font-weight: 900; font-size: clamp(44px, 6vw, 72px); line-height: 1;
+  letter-spacing: 2px; color: #eafff6;
+  text-shadow: 0 0 16px rgba(45, 226, 230, 0.9), 0 0 40px rgba(57, 255, 140, 0.5);
+}
+#xp-end-best {
+  font-weight: 800; font-size: 14px; letter-spacing: 3px;
+  color: #2de2e6; text-shadow: 0 0 10px rgba(45, 226, 230, 0.5);
+  margin: 10px 0 18px;
+}
 
 body.desktop #hud-bl {
   position: fixed; bottom: 56px; /* clear of the fake taskbar */ left: 24px;
