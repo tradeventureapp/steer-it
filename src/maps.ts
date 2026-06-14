@@ -362,12 +362,22 @@ export const flatTrackMap: MapDefinition = {
   // always trips it. In circuit mode this single gate is start AND finish.
   startLine(world) {
     const g = (world as FlatWorld).geom;
+    const mid = (g.IYh + g.OYh) / 2;   // band centre radius
     return {
       type: 'start',
       x: g.cx,
-      y: g.cy + (g.IYh + g.OYh) / 2,   // band centre on the bottom straight
+      y: g.cy + mid,                   // band centre on the BOTTOM straight
       radius: g.bandW / 2,             // covers the band width
       angle: Math.PI / 2,              // vertical (across the straight)
+      // Cars race +x across the bottom straight (spawn heading 0). Only a
+      // +x crossing counts; reversing (−x) over the line does not.
+      forward: 0,
+      // Far point = the TOP straight (opposite side of the oval). The lap arms
+      // only once the car gets near there, so back-and-forth / tiny circles at
+      // the start line never complete a lap. Generous radius (one band width).
+      farX: g.cx,
+      farY: g.cy - mid,
+      farRadius: g.bandW,
     };
   },
 

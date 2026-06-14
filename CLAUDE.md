@@ -65,7 +65,11 @@ Domain (goal): `steerit.app`. Currently running on `steer-it.vercel.app`.
   spawn grid), `collidePairCars`/`collideCars` (clamped arcade bounce), `applyInputs`
   (clamp/merge for the control router).
 - `race.ts` — race logic (pure): `RaceState` (start/checkpoint/finish passage
-  detection, laps, sprint/circuit), editor mutators (`placeElement`,
+  detection, laps, sprint/circuit). Circuit anti-cheat: a lap only counts on a
+  FORWARD crossing of the start line (`RaceElement.forward`, fed the car velocity
+  via `update(x,y,now,vx,vy)`) that is ARMED — armed only once the car reaches the
+  circuit's far point (`farX`/`farY`/`farRadius`), so reverse-spam / tiny circles
+  at the line never progress a lap. Editor mutators (`placeElement`,
   `removeElementAt`, `clearElements`, `findElementIndexAt`, `renumberCheckpoints`,
   `countCheckpoints`), `isCircuitTrack`, `formatRaceTime`, `RACE_CONFIG`.
 - `effects.ts` — particles (tire smoke, impact sparks, screen shake). Global hard cap

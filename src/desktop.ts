@@ -901,7 +901,8 @@ function frame(now: number) {
 
       // Per-car trails + edge wrap; race detection on the primary car only.
       for (const car of cars.values()) { recordSkids(car); wrap(car); }
-      if (lead) raceState.update(lead.state.x, lead.state.y, gameNow);
+      // Pass velocity too → directional start-line crossing (circuit anti-cheat).
+      if (lead) raceState.update(lead.state.x, lead.state.y, gameNow, lead.state.vx, lead.state.vy);
 
       accumulator -= FIXED_DT;
       steps++;

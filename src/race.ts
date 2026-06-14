@@ -38,6 +38,13 @@ export interface RaceElement {
   index?: number;   // checkpoint number (1-based for display)
   radius?: number;  // trigger radius (m); falls back to RaceConfig.gateRadius
   angle?: number;   // gate orientation (rad) — rendering only
+  // --- Circuit start/finish anti-cheat (set by the map's startLine) ---
+  forward?: number;     // racing direction through the line (rad). When set, a
+                        //   crossing only counts if the car's velocity points
+                        //   this way (no reverse-over-the-line spam, no wrong-way).
+  farX?: number;        // a far-side "must reach" point of the circuit; the lap
+  farY?: number;        //   ARMS only once the car comes within farRadius of it,
+  farRadius?: number;   //   so tiny circles near the line never complete a lap.
 }
 
 export interface RaceConfig {
@@ -87,6 +94,12 @@ export class RaceState {
   private finishMs = 0;
   private lap = 0;               // 0 until started, then 1-based
   private collected = new Set<number>();  // element indices of collected CPs
+  // Circuit anti-cheat: the start element + an "armed" latch. A lap only
+  // completes on an ARMED, FORWARD crossing of the start line; reaching the
+  // circuit's far point arms it. Re-cross without going round ⇒ not armed ⇒ no
+  // lap; reverse over the line ⇒ not forward ⇒ no lap.
+  private readonly startEl: RaceElement | null;
+  private armed = false;
 
   constructor(elements: RaceElement[], cfg: RaceConfig = RACE_CONFIG) {
     this.elements = elements;
@@ -95,6 +108,7 @@ export class RaceState {
     const hasStart = elements.some((e) => e.type === 'start');
     const hasFinish = elements.some((e) => e.type === 'finish');
     this.isCircuit = hasStart && !hasFinish;
+    this.startEl = elements.find((e) => e.type === 'start') ?? null;
     this.inside = elements.map(() => false);
   }
 
@@ -104,35 +118,66 @@ export class RaceState {
     this.finishMs = 0;
     this.lap = 0;
     this.collected.clear();
+    this.armed = false;
     this.inside = this.elements.map(() => false);
   }
 
-  // Feed the car position (world metres) + a timestamp (ms) every physics step.
-  update(x: number, y: number, now: number) {
+  // Feed the car position (world metres), a timestamp (ms), and OPTIONALLY the
+  // car's velocity (m/s) every physics step. Velocity drives the directional
+  // start-line crossing (circuit anti-cheat); omit it and crossings count in any
+  // direction (legacy / checkpoint races are unaffected).
+  update(x: number, y: number, now: number, vx = 0, vy = 0) {
     if (this.phase === 'finished' || this.elements.length === 0) return;
+
+    // Arm the lap once the car reaches the circuit's far side (anti-shortcut).
+    const f = this.startEl;
+    if (this.phase === 'racing' && f && f.farRadius !== undefined) {
+      const fdx = x - (f.farX ?? f.x), fdy = y - (f.farY ?? f.y);
+      if (fdx * fdx + fdy * fdy < f.farRadius * f.farRadius) this.armed = true;
+    }
+
     for (let i = 0; i < this.elements.length; i++) {
       const e = this.elements[i];
       const r = e.radius ?? this.cfg.gateRadius;
       const dx = x - e.x, dy = y - e.y;
       const now2 = dx * dx + dy * dy < r * r;
-      if (now2 && !this.inside[i]) this.onEnter(i, now);  // enter edge only
+      if (now2 && !this.inside[i]) this.onEnter(i, now, vx, vy);  // enter edge only
       this.inside[i] = now2;
     }
   }
 
-  private onEnter(i: number, now: number) {
+  // True if the car is crossing element `e` in its FORWARD racing direction.
+  // No `forward` set on the element ⇒ always true (non-directional / legacy).
+  private isForward(e: RaceElement, vx: number, vy: number): boolean {
+    if (e.forward === undefined) return true;
+    return vx * Math.cos(e.forward) + vy * Math.sin(e.forward) > 0;
+  }
+  // Whether an armed full lap is required for this start line (only when the map
+  // declared a far point); otherwise fall back to checkpoint/legacy gating.
+  private lapArmed(): boolean {
+    return this.startEl?.farRadius === undefined ? true : this.armed;
+  }
+
+  private onEnter(i: number, now: number, vx: number, vy: number) {
     const e = this.elements[i];
     if (e.type === 'start') {
       if (this.phase === 'pre') {
-        // First crossing always starts timing.
-        this.phase = 'racing';
-        this.startMs = now;
-        this.lap = 1;
-        this.collected.clear();
+        // Timing begins on the first FORWARD crossing of the start line.
+        if (this.isForward(e, vx, vy)) {
+          this.phase = 'racing';
+          this.startMs = now;
+          this.lap = 1;
+          this.collected.clear();
+          this.armed = false;   // must go round to arm the first lap
+        }
       } else if (this.isCircuit && this.phase === 'racing') {
-        // Circuit: the START gate is ALSO the finish line — re-crossing it
-        // (after the checkpoints) completes the lap.
-        this.tryCompleteLap(now);
+        // Circuit: the START gate is ALSO the finish line. A lap completes only
+        // on a FORWARD, ARMED crossing (after the checkpoints, if any) — then
+        // disarm so the next lap must go round again.
+        if (this.isForward(e, vx, vy) && this.lapArmed()) {
+          this.tryCompleteLap(now);
+          this.armed = false;
+        }
       }
       return;
     }
@@ -141,7 +186,7 @@ export class RaceState {
       this.collected.add(i);
       return;
     }
-    if (e.type === 'finish') this.tryCompleteLap(now);   // sprint finish line
+    if (e.type === 'finish' && this.isForward(e, vx, vy)) this.tryCompleteLap(now);
   }
 
   // Complete a lap (or the whole race on the final lap) — but only once every
