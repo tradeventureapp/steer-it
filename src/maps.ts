@@ -338,13 +338,19 @@ function drawStand(
   ctx.restore();
 }
 
-function drawFloodlight(ctx: CanvasRenderingContext2D, x: number, y: number) {
+// A floodlight pole + lamp head. `dir` is the OUTWARD vertical direction (away
+// from the track): -1 for the TOP row (pole rises up, lamp above → shines down
+// onto the track), +1 for the BOTTOM row (mirrored: pole drops down, lamp below
+// → shines up onto the track). So every lamp faces inward at the racing surface.
+function drawFloodlight(ctx: CanvasRenderingContext2D, x: number, y: number, dir: number) {
+  const tip = y + dir * 28;             // pole tip (outer end)
+  const boxY = dir < 0 ? tip - 9 : tip; // lamp head sits at the outer end
   ctx.save();
   ctx.strokeStyle = '#3a3a48'; ctx.lineWidth = 3;
-  ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y - 28); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, tip); ctx.stroke();
   ctx.fillStyle = '#fdf6c8';
   ctx.shadowColor = 'rgba(255,245,180,0.9)'; ctx.shadowBlur = 16;
-  frr(ctx, x - 9, y - 37, 18, 9, 2); ctx.fill();
+  frr(ctx, x - 9, boxY, 18, 9, 2); ctx.fill();
   ctx.shadowBlur = 0;
   ctx.restore();
 }
@@ -442,14 +448,18 @@ export const flatTrackMap: MapDefinition = {
     const barrierPx = Math.max(3, g.bandW * px * 0.16);
 
     // Grandstands (crowd only): along the top straight + behind each turn.
+    // ~20% SHORTER than the track span (the 0.8 factor) so the corners stay open
+    // for ad billboards later.
     const standH = Math.min(48, OYh * 0.36);
-    drawStand(ctx, cx, cy - OYh - 7, 0, sx * 2 + OYh, standH);
-    drawStand(ctx, cx - sx - OYh - 7, cy, -Math.PI / 2, OYh * 1.6, standH);
-    drawStand(ctx, cx + sx + OYh + 7, cy, Math.PI / 2, OYh * 1.6, standH);
+    drawStand(ctx, cx, cy - OYh - 7, 0, (sx * 2 + OYh) * 0.8, standH);
+    drawStand(ctx, cx - sx - OYh - 7, cy, -Math.PI / 2, OYh * 1.6 * 0.8, standH);
+    drawStand(ctx, cx + sx + OYh + 7, cy, Math.PI / 2, OYh * 1.6 * 0.8, standH);
 
-    // Floodlights at the four outside corners.
+    // Floodlights at the four outside corners. `gy` is the outward direction, so
+    // top lights (gy=-1) face down onto the track and bottom lights (gy=+1) are
+    // MIRRORED to face up onto it — every lamp points inward at the surface.
     for (const [gx, gy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) {
-      drawFloodlight(ctx, cx + gx * (sx + OYh * 0.55), cy + gy * (OYh + 9));
+      drawFloodlight(ctx, cx + gx * (sx + OYh * 0.55), cy + gy * (OYh + 9), gy);
     }
 
     // Barriers (tyre walls) on the inner + outer edges — match the collision.
