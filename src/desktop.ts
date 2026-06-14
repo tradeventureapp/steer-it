@@ -396,16 +396,20 @@ interface Car {
   skidL: WheelTrail;
   skidR: WheelTrail;
   lastInputAt: number;   // performance.now() of the last control packet (safety)
+  inputStale: boolean;   // currently zeroed for staleness? (for D-debug logging)
 }
 
 // Keyed by slot so routing/lookup is O(1) and nothing is hardcoded to 2 cars.
 const cars = new Map<number, Car>();
 const DEFAULT_CAR_COLOR = '#1d3fa0';
-// If a slot's input goes silent for this long (channel blip, phone stall) the
-// car's controls are ZEROED so it coasts to a stop instead of running away on
-// the last value. Restored the instant the next packet lands. Phones send at
-// SEND_HZ (~tens/s), so this is many missed packets — a real stall, not jitter.
-const STALE_INPUT_MS = 600;
+// RUNAWAY SAFETY ONLY. A car holds its last input between packets (it coasts on
+// it through normal jitter AND through a brief channel reconnect). Controls are
+// zeroed ONLY after a SUSTAINED absence of packets — a genuine disconnect, not a
+// late packet. Phones send at SEND_HZ=30 (~33ms); 1.5 s is ~45 missed packets,
+// unambiguously "gone", so this never twitches mid-drive. NOTE: we deliberately
+// do NOT zero on `channelReady=false` — a transient reconnect blip recovers in
+// ~250ms and packets resume; staleness alone catches a real disconnect.
+const STALE_INPUT_MS = 1500;
 
 function makeManagedCar(slot: number, color: string): Car {
   const pose = currentMap.spawn(slot, world);   // per-map spawn layout
@@ -419,6 +423,7 @@ function makeManagedCar(slot: number, color: string): Car {
     skidL: { px: 0, py: 0, active: false },
     skidR: { px: 0, py: 0, active: false },
     lastInputAt: performance.now(),
+    inputStale: false,
   };
 }
 
@@ -704,7 +709,16 @@ function wireDesktop(ch: RealtimeChannel) {
     if (r.changed) broadcastLobby();                 // → syncCars spawns the car
     if (r.slot === null) return;                     // lobby full
     const car = cars.get(r.slot);
-    if (car) { applyInputs(car.target, payload as Inputs); car.lastInputAt = performance.now(); }
+    if (car) {
+      const t = performance.now();
+      // D-debug: surface real network gaps (jitter spikes) between packets.
+      if (debugOn) {
+        const gap = t - car.lastInputAt;
+        if (gap > 120) console.info(`[ctrl] ${nowIso()} slot ${car.slot} packet gap ${Math.round(gap)}ms`);
+      }
+      applyInputs(car.target, payload as Inputs);
+      car.lastInputAt = t;
+    }
   });
 }
 
@@ -839,6 +853,10 @@ let accumulator = 0;
 
 function frame(now: number) {
   const realDt = Math.min(0.25, (now - lastTime) / 1000);
+  // D-debug: flag long frames (GC / render hitch) that could feel like a stutter.
+  if (debugOn && now - lastTime > 100) {
+    console.info(`[frame] ${nowIso()} long frame ${Math.round(now - lastTime)}ms`);
+  }
   lastTime = now;
 
   // Monotonic game clock that EXCLUDES paused time, so the race timer freezes
@@ -851,18 +869,28 @@ function frame(now: number) {
   // skids, smoke, particles, engine sound) — but never the render below.
   const lead = primaryCar();  // drives the single HUD / sound / race timer
   if (!isPaused) {
-    // SAFETY: zero the controls of any car whose input has gone stale — the
-    // channel dropped (channelReady) or no packet for STALE_INPUT_MS — so it
-    // coasts to a stop instead of running away on the last value. The next
-    // packet refreshes lastInputAt and restores live input immediately.
+    // RUNAWAY SAFETY: zero a car's controls ONLY after a SUSTAINED packet gap
+    // (STALE_INPUT_MS) — a genuine disconnect, not jitter or a brief reconnect.
+    // We do NOT zero on channelReady=false: a transient blip recovers in ~250ms
+    // and packets resume, and the per-car staleness already catches a real
+    // disconnect — so controls hold their last value through any brief hiccup
+    // (no mid-drive twitch to neutral). The next packet restores live input.
     const tnow = performance.now();
     for (const car of cars.values()) {
-      if (!channelReady || tnow - car.lastInputAt > STALE_INPUT_MS) {
+      const gap = tnow - car.lastInputAt;
+      const stale = gap > STALE_INPUT_MS;
+      if (stale) {
         car.target.steer = 0;
         car.target.throttle = 0;
         car.target.brake = 0;
         car.target.handbrake = false;
       }
+      if (debugOn && stale !== car.inputStale) {
+        console.info(`[input] ${nowIso()} slot ${car.slot} ` +
+          (stale ? `LOST — no packet ${Math.round(gap)}ms ≥ ${STALE_INPUT_MS}ms → controls zeroed`
+                 : `RESTORED (channelReady=${channelReady})`));
+      }
+      car.inputStale = stale;
     }
     accumulator += realDt;
     let steps = 0;

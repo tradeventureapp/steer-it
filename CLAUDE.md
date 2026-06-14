@@ -85,8 +85,14 @@ Domain (goal): `steerit.app`. Currently running on `steer-it.vercel.app`.
   no QR rescan. Throws if env vars missing (gates the whole app; headless preview
   without env vars won't boot). The desktop gates its idle-sweep on channel health
   (`channelReady` + reconnect grace) so its OWN dropped channel never mass-frees
-  slots, and ZEROES a car's controls when its input goes stale (`STALE_INPUT_MS`
-  600ms, or channel down) so a car never runs away on a frozen last value.
+  slots. Controls HOLD their last value through normal jitter AND a brief
+  reconnect blip (the car coasts on it); they're zeroed ONLY after a SUSTAINED
+  packet gap (`STALE_INPUT_MS` 1500ms) — a genuine disconnect — so a car never
+  runs away yet never twitches mid-drive. (It deliberately does NOT zero on
+  `channelReady=false`: a transient blip recovers in ~250ms and the per-car
+  staleness already catches a real disconnect — that instant-zero was the
+  fraction-of-a-second control "dropout".) D-debug logs packet gaps, stale
+  LOST/RESTORED transitions, and long frames.
 
 ### Build / test / run commands
 - `npm run dev` — Vite dev server (port 5173).
