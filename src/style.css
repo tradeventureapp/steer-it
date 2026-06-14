@@ -579,13 +579,16 @@ body.phone {
 
 /* Neon-lined divider down the centre seam: a thin dark gap with a pink edge
    facing BRAKE (left) and a green edge facing GAS (right), instead of a hard
-   flat line. Stops just above the handbrake. Decorative — pointer-events:none
-   keeps both halves fully tappable. */
+   flat line. It must NOT intrude into the E-BRAKE button, so it STOPS flush at
+   the handbrake's top edge (no overlap) and sits BEHIND the handbrake (z-index 1
+   < the handbrake's 2) — the opaque E-BRAKE covers any sub-pixel overlap. The
+   seam therefore only shows in the area beside the E-BRAKE (between the two
+   pedal zones). Decorative — pointer-events:none keeps both halves tappable. */
 #pedals::after {
   content: '';
   position: absolute;
   top: 7%;
-  bottom: calc(var(--hb-margin) + var(--hb-h) - 8px);
+  bottom: calc(var(--hb-margin) + var(--hb-h));
   left: 50%;
   transform: translateX(-50%);
   width: 6px;
@@ -596,7 +599,7 @@ body.phone {
     inset -1px 0 0 rgba(57, 255, 140, 0.75),  /* right edge → GAS green  */
     -2px 0 12px rgba(255, 45, 149, 0.35),     /* soft glow left  */
     2px 0 12px rgba(57, 255, 140, 0.35);      /* soft glow right */
-  z-index: 2;
+  z-index: 1;
   pointer-events: none;
 }
 
