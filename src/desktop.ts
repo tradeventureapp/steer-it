@@ -1529,7 +1529,7 @@ function updateXpHud() {
 }
 
 // ---------- Drawing: top-down rally car ----------
-// Evokes a 2000s WRC hatchback — deep blue body, gold wheels, white
+// Evokes a 2000s rally hatchback — deep blue body, gold wheels, white
 // stripes, roof roundel and a rear wing — with zero trademarked marks.
 // The footprint matches the old placeholder (1.5 m × 0.617 m, the 1/3 of
 // the original 4.5/1.85 sprite) so physics dimensions are untouched.
