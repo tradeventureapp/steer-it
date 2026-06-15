@@ -613,6 +613,36 @@ body.desktop #hud-bl {
 #handbrake-hud.on {
   background: #b54708; color: #fff; border-color: #b54708;
 }
+/* Debug steering indicator — a horizontal track (mirrors the pedal bars'
+   chrome) with a marker: centred = neutral steer (0), sliding to the left/
+   right edge at full lock (∓1). A faint centre tick marks straight-ahead. */
+.steer-bar {
+  position: relative;
+  width: 80px;
+  height: 14px;
+  background: #f3f4f6;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  align-self: center;
+}
+.steer-bar::before {            /* centre (straight-ahead) tick */
+  content: '';
+  position: absolute;
+  left: 50%; top: 2px; bottom: 2px;
+  width: 1px;
+  background: #cbd5e1;
+  transform: translateX(-50%);
+}
+#steer-marker {
+  position: absolute;
+  top: 1px; bottom: 1px;
+  left: 50%;                    /* updated in JS; 50% = neutral */
+  width: 6px;
+  transform: translateX(-50%);
+  background: #2563eb;          /* car-blue, distinct from gas/brake */
+  border-radius: 3px;
+  transition: left 60ms linear;
+}
 
 /* ============ PHONE ============ */
 body.phone {

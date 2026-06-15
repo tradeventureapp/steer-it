@@ -72,6 +72,7 @@ const driftEl = document.getElementById('drift') as HTMLDivElement;
 const throttleBarEl  = document.getElementById('throttle-bar')  as HTMLDivElement;
 const brakeBarEl     = document.getElementById('brake-bar')     as HTMLDivElement;
 const handbrakeHudEl = document.getElementById('handbrake-hud') as HTMLDivElement;
+const steerMarkerEl  = document.getElementById('steer-marker')  as HTMLDivElement | null;
 const rearSlipValEl  = document.getElementById('rear-slip-val') as HTMLSpanElement | null;
 const wspinValEl     = document.getElementById('wspin-val')     as HTMLSpanElement | null;
 const soundBtn       = document.getElementById('sound-toggle')  as HTMLButtonElement | null;
@@ -1361,6 +1362,12 @@ function updateHud() {
   if (throttleBarEl) throttleBarEl.style.height = ((cur?.throttle ?? 0) * 100).toFixed(0) + '%';
   if (brakeBarEl)    brakeBarEl.style.height    = ((cur?.brake    ?? 0) * 100).toFixed(0) + '%';
   if (handbrakeHudEl) handbrakeHudEl.classList.toggle('on', !!cur?.handbrake);
+  // Steer marker — same smoothed value the physics sees. Linear: 50% = neutral,
+  // 0% = full left (−1), 100% = full right (+1).
+  if (steerMarkerEl) {
+    const st = Math.max(-1, Math.min(1, cur?.steer ?? 0));
+    steerMarkerEl.style.left = (50 + st * 50).toFixed(1) + '%';
+  }
 
   if (debugOn && s && cur) {
     // Mirror the physics gates so the screen shows WHY a burnout/spin did or
