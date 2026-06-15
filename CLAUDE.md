@@ -143,9 +143,20 @@ deployment-hash URL); `steer-it.vercel.app` also serves it.
   PRESENCE_GRACE reconnect grace) so a desktop drop never mass-frees slots.
   Verified by a Node test (29 assertions: preserve-in-place, clean depart ≥20s,
   reconnect-by-id, no race deadlock, ramp). Phase 2 (reconnect jitter / packet
-  idempotency / lobby-broadcast debounce) and Phase 3 (uplink↔downlink channel
-  split + send-rate cut, with load-testing) are PENDING. D-debug logs packet gaps,
-  RECONNECTING/LIVE transitions, and long frames.
+  idempotency / lobby-broadcast debounce / phone-side downlink watchdog) and
+  Phase 3 (uplink↔downlink channel split + send-rate cut, with load-testing) are
+  PENDING/DEFERRED — not urgent. D-debug logs packet gaps, RECONNECTING/LIVE
+  transitions, and long frames.
+  KNOWN REMAINING ISSUE (transport, not logic): the phone still sees an
+  intermittent control dropout every few minutes — the underlying mobile-WS
+  reconnect (heartbeat-timeout / network blip). Phase 1 makes it GRACEFUL (car
+  preserves in place, input ramps to neutral then resumes — no respawn, no
+  runaway), so it's a brief blip, not a break. It is "shrinkable, not eliminable"
+  and the fix is Phase 2 (above). CONFIRMED (June 2026, around the a7c0e40 car
+  redesign) that this dropout is the pre-existing TRANSPORT issue, NOT a
+  regression from the cosmetic car/colour commit — diffs proved that commit
+  touched only `drawCar` + the colour list, with `physics.ts` and ALL of the
+  resilience/sweep/lastSeen logic byte-identical.
 
 ### Build / test / run commands
 - `npm run dev` — Vite dev server (port 5173).
@@ -308,6 +319,12 @@ phone→desktop `join | color | name | leave | control`; desktop→phone `lobby 
   number = slot number (1-based). Footprint unchanged (1.5 m × 0.617 m).
   ALL marks original — evokes the era, copies no real car; **no real make/model
   name appears anywhere in the code or build** (public identity = Blitz RS only).
+  Shipped + confirmed working live (commit a7c0e40). The redesign was
+  COSMETIC-ONLY: `physics.ts` stayed BYTE-IDENTICAL (git diff empty), the
+  footprint/collision is unchanged, and the car drives exactly as the p19b tune.
+  Paired with the retro palette below — the 12-colour **`BLITZ_RS_COLORS`**
+  (`vehicles.ts`) wired through `lobby.ts` `CAR_COLORS` to the phone picker +
+  per-slot defaults + roster; the old bright neon car colours are gone.
 - **Logo** — retro-synthwave "STEER IT" (chrome + magenta->orange gradient, neon).
 - **Neon phone UI** — TAP TO STEER + GAS/BRAKE/E-BRAKE pedals, synthwave style.
   Force-landscape is pure CSS (viewport `--rot`, gravity/permission-independent;
