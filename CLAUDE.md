@@ -275,6 +275,16 @@ phone→desktop `join | color | name | leave | control`; desktop→phone `lobby 
   governor sustains a provoked slide at `driftAssist=1`, one `driftAssist` knob
   (arcade→sim). Kinetic friction SPLIT: `frontDriftFriction` 0.83 (turn-in =
   OLD) + `rearDriftFriction` 0.65 (drift slip, feel-tunable).
+  **p19 Tier-1 (BMW-feel prototype, AWAITING feel-test):** longitudinal LOAD
+  TRANSFER (`loadTransferGain` 0.35, isolated lateral-grip trim from the car's
+  own ax — gain 0 = identical to pre-p19) gives LIFT-OFF + TRAIL-BRAKE oversteer
+  and a clean STRAIGHTEN+THROTTLE exit (full-throttle exit now returns to grip
+  where it used to sustain); `engineBraking` 1500 feeds lift-off; `inertiaScale`
+  8.0→9.3 + `maxYawRate` 3.2→2.5 = heavier/planted rotation; `maxSteerAngle`
+  1.0→0.873 (57°→50°). Sim-verified (lift-off, trail-brake, exit, sustain held,
+  recovery 0.9s, grip 1.2°, rocket gone, spin fires, assist=0 collapses).
+  Feel-test then tune: `loadTransferGain` 0.35 eager ↔ 0.25 proportional (it's
+  the knob that makes drift break deeper at moderate steer), and keep/revert 50°.
   Sim-verified; AWAITING phone feel-test. (~85%.)
 - **Phone controls** — gyro steering (gravity vector, orientation-agnostic, force-landscape,
   auto-calibration), analog pedals (finger position = value, top 1/4 = saturation),
