@@ -125,16 +125,27 @@ deployment-hash URL); `steer-it.vercel.app` also serves it.
   auto-reconnects: on CLOSED/TIMED_OUT/CHANNEL_ERROR it removes + re-creates +
   re-wires + re-subscribes a fresh channel for the same room (250ms→3s backoff) —
   no QR rescan. Throws if env vars missing (gates the whole app; headless preview
-  without env vars won't boot). The desktop gates its idle-sweep on channel health
-  (`channelReady` + reconnect grace) so its OWN dropped channel never mass-frees
-  slots. Controls HOLD their last value through normal jitter AND a brief
-  reconnect blip (the car coasts on it); they're zeroed ONLY after a SUSTAINED
-  packet gap (`STALE_INPUT_MS` 1500ms) — a genuine disconnect — so a car never
-  runs away yet never twitches mid-drive. (It deliberately does NOT zero on
-  `channelReady=false`: a transient blip recovers in ~250ms and the per-car
-  staleness already catches a real disconnect — that instant-zero was the
-  fraction-of-a-second control "dropout".) D-debug logs packet gaps, stale
-  LOST/RESTORED transitions, and long frames.
+  without env vars won't boot). **Connection resilience is now governed by ONE
+  model — `RESILIENCE` in `lobby.ts` (Phase 1)** — the single source of truth that
+  replaced three separate point-patches (de1f475, 47319e6, respawn-at-start) and
+  reconciled every scattered timeout. Per phone, age = time since its last packet
+  drives one ordered lifecycle: `≤ INPUT_COAST_MS` (400ms) CONNECTED = hold last
+  input; `… INPUT_NEUTRAL_BY_MS` (1000ms) RECONNECTING = ramp input linearly to
+  neutral (no twitch, no runaway, handbrake released); `… PRESENCE_GRACE_MS`
+  (20000ms) RECONNECTING = **car/slot/race/XP PRESERVED IN PLACE** (the car is
+  never removed, never teleported to start, never loses laps/XP — a reconnect-by-id
+  reclaims the SAME car); `≥ PRESENCE_GRACE_MS` DEPARTED = free slot, remove car,
+  finalize race (`raceManager.remove` — `isComplete` ignores departed cars so the
+  podium never deadlocks). INVARIANT: `INPUT_COAST < INPUT_NEUTRAL_BY <
+  PRESENCE_GRACE`, and PRESENCE_GRACE must exceed the worst transport reconnect so
+  a recoverable reconnect is NEVER mistaken for a departure. The desktop still
+  gates the DEPARTURE sweep on its OWN channel health (`channelReady` + a
+  PRESENCE_GRACE reconnect grace) so a desktop drop never mass-frees slots.
+  Verified by a Node test (29 assertions: preserve-in-place, clean depart ≥20s,
+  reconnect-by-id, no race deadlock, ramp). Phase 2 (reconnect jitter / packet
+  idempotency / lobby-broadcast debounce) and Phase 3 (uplink↔downlink channel
+  split + send-rate cut, with load-testing) are PENDING. D-debug logs packet gaps,
+  RECONNECTING/LIVE transitions, and long frames.
 
 ### Build / test / run commands
 - `npm run dev` — Vite dev server (port 5173).
@@ -153,7 +164,10 @@ deployment-hash URL); `steer-it.vercel.app` also serves it.
 ### Key constants (read from code — change these, not hidden gates)
 - `PLAYER_CAP = 8` (lobby.ts) — max simultaneous players (built for N; tested with 2).
 - `CAR_COLORS` — 10 neon colors (lobby.ts); `defaultColorForSlot` wraps for N > 10.
-- `NAME_MAX = 12`, `IDLE_TIMEOUT_MS = 6000`, `PHONE_HEARTBEAT_MS = 1200`,
+- `RESILIENCE` (lobby.ts) — connection lifecycle single source of truth:
+  `INPUT_COAST_MS 400` / `INPUT_NEUTRAL_BY_MS 1000` / `PRESENCE_GRACE_MS 20000` /
+  `HEARTBEAT_MS 1200`. (Replaces the old `STALE_INPUT_MS` + `IDLE_TIMEOUT_MS`.)
+- `NAME_MAX = 12`, `PHONE_HEARTBEAT_MS = RESILIENCE.HEARTBEAT_MS`,
   `LOBBY_SYNC_MS = 2000` (lobby.ts).
 - `STEER_EXPO = 1.7` (phone.ts) — tilt expo curve `steer = sign(t)·|t|^1.7`.
 - `RACE_CONFIG = { laps: 1, maxCheckpoints: 5, gateRadius: 1.7 }` (race.ts); laps clamped 1–10.

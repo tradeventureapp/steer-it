@@ -18,13 +18,38 @@
 // Max simultaneous players. Tested with 2; built for up to this many.
 export const PLAYER_CAP = 8;
 
-// A phone is considered disconnected if the desktop hasn't heard from it
-// (join heartbeat / control / color) within this window → its slot is freed.
-export const IDLE_TIMEOUT_MS = 6000;
+// =============================================================================
+//  RESILIENCE — the SINGLE SOURCE OF TRUTH for the connection lifecycle.
+//  EVERY "is this phone still here?" decision (input, slot/lobby retention, car
+//  lifecycle, race/XP) reads THIS block and the SAME per-id lastSeen, so the
+//  scattered, disagreeing timeouts that produced three separate "drop → gameplay
+//  breaks" bugs (de1f475 input-zero, 47319e6 ~30s dropout, respawn-at-start)
+//  cannot reappear.
+//
+//  ONE ordered model, by age = now − lastSeen[clientId] (a packet of ANY kind —
+//  control @30Hz or the join heartbeat — refreshes lastSeen):
+//    age ≤ INPUT_COAST_MS          CONNECTED     → hold last input (bridge jitter)
+//    INPUT_COAST_MS … _NEUTRAL_BY  RECONNECTING  → ramp input to neutral (no runaway)
+//    _NEUTRAL_BY … PRESENCE_GRACE  RECONNECTING  → car/slot/race/XP PRESERVED in place
+//    age ≥ PRESENCE_GRACE_MS       DEPARTED      → free slot, remove car, finalize race
+//
+//  INVARIANTS: INPUT_COAST < INPUT_NEUTRAL_BY < PRESENCE_GRACE, and
+//  PRESENCE_GRACE_MS must EXCEED the worst realistic transport reconnect, so a
+//  recoverable reconnect is NEVER mistaken for a departure (the whole class of
+//  bug). Phase 1 = hundreds-of-sessions target; jitter/idempotency = Phase 2;
+//  transport-scale (uplink/downlink + rate cut) = Phase 3.
+// =============================================================================
+export const RESILIENCE = {
+  HEARTBEAT_MS: 1200,         // phone liveness emit cadence (control @30Hz also counts)
+  INPUT_COAST_MS: 400,        // hold last input through jitter / a sub-second blip
+  INPUT_NEUTRAL_BY_MS: 1000,  // input fully ramped to neutral by here (parked, safe)
+  PRESENCE_GRACE_MS: 20000,   // reconnecting → departed cutoff (start 20s; pending load-test)
+} as const;
 
 // How often a phone re-announces itself (join doubles as a keepalive), and how
 // often the desktop re-broadcasts the full lobby for late/again-syncing phones.
-export const PHONE_HEARTBEAT_MS = 1200;
+// The heartbeat is the liveness emit; its cadence lives in RESILIENCE.
+export const PHONE_HEARTBEAT_MS = RESILIENCE.HEARTBEAT_MS;
 export const LOBBY_SYNC_MS = 2000;
 
 // On-brand neon car colours (logo / synthwave palette). At least PLAYER_CAP of
@@ -180,7 +205,7 @@ export class LobbyState {
   // slots (with id + how long they'd been silent) so the caller can log WHY a
   // car vanished — distinguishing a genuinely-gone phone from other causes.
   sweep(
-    now: number, timeout: number = IDLE_TIMEOUT_MS,
+    now: number, timeout: number = RESILIENCE.PRESENCE_GRACE_MS,
   ): { changed: boolean; freed: Array<{ slot: number; id: string; ageMs: number }> } {
     const freed: Array<{ slot: number; id: string; ageMs: number }> = [];
     for (const [slot, p] of [...this.players]) {

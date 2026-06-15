@@ -13,7 +13,7 @@ import {
 import { SoundEngine } from './sound';
 import { Effects } from './effects';
 import {
-  PLAYER_CAP, LOBBY_SYNC_MS, IDLE_TIMEOUT_MS, EV, colorName, LobbyState,
+  PLAYER_CAP, LOBBY_SYNC_MS, RESILIENCE, EV, colorName, LobbyState,
 } from './lobby';
 import {
   RaceManager, RACE_CONFIG, formatRaceTime,
@@ -517,28 +517,19 @@ interface Car {
   current: Inputs;
   skidL: WheelTrail;
   skidR: WheelTrail;
-  lastInputAt: number;   // performance.now() of the last control packet (safety)
-  inputStale: boolean;   // currently zeroed for staleness? (for D-debug logging)
+  lastInputAt: number;   // performance.now() of the last control packet (liveness)
+  inputStale: boolean;   // currently RECONNECTING (ramping/neutral)? (for D-debug)
+  coastInput: Inputs | null;  // snapshot of the last live input, taken at ramp
+                              //   start so the ramp eases from it to neutral
 }
 
 // Keyed by slot so routing/lookup is O(1) and nothing is hardcoded to 2 cars.
 const cars = new Map<number, Car>();
 const DEFAULT_CAR_COLOR = '#1d3fa0';
-// RUNAWAY SAFETY ONLY. A car holds its last input between packets (it coasts on
-// it through normal jitter AND through a brief channel reconnect). Controls are
-// zeroed ONLY after a SUSTAINED absence of packets — a genuine disconnect, not a
-// late packet. Phones send at SEND_HZ=30 (~33ms); 3.5 s is ~105 missed packets,
-// unambiguously "gone", so this never twitches mid-drive. NOTE: we deliberately
-// do NOT zero on `channelReady=false` — a transient reconnect blip recovers in
-// ~250ms and packets resume; staleness alone catches a real disconnect.
-// p18b: raised 1500 → 3500. The ~30s control dropout was a transport RECONNECT
-// (realtime-js 2.108 tears the channel down on a heartbeat-timeout / the new
-// 30s empty-channel timer, both keyed to heartbeatIntervalMs=15s) whose
-// teardown→re-subscribe blip EXCEEDED the old 1.5 s window — so the car coasted
-// into the zeroing mid-reconnect ("stops responding"). At 3.5 s the car HOLDS
-// its last input straight through any reconnect (invisible), and the runaway
-// safety still fires on a genuine sustained disconnect. (Tunable.)
-const STALE_INPUT_MS = 3500;
+// Input behaviour through a packet gap is governed by the UNIFIED lifecycle —
+// hold (coast) → ramp to neutral → parked-in-place — all keyed off RESILIENCE
+// (lobby.ts), the single source of truth. See the per-frame block in the loop.
+// Replaces the old standalone STALE_INPUT_MS hard-zero (de1f475/47319e6).
 
 function makeManagedCar(slot: number, color: string): Car {
   const pose = currentMap.spawn(slot, world);   // per-map spawn layout
@@ -553,6 +544,7 @@ function makeManagedCar(slot: number, color: string): Car {
     skidR: { px: 0, py: 0, active: false },
     lastInputAt: performance.now(),
     inputStale: false,
+    coastInput: null,
   };
 }
 
@@ -1026,9 +1018,10 @@ const rc = createResilientChannel(
     label: 'desktop',
     onReady: () => {
       channelReady = true;
-      // After ANY (re)subscribe, give phones a grace window to re-announce
-      // before the idle-sweep may free anyone. Harmless on first connect.
-      sweepGraceUntil = Date.now() + IDLE_TIMEOUT_MS;
+      // After ANY (re)subscribe the desktop was BLIND (received nothing), so it
+      // must not declare anyone departed until phones have had the full grace to
+      // re-announce. Single source of truth: RESILIENCE.PRESENCE_GRACE_MS.
+      sweepGraceUntil = Date.now() + RESILIENCE.PRESENCE_GRACE_MS;
       broadcastLobby();   // push current roster to (re)connected phones
     },
     onDrop: (status) => {
@@ -1038,12 +1031,15 @@ const rc = createResilientChannel(
   },
 );
 
-// ---- disconnect sweep + periodic lobby re-sync ----
-// Frees a slot ONLY when its phone truly went quiet — never as a side effect of
-// the desktop's own channel dropping (gated on channelReady + reconnect grace).
+// ---- DEPARTURE sweep + periodic lobby re-sync ----
+// Declares a phone DEPARTED (frees its slot → syncCars removes the car +
+// raceManager.remove) ONLY after PRESENCE_GRACE_MS of total silence — long
+// enough that any recoverable reconnect is preserved in place, never mistaken
+// for a departure. Gated on the desktop's OWN channel health + reconnect grace
+// so the desktop dropping never mass-frees slots. Single source: RESILIENCE.
 setInterval(() => {
   if (!channelReady || Date.now() < sweepGraceUntil) return;
-  const r = lobby.sweep(Date.now());
+  const r = lobby.sweep(Date.now(), RESILIENCE.PRESENCE_GRACE_MS);
   if (r.changed) {
     for (const f of r.freed) {
       console.info(
@@ -1165,28 +1161,38 @@ function frame(now: number) {
   // skids, smoke, particles, engine sound) — but never the render below.
   const lead = primaryCar();  // drives the single HUD / sound / race timer
   if (!isPaused) {
-    // RUNAWAY SAFETY: zero a car's controls ONLY after a SUSTAINED packet gap
-    // (STALE_INPUT_MS) — a genuine disconnect, not jitter or a brief reconnect.
-    // We do NOT zero on channelReady=false: a transient blip recovers in ~250ms
-    // and packets resume, and the per-car staleness already catches a real
-    // disconnect — so controls hold their last value through any brief hiccup
-    // (no mid-drive twitch to neutral). The next packet restores live input.
+    // UNIFIED CONNECTION LIFECYCLE (input half) — single source of truth in
+    // RESILIENCE. Per car, age = time since its last control packet:
+    //   ≤ INPUT_COAST_MS      → CONNECTED: hold last input (bridge jitter/blip).
+    //   COAST … NEUTRAL_BY    → RECONNECTING: RAMP the last-held input linearly to
+    //                           neutral (no twitch, no runaway); handbrake released.
+    //   ≥ INPUT_NEUTRAL_BY_MS → fully neutral; the car coasts to rest IN PLACE.
+    // The car itself is PRESERVED until the lobby sweep declares it DEPARTED at
+    // PRESENCE_GRACE_MS (≫ NEUTRAL_BY) — so a reconnect never teleports/removes it.
     const tnow = performance.now();
     for (const car of cars.values()) {
-      const gap = tnow - car.lastInputAt;
-      const stale = gap > STALE_INPUT_MS;
-      if (stale) {
-        car.target.steer = 0;
-        car.target.throttle = 0;
-        car.target.brake = 0;
-        car.target.handbrake = false;
+      const age = tnow - car.lastInputAt;
+      if (age <= RESILIENCE.INPUT_COAST_MS) {
+        car.coastInput = null;                 // live / holding last — nothing to ramp
+      } else {
+        // Snapshot the last-held input ONCE at ramp start, then ramp it to 0 by a
+        // fixed deadline (frame-rate independent) so the car eases to neutral.
+        if (!car.coastInput) car.coastInput = { ...car.target };
+        const span = RESILIENCE.INPUT_NEUTRAL_BY_MS - RESILIENCE.INPUT_COAST_MS;
+        const k = Math.max(0, 1 - (age - RESILIENCE.INPUT_COAST_MS) / span);
+        car.target.steer    = car.coastInput.steer    * k;
+        car.target.throttle = car.coastInput.throttle * k;
+        car.target.brake    = car.coastInput.brake    * k;
+        car.target.handbrake = false;          // release on any sustained gap
       }
-      if (debugOn && stale !== car.inputStale) {
-        console.info(`[input] ${nowIso()} slot ${car.slot} ` +
-          (stale ? `LOST — no packet ${Math.round(gap)}ms ≥ ${STALE_INPUT_MS}ms → controls zeroed`
-                 : `RESTORED (channelReady=${channelReady})`));
+      const reconnecting = age > RESILIENCE.INPUT_COAST_MS;
+      if (debugOn && reconnecting !== car.inputStale) {
+        console.info(`[conn] ${nowIso()} slot ${car.slot} ` +
+          (reconnecting
+            ? `RECONNECTING — no packet ${Math.round(age)}ms → input ramping to neutral`
+            : `LIVE (channelReady=${channelReady})`));
       }
-      car.inputStale = stale;
+      car.inputStale = reconnecting;
     }
     let xpCrash = false;   // set if the SOLO (lead) car hits a barrier this frame
     accumulator += realDt;
