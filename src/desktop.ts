@@ -526,11 +526,18 @@ const DEFAULT_CAR_COLOR = '#1d3fa0';
 // RUNAWAY SAFETY ONLY. A car holds its last input between packets (it coasts on
 // it through normal jitter AND through a brief channel reconnect). Controls are
 // zeroed ONLY after a SUSTAINED absence of packets — a genuine disconnect, not a
-// late packet. Phones send at SEND_HZ=30 (~33ms); 1.5 s is ~45 missed packets,
+// late packet. Phones send at SEND_HZ=30 (~33ms); 3.5 s is ~105 missed packets,
 // unambiguously "gone", so this never twitches mid-drive. NOTE: we deliberately
 // do NOT zero on `channelReady=false` — a transient reconnect blip recovers in
 // ~250ms and packets resume; staleness alone catches a real disconnect.
-const STALE_INPUT_MS = 1500;
+// p18b: raised 1500 → 3500. The ~30s control dropout was a transport RECONNECT
+// (realtime-js 2.108 tears the channel down on a heartbeat-timeout / the new
+// 30s empty-channel timer, both keyed to heartbeatIntervalMs=15s) whose
+// teardown→re-subscribe blip EXCEEDED the old 1.5 s window — so the car coasted
+// into the zeroing mid-reconnect ("stops responding"). At 3.5 s the car HOLDS
+// its last input straight through any reconnect (invisible), and the runaway
+// safety still fires on a genuine sustained disconnect. (Tunable.)
+const STALE_INPUT_MS = 3500;
 
 function makeManagedCar(slot: number, color: string): Car {
   const pose = currentMap.spawn(slot, world);   // per-map spawn layout

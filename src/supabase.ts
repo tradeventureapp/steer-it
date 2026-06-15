@@ -25,6 +25,14 @@ export const supabase = createClient(url, key, {
     worker: true,
     // Channel/socket join timeout.
     timeout: 10000,
+    // p18b: NEVER tear the socket down when channels momentarily go empty.
+    // realtime-js 2.x added `disconnectOnEmptyChannelsAfterMs`, DEFAULTING to
+    // 2 × heartbeatIntervalMs = 30000ms here — a 30s timer that, combined with
+    // our reconnect churn (removeChannel → 0 channels → schedule disconnect),
+    // was one source of the ~30s control dropout. We own the channel lifecycle
+    // (the resilient wrapper re-creates on drop), so the socket must stay up
+    // regardless of transient empty-channel windows. MAX_SAFE_INTEGER = never.
+    disconnectOnEmptyChannelsAfterMs: Number.MAX_SAFE_INTEGER,
     // FAST socket reconnect: if the WS does drop, re-open it near-instantly
     // (the default stepped backoff goes 1s→2s→5s→10s, which is the 5-10s blip we
     // saw). 250ms → 2.5s cap means a blip recovers in well under a second.
