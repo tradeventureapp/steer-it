@@ -305,6 +305,7 @@ export const CONFIG = {
   // (the wheel locks in ~1 frame at any value); this is the targeted knob. Lower
   // = the handbrake brakes even less (carries more speed); 1.0 = full scrub (old).
   handbrakeLongScrubFactor: 0.35,   // NEW (p16)
+  handbrakeYawKick: 6.0,            // NEW (p17 Fix1) rad/s^2 — handbrake+steer rotates into the slide
 
   // ---------- Reverse (p6) ----------
   // Arcade reverse: holding BRAKE at (near) standstill backs the car up.
@@ -875,6 +876,10 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
     }
   }
 
+  // p17 Fix1: handbrake yaw kick — pull the lever while steering → ROTATE into the slide.
+  if (input.handbrake && speed > 1 && Math.abs(input.steer) > 0.05) {
+    car.angularVel += Math.sign(input.steer) * c.handbrakeYawKick * Math.abs(input.steer) * dt;
+  }
   car.heading    += car.angularVel * dt;
 
   // ---- 9. Integrate translation (body force -> world force -> velocity) ----
@@ -913,7 +918,7 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
     // SPEED toward a throttle-set target. Changes no tire force.
     const v2 = car.vx * car.vx + car.vy * car.vy;
     const vNow = Math.sqrt(v2);
-    const driftIntent = Math.max(input.throttle, input.handbrake ? 1 : 0);
+    const driftIntent = input.throttle;  // p17 Fix1: throttle sustains; handbrake only provokes (below)
     // ENGAGEMENT (p14) — a HYSTERESIS LATCH, not an instantaneous gate. The
     // governor only ENGAGES once a slide is clearly established (β past the
     // driftModeFull angle while the rear slides under power/handbrake), and it
@@ -941,7 +946,11 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
     // spin, and the deliberate spin still completes via yaw momentum — it just no
     // longer powers backward. Only affects spun cars; any real drift is < 90°
     // (forwardVel > 0), so forward-drift behaviour is unchanged.
-    const reversedSpin = forwardVel < -0.5;
+    // p17 Fix1: only an UNARMED reversal (accidental spin-around, spinTimer == 0)
+    // drops out — a DELIBERATE spin (armed) STAYS engaged so it rotates past 90°
+    // and completes the hodiny; the forwardVel>0 thrust gate below still blocks
+    // the rocket either way, so an armed spin rotates WITHOUT powering backward.
+    const reversedSpin = forwardVel < -0.5 && car.spinTimer === 0;
     if (!car.driftActive) {
       if (sliding && provoke && !reversedSpin) car.driftActive = true;
     } else if (reversedSpin ||
