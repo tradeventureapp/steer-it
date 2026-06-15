@@ -304,7 +304,14 @@ export const CONFIG = {
   // slide and the drift size scales with it. handbrakeLockForce can't do this
   // (the wheel locks in ~1 frame at any value); this is the targeted knob. Lower
   // = the handbrake brakes even less (carries more speed); 1.0 = full scrub (old).
-  handbrakeLongScrubFactor: 0.35,   // NEW (p16)
+  // p17 Fix1b: the scrub is now RAMPED BY THROTTLE so the handbrake only PROVOKES
+  // — it doesn't self-sustain a no-throttle slide. handbrakeLongScrubFactor is the
+  // FULL-THROTTLE value (low → entry speed carries, the Step-1 size win); at ZERO
+  // throttle the scrub rises to handbrakeLongScrubIdle (≈full braking) so a
+  // handbrake slide with no gas DECELERATES and WASHES OUT in ~1 s. Only THROTTLE
+  // sustains a drift; the handbrake just breaks the rear loose + rotates it.
+  handbrakeLongScrubFactor: 0.35,   // p16 — scrub at FULL throttle (carries speed)
+  handbrakeLongScrubIdle: 1.0,      // NEW (p17 Fix1b) — scrub at ZERO throttle (washes out)
   handbrakeYawKick: 6.0,            // NEW (p17 Fix1) rad/s^2 — handbrake+steer rotates into the slide
 
   // ---------- Reverse (p6) ----------
@@ -771,10 +778,17 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   // merely slowing the car. (p6) — the ONLY lateral modifier on top of
   // the friction circle now (the p7 power-spin cut was removed in p11).
   if (input.handbrake) rearLatForce *= c.handbrakeLatGripFactor;
-  // p16: scale DOWN the handbrake's longitudinal scrub so it destabilises more
-  // than it brakes — entry speed carries into the drift instead of being washed
-  // off to a fixed donut size (see handbrakeLongScrubFactor).
-  if (input.handbrake) rearLongForce *= c.handbrakeLongScrubFactor;
+  // p16/p17 Fix1b: scale the handbrake's longitudinal scrub by THROTTLE — full
+  // braking at zero throttle (a no-gas handbrake slide scrubs speed and WASHES
+  // OUT, so the lever only PROVOKES), ramping down to handbrakeLongScrubFactor at
+  // full throttle (low scrub → entry speed carries, the Step-1 size win). This is
+  // what actually stops the handbrake sustaining a slide on zero throttle — the
+  // governed-drift assist is already off there (govMode = throttle·… = 0).
+  if (input.handbrake) {
+    const hbScrub = c.handbrakeLongScrubIdle +
+      (c.handbrakeLongScrubFactor - c.handbrakeLongScrubIdle) * input.throttle;
+    rearLongForce *= hbScrub;
+  }
 
   // Clamp wheel overspeed to ±maxSlipRatio (force saturates past rho = 1
   // anyway; unbounded wheel speed would only add throttle-lift lag).
