@@ -227,20 +227,18 @@ export const CONFIG = {
   corneringStiffnessRear:  165000,  // p10 110000 → 165000 ↑ (p12, ~1.5×)
   // Kinetic/static friction ratio once a tire is past peak — used by the
   // front cap AND as the saturated-force magnitude of the rear circle.
-  // p18 HYBRID: 0.83 → 0.50. STATIC grip (the full budget, used while gripping)
-  // is UNTOUCHED, so normal cornering grips exactly as before. Lowering only the
-  // KINETIC (sliding) friction DECOUPLES throttle-sustain from corner-grip: a
-  // PROVOKED slide now sustains on throttle and gives a smooth, proportional
-  // fine-control envelope (the deep-but-flat ~55° slide at 0.83 sharpened into a
-  // steer-shaped 14→31° gradient), while corners still grip at the full static
-  // budget. NOTE the relationship flips: kinetic reaction = budget·driftFriction
-  // = 16200·0.50 ≈ 8100 N, now BELOW the steady engine cap (9000 N) — so under
-  // FULL throttle a sliding rear no longer fully re-hooks (it sustains the
-  // slide), while at part throttle and at cruise (power-curve drive < 8100) it
-  // grips normally; the launch still lights up because the boosted low-speed
-  // drive (≫8100) spins the rear off the line, costing ~0.3 s of 0→50 (1.8→2.1
-  // s). Tunable: 0.55–0.60 trades a little drift feel for 0.1–0.2 s of launch.
-  driftFriction: 0.50,              // p18 0.83 → 0.50 ↓ kinetic-only: sustain + fine control
+  // p18b: REVERTED 0.50 → 0.83. The p18 HYBRID briefly lowered this to decouple
+  // the emergent throttle-sustain, but it ALSO governs the FRONT tyre's kinetic
+  // (past-peak) grip: at 0.50 the front washed out in any hard corner at speed
+  // → understeer (yaw rate ~halved, radius 2-3× wider, sim-verified vs 8f2a69f),
+  // and it cost ~0.3 s of launch. Back at 0.83 turn-in + launch match the OLD
+  // tuned feel EXACTLY. This is INDEPENDENT of the hybrid wins — the proportional
+  // betaTarget (fine control), the recovery fix, and governor-sustained drift at
+  // driftAssist=1 all still hold. Only the PURE-SIM (driftAssist=0) throttle-
+  // sustain weakens (the rear re-hooks under full throttle), which is the future
+  // Arcade↔Sim toggle's far end, not the default. Tunable: 0.75 keeps ~86% of
+  // turn-in for a slightly looser drift; lower trades turn-in for emergent slide.
+  driftFriction: 0.83,              // p18b 0.50 → 0.83 ↑ restore turn-in + launch
 
   // ---------- Rear wheelspin / friction circle — PASS 4, the drift core ----------
   // The rear tire has ONE total grip budget (N) shared between longitudinal
