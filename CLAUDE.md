@@ -163,7 +163,10 @@ deployment-hash URL); `steer-it.vercel.app` also serves it.
 
 ### Key constants (read from code — change these, not hidden gates)
 - `PLAYER_CAP = 8` (lobby.ts) — max simultaneous players (built for N; tested with 2).
-- `CAR_COLORS` — 10 neon colors (lobby.ts); `defaultColorForSlot` wraps for N > 10.
+- `CAR_COLORS` — the Blitz RS palette (12 muted retro/90s colours), defined in
+  `vehicles.ts` as `BLITZ_RS_COLORS` and re-exported by `lobby.ts` as `CAR_COLORS`
+  (so the phone picker + per-slot defaults + roster names all read it).
+  `defaultColorForSlot` wraps for N > 12.
 - `RESILIENCE` (lobby.ts) — connection lifecycle single source of truth:
   `INPUT_COAST_MS 400` / `INPUT_NEUTRAL_BY_MS 1000` / `PRESENCE_GRACE_MS 20000` /
   `HEARTBEAT_MS 1200`. (Replaces the old `STALE_INPUT_MS` + `IDLE_TIMEOUT_MS`.)
@@ -297,8 +300,14 @@ phone→desktop `join | color | name | leave | control`; desktop→phone `lobby 
   English names ("DO NOT DELETE!!!", "taxes_2024_final_v3"...), recycle bin, taskbar.
   Icons = solid obstacles (arcade bounce). **Icons are mouse-draggable** (= live track building).
 - **Tire smoke** on drift/burnout (particles, capped at `FX_CONFIG.maxParticles = 340`).
-- **Car** — top-down rally hatchback (blue / gold wheels / wing, no trademarks),
-  roof number = slot number (1-based), per-slot color.
+- **Car** — the **Blitz RS**, a top-down early-90s RWD drift coupe (vector-drawn
+  in `drawCar`, recolours per slot via `shadeHex`): sculpted boxy 3-box
+  silhouette (long hood / short deck), twin round headlights + slim slat grille,
+  chrome window/bumper trim, boxy door mirrors, a ducktail, and **dark tyre-tops
+  only** (no rim from a bird's-eye view), gloss/AO/drop-shadow shading. Roof
+  number = slot number (1-based). Footprint unchanged (1.5 m × 0.617 m).
+  ALL marks original — evokes the era, copies no real car; **no real make/model
+  name appears anywhere in the code or build** (public identity = Blitz RS only).
 - **Logo** — retro-synthwave "STEER IT" (chrome + magenta->orange gradient, neon).
 - **Neon phone UI** — TAP TO STEER + GAS/BRAKE/E-BRAKE pedals, synthwave style.
   Force-landscape is pure CSS (viewport `--rot`, gravity/permission-independent;

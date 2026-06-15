@@ -26,6 +26,32 @@
 
 export type Drivetrain = 'RWD' | 'FWD' | 'AWD';
 
+// A selectable car colour: a display name + the body hex the renderer recolours
+// from. Pure data. (`lobby.ts` re-exports this as the lobby's `CAR_COLORS`, so
+// it drives the phone colour picker, the per-slot default colours, and the
+// roster colour names — all from this one list.)
+export interface CarColor { name: string; hex: string; }
+
+// ---- Blitz RS colour set — ONE unified muted retro/90s palette ----------------
+// Period car-paint tones, deliberately NOT glowing neon. 12 distinct hues so an
+// 8-player lobby has more choices than slots; ordered so the first slots default
+// to maximally-distinct colours for at-a-glance multiplayer readability. All our
+// own paint names.
+export const BLITZ_RS_COLORS: CarColor[] = [
+  { name: 'Rallye Red',     hex: '#c4202a' },
+  { name: 'Marine Blue',    hex: '#23427e' },
+  { name: 'Sunbeam Yellow', hex: '#e0b23c' },
+  { name: 'Pine Green',     hex: '#2f6e54' },
+  { name: 'Burnt Orange',   hex: '#d4682c' },
+  { name: 'Plum Purple',    hex: '#6e5091' },
+  { name: 'Lagoon Teal',    hex: '#2c7d83' },
+  { name: 'Dusty Rose',     hex: '#c2738a' },
+  { name: 'Alpine White',   hex: '#e7e9e4' },
+  { name: 'Onyx Black',     hex: '#1d1f24' },
+  { name: 'Oxblood Maroon', hex: '#7c2731' },
+  { name: 'Sky Blue',       hex: '#5b8cb3' },
+];
+
 // One car's public spec sheet. Pure data — no physics, no behaviour, no DOM.
 export interface VehicleIdentity {
   /** Stable internal key (URLs / save data / registry lookups). */
@@ -51,6 +77,8 @@ export interface VehicleIdentity {
    * CONFIG, referenced as 'default'.
    */
   physicsProfile: string;
+  /** The car's selectable colour set (the lobby/picker reads this). */
+  colors: CarColor[];
 }
 
 // ---- Blitz RS — the launch car -------------------------------------------------
@@ -68,6 +96,7 @@ export const BLITZ_RS: VehicleIdentity = {
   drivetrain: 'RWD',
   weightKg: 1200,
   physicsProfile: 'default',
+  colors: BLITZ_RS_COLORS,
 };
 
 // ---- Registry (extensible) -----------------------------------------------------

@@ -1528,155 +1528,154 @@ function updateXpHud() {
   if (xpHudEl) xpHudEl.classList.toggle('warn', xpRun.warning);
 }
 
-// ---------- Drawing: top-down rally car ----------
-// Evokes a 2000s rally hatchback — deep blue body, gold wheels, white
-// stripes, roof roundel and a rear wing — with zero trademarked marks.
-// The footprint matches the old placeholder (1.5 m × 0.617 m, the 1/3 of
-// the original 4.5/1.85 sprite) so physics dimensions are untouched.
-// Bold shapes over fine detail: it must read as a rally car at ~35 px.
-
+// ---------- Drawing: top-down Blitz RS (early-90s RWD drift coupe) ----------
+// Vector-drawn each frame from the slot's base colour (shadeHex lightens >1 /
+// darkens <1) so every player's car recolours for free. Footprint matches the
+// physics body (1.5 m × 0.617 m); tyres sit at the physics wheel positions. A
+// sculpted boxy coupe — long hood, 3-box cabin, twin round headlights, slim slat
+// grille, chrome window/bumper trim, boxy door mirrors, a ducktail, and dark
+// tyre-tops (no rim shows from straight above). +x = front. All marks ORIGINAL:
+// it evokes the era and copies no real car.
 function drawCar(car: Car) {
-  // Draw centered at the car's world position, rotated by heading.
-  // Inner coordinates are METERS (ctx scaled by pxPerMeter); +x = front.
-  // ALL shading derives from the slot's base colour (shadeHex lightens >1 /
-  // darkens <1, clamped) so every player's car reads as a polished 3D body.
   const s = car.state;
   const base = car.color;
-  const edge    = shadeHex(base, 0.58);   // dark flanks / ambient occlusion
-  const outline = shadeHex(base, 0.42);   // crisp body outline
-  const crown   = shadeHex(base, 1.22);   // top-down highlight along the spine
-  const roofCol = shadeHex(base, 1.34);   // roof panel (brightest)
-  const roofLip = shadeHex(base, 0.80);   // AO lip around the roof
-  const hood    = shadeHex(base, 0.90);   // hood panel (slightly recessed)
-  const wingCol = shadeHex(base, 0.72);   // wing endplates
-  const archCol = shadeHex(base, 0.40);   // wheel-arch recesses
+  const crown   = shadeHex(base, 1.28);   // lit spine
+  const edge    = shadeHex(base, 0.52);   // dark flanks / AO
+  const outline = shadeHex(base, 0.34);   // crisp body outline
+  const roofCol = shadeHex(base, 1.12);   // roof panel
+  const LOWER = '#24272e', CHROME = '#cdd2d9', TYRE = '#15161b';
 
   ctx.save();
   ctx.translate(s.x * PX(), s.y * PX());
   ctx.rotate(s.heading);
   ctx.scale(PX(), PX());
 
-  const halfL = 0.75;   // 1.5 m long
-  const halfW = 0.309;  // 0.617 m wide
+  const L = 0.75, W = 0.309;                 // half-length / half-width (footprint)
+  const hw = CONFIG.wheelbase / 2, ht = CONFIG.trackWidth / 2;
 
-  // ---- 1. Ground drop shadow. Cast from the body silhouette; offsets are in
-  // SCREEN space (shadow* ignores the transform) so the light direction stays
-  // fixed as the car rotates and the body sits ON the surface, not floating. --
+  // 1. Ground drop shadow (screen-space offset so light stays fixed as it turns).
   ctx.save();
-  ctx.shadowColor = 'rgba(0, 0, 0, 0.40)';
-  ctx.shadowBlur = 13;
-  ctx.shadowOffsetX = 3;
-  ctx.shadowOffsetY = 7;
-  ctx.fillStyle = '#000';
-  roundRect(ctx, -halfL, -halfW, halfL * 2, halfW * 2, 0.14);
-  ctx.fill();
-  ctx.restore();   // clears the shadow state (body is drawn over the black fill)
-
-  // ---- 2. Body shell — cross-width gradient: bright crown down the centre,
-  // darker toward both flanks = a rounded, lit 3D form. ----
-  const bodyGrad = ctx.createLinearGradient(0, -halfW, 0, halfW);
-  bodyGrad.addColorStop(0.00, edge);
-  bodyGrad.addColorStop(0.32, base);
-  bodyGrad.addColorStop(0.50, crown);
-  bodyGrad.addColorStop(0.68, base);
-  bodyGrad.addColorStop(1.00, edge);
-  ctx.fillStyle = bodyGrad;
-  roundRect(ctx, -halfL, -halfW, halfL * 2, halfW * 2, 0.13);
-  ctx.fill();
-  ctx.strokeStyle = outline;
-  ctx.lineWidth = 0.025;
-  ctx.stroke();
-
-  // Soft specular sheen down the spine.
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.10)';
-  roundRect(ctx, -halfL + 0.12, -0.085, halfL * 2 - 0.24, 0.17, 0.07);
-  ctx.fill();
-
-  // ---- 3. Bumpers (dark caps), front + rear ----
-  ctx.fillStyle = '#1b1e26';
-  roundRect(ctx, halfL - 0.10, -0.27, 0.10, 0.54, 0.05); ctx.fill();
-  roundRect(ctx, -halfL, -0.27, 0.09, 0.54, 0.05); ctx.fill();
-
-  // ---- 4. Hood — recessed panel + centre scoop + a hood panel line ----
-  ctx.fillStyle = hood;
-  roundRect(ctx, 0.30, -0.215, 0.33, 0.43, 0.05); ctx.fill();
-  ctx.fillStyle = shadeHex(base, 0.5);
-  roundRect(ctx, 0.40, -0.075, 0.15, 0.15, 0.03); ctx.fill();   // scoop bezel
-  ctx.fillStyle = '#10131b';
-  roundRect(ctx, 0.43, -0.05, 0.09, 0.10, 0.02); ctx.fill();    // scoop mouth
-  ctx.strokeStyle = 'rgba(0, 0, 0, 0.22)'; ctx.lineWidth = 0.012;
-  ctx.beginPath(); ctx.moveTo(0.30, -0.215); ctx.lineTo(0.30, 0.215); ctx.stroke();
-
-  // ---- 5. Headlights (warm glow) + taillights (soft red glow) ----
-  ctx.save();
-  ctx.shadowColor = 'rgba(255, 238, 190, 0.95)'; ctx.shadowBlur = 6;
-  ctx.fillStyle = '#fff7df';
-  ctx.beginPath();
-  ctx.arc(0.635, -0.185, 0.05, 0, Math.PI * 2);
-  ctx.arc(0.635,  0.185, 0.05, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.restore();
-  ctx.save();
-  ctx.shadowColor = 'rgba(255, 45, 45, 0.9)'; ctx.shadowBlur = 6;
-  ctx.fillStyle = '#ff3b34';
-  roundRect(ctx, -0.715, -0.25, 0.055, 0.10, 0.02); ctx.fill();
-  roundRect(ctx, -0.715,  0.15, 0.055, 0.10, 0.02); ctx.fill();
+  ctx.shadowColor = 'rgba(0,0,0,0.40)'; ctx.shadowBlur = 13;
+  ctx.shadowOffsetX = 3; ctx.shadowOffsetY = 7;
+  ctx.fillStyle = '#000'; blitzBody(ctx, L, W); ctx.fill();
   ctx.restore();
 
-  // ---- 6. Wheel arches (dark recesses) then wheels ON TOP (fronts steer) ----
-  const wheelPts: Array<[number, number, number]> = [
-    [+CONFIG.wheelbase / 2, -CONFIG.trackWidth / 2, s.steerAngle],
-    [+CONFIG.wheelbase / 2, +CONFIG.trackWidth / 2, s.steerAngle],
-    [-CONFIG.wheelbase / 2, -CONFIG.trackWidth / 2, 0],
-    [-CONFIG.wheelbase / 2, +CONFIG.trackWidth / 2, 0],
-  ];
-  ctx.fillStyle = archCol;
-  for (const [ax, ay] of wheelPts) {
-    roundRect(ctx, ax - 0.15, ay - 0.072, 0.30, 0.144, 0.05);
-    ctx.fill();
-  }
-  for (const [ax, ay, ang] of wheelPts) drawWheel(ax, ay, ang);
+  // 2. Tyres (dark rubber only — rims live on the wheel's SIDE face, unseen from
+  // directly above). Drawn UNDER the body so they tuck into the arches; track is
+  // the physics track (narrower than the body → natural tuck). Fronts steer.
+  drawTyre(hw, -ht, s.steerAngle, TYRE);
+  drawTyre(hw,  ht, s.steerAngle, TYRE);
+  drawTyre(-hw, -ht, 0, TYRE);
+  drawTyre(-hw,  ht, 0, TYRE);
 
-  // ---- 7. Greenhouse — windshield, roof panel, rear window (tinted glass
-  // with a reflection sheen + AO lip around the roof) ----
-  drawGlass([[0.34, -0.21], [0.34, 0.21], [0.15, 0.255], [0.15, -0.255]]);
-  ctx.fillStyle = roofLip;
-  roundRect(ctx, -0.30, -0.265, 0.47, 0.53, 0.08); ctx.fill();
+  // 3. Body shell — cross-width gradient (lit crown down the spine → dark flanks).
+  const bg = ctx.createLinearGradient(0, -W, 0, W);
+  bg.addColorStop(0.00, edge); bg.addColorStop(0.30, base);
+  bg.addColorStop(0.50, crown); bg.addColorStop(0.70, base); bg.addColorStop(1.00, edge);
+  blitzBody(ctx, L, W);
+  ctx.save();
+  ctx.fillStyle = bg; ctx.fill();
+  ctx.clip();   // interior detail clipped to the silhouette
+  // specular sheen down the spine
+  ctx.fillStyle = 'rgba(255,255,255,0.12)';
+  roundRect(ctx, -L + 0.10, -0.05, L * 2 - 0.20, 0.10, 0.05); ctx.fill();
+  // lower-body sills along both flanks (graphite two-tone)
+  ctx.fillStyle = LOWER;
+  ctx.fillRect(-0.46, W - 0.034, 0.92, 0.034);
+  ctx.fillRect(-0.46, -W, 0.92, 0.034);
+  // hood shut-lines (paired emboss) + a faint centre crease
+  ctx.lineWidth = 0.01;
+  ctx.strokeStyle = 'rgba(0,0,0,0.26)';
+  ctx.beginPath(); ctx.moveTo(0.16, 0.175); ctx.lineTo(0.70, 0.155);
+  ctx.moveTo(0.16, -0.175); ctx.lineTo(0.70, -0.155); ctx.stroke();
+  ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+  ctx.beginPath(); ctx.moveTo(0.16, 0.187); ctx.lineTo(0.70, 0.167);
+  ctx.moveTo(0.16, -0.187); ctx.lineTo(0.70, -0.167); ctx.stroke();
+  ctx.strokeStyle = 'rgba(0,0,0,0.12)';
+  ctx.beginPath(); ctx.moveTo(0.18, 0); ctx.lineTo(0.70, 0); ctx.stroke();
+  // cowl + deck shut-lines (across the width)
+  ctx.strokeStyle = 'rgba(0,0,0,0.28)'; ctx.lineWidth = 0.012;
+  ctx.beginPath(); ctx.moveTo(0.15, -0.20); ctx.lineTo(0.15, 0.20);
+  ctx.moveTo(-0.34, -0.20); ctx.lineTo(-0.34, 0.20); ctx.stroke();
+  ctx.restore();   // un-clip
+  // body outline
+  blitzBody(ctx, L, W);
+  ctx.strokeStyle = outline; ctx.lineWidth = 0.02; ctx.stroke();
+
+  // 4. Greenhouse — windshield, roof panel, rear window. Tinted glass + a sheen,
+  // thin chrome surround; the cabin is set back behind the long hood.
+  drawGlass([[0.15, -0.20], [0.15, 0.20], [0.02, 0.18], [0.02, -0.18]]);
   ctx.fillStyle = roofCol;
-  roundRect(ctx, -0.275, -0.24, 0.43, 0.48, 0.07); ctx.fill();
-  drawGlass([[-0.275, -0.235], [-0.275, 0.235], [-0.45, 0.195], [-0.45, -0.195]]);
+  roundRect(ctx, -0.18, -0.205, 0.20, 0.41, 0.045); ctx.fill();
+  ctx.strokeStyle = CHROME; ctx.lineWidth = 0.012;
+  roundRect(ctx, -0.18, -0.205, 0.20, 0.41, 0.045); ctx.stroke();
+  drawGlass([[-0.20, -0.185], [-0.20, 0.185], [-0.34, 0.165], [-0.34, -0.165]]);
 
-  // ---- 8. Roof roundel + slot number ----
-  ctx.fillStyle = '#f4f6fa';
-  ctx.beginPath(); ctx.arc(-0.06, 0, 0.15, 0, Math.PI * 2); ctx.fill();
-  ctx.strokeStyle = 'rgba(0, 0, 0, 0.22)'; ctx.lineWidth = 0.012;
-  ctx.beginPath(); ctx.arc(-0.06, 0, 0.15, 0, Math.PI * 2); ctx.stroke();
-  ctx.fillStyle = '#1a1d24';
-  ctx.font = 'bold 0.23px Arial, sans-serif';
+  // 5. Roof number (NO roundel) — white with a dark outline so it reads on any
+  // body colour.
+  const n = String(car.slot + 1);
+  ctx.font = 'bold 0.24px Arial, sans-serif';
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillText(String(car.slot + 1), -0.06, 0.012);
+  ctx.lineWidth = 0.035; ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+  ctx.strokeText(n, -0.08, 0.006);
+  ctx.fillStyle = '#f5f7fb'; ctx.fillText(n, -0.08, 0.006);
   ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
 
-  // ---- 9. Side mirrors at the windshield base ----
-  ctx.fillStyle = edge;
-  roundRect(ctx, 0.235, -halfW - 0.05, 0.085, 0.055, 0.02); ctx.fill();
-  roundRect(ctx, 0.235,  halfW - 0.005, 0.085, 0.055, 0.02); ctx.fill();
+  // 6. Front — bumper (chrome strip), twin round headlights, slim slat grille,
+  // amber indicators.
+  ctx.fillStyle = LOWER;
+  roundRect(ctx, L - 0.05, -0.235, 0.05, 0.47, 0.02); ctx.fill();
+  ctx.strokeStyle = CHROME; ctx.lineWidth = 0.012;
+  ctx.beginPath(); ctx.moveTo(L - 0.012, -0.21); ctx.lineTo(L - 0.012, 0.21); ctx.stroke();
+  ctx.fillStyle = '#101115';
+  roundRect(ctx, L - 0.085, -0.085, 0.06, 0.17, 0.015); ctx.fill();   // grille
+  ctx.strokeStyle = '#3d424b'; ctx.lineWidth = 0.008;
+  for (let i = -1; i <= 1; i++) {
+    ctx.beginPath(); ctx.moveTo(L - 0.082, i * 0.045); ctx.lineTo(L - 0.03, i * 0.045); ctx.stroke();
+  }
+  for (const ly of [0.085, 0.20, -0.085, -0.20]) {   // twin round lamps each side
+    const r = Math.abs(ly) > 0.15 ? 0.05 : 0.044;
+    ctx.fillStyle = '#0e0f12'; ctx.beginPath(); ctx.arc(L - 0.055, ly, r, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#eef0e8'; ctx.beginPath(); ctx.arc(L - 0.055, ly, r - 0.008, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = CHROME; ctx.lineWidth = 0.008;
+    ctx.beginPath(); ctx.arc(L - 0.055, ly, r - 0.008, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(L - 0.07, ly - 0.014, 0.012, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.fillStyle = '#f4a72a';
+  roundRect(ctx, L - 0.045, 0.235, 0.035, 0.04, 0.01); ctx.fill();
+  roundRect(ctx, L - 0.045, -0.275, 0.035, 0.04, 0.01); ctx.fill();
 
-  // ---- 10. Rear wing — endplates + a lit plank, with its own drop shadow on
-  // the body beneath it (so it reads as raised). ----
-  ctx.save();
-  ctx.shadowColor = 'rgba(0, 0, 0, 0.45)'; ctx.shadowBlur = 5;
-  ctx.shadowOffsetX = 2; ctx.shadowOffsetY = 4;
-  ctx.fillStyle = wingCol;
-  roundRect(ctx, -0.82, -0.40, 0.17, 0.06, 0.02); ctx.fill();   // endplates
-  roundRect(ctx, -0.82,  0.34, 0.17, 0.06, 0.02); ctx.fill();
-  const wg = ctx.createLinearGradient(0, -0.37, 0, 0.37);
-  wg.addColorStop(0, '#ccd3e2'); wg.addColorStop(0.5, '#eef1f7'); wg.addColorStop(1, '#ccd3e2');
-  ctx.fillStyle = wg;
-  roundRect(ctx, -0.80, -0.37, 0.13, 0.74, 0.03); ctx.fill();    // plank
-  ctx.restore();
-  ctx.strokeStyle = '#9aa6bd'; ctx.lineWidth = 0.018;
-  roundRect(ctx, -0.80, -0.37, 0.13, 0.74, 0.03); ctx.stroke();
+  // 7. Boxy door mirrors on short stalks at the cabin front.
+  for (const my of [W + 0.02, -(W + 0.055)]) {
+    ctx.fillStyle = base;
+    roundRect(ctx, 0.05, my, 0.07, 0.035, 0.012); ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 0.008;
+    roundRect(ctx, 0.05, my, 0.07, 0.035, 0.012); ctx.stroke();
+    ctx.fillStyle = '#0e1521';
+    roundRect(ctx, 0.062, my + 0.006, 0.046, 0.023, 0.008); ctx.fill();
+  }
+
+  // 8. Rear — ducktail lip (raised), simple twin taillights + centre panel,
+  // bumper with chrome strip, subtle twin exhaust.
+  ctx.fillStyle = base;
+  roundRect(ctx, -0.66, -0.255, 0.055, 0.51, 0.02); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.18)';
+  roundRect(ctx, -0.66, -0.255, 0.02, 0.51, 0.02); ctx.fill();   // lit lip edge
+  ctx.fillStyle = 'rgba(0,0,0,0.22)';
+  ctx.fillRect(-0.612, -0.255, 0.006, 0.51);
+  ctx.fillStyle = '#d23b33';
+  roundRect(ctx, -0.715, -0.215, 0.05, 0.165, 0.015); ctx.fill();
+  roundRect(ctx, -0.715,  0.05, 0.05, 0.165, 0.015); ctx.fill();
+  ctx.fillStyle = 'rgba(255,150,140,0.65)';
+  roundRect(ctx, -0.71, -0.205, 0.04, 0.05, 0.01); ctx.fill();
+  roundRect(ctx, -0.71,  0.155, 0.04, 0.05, 0.01); ctx.fill();
+  ctx.fillStyle = LOWER;
+  roundRect(ctx, -L, -0.235, 0.05, 0.47, 0.02); ctx.fill();
+  ctx.strokeStyle = CHROME; ctx.lineWidth = 0.012;
+  ctx.beginPath(); ctx.moveTo(-L + 0.012, -0.21); ctx.lineTo(-L + 0.012, 0.21); ctx.stroke();
+  ctx.fillStyle = '#3a3d44';
+  roundRect(ctx, -L - 0.012, -0.075, 0.03, 0.05, 0.012); ctx.fill();
+  roundRect(ctx, -L - 0.012,  0.025, 0.03, 0.05, 0.012); ctx.fill();
 
   ctx.restore();
 }
@@ -1711,25 +1710,41 @@ function drawGlass(pts: Array<[number, number]>) {
   ctx.restore();
 }
 
-function drawWheel(bx: number, by: number, angle: number) {
+// Sculpted top-down coupe silhouette (meters, +x = front). Flowing flanks with
+// front/rear arch bulges to the half-width and a slight waist, tapered nose/
+// tail — boxy-but-sleek, not slab. Used for the body fill, clip, outline and the
+// ground shadow so they all share one shape.
+function blitzBody(c: CanvasRenderingContext2D, L: number, W: number) {
+  c.beginPath();
+  c.moveTo(L - 0.05, -0.20);
+  c.quadraticCurveTo(L, -0.13, L, 0);
+  c.quadraticCurveTo(L, 0.13, L - 0.05, 0.20);
+  c.bezierCurveTo(L - 0.18, 0.30, 0.50, W, 0.40, W);
+  c.bezierCurveTo(0.22, W, 0.10, 0.295, 0.0, 0.295);
+  c.bezierCurveTo(-0.18, 0.295, -0.34, W, -0.45, W);
+  c.bezierCurveTo(-0.58, W, -0.66, 0.27, -0.70, 0.22);
+  c.quadraticCurveTo(-L, 0.14, -L, 0);
+  c.quadraticCurveTo(-L, -0.14, -0.70, -0.22);
+  c.bezierCurveTo(-0.66, -0.27, -0.58, -W, -0.45, -W);
+  c.bezierCurveTo(-0.34, -W, -0.18, -0.295, 0.0, -0.295);
+  c.bezierCurveTo(0.10, -0.295, 0.22, -W, 0.40, -W);
+  c.bezierCurveTo(0.50, -W, L - 0.18, -0.30, L - 0.05, -0.20);
+  c.closePath();
+}
+
+// A tyre as seen from DIRECTLY above: just the dark rubber top (the rim is on
+// the wheel's side face, not visible from a bird's-eye view). A faint lengthwise
+// crown sheen sells the roundness. Fronts pass the live steer angle.
+function drawTyre(bx: number, by: number, angle: number, col: string) {
   ctx.save();
   ctx.translate(bx, by);
   ctx.rotate(angle);
-  // Tyre — near-black with a faint sidewall sheen for roundness.
-  ctx.fillStyle = '#0e0f12';
-  roundRect(ctx, -0.125, -0.052, 0.25, 0.104, 0.03); ctx.fill();
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.06)';
-  roundRect(ctx, -0.125, -0.052, 0.25, 0.032, 0.02); ctx.fill();
-  // Gold rim — a vertical gradient gives it a machined, 3D sheen.
-  const rg = ctx.createLinearGradient(0, -0.03, 0, 0.03);
-  rg.addColorStop(0, '#f2d273');
-  rg.addColorStop(0.5, '#d9b13b');
-  rg.addColorStop(1, '#a8841f');
-  ctx.fillStyle = rg;
-  roundRect(ctx, -0.07, -0.03, 0.14, 0.06, 0.018); ctx.fill();
-  // Hub cap.
-  ctx.fillStyle = '#7a5e16';
-  ctx.beginPath(); ctx.arc(0, 0, 0.017, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = col;
+  roundRect(ctx, -0.15, -0.057, 0.30, 0.114, 0.028); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.05)';
+  roundRect(ctx, -0.15, -0.018, 0.30, 0.036, 0.02); ctx.fill();
+  ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth = 0.01;
+  roundRect(ctx, -0.15, -0.057, 0.30, 0.114, 0.028); ctx.stroke();
   ctx.restore();
 }
 

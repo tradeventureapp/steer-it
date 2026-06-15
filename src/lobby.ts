@@ -52,21 +52,14 @@ export const RESILIENCE = {
 export const PHONE_HEARTBEAT_MS = RESILIENCE.HEARTBEAT_MS;
 export const LOBBY_SYNC_MS = 2000;
 
-// On-brand neon car colours (logo / synthwave palette). At least PLAYER_CAP of
-// them so every slot gets a sensible default; players may pick any.
-export interface CarColor { name: string; hex: string; }
-export const CAR_COLORS: CarColor[] = [
-  { name: 'blue',    hex: '#2d7cff' },
-  { name: 'magenta', hex: '#ff2d95' },
-  { name: 'orange',  hex: '#ff8a3d' },
-  { name: 'green',   hex: '#39ff6a' },
-  { name: 'cyan',    hex: '#2de2e6' },
-  { name: 'yellow',  hex: '#ffe23d' },
-  { name: 'purple',  hex: '#b15cff' },
-  { name: 'red',     hex: '#ff3b3b' },
-  { name: 'pink',    hex: '#ff7ad9' },
-  { name: 'lime',    hex: '#b6ff3d' },
-];
+// The car's colour set is the Blitz RS identity's palette (ONE unified muted
+// retro/90s palette). Re-exported here as CAR_COLORS so every existing consumer
+// — the phone colour picker, per-slot default colours, and the roster colour
+// names — picks it up unchanged. The 12 colours give more choices than the 8
+// slots; per-slot recolour is unchanged (each car renders its own hex).
+export type { CarColor } from './vehicles';
+export { BLITZ_RS_COLORS as CAR_COLORS } from './vehicles';
+import { BLITZ_RS_COLORS } from './vehicles';
 
 // Player names: short, sanitized (also HTML-unsafe chars stripped because the
 // desktop roster renders them). Empty → the roster falls back to "PLAYER n".
@@ -80,12 +73,12 @@ export function sanitizeName(raw: unknown): string {
 }
 
 export function colorName(hex: string): string {
-  const c = CAR_COLORS.find((c) => c.hex.toLowerCase() === hex.toLowerCase());
+  const c = BLITZ_RS_COLORS.find((c) => c.hex.toLowerCase() === hex.toLowerCase());
   return c ? c.name : hex;
 }
 // Default colour for a slot (wraps the palette so N > palette still works).
 export function defaultColorForSlot(slot: number): string {
-  return CAR_COLORS[slot % CAR_COLORS.length].hex;
+  return BLITZ_RS_COLORS[slot % BLITZ_RS_COLORS.length].hex;
 }
 
 // ---- Broadcast event names ----
