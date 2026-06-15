@@ -105,13 +105,19 @@ export const CONFIG = {
   spinReleaseHold: 0.15,            // NEW (p14b)  s — the steer-into must be HELD this long to
                                     //   fully arm the spin (deliberate, not an accidental flick).
                                     //   Re-cages at 2× this rate when the player backs off.
-  spinReleaseThresholdHB: 0.25,     // p15 0.45 → 0.25 (p15b) steer COMMAND needed to arm a spin
-                                    //   WHILE THE HANDBRAKE IS HELD. The phone steer passes
-                                    //   through the 1.7 expo, so a modest tilt sends little: 20°
-                                    //   → 0.34, 17° → 0.25. The handbrake itself is most of the
-                                    //   intent, so a ~17-20° tilt + handbrake must spin. (Reads
-                                    //   raw |steer|, not the β-relative "into": a locked rear
-                                    //   gives β the SAME sign as the steer.)
+  spinReleaseThresholdHB: 0.90,     // p16 0.25 → 0.90 — steer COMMAND needed to arm a spin
+                                    //   WHILE THE HANDBRAKE IS HELD. DRIFT-FEEL FIX: the old 0.25
+                                    //   (p15b) sat INSIDE the normal handbrake-drift steer range
+                                    //   (~0.3-0.7), so an ordinary drift tilt armed the additive
+                                    //   spin yaw — the car over-rotated, the governor re-caged, β
+                                    //   collapsed, and it re-armed: a donut↔spin LIMIT CYCLE that
+                                    //   made the slide feel locked to a couple of discrete "donut
+                                    //   sizes" with nothing in between (sim: β ping-ponged 0°↔87°).
+                                    //   At 0.90 a normal tilt + handbrake now HOLDS a steady,
+                                    //   steerable drift; only a deliberate near-full tilt (command
+                                    //   ≥0.90 ≈ 33° after the 1.7 expo) + handbrake still spins.
+                                    //   (Reads raw |steer|, not the β-relative "into": a locked
+                                    //   rear gives β the SAME sign as the steer.)
   spinYawRate: 4.0,                 // NEW (p14b)  rad/s — when armed, ADD this much yaw (in the
                                     //   tilt direction) ON TOP of the natural drift rotation so
                                     //   the car genuinely over-rotates into a spin. The honest
