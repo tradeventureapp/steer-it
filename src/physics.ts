@@ -932,11 +932,22 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
     const provoke = input.handbrake ||
       Math.abs(input.steer) > 0.45 ||
       Math.abs(bodyBeta) >= c.driftModeFull;
+    // FIX 2 (p17): a SPUN-AROUND car — velocity anti-aligned with heading
+    // (forwardVel < 0, i.e. true slip past ~90°) — must DROP OUT of governed
+    // mode. Otherwise the speed governor's along-velocity thrust (below) keeps
+    // accelerating it along its BACKWARD velocity → it "rockets backward"; and
+    // bodyBeta reads ~0 (it uses |forwardVel|) so the governor can't even see the
+    // reversal. Disengaged, raw physics (the spinning rear + drag) resolves the
+    // spin, and the deliberate spin still completes via yaw momentum — it just no
+    // longer powers backward. Only affects spun cars; any real drift is < 90°
+    // (forwardVel > 0), so forward-drift behaviour is unchanged.
+    const reversedSpin = forwardVel < -0.5;
     if (!car.driftActive) {
-      if (sliding && provoke) car.driftActive = true;
-    } else if ((!sliding ||
+      if (sliding && provoke && !reversedSpin) car.driftActive = true;
+    } else if (reversedSpin ||
+               ((!sliding ||
                 (Math.abs(bodyBeta) < c.driftLatchRelease && !provoke)) &&
-               car.flipTimer <= 0) {
+               car.flipTimer <= 0)) {
       // Release only when the rear has regripped, or β has collapsed AND the
       // player is no longer provoking. The `&& !provoke` is essential (p15b):
       // a handbrake slide rides at a SHALLOW β (the locked rear scrubs speed
@@ -959,7 +970,11 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
         (c.driftTargetSpeedMax - c.driftTargetSpeedMin) * input.throttle;
       let accel = c.driftSpeedGain * (vTarget - vNow) * govMode;
       if (accel > 0) accel *= input.throttle;
-      if (vNow > 0.3) {
+      // FIX 2 (p17): only thrust while the car is actually moving FORWARD. The
+      // thrust is applied along the velocity vector; a reversed (spun) car would
+      // otherwise be driven backward. (driftActive is already dropped above when
+      // reversed, so govMode=0 there — this is belt-and-suspenders.)
+      if (vNow > 0.3 && forwardVel > 0) {
         car.vx += (car.vx / vNow) * accel * dt;
         car.vy += (car.vy / vNow) * accel * dt;
       }
