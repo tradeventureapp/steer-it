@@ -275,17 +275,21 @@ phone→desktop `join | color | name | leave | control`; desktop→phone `lobby 
   governor sustains a provoked slide at `driftAssist=1`, one `driftAssist` knob
   (arcade→sim). Kinetic friction SPLIT: `frontDriftFriction` 0.83 (turn-in =
   OLD) + `rearDriftFriction` 0.65 (drift slip, feel-tunable).
-  **p19 Tier-1 (BMW-feel prototype, AWAITING feel-test):** longitudinal LOAD
-  TRANSFER (`loadTransferGain` 0.35, isolated lateral-grip trim from the car's
-  own ax — gain 0 = identical to pre-p19) gives LIFT-OFF + TRAIL-BRAKE oversteer
-  and a clean STRAIGHTEN+THROTTLE exit (full-throttle exit now returns to grip
-  where it used to sustain); `engineBraking` 1500 feeds lift-off; `inertiaScale`
-  8.0→9.3 + `maxYawRate` 3.2→2.5 = heavier/planted rotation; `maxSteerAngle`
-  1.0→0.873 (57°→50°). Sim-verified (lift-off, trail-brake, exit, sustain held,
-  recovery 0.9s, grip 1.2°, rocket gone, spin fires, assist=0 collapses).
-  Feel-test then tune: `loadTransferGain` 0.35 eager ↔ 0.25 proportional (it's
-  the knob that makes drift break deeper at moderate steer), and keep/revert 50°.
-  Sim-verified; AWAITING phone feel-test. (~85%.)
+  **p19b (BMW-feel, post-feel-test, AWAITING re-test):** the feel-test kept ONLY
+  the throttle-assisted drift EXIT and the 50° lock; everything else from the p19
+  Tier-1 prototype was reverted. THROTTLE REAR-RE-GRIP (`loadTransferGain` 0.35)
+  is now the ACCEL-ONLY half of the load transfer (`axNorm` clamped ≥0, rear-only):
+  while accelerating, the rear's lateral grip is scaled up so STRAIGHTEN+THROTTLE
+  pulls a drift cleanly back to grip (incl. full throttle — used to sustain ~27°).
+  The lift/brake→rear-lighten half is GONE → no lift-off, no trail-brake entry, no
+  moderate-steer eagerness (fine control back to d2fd2e1: s0.5 grips, not 65°).
+  `engineBraking` 0 (off), `inertiaScale` 8.0, `maxYawRate` 3.2 (all reverted to
+  pre-p19); `maxSteerAngle` 0.873 (50°) KEPT. Sim-verified 3-way vs d2fd2e1 &
+  p19-full: exit kept (full-throttle NEVER→0.6s), lift-off/trail-brake/eagerness
+  gone, recovery 0.7s, grip 1.7°, launch/brake/sustain/spin/rocket all intact.
+  Known minor side effect (tunable): rear is slightly grippier under throttle than
+  pre-p19 (the exit aid is always-on when accelerating) — drop `loadTransferGain`
+  0.35→0.25 if it feels too strong/grippy. AWAITING phone feel-test. (~85%.)
 - **Phone controls** — gyro steering (gravity vector, orientation-agnostic, force-landscape,
   auto-calibration), analog pedals (finger position = value, top 1/4 = saturation),
   handbrake. Steering expo curve (`STEER_EXPO = 1.7`).

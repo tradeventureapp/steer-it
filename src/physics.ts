@@ -46,7 +46,7 @@ export const CONFIG = {
   // ~5.3× to give the rotation WEIGHT so a slide builds progressively
   // into a holdable angle instead of snapping around. (At 8.0 the yaw
   // inertia is ~600 kg·m², about 60% of the original full-size car.)
-  inertiaScale: 9.3,                // p19 8.0 → 9.3 ↑ heavier, planted, more catchable rotation
+  inertiaScale: 8.0,                // p19b reverted 9.3 → 8.0 (feel-test: keep pre-p19 rotation)
 
   // ---------- Engine / brakes ----------
   // Honest two-region torque curve (function of throttle & WHEEL speed):
@@ -244,24 +244,24 @@ export const CONFIG = {
   // wheelspin/hook-up relationship below now reads budget·rearDriftFriction.
   rearDriftFriction: 0.65,          // p18c (was the shared driftFriction) ↓ drift
 
-  // ---------- Longitudinal LOAD TRANSFER (p19, isolated lateral-grip trim) ----------
-  // Accel/brake shifts weight between the axles, so each axle's LATERAL grip
-  // rises/falls with the car's own longitudinal acceleration: throttle → the
-  // rear squats + grips (front lightens → mild push); lift/brake → the FRONT
-  // bites + the rear lightens → it steps out (LIFT-OFF / TRAIL-BRAKE oversteer),
-  // and on a held drift, throttle re-loads the rear so STRAIGHTEN+THROTTLE pulls
-  // it back to grip (clean exit). Pure multiplicative trim on the FINAL lateral
-  // tyre forces — does NOT touch the friction circle or the rear wheelspin
-  // reaction, so power-over / throttle-sustain stay intact. `loadTransferGain` 0
-  // = OFF (identical to the pre-p19 model). All tunable.
-  loadTransferGain: 0.35,           // 0..1 — lateral-grip swing front↔rear at refAccel
-  loadTransferRefAccel: 6.0,        // m/s² of long accel mapping to the FULL ±gain
+  // ---------- Throttle REAR-RE-GRIP (p19b — ACCEL-ONLY half of the load transfer) ----------
+  // p19 added a symmetric load transfer; the feel-test kept ONLY the throttle →
+  // rear-re-grip half (the clean STRAIGHTEN+THROTTLE drift EXIT, incl. at full
+  // throttle) and REJECTED the lift/brake → rear-lighten half (lift-off oversteer,
+  // trail-brake entry, moderate-steer eagerness). So this is now ACCEL-ONLY and
+  // REAR-ONLY: while ACCELERATING, the rear's LATERAL grip is scaled UP (re-loads
+  // the rear → pulls a straightened car back to grip); lift/brake do NOTHING (the
+  // ax term is clamped ≥ 0), so there is no lift-off / trail-brake / scrub-
+  // breakaway — fine control + cornering match the pre-p19 (d2fd2e1) model. Pure
+  // multiplicative trim on the final rear lateral force; friction circle + rear
+  // wheelspin reaction untouched (power-over/sustain intact). 0 = OFF (= d2fd2e1).
+  loadTransferGain: 0.35,           // 0..1 — rear-grip BOOST under throttle (exit aid). 0.25 milder
+  loadTransferRefAccel: 6.0,        // m/s² of forward accel mapping to the FULL boost
   loadTransferSmooth: 12.0,         // 1/s low-pass on measured ax (kills per-frame noise)
-  // Mild engine/compression braking on a true coast (no throttle, no brake) so a
-  // LIFT actually decelerates → feeds the load transfer → lift-off oversteer (the
-  // engine drive is 0 on lift, so without this a lift only had weak air drag).
-  // Authentic for a torquey inline-six. 0 = off.
-  engineBraking: 1500,              // N of coast-down decel (~1.25 m/s²)
+  // Engine/compression braking (p19) was only there to feed lift-off; with the
+  // lift/brake half removed it serves no purpose, so it's OFF (matches pre-p19
+  // coast feel). Left as a tunable knob in case we want coast-down later.
+  engineBraking: 0,                 // N of coast-down decel (0 = off, pre-p19)
 
   // ---------- Rear wheelspin / friction circle — PASS 4, the drift core ----------
   // The rear tire has ONE total grip budget (N) shared between longitudinal
@@ -389,7 +389,7 @@ export const CONFIG = {
   // is damped back hard (softYawClampRate per second) instead of
   // hard-clipped. The hard clip froze rotation exactly when a big entry
   // needed it most; the soft limit still stops runaway spins.
-  maxYawRate: 2.5,                  // p19 3.2 → 2.5 ↓ slower, more controllable max rotation
+  maxYawRate: 3.2,                  // p19b reverted 2.5 → 3.2 (feel-test: keep pre-p19 rotation)
   softYawClampRate: 10,             // NEW (p7)  1/s decay applied to yaw above the limit
 
   // ---------- Drift detection / skids ----------
@@ -608,16 +608,16 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   const forwardVel =  car.vx * cosH + car.vy * sinH;
   const lateralVel = -car.vx * sinH + car.vy * cosH;
 
-  // ---- 1b. Longitudinal LOAD TRANSFER (p19) — derive each axle's lateral-grip
-  // trim from the car's OWN longitudinal acceleration (low-passed). accel → rear
-  // grips (front lightens); brake/lift → front bites (rear lightens → oversteer).
-  // Pure trim on the final lateral forces below; friction circle untouched.
+  // ---- 1b. Throttle REAR-RE-GRIP (p19b) — ACCEL-ONLY half of the load transfer.
+  // axNorm is clamped to [0,1]: only FORWARD acceleration trims grip, so throttle
+  // re-loads the rear (the clean straighten+throttle drift EXIT) while lift/brake
+  // do nothing (NO lift-off / trail-brake / scrub-breakaway). Rear-only; the front
+  // is untouched. Pure trim on the final rear lateral force; circle untouched.
   const axInstant = (forwardVel - car.prevForwardVel) / dt;
   car.axLong += (axInstant - car.axLong) * Math.min(1, c.loadTransferSmooth * dt);
   car.prevForwardVel = forwardVel;
-  const axNorm = clamp(car.axLong / c.loadTransferRefAccel, -1, 1);
-  const rearLoadFactor  = 1 + c.loadTransferGain * axNorm;   // accel→grip, brake/lift→lighten
-  const frontLoadFactor = 1 - c.loadTransferGain * axNorm;   // brake→bite, accel→lighten
+  const axNorm = clamp(car.axLong / c.loadTransferRefAccel, 0, 1);   // accel-only
+  const rearLoadFactor = 1 + c.loadTransferGain * axNorm;   // throttle → rear grips → exit aid
 
   // ---- 2. Steering: ease front wheel toward target lock ----
   const targetSteer = clamp(input.steer, -1, 1) * c.maxSteerAngle;
@@ -712,7 +712,6 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   if (isFrontSliding) {
     frontLatForce = Math.sign(frontLatForce) * c.peakLatGripFront * c.frontDriftFriction;
   }
-  frontLatForce *= frontLoadFactor;   // p19 load transfer: front bites on brake, lightens on power
 
   // REAR (driven): combined-slip friction circle — PASS 4.
   //
@@ -849,8 +848,8 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   // merely slowing the car. (p6) — the ONLY lateral modifier on top of
   // the friction circle now (the p7 power-spin cut was removed in p11).
   if (input.handbrake) rearLatForce *= c.handbrakeLatGripFactor;
-  rearLatForce *= rearLoadFactor;   // p19 load transfer: rear lightens on lift/brake (oversteer),
-                                    //   re-grips on throttle (stabilise + clean straighten-exit)
+  rearLatForce *= rearLoadFactor;   // p19b: rear RE-GRIPS under throttle (clean straighten-exit);
+                                    //   accel-only, so lift/brake do NOT lighten it (no lift-off)
   // p16/p17 Fix1b: scale the handbrake's longitudinal scrub by THROTTLE — full
   // braking at zero throttle (a no-gas handbrake slide scrubs speed and WASHES
   // OUT, so the lever only PROVOKES), ramping down to handbrakeLongScrubFactor at
