@@ -60,12 +60,11 @@ export const CONFIG = {
   // slides need real provocation (handbrake, sustained wheelspin). The launch
   // lights up off the line because lowSpeedTorqueBoost briefly multiplies it
   // (9000 × 2.2 = 19800 > 16200 budget → ignites).
-  // p18: the KINETIC reaction is now budget·driftFriction = 16200·0.50 ≈ 8100,
-  // BELOW the steady cap (9000) — so a rear that is SLIDING under FULL throttle
-  // no longer fully re-hooks: that is the throttle-SUSTAIN mechanism (was 13446
-  // at df 0.83, which force-hooked every slide). Re-grip is still guaranteed at
-  // PART throttle and at speed (the power-curve drive P/v falls below 8100), and
-  // off-throttle, so normal driving + recovery are unaffected. No slip gate.
+  // p18c: the rear KINETIC reaction is budget·rearDriftFriction = 16200·0.65 ≈
+  // 10530, ABOVE the steady cap (9000) — so a spinning rear always decelerates
+  // back to grip (no perma-burnout), while the LOW-ish rear friction still lets a
+  // PROVOKED slide run long. Re-grip is guaranteed at part throttle, at cruise
+  // (power-curve drive P/v falls below it) and off-throttle. No slip gate.
   enginePower: 9000,                // p11 8400 → 9000 ↑ (p12) low vs grip → grip corners
   enginePeakPowerW: 171000,         // p10 160000 → 171000 (p12) crossover 19 m/s (171k/9k)
   // ---------- Governed drift mode (p9 — replaces the p8/p9 patch stack) ----------
@@ -225,20 +224,25 @@ export const CONFIG = {
   // REAR (driven): lateral stiffness still shapes how fast lateral force
   // builds with slip angle. The PEAK comes from tireGripBudgetRear below.
   corneringStiffnessRear:  165000,  // p10 110000 → 165000 ↑ (p12, ~1.5×)
-  // Kinetic/static friction ratio once a tire is past peak — used by the
-  // front cap AND as the saturated-force magnitude of the rear circle.
-  // p18b: REVERTED 0.50 → 0.83. The p18 HYBRID briefly lowered this to decouple
-  // the emergent throttle-sustain, but it ALSO governs the FRONT tyre's kinetic
-  // (past-peak) grip: at 0.50 the front washed out in any hard corner at speed
-  // → understeer (yaw rate ~halved, radius 2-3× wider, sim-verified vs 8f2a69f),
-  // and it cost ~0.3 s of launch. Back at 0.83 turn-in + launch match the OLD
-  // tuned feel EXACTLY. This is INDEPENDENT of the hybrid wins — the proportional
-  // betaTarget (fine control), the recovery fix, and governor-sustained drift at
-  // driftAssist=1 all still hold. Only the PURE-SIM (driftAssist=0) throttle-
-  // sustain weakens (the rear re-hooks under full throttle), which is the future
-  // Arcade↔Sim toggle's far end, not the default. Tunable: 0.75 keeps ~86% of
-  // turn-in for a slightly looser drift; lower trades turn-in for emergent slide.
-  driftFriction: 0.83,              // p18b 0.50 → 0.83 ↑ restore turn-in + launch
+  // Kinetic/static friction ratio once a tire is past peak — the grip a tyre
+  // keeps once it's SLIDING (static grip while gripping = the full budget, never
+  // touched, so cornering grip is unchanged). p18c SPLIT into FRONT and REAR
+  // because the single value pulled turn-in and drift in OPPOSITE directions:
+  //   - the FRONT cap governs TURN-IN: high front = the front bites in a hard
+  //     corner (sharp turn-in, no understeer); low front = it washes out wide.
+  //   - the REAR circle's saturated magnitude governs DRIFT: lower rear = the
+  //     rear slips more (stronger, longer-sustaining slides); high rear hooks
+  //     back up (little drift). A SINGLE value at 0.83 gave sharp turn-in but
+  //     too little drift; at 0.50 gave strong drift but understeer. The split
+  //     wins both. (sim-verified vs 8f2a69f: front 0.83 restores turn-in EXACTLY
+  //     at any rear; rear 0.65 = strong drift that still catches cleanly ~0.8 s.)
+  // FRONT — TURN-IN authority. Keep HIGH. 0.83 = the OLD tuned turn-in/launch.
+  frontDriftFriction: 0.83,         // p18c (was the shared driftFriction) ↑ turn-in
+  // REAR — DRIFT slip / throttle-sustain. LOWER = looser, stronger, longer slides.
+  // 0.65 = strong drift + clean ~0.8 s catch. Feel-tune: 0.60 looser (deeper,
+  // ~1.0 s catch) … 0.70 more catchable (a touch less deep). Note the rear
+  // wheelspin/hook-up relationship below now reads budget·rearDriftFriction.
+  rearDriftFriction: 0.65,          // p18c (was the shared driftFriction) ↓ drift
 
   // ---------- Rear wheelspin / friction circle — PASS 4, the drift core ----------
   // The rear tire has ONE total grip budget (N) shared between longitudinal
@@ -247,9 +251,9 @@ export const CONFIG = {
   // DRIFT ANGLE. Replaces the rwdPowerOversteerStrength hack (p2 0.20,
   // removed) and the separate peakLatGripRear cap (p2 8200, removed —
   // lateral-only peak is now the full budget when the wheel isn't spinning).
-  // IMPORTANT relationship: kinetic reaction = budget × driftFriction
-  // (16200 × 0.83 ≈ 13446 N) must EXCEED the engine's force CAP (9000 N),
-  // or a spinning wheel can never decelerate back to grip (margin 4446 N).
+  // IMPORTANT relationship: kinetic reaction = budget × rearDriftFriction
+  // (16200 × 0.65 ≈ 10530 N) must EXCEED the engine's force CAP (9000 N),
+  // or a spinning wheel can never decelerate back to grip (margin 1530 N).
   tireGripBudgetRear: 16200,        // p5 10800 → 16200 ↑ (p12, ~1.5×) race-tire grip
   // Slip ratio at which longitudinal traction peaks. Below = linear
   // traction (wheel ~matches ground). Above = the wheel is SPINNING
@@ -306,8 +310,8 @@ export const CONFIG = {
   // lateral grip → the rear slides. Release → the wheel spins back up →
   // grip returns → catch on throttle + countersteer.
   //
-  // SIZING: the locked tire's kinetic reaction (budget × driftFriction ≈
-  // 8964 N) constantly tries to spin the wheel BACK UP — the handbrake's
+  // SIZING: the locked tire's kinetic reaction (budget × rearDriftFriction ≈
+  // 10530 N) constantly tries to spin the wheel BACK UP — the handbrake's
   // bite is the MARGIN above that, not the raw number. p4's 9000 left only
   // ~36 N of margin after the p5 budget raise (near-dead handbrake); 14000
   // gives ~5000 N of lock authority → decisive slide entry, still well
@@ -537,7 +541,7 @@ function clamp(v: number, lo: number, hi: number): number {
 //              FRICTION CIRCLE  (one grip budget shared long/lat):
 //                  nLong = s/slipRatioPeak,  nLat = slipAngle/alphaPeak
 //                  rho ≤ 1 grip:  F = (budget·nLong, −budget·nLat)
-//                  rho > 1 slide: F = budget·driftFriction·(nLong,−nLat)/rho
+//                  rho > 1 slide: F = budget·rearDriftFriction·(nLong,−nLat)/rho
 //                  → a SPINNING wheel (nLong ≫ nLat) puts down a strong
 //                    FORWARD force (F_long→Fk) and little lateral: that is
 //                    how a powered drift both holds its angle AND keeps
@@ -551,7 +555,7 @@ function clamp(v: number, lo: number, hi: number): number {
 //              ANTI-PERMA-BURNOUT is honest: the launch lights up because
 //              boosted drive briefly exceeds kinetic reaction; it HOOKS UP
 //              because the steady force CAP (enginePower 9000) is below the
-//              kinetic reaction (budget·driftFriction ≈ 13446), so the
+//              kinetic reaction (budget·rearDriftFriction ≈ 10530), so the
 //              spinning wheel always decelerates back to grip. No gate.
 //
 //  THE ONE ASSIST: real drifting is an unstable equilibrium a driver
@@ -670,7 +674,7 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   let frontLatForce = -c.corneringStiffnessFront * frontSlip;
   const isFrontSliding = Math.abs(frontLatForce) > c.peakLatGripFront;
   if (isFrontSliding) {
-    frontLatForce = Math.sign(frontLatForce) * c.peakLatGripFront * c.driftFriction;
+    frontLatForce = Math.sign(frontLatForce) * c.peakLatGripFront * c.frontDriftFriction;
   }
 
   // REAR (driven): combined-slip friction circle — PASS 4.
@@ -682,10 +686,10 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   //
   //   rho ≤ 1 (grip):    F_long =  budget · nLong
   //                      F_lat  = −budget · nLat
-  //   rho > 1 (sliding): total force = budget · driftFriction, pointed along
+  //   rho > 1 (sliding): total force = budget · rearDriftFriction, pointed along
   //                      the combined-slip direction:
-  //                      F_long =  budget · driftFriction · nLong/rho
-  //                      F_lat  = −budget · driftFriction · nLat /rho
+  //                      F_long =  budget · rearDriftFriction · nLong/rho
+  //                      F_lat  = −budget · rearDriftFriction · nLat /rho
   //
   // This is what makes throttle steer the drift: more throttle → the wheel
   // spins → nLong grows → the force vector rotates longitudinal → lateral
@@ -784,7 +788,7 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
     rearLongForce =  budget * nLong;
     rearLatForce  = -budget * nLat;
   } else {
-    const fk = budget * c.driftFriction;
+    const fk = budget * c.rearDriftFriction;
     rearLongForce =  fk * (nLong / rho);
     rearLatForce  = -fk * (nLat  / rho);
     // The implicit predictor assumed the full linear reaction; while

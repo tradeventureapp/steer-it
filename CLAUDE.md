@@ -210,17 +210,21 @@ phone→desktop `join | color | name | leave | control`; desktop→phone `lobby 
   control) and straightening commands β→0 (recovers even with throttle held — fixed the
   old recovery defect where the ~40° `driftBaseAngle` floor pinned β). The drift is
   SUSTAINED at the default `driftAssist=1` by the governor (angle-hold while on throttle);
-  lift/straighten → recovers. `driftFriction` stays at **0.83** (the original tuned
-  value): a brief p18 experiment dropped it to 0.50 to decouple a pure-physics throttle-
-  sustain, but that value ALSO governs the FRONT tyre's kinetic grip → it washed out in
-  hard corners at speed (understeer, yaw ~halved / radius 2-3× wider, sim-verified vs
-  8f2a69f) and cost ~0.3 s of launch, so it was REVERTED in p18b. Turn-in + launch now
-  match the OLD tuned feel exactly; all hybrid wins are independent of it (proportional
-  betaTarget, recovery fix ~0.6 s, governor-sustained drift, corners grip 1.8°). The only
-  thing 0.83 gives up is the PURE-SIM (`driftAssist=0`) throttle-sustain — the far end of
-  the future Arcade↔Sim toggle, not the default. (Tunable: 0.75 keeps ~86% of turn-in for
-  a slightly looser drift.) Holding a 40°+ drift sits near the spin-arm threshold (tunable
-  via `driftAngleMax` / `spinReleaseThreshold`). LOW-SPEED power-over + steering-ONLY
+  lift/straighten → recovers. KINETIC friction (the grip a tyre keeps once SLIDING — NOT
+  static cornering grip) is SPLIT front/rear (p18c) because a single value pulled turn-in
+  and drift opposite ways: **`frontDriftFriction` 0.83** = FRONT cap → sharp TURN-IN (high
+  = the front bites, no understeer; the shared 0.50 in p18 washed it out → yaw ~halved,
+  radius 2-3× wider, sim-verified vs 8f2a69f, + cost launch); **`rearDriftFriction` 0.65**
+  = REAR circle magnitude → DRIFT slip (lower = looser/stronger/longer slides; 0.65 = strong
+  drift that still catches cleanly ~0.8 s). Front 0.83 restores turn-in EXACTLY (180/166/102
+  °/s = OLD) at any rear. Feel-tune the REAR by hand: 0.60 looser/deeper (~1.0 s catch) …
+  0.70 more catchable. Rear kinetic reaction (budget·rear ≈ 10530 > 9000 engine cap) keeps
+  the anti-perma-burnout. With the grippy front the drift is STRONG but more "catch-or-ride"
+  than finely proportional (front-grip trait — turn-in and fine-proportionality can't fully
+  coexist). All other hybrid wins hold (recovery ~0.8 s, corners grip 1.8°, governor-
+  sustained drift, launch 1.9 s, spin fires, rocket settles at assist=1). Holding a 40°+
+  drift sits near the spin-arm threshold (tunable via `driftAngleMax` /
+  `spinReleaseThreshold`). LOW-SPEED power-over + steering-ONLY
   transitions stay deferred to the handbrake-tap (Step B) — the front-slip limiter blocks
   throttle-only break-loose at low speed by design; transitions DO chain when provoked
   (handbrake-tap). **AWAITING phone feel-test.**
@@ -255,7 +259,8 @@ phone→desktop `join | color | name | leave | control`; desktop→phone `lobby 
   in corner, flick), holds, throttle/steer control the angle. p18 HYBRID emergent
   model: steer SETS the drift angle (fine control), straighten → recovers, the
   governor sustains a provoked slide at `driftAssist=1`, one `driftAssist` knob
-  (arcade→sim). `driftFriction` 0.83 (turn-in + launch = OLD tuned feel).
+  (arcade→sim). Kinetic friction SPLIT: `frontDriftFriction` 0.83 (turn-in =
+  OLD) + `rearDriftFriction` 0.65 (drift slip, feel-tunable).
   Sim-verified; AWAITING phone feel-test. (~85%.)
 - **Phone controls** — gyro steering (gravity vector, orientation-agnostic, force-landscape,
   auto-calibration), analog pedals (finger position = value, top 1/4 = saturation),
