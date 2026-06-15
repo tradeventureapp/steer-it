@@ -194,10 +194,39 @@ phone→desktop `join | color | name | leave | control`; desktop→phone `lobby 
   An assist may AMPLIFY/STABILIZE what the player is doing — never add motion/energy the
   player didn't command. (Drift is an unstable equilibrium; on phone-tilt it needs one
   gentle stability aid — that's OK, it's isolated.) The declared assist is the "governed
-  drift mode" in `step()` (slip-angle + speed governor, latches on a provoked slide) plus
-  auto-countersteer — both layered on the honest tire forces, neither adds energy.
-- Physics is currently LOCKED at a "good enough" version (pre-rewrite state, tag
-  `pred-prepisem-fyziky`). Don't touch with big rewrites — only small targeted parameter changes.
+  drift mode" in `step()` (slip-angle + speed governor) plus auto-countersteer — both
+  layered on the honest tire forces, neither adds energy.
+- **DRIFT ASSIST IS ONE TOGGLABLE KNOB (`CONFIG.driftAssist`, p18 HYBRID).** Single
+  source of truth, 0..1: `1` = full arcade assist (the default — fine-control governor
+  on), `0` = pure EMERGENT sim drift (governor fully off → raw friction-circle physics,
+  the ~60° free slide). It SCALES every governor term (angle-hold + speed) so they
+  collapse cleanly to the emergent model at 0. The DELIBERATE SPIN ("hodiny") and the
+  Fix-2 reversed-thrust gate are applied INDEPENDENTLY and work at EVERY level. Built so a
+  future player-facing **Arcade↔Sim** drift toggle (or difficulty) wires straight to this
+  one number with NO further physics rework. When changing drift feel, prefer nudging the
+  governed gains; don't reintroduce a tower of latches.
+- **EMERGENT-DRIFT MODEL (p18 HYBRID — current).** `betaTarget` is PROPORTIONAL to
+  steer-into and ZERO at neutral/countersteer: steering SETS the drift angle (fine
+  control) and straightening commands β→0 (recovers even with throttle held — fixed the
+  old recovery defect where the ~40° `driftBaseAngle` floor pinned β). Throttle-SUSTAIN is
+  decoupled from corner-grip via KINETIC friction: `driftFriction` 0.83→**0.50** lowers
+  only the sliding-tire force (static grip = full budget UNTOUCHED, so corners grip
+  exactly as before), so a provoked slide sustains on throttle and gives a smooth
+  proportional fine-control envelope; kinetic reaction (budget·0.50 ≈ 8100 N) is now BELOW
+  the engine cap (9000), which is the sustain mechanism (re-grips at part-throttle/cruise/
+  off-throttle, so normal driving + recovery are unaffected). Verified in sim (fine
+  control, recovery 0.8 s, corners grip 1.1°, size scales, rocket gone, spin fires, XP/
+  race sane). **AWAITING phone feel-test.** Known feel trade-offs to judge then: launch
+  0→50 is ~0.3 s slower (1.8→2.1 s, the df-0.50 tax; cruise wheelspin still 0%, no
+  perma-burnout — tunable via `driftFriction` 0.55–0.60), and holding a 40°+ drift sits
+  near the spin-arm threshold (tunable via `driftAngleMax` / `spinReleaseThreshold`).
+  LOW-SPEED power-over + steering-ONLY transitions stay deferred to the handbrake-tap
+  (Step B) — the front-slip limiter blocks throttle-only break-loose at low speed by
+  design; transitions DO chain when provoked (handbrake-tap).
+- Physics was LOCKED at the pre-rewrite "good enough" version (tag `pred-prepisem-fyziky`);
+  the p18 HYBRID is a SMALL, targeted change on top of it (no rewrite — governor restructured
+  behind one assist gain + two tunables). Don't touch with big rewrites — only small targeted
+  parameter changes.
 
 ### Multiplayer / general
 - **Build for N, not hardcoded for 2.** Slots, cars, colors = array/map keyed by slot.
@@ -222,7 +251,10 @@ phone→desktop `join | color | name | leave | control`; desktop→phone `lobby 
 ## 4. STATUS — DONE
 
 - **Drift physics** — controllable; drift is provoked (handbrake primary, throttle
-  in corner, flick), holds, throttle controls the angle. Locked at "good enough" (~80–85%).
+  in corner, flick), holds, throttle/steer control the angle. p18 HYBRID emergent
+  model: steer SETS the drift angle (fine control), straighten → recovers, throttle
+  sustains a provoked slide (kinetic-friction decoupled), one `driftAssist` knob
+  (arcade→sim). Sim-verified; AWAITING phone feel-test. (~85%.)
 - **Phone controls** — gyro steering (gravity vector, orientation-agnostic, force-landscape,
   auto-calibration), analog pedals (finger position = value, top 1/4 = saturation),
   handbrake. Steering expo curve (`STEER_EXPO = 1.7`).

@@ -55,14 +55,17 @@ export const CONFIG = {
   // engine makes flat peak torque; above it, constant-power falloff P/v.
   //
   // p12 KEY RATIO: enginePower is held DELIBERATELY LOW relative to the
-  // race-tire grip budget so that full-throttle NORMAL cornering stays in
-  // GRIP (the drive doesn't saturate the rear) — slides need real
-  // provocation (handbrake, sustained wheelspin). The launch still lights
-  // up off the line because lowSpeedTorqueBoost briefly multiplies it
-  // (9000 × 2.2 = 19800 > 16200 budget → ignites), and it HOOKS UP because
-  // the steady cap (9000) is below the kinetic reaction (budget·
-  // driftFriction = 16200·0.83 ≈ 13446), so a spinning wheel always
-  // decelerates back to grip. No slip gate anywhere.
+  // race-tire STATIC grip budget so that full-throttle NORMAL cornering stays
+  // in GRIP (the drive doesn't saturate the rear at part throttle / cruise) —
+  // slides need real provocation (handbrake, sustained wheelspin). The launch
+  // lights up off the line because lowSpeedTorqueBoost briefly multiplies it
+  // (9000 × 2.2 = 19800 > 16200 budget → ignites).
+  // p18: the KINETIC reaction is now budget·driftFriction = 16200·0.50 ≈ 8100,
+  // BELOW the steady cap (9000) — so a rear that is SLIDING under FULL throttle
+  // no longer fully re-hooks: that is the throttle-SUSTAIN mechanism (was 13446
+  // at df 0.83, which force-hooked every slide). Re-grip is still guaranteed at
+  // PART throttle and at speed (the power-curve drive P/v falls below 8100), and
+  // off-throttle, so normal driving + recovery are unaffected. No slip gate.
   enginePower: 9000,                // p11 8400 → 9000 ↑ (p12) low vs grip → grip corners
   enginePeakPowerW: 171000,         // p10 160000 → 171000 (p12) crossover 19 m/s (171k/9k)
   // ---------- Governed drift mode (p9 — replaces the p8/p9 patch stack) ----------
@@ -85,6 +88,22 @@ export const CONFIG = {
                                     //           full countersteer = down to ~20°
   driftAngleRate: 4.0,              // NEW (p9)  1/s — slip-angle tracking stiffness
   driftYawRelax: 8.0,               // NEW (p9)  1/s — yaw relax rate toward the law
+  // p18 HYBRID — MASTER ASSIST LEVEL (the future Arcade↔Sim drift toggle, and
+  // the SINGLE SOURCE OF TRUTH for governor strength). 1 = full arcade assist
+  // (the fine-control governor on, the default); 0 = pure EMERGENT sim drift
+  // (governor fully off → raw friction-circle physics, the ~60° free slide).
+  // It SCALES every governor term — the angle-hold AND the speed governor — so
+  // they collapse cleanly to the emergent model at 0, with no other change.
+  // The DELIBERATE SPIN ("hodiny") and the Fix-2 reversed-thrust gate are
+  // applied INDEPENDENTLY of this and keep working at EVERY level. Expose this
+  // later as a player setting (Arcade↔Sim / difficulty) with no further rework.
+  driftAssist: 1.0,                 // p18 — 1 = arcade (default) … 0 = pure sim
+  // p18 — deepest governed drift angle, rad (~51°). betaTarget is now
+  // PROPORTIONAL to steer-into and ZERO at neutral/countersteer (replaces the
+  // old driftBaseAngle floor): steering SETS the drift angle (fine control) and
+  // straightening commands β→0 (the recovery fix — no more pinning β on held
+  // throttle). Raise for deeper max drifts, lower for a tighter envelope.
+  driftAngleMax: 0.90,              // p18  rad (~51°) — full steer-into target
   // p12: race-tire grip raised the natural slide speed; bump the governor
   // targets so drifts live at a cinematic 30-50 km/h (was ~25-40).
   // p16 SIZE-BY-ENTRY-SPEED: the old strong gain YANKED speed to vTarget, so a
@@ -208,7 +227,20 @@ export const CONFIG = {
   corneringStiffnessRear:  165000,  // p10 110000 → 165000 ↑ (p12, ~1.5×)
   // Kinetic/static friction ratio once a tire is past peak — used by the
   // front cap AND as the saturated-force magnitude of the rear circle.
-  driftFriction: 0.83,              // (unchanged)  grip-in-slide, recoverable
+  // p18 HYBRID: 0.83 → 0.50. STATIC grip (the full budget, used while gripping)
+  // is UNTOUCHED, so normal cornering grips exactly as before. Lowering only the
+  // KINETIC (sliding) friction DECOUPLES throttle-sustain from corner-grip: a
+  // PROVOKED slide now sustains on throttle and gives a smooth, proportional
+  // fine-control envelope (the deep-but-flat ~55° slide at 0.83 sharpened into a
+  // steer-shaped 14→31° gradient), while corners still grip at the full static
+  // budget. NOTE the relationship flips: kinetic reaction = budget·driftFriction
+  // = 16200·0.50 ≈ 8100 N, now BELOW the steady engine cap (9000 N) — so under
+  // FULL throttle a sliding rear no longer fully re-hooks (it sustains the
+  // slide), while at part throttle and at cruise (power-curve drive < 8100) it
+  // grips normally; the launch still lights up because the boosted low-speed
+  // drive (≫8100) spins the rear off the line, costing ~0.3 s of 0→50 (1.8→2.1
+  // s). Tunable: 0.55–0.60 trades a little drift feel for 0.1–0.2 s of launch.
+  driftFriction: 0.50,              // p18 0.83 → 0.50 ↓ kinetic-only: sustain + fine control
 
   // ---------- Rear wheelspin / friction circle — PASS 4, the drift core ----------
   // The rear tire has ONE total grip budget (N) shared between longitudinal
@@ -991,7 +1023,10 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
       // slow drift is still paced; carries speed through a transition.)
       const vTarget = c.driftTargetSpeedMin +
         (c.driftTargetSpeedMax - c.driftTargetSpeedMin) * input.throttle;
-      let accel = c.driftSpeedGain * (vTarget - vNow) * govMode;
+      // p18: scaled by the master assist — at driftAssist 0 the speed governor
+      // (the size-pinner + the old rocket source) is fully OFF, speed is pure
+      // physics. The Fix-2 forwardVel>0 gate below still blocks any rocket.
+      let accel = c.driftSpeedGain * c.driftAssist * (vTarget - vNow) * govMode;
       if (accel > 0) accel *= input.throttle;
       // FIX 2 (p17): only thrust while the car is actually moving FORWARD. The
       // thrust is applied along the velocity vector; a reversed (spun) car would
@@ -1037,10 +1072,14 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
           // resulting β sign), full authority, bypassing the deadband so it
           // crosses center. A flip is a counter action — clear any spin arming.
           car.spinTimer = 0;
-          const betaTarget = -Math.sign(input.steer || 1) * c.driftBaseAngle;
-          const omegaDes = dphi + c.driftAngleRate * (bodyBeta - betaTarget);
-          car.angularVel += (omegaDes - car.angularVel) *
-            Math.min(1, c.driftYawRelax * dt) * govMode;
+          // p18: the flip-DRIVE is a governor term — scaled by the master assist
+          // (at 0 the transition is pure physics: countersteer swings the rear).
+          if (c.driftAssist > 0) {
+            const betaTarget = -Math.sign(input.steer || 1) * c.driftBaseAngle;
+            const omegaDes = dphi + c.driftAngleRate * (bodyBeta - betaTarget);
+            car.angularVel += (omegaDes - car.angularVel) *
+              Math.min(1, c.driftYawRelax * dt) * govMode * c.driftAssist;
+          }
         } else {
           // DEBOUNCED RELEASE: a decisive steer-into HELD past spinReleaseHold
           // lifts the cage; backing off re-cages (decays 2× faster) so the
@@ -1082,21 +1121,29 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
           car.spinTimer = spinDir * spinMag;
           const release = clamp(spinMag / c.spinReleaseHold, 0, 1);
           if (govMode > 0) {
-            // HOLD term — betaTarget tracks the wheel (into = deeper, counter =
-            // shallower); the player sets the angle, the governor steadies it.
-            const betaTarget = sgn * clamp(
-              c.driftBaseAngle + c.driftSteerAngleGain * steerBias, 0.30, 1.10);
-            const omegaHold = dphi + c.driftAngleRate * (bodyBeta - betaTarget);
-            // SPIN term — when armed, AMPLIFY the rotation in the steer
-            // direction so the car over-rotates (the tyre model is stable, so
-            // it won't spin on its own). Blend hold→spin by the release ramp;
-            // backing off returns to the hold term and re-catches the spin.
-            // ADDITIVE boost (not a target rate): a yaw-rate TARGET would cap
-            // rotation at spinYawRate (a governor); adding to the natural drift
-            // yaw always rotates the car FURTHER than the donut would.
-            const omegaDes = omegaHold + spinDir * c.spinYawRate * release;
-            car.angularVel += (omegaDes - car.angularVel) *
-              Math.min(1, c.driftYawRelax * dt) * govMode;
+            const relax = Math.min(1, c.driftYawRelax * dt) * govMode;
+            // HOLD term (p18) — betaTarget is now PROPORTIONAL to steer-into and
+            // ZERO at neutral/countersteer: the player's tilt SETS the drift
+            // angle (fine control), and straightening commands β→0 so the car
+            // RECOVERS even with throttle held (the old driftBaseAngle ~40° floor
+            // was the recovery defect). Scaled by the master assist — at 0 this
+            // term is OFF and the slip angle is pure friction-circle physics.
+            if (c.driftAssist > 0) {
+              const betaTarget = sgn * clamp(c.driftAngleMax * steerBias, 0, c.driftAngleMax);
+              const omegaHold = dphi + c.driftAngleRate * (bodyBeta - betaTarget);
+              car.angularVel += (omegaHold - car.angularVel) * relax * c.driftAssist;
+            }
+            // SPIN term (p18) — the deliberate "hodiny": when armed, AMPLIFY the
+            // rotation in the steer direction so the car over-rotates (the tyre
+            // model is stable, so it won't spin on its own). Applied INDEPENDENTLY
+            // of driftAssist so it works at EVERY assist level (incl. pure sim).
+            // ADDITIVE (not a target rate) — always rotates FURTHER than the donut
+            // would; the soft yaw clamp upstream is the only backstop. At assist 1
+            // this + the hold term above are algebraically identical to the prior
+            // single relaxation toward (omegaHold + spinDir·spinYawRate·release).
+            if (release > 0) {
+              car.angularVel += spinDir * c.spinYawRate * release * relax;
+            }
           }
         }
       } else {
