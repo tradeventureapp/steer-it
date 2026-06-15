@@ -15,14 +15,19 @@ inject();
 // Steering response (PHONE INPUT MAPPING ONLY — nothing downstream changes;
 // maxSteerAngle, the front-slip limiter, and countersteer all live in the
 // physics and are untouched).
-const TILT_RANGE_DEG = 35;   // physical tilt (deg, after deadzone) that maps to full input
+// THE tilt-sensitivity knob: the physical tilt (deg, after the deadzone) that
+// maps to FULL steering lock. RAISE it to make the player tilt MORE for full
+// lock (less sensitive), LOWER it for a flick-ier wheel. The map is a pure
+// LINEAR scale of this range (steer = clamp(tilt/this)), so half the range =
+// half steer, etc. — uniform, no easing. Was 35° (too sensitive — a small tilt
+// hit full lock); 55° stretches it so full lock needs a noticeably larger tilt.
+const TILT_RANGE_DEG = 55;   // ← tune by feel: higher = must tilt more for full lock
 const TILT_DEADZONE_DEG = 3;  // deg ignored around level
-// Expo curve on the normalised tilt: steer = sign(t)·|t|^STEER_EXPO. >1 makes
-// the response gentle around center (fine corrections / lane-keeping between
-// icons) and only reaches full lock near full tilt — the linear map felt
-// twitchy because medium tilts already commanded most of the lock. At 1.7,
-// half tilt ≈ 31% steer; full tilt still = 100% (pivot/countersteer intact).
-const STEER_EXPO = 1.7;
+// Response curve exponent: steer = sign(t)·|t|^STEER_EXPO. 1.0 = perfectly
+// LINEAR (steer grows evenly/proportionally with tilt — half tilt = half steer).
+// (Was 1.7, a gentle-near-center curve that ramped up to full lock; removed per
+// the linear-steering request so the response is uniform across the whole range.)
+const STEER_EXPO = 1.0;
 const SEND_HZ              = 30;
 // Analog pedal mapping: the top of the strip (player's visual outer edge,
 // away from the handbrake) is a saturation zone — any touch there pins the
