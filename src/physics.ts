@@ -87,10 +87,18 @@ export const CONFIG = {
   driftYawRelax: 8.0,               // NEW (p9)  1/s — yaw relax rate toward the law
   // p12: race-tire grip raised the natural slide speed; bump the governor
   // targets so drifts live at a cinematic 30-50 km/h (was ~25-40).
-  driftTargetSpeedMin: 7,           // p9 5 → 7 (p12)  m/s at light throttle (~25 km/h)
-  driftTargetSpeedMax: 13,          // p11 11 → 13 (p12)  m/s at full throttle (~47 km/h)
-  driftSpeedGain: 3.5,              // p9 2.5 → 3.5 (p12)  1/s — pull speed up harder so
-                                    //   slides hold a cinematic pace, not a crawl
+  // p16 SIZE-BY-ENTRY-SPEED: the old strong gain YANKED speed to vTarget, so a
+  // 52-88 km/h entry collapsed to a fixed ~33 km/h every time → one donut size
+  // (R = v/ω, v pinned ⇒ R pinned). Gain dropped + the ceiling raised so the
+  // governor only GENTLY shapes speed: entry speed largely persists (mild bleed),
+  // a fast entry ⇒ a big/long drift, a slow one ⇒ tight. Easy to feel-tune.
+  driftTargetSpeedMin: 9,           // p16 7 → 9   m/s (~32 km/h) light-throttle floor
+  driftTargetSpeedMax: 22,          // p16 13 → 22  m/s — raised ceiling so a fast entry isn't capped to a slow donut
+  driftSpeedGain: 1.0,              // p16 3.5 → 1.0  1/s — STEP 1 (conservative): dampened, not
+                                    //   zeroed. Was pinning every drift to ~33 km/h (one donut);
+                                    //   at 1.0 entry speed clearly carries (R ~13→22 m over a
+                                    //   20→100 km/h entry) yet the drift still holds. Push lower
+                                    //   (0.8/0.6) in step 2 after the feel-test for a fuller continuum.
   driftFlipDuration: 0.5,           // NEW (p14)  s — a hard counter flick keeps the
                                     //   governor driving the side-to-side transition
                                     //   through center for this long
@@ -286,6 +294,17 @@ export const CONFIG = {
   handbrakeLatGripFactor: 0.10,     // p6 0.30 → 0.10 ↓ (p15) the handbrake is THE slide tool:
                                     //   a locked rear has almost no lateral grip, so turn-in +
                                     //   handbrake instantly throws the rear into a big slide.
+  // p16 — DESTABILISE > BRAKE. The locked rear's LONGITUDINAL force is a huge
+  // scrub (~13 kN ≈ 11 m/s²) that braked every handbrake drift down to a fixed
+  // ~33 km/h regardless of entry speed (the "handbrake brakes too much" feel —
+  // and the reason every donut was the same size). This scales the rear
+  // longitudinal force WHILE THE HANDBRAKE IS HELD (the longitudinal twin of
+  // handbrakeLatGripFactor), so yanking the lever mainly breaks the rear loose +
+  // rotates the car without washing the speed off → entry speed carries into the
+  // slide and the drift size scales with it. handbrakeLockForce can't do this
+  // (the wheel locks in ~1 frame at any value); this is the targeted knob. Lower
+  // = the handbrake brakes even less (carries more speed); 1.0 = full scrub (old).
+  handbrakeLongScrubFactor: 0.35,   // NEW (p16)
 
   // ---------- Reverse (p6) ----------
   // Arcade reverse: holding BRAKE at (near) standstill backs the car up.
@@ -751,6 +770,10 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   // merely slowing the car. (p6) — the ONLY lateral modifier on top of
   // the friction circle now (the p7 power-spin cut was removed in p11).
   if (input.handbrake) rearLatForce *= c.handbrakeLatGripFactor;
+  // p16: scale DOWN the handbrake's longitudinal scrub so it destabilises more
+  // than it brakes — entry speed carries into the drift instead of being washed
+  // off to a fixed donut size (see handbrakeLongScrubFactor).
+  if (input.handbrake) rearLongForce *= c.handbrakeLongScrubFactor;
 
   // Clamp wheel overspeed to ±maxSlipRatio (force saturates past rho = 1
   // anyway; unbounded wheel speed would only add throttle-lift lag).
