@@ -54,6 +54,21 @@ deployment-hash URL); `steer-it.vercel.app` also serves it.
 ### Key files (all source under `src/`)
 - `physics.ts` — vehicle model (drift physics). THE CORE — see rules below. Exports
   `CONFIG`, `makeCar`, `step`, `collideWithRects`, `bodyToWorld`, types `CarState`/`Inputs`.
+  DRIFT MODEL SPLIT (p23): the sustained-drift code is split into TWO selectable
+  branches via `CONFIG.driftMode` ('arcade' | 'sim', default 'arcade'), chosen in
+  `step()`. **`arcadeDriftSustain()`** = the existing governed-drift model (betaTarget
+  angle governor + vTarget speed governor + latch + spin-arm), extracted VERBATIM and
+  FROZEN byte-identical to HEAD (proven: arcade==HEAD = 0.0 across grip/launch/drift/
+  spin/handbrake/footbrake). It is frozen FOR NOW so the sim work can't regress it —
+  NOT permanently locked; revisitable by choice. **`simDriftSustain()`** = the new
+  FRONT-CARVE physics drift (the approved Candidate-3 design) — WORK IN PROGRESS,
+  built pass-by-pass HERE; as of p23 it MIRRORS arcade (delegates) so the split is
+  behaviour-neutral. Both are pure per-car functions (no module state, no time/random
+  → deterministic, N-car safe). Dev toggle (arcade⇄sim) on the PC 'D' tuner; NO
+  player-facing Arcade/Sim menu yet (deferred until the sim branch is built + proven).
+  The earlier yaw-rate-target attempt was REVERTED (it failed the monotone-radius
+  proof — a yaw-rate target doesn't stabilise β); the corrected sim model is
+  front-carve-primary (radius from the steered front) + a β-damper + scrub.
 - `desktop.ts` — game surface (authority): fixed-timestep loop, per-slot car map,
   render, obstacle + car-car collisions, car drawing, HUD, skids/smoke, the track
   editor (key E), lobby wiring, QR.

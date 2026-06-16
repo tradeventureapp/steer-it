@@ -176,6 +176,30 @@ document.body.appendChild(brakeTunerEl);
   mkRow('brakeGripFraction', () => CONFIG.brakeGripFraction,
     (v) => { CONFIG.brakeGripFraction = v; },
     0.05, 0.4, 1.2, (v) => v.toFixed(2));
+
+  // p23 — DRIFT MODEL dev toggle (arcade ⇄ sim). 'sim' is the new front-carve model
+  // (WORK IN PROGRESS — currently mirrors arcade). Dev-only; no player menu yet.
+  {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:6px;margin-top:9px;';
+    const name = document.createElement('span');
+    name.textContent = 'driftMode'; name.style.cssText = 'flex:1;font-weight:700;color:#ff8a3d;';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.style.cssText =
+      'pointer-events:auto;cursor:pointer;font:700 12px/1 ui-monospace,monospace;' +
+      'padding:5px 12px;border-radius:5px;color:#ffd9b0;' +
+      'background:rgba(255,138,61,.18);border:1px solid rgba(255,138,61,.55);';
+    const upd = () => { btn.textContent = CONFIG.driftMode === 'sim' ? 'SIM (wip)' : 'ARCADE'; };
+    btn.addEventListener('click', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      CONFIG.driftMode = CONFIG.driftMode === 'sim' ? 'arcade' : 'sim';
+      upd();
+    });
+    upd();
+    row.append(name, btn);
+    brakeTunerEl.appendChild(row);
+  }
 }
 
 // ---------- Sound + visual effects ----------
