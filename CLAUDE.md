@@ -247,8 +247,9 @@ deployment-hash URL); `steer-it.vercel.app` also serves it.
   ~0.4-0.5 m/s, so 0.35 was too low to catch it → it crept several metres over
   10+ s; 0.6 catches it). Gated on idle+low-speed, so driving/throttle-crawl/drift
   are untouched. `phys-debug` (D) shows `|v|`/`yaw`/`rest=Y` to verify 0 at rest.
-- **FOOT BRAKE — grip-relative target-slip (p21).** `brakeForce = 30000` (was 21000)
-  + NEW `brakeGripFraction = 0.85` (physics.ts). The foot brake was reworked from an
+- **FOOT BRAKE — grip-relative target-slip (p21).** `brakeForce = 38000` (BAKED from
+  feel-test: 21000→30000→38000) + `brakeGripFraction = 0.85` (physics.ts). The foot
+  brake was reworked from an
   explicit per-frame wheel-speed DECREMENT into a force inside the friction circle:
   it pulls the rear wheel toward the slip that yields EXACTLY its demanded force
   (`sTarget = −(Fbrake/budget)·slipRatioPeak`, `Fbrake = brake·brakeForce·brakeRearShare`)
@@ -265,12 +266,15 @@ deployment-hash URL); `steer-it.vercel.app` also serves it.
   steering / `slipDenomFloor` / cornering + power-over breakaway are UNTOUCHED
   (verified: brake==0 byte-IDENTICAL across idle/launch/cornering/donut/spin;
   handbrake drift+donut byte-identical; sweep: OLD locks 10% brake at 5-20 km/h, NEW
-  never locks at any speed). **NOTE the tuning relationship:** at the shipped defaults
-  (30000 / 0.85) max foot demand `0.35·30000 = 10500 N < 0.85·budget = 13770 N`, so
-  near-full does NOT yet break loose — raise `brakeForce` toward ~42000 (or lower
-  `brakeGripFraction` toward ~0.62) to make near-full skid. **Both are LIVE-TUNABLE
-  on the PC `D` debug HUD** (`#brake-tuner` +/- steppers mutating CONFIG in-memory;
-  bake the chosen values later). Per-surface DIRT brake-skid comes later, free, by
+  never locks at any speed). **BAKED defaults** `brakeForce 38000` / `brakeGripFraction
+  0.85`: near-full rear demand `0.35·38000 = 13300 N` sits at the breakaway boundary
+  (`0.85·budget = 13770 N` straight), so a near-full pedal breaks the rear loose →
+  skid under any steering (where `longHeadroom < 1` lowers the threshold); light/medium
+  keeps grip at all speeds. **Both stay LIVE-TUNABLE on the PC `D` debug HUD**
+  (`#brake-tuner` +/- steppers mutating CONFIG in-memory, reset on reload — so the
+  CONFIG defaults ARE the baseline). The tuner + `D` HUD are intentionally still ON
+  (dev-only gating deferred until accounts/email exist). Per-surface DIRT brake-skid
+  comes later, free, by
   lowering the rear grip budget (the breakaway is now budget-relative). `brakeRearShare
   = 0.35` unchanged.
 - `CONFIG.pxPerMeter = 22`, `CONFIG.carCollisionRadius = 0.85` (physics.ts). Physics

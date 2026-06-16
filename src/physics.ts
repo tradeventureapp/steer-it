@@ -158,15 +158,18 @@ export const CONFIG = {
                                     //   onto an established drift it stays engaged until β
                                     //   falls below this (hysteresis), so a held drift never
                                     //   collapses to grip but a gentle corner never trips it
-  brakeForce: 30000,                // p21 21000 → 30000 — the foot brake is now GRIP-RELATIVE
-                                    //   (force-proportional target-slip). It became weaker/linear,
-                                    //   so raised to keep stopping power. LIVE-TUNED on the PC 'D'
-                                    //   debug HUD (bake the chosen value later).
+  brakeForce: 38000,                // p21 21000 → 30000 → 38000 BAKED (feel-test) — the foot
+                                    //   brake is GRIP-RELATIVE (force-proportional target-slip),
+                                    //   weaker/linear, so raised to keep stopping power. Near-full
+                                    //   rear demand 0.35·38000 = 13300 N sits at the breakaway
+                                    //   boundary (≈0.85·budget = 13770 N straight), so a near-full
+                                    //   pedal breaks the rear loose → skid under any steering (where
+                                    //   longHeadroom < 1 lowers it). Still LIVE-TUNED on the PC 'D' HUD.
   // p21 — foot-brake grip-relative breakaway: the rear keeps grip while the brake
   // FORCE DEMAND stays within this fraction of the friction-circle longitudinal
   // grip; a near-full pedal exceeds it and the rear breaks loose into a skid (NO
   // ABS). <1 = can lock on asphalt; 1.0 = foot brake never locks. LIVE-TUNED.
-  brakeGripFraction: 0.85,          // p21 start (near-full pedal breaks loose)
+  brakeGripFraction: 0.85,          // p21 BAKED (near-full pedal breaks loose)
 
   // ---------- Resistance (unchanged) ----------
   dragCoeff: 2.5,                   // air drag, force = dragCoeff * v * |v|
