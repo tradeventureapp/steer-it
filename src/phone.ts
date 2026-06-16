@@ -20,18 +20,9 @@ inject();
 // lock (less sensitive), LOWER it for a flick-ier wheel. The map is a pure
 // LINEAR scale of this range (steer = clamp(tilt/this)), so half the range =
 // half steer, etc. — uniform, no easing. Was 35° (too sensitive — a small tilt
-// hit full lock); 55° stretches it so full lock needs a noticeably larger tilt.
-// TEMPORARY: live-tunable on the phone for feel testing (the "range −/+" taps in
-// the 3-finger debug strip step this in memory; resets on reload). Default stays
-// 55° so nothing regresses if untouched. Once the feel is chosen we bake the
-// final value back to a plain const.
-let tiltRangeDeg = 55;          // ← tune by feel: higher = must tilt more for full lock
-const TILT_RANGE_MIN = 40;
-const TILT_RANGE_MAX = 80;
-const TILT_RANGE_STEP = 5;
-function stepTiltRange(deltaDeg: number) {
-  tiltRangeDeg = Math.max(TILT_RANGE_MIN, Math.min(TILT_RANGE_MAX, tiltRangeDeg + deltaDeg));
-}
+// hit full lock); 70° = the baked value chosen by on-phone feel testing (full
+// lock needs a comfortable wrist tilt; the temporary live range tuner is gone).
+const TILT_RANGE_DEG = 70;    // ← higher = must tilt more for full lock
 const TILT_DEADZONE_DEG = 3;  // deg ignored around level
 // Response curve exponent: steer = sign(t)·|t|^STEER_EXPO. 1.0 = perfectly
 // LINEAR (steer grows evenly/proportionally with tilt — half tilt = half steer).
@@ -401,63 +392,28 @@ function steerFromTilt(): number {
   // jitter doesn't twitch the wheel; range + expo unchanged so the feel at
   // larger roll angles (and full lock) is exactly as before.
   const mag = Math.max(0, Math.abs(rollDeg) - TILT_DEADZONE_DEG);
-  const norm = Math.min(1, mag / (tiltRangeDeg - TILT_DEADZONE_DEG));
+  const norm = Math.min(1, mag / (TILT_RANGE_DEG - TILT_DEADZONE_DEG));
   return STEER_SIGN * sign * Math.pow(norm, STEER_EXPO);
 }
 
 // ----------------------------------------------------------------------
 //  Debug strip
 // ----------------------------------------------------------------------
-// The live text lives in this child span so the "range −/+" tap buttons (added
-// once, below) are not wiped by the per-frame text update.
-let debugReadoutEl: HTMLSpanElement | null = null;
-
-// Build the steering-range tap targets inside the debug strip (once). They are
-// pointer-events:auto islands on the otherwise click-through strip. TEMPORARY —
-// for feel testing the steering range live on real hardware.
-function setupDebugControls() {
-  if (!debugEl || debugReadoutEl) return;
-  debugEl.textContent = '';
-  debugReadoutEl = document.createElement('span');
-  debugEl.appendChild(debugReadoutEl);
-
-  const row = document.createElement('div');
-  row.style.cssText = 'display:flex; gap:8px; margin-top:5px; pointer-events:auto;';
-  const mkBtn = (label: string, deltaDeg: number) => {
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.textContent = label;
-    b.style.cssText =
-      'pointer-events:auto; cursor:pointer; font:700 12px/1 ui-monospace,monospace;' +
-      'padding:8px 12px; border-radius:6px; color:#ffd9b0;' +
-      'background:rgba(255,138,61,0.18); border:1px solid rgba(255,138,61,0.55);';
-    const tap = (e: Event) => { e.preventDefault(); e.stopPropagation(); stepTiltRange(deltaDeg); updateDebug(); };
-    b.addEventListener('click', tap);
-    b.addEventListener('pointerdown', (e) => e.stopPropagation());
-    return b;
-  };
-  row.appendChild(mkBtn('range −', -TILT_RANGE_STEP));
-  row.appendChild(mkBtn('range +', +TILT_RANGE_STEP));
-  debugEl.appendChild(row);
-}
-
 function updateDebug() {
   if (!debugEl) return;
-  if (!debugReadoutEl) setupDebugControls();
-  const out = debugReadoutEl ?? debugEl;
   const browserLandscape = window.innerWidth > window.innerHeight;
   // The applied rotation is now CSS-driven (the --rot var). Read it back so the
   // strip shows EXACTLY what the layout is using on the device.
   const cssRot = getComputedStyle(document.documentElement).getPropertyValue('--rot').trim() || '0deg';
   const roll = steeringRollDeg();
   const steer = steerFromTilt();
-  out.textContent =
+  debugEl.textContent =
     `stage=${stage} perm=${permState}\n` +
     `phys=${currentPhys}  viewport=${browserLandscape ? 'L' : 'P'}  rot=${cssRot}\n` +
     `ax=${lastAx.toFixed(1)} ay=${lastAy.toFixed(1)} az=${lastAz.toFixed(1)}  ` +
     `sm=(${smoothedAx.toFixed(1)},${smoothedAy.toFixed(1)})\n` +
     `beta=${lastBeta.toFixed(0)} gamma=${lastGamma.toFixed(0)}\n` +
-    `roll=${roll.toFixed(1)}° steer=${steer.toFixed(2)} rng=${tiltRangeDeg}°  ` +
+    `roll=${roll.toFixed(1)}° steer=${steer.toFixed(2)} rng=${TILT_RANGE_DEG}°  ` +
     `t=${pedalValue('throttle').toFixed(2)} b=${pedalValue('brake').toFixed(2)} ` +
     `hb=${handbrakeOn() ? 'ON' : 'off'}`;
 }
