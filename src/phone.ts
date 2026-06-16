@@ -28,6 +28,11 @@ const TILT_DEADZONE_DEG = 3;  // deg ignored around level
 // (Was 1.7, a gentle-near-center curve that ramped up to full lock; removed per
 // the linear-steering request so the response is uniform across the whole range.)
 const STEER_EXPO = 1.0;
+// Global steer sign. The cross-dot ROLL (around the screen normal) has a fixed,
+// orientation-consistent sign because the screen always faces the player, so ONE
+// constant flips left/right for the whole app if a real device reads mirrored.
+// +1 = the validated convention (tilt right → +steer, left → −steer).
+const STEER_SIGN = 1;
 const SEND_HZ              = 30;
 // Analog pedal mapping: the top of the strip (player's visual outer edge,
 // away from the handbrake) is a saturation zone — any touch there pins the
@@ -86,13 +91,18 @@ let hasMotionReading = false;
 // of the raw motion so steering wobble doesn't flip the visual frame.
 let smoothedAx = 0, smoothedAy = 0;
 
-// Calibration baseline for steering — captured once on TAP TO STEER and
-// never recalculated. The cross-dot steering math is orientation-
-// agnostic so a single baseline carries through any way the player ends
-// up holding the phone.
+// Steering NEUTRAL baseline — captured at DRIVE START (the first control press,
+// once the phone is held in a LANDSCAPE pose), NOT at permission/unlock time.
+// This is the reference-frame fix: the iOS motion-permission prompt is PORTRAIT,
+// so calibrating in the unlock callback locked a portrait zero → steering then
+// read ~90° off the rendered-landscape frame (the reported "luck" bug). The
+// cross-dot math below measures the phone's ROLL around the screen normal
+// relative to THIS landscape neutral, so it's orientation-agnostic and matches
+// the rendered landscape frame regardless of OS rotation-lock state.
 let calibAx = 0, calibAy = 0;
-let calibrated = false;
-let recalibrating = false;
+let calibrated = false;     // true once the landscape neutral has been captured
+let recalibrating = false;  // true while sampling the neutral (steer = 0 then)
+let driveStarted = false;   // set on the first control interaction (= drive start)
 
 // Current physical orientation (from smoothed gravity) — used ONLY for the
 // debug readout now. The force-landscape rotation is pure CSS (see below).
@@ -345,6 +355,29 @@ function classifyOrientation(ax: number, ay: number, current: Phys): Phys {
 function applyTransform() {
   if (!hasMotionReading) return;
   currentPhys = classifyOrientation(smoothedAx, smoothedAy, currentPhys);
+  maybeAutoRecenter();
+}
+
+// ----------------------------------------------------------------------
+//  Drive-start re-center (the reference-frame fix).
+//
+//  noteDriveStart() is called from the FIRST control press — that's the
+//  clean "player is now driving" signal. We do NOT zero the steering then
+//  and there (the press may happen before the phone is turned sideways);
+//  instead maybeAutoRecenter() waits until the phone is actually in a
+//  LANDSCAPE pose (the same frame the game is rendered in) and captures the
+//  neutral THEN, exactly once. The gravity classifier is used only to TIME
+//  this — never to select the steering axis (that stays the fixed cross-dot).
+// ----------------------------------------------------------------------
+function noteDriveStart() {
+  driveStarted = true;
+}
+function maybeAutoRecenter() {
+  if (!driveStarted || calibrated || recalibrating || !hasMotionReading) return;
+  // Only zero against a LANDSCAPE hold, so a control pressed while the phone is
+  // still upright (portrait) doesn't lock a portrait neutral.
+  if (currentPhys !== 'L-pri' && currentPhys !== 'L-sec') return;
+  void calibrate();   // samples the current (landscape) hold → steering neutral
 }
 
 // rAF coalescer so per-event motion fires don't spam DOM writes.
@@ -381,7 +414,7 @@ function steerFromTilt(): number {
   const mag = Math.max(0, Math.abs(tiltDeg) - TILT_DEADZONE_DEG);
   const norm = Math.min(1, mag / (TILT_RANGE_DEG - TILT_DEADZONE_DEG));
   // Progressive (expo) response: gentle near center, full lock near full tilt.
-  return sign * Math.pow(norm, STEER_EXPO);
+  return STEER_SIGN * sign * Math.pow(norm, STEER_EXPO);
 }
 
 // ----------------------------------------------------------------------
@@ -396,7 +429,7 @@ function updateDebug() {
   const tilt = steeringTiltDeg();
   const steer = steerFromTilt();
   debugEl.textContent =
-    `stage=${stage} perm=${permState} cal=${calibrated ? 'yes' : 'no'}${recalibrating ? ' RE' : ''}\n` +
+    `stage=${stage} perm=${permState} drv=${driveStarted ? 'y' : 'n'} cal=${calibrated ? 'yes' : 'no'}${recalibrating ? ' RE' : ''}\n` +
     `phys=${currentPhys}  viewport=${browserLandscape ? 'L' : 'P'}  rot=${cssRot}\n` +
     `ax=${lastAx.toFixed(1)} ay=${lastAy.toFixed(1)} az=${lastAz.toFixed(1)}  ` +
     `sm=(${smoothedAx.toFixed(1)},${smoothedAy.toFixed(1)})\n` +
@@ -449,7 +482,11 @@ unlockBtn.addEventListener('click', async () => {
     attachControlListeners();
     startBroadcast();
     renderUI();
-    void calibrate();
+    // NOTE: we deliberately do NOT calibrate the steering neutral here.
+    // Permission is just permission — the prompt is shown in PORTRAIT, so a
+    // baseline captured now would lock the wrong (portrait) frame. The neutral
+    // is captured later, at drive start, once the phone is held in landscape
+    // (see noteDriveStart / maybeAutoRecenter).
   } catch (err) {
     errorMsg = 'Could not enable motion: ' + (err as Error).message;
     stage = 'error';
@@ -487,9 +524,10 @@ function attachSensorListeners() {
 }
 
 // ----------------------------------------------------------------------
-//  Calibration — once on unlock, never again. The cross-dot steering
-//  formula is orientation-agnostic so one baseline carries through any
-//  physical hold the player ends up in.
+//  Capture the steering NEUTRAL — called once at DRIVE START (from
+//  maybeAutoRecenter, only while the phone is in a landscape hold). Averages a
+//  handful of gravity samples of the current hold; the cross-dot then measures
+//  roll relative to it. NOT called at permission/unlock time anymore.
 // ----------------------------------------------------------------------
 async function calibrate() {
   recalibrating = true;
@@ -666,6 +704,7 @@ function updatePedalFill(el: HTMLElement, zone: Zone) {
 function bindAnalogPedal(el: HTMLElement, zone: Zone) {
   el.addEventListener('pointerdown', (e) => {
     e.preventDefault();
+    noteDriveStart();   // first control press = drive start → arm the re-center
     const v = pedalValueFromEvent(e, el);
     pedalValues[zone].set(e.pointerId, v);
     markSeen(zone, e.pointerId);
@@ -698,6 +737,7 @@ function bindAnalogPedal(el: HTMLElement, zone: Zone) {
 function bindHandbrake(el: HTMLElement) {
   el.addEventListener('pointerdown', (e) => {
     e.preventDefault();
+    noteDriveStart();   // first control press = drive start → arm the re-center
     handbrakePointers.add(e.pointerId);
     markSeen('handbrake', e.pointerId);
     el.classList.add('active');

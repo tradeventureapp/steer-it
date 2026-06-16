@@ -65,7 +65,21 @@ deployment-hash URL); `steer-it.vercel.app` also serves it.
   viewport-driven, so it works with NO device-motion permission and NEVER leaves
   a broken portrait layout (the old gravity-driven JS `computeRot` returned 0°
   for the portrait case → the bug). Gravity is still read for STEERING only.
-  3-finger tap toggles the orientation debug strip (hidden by default).
+  STEERING REFERENCE FRAME (fixed): steer = the phone's ROLL around the screen
+  normal, via a fixed cross-dot on the in-plane gravity `(ax,ay)` measured
+  RELATIVE TO a captured landscape NEUTRAL — orientation-agnostic (the screen
+  normal always faces the player, so the roll sign is consistent in every hold).
+  The neutral is captured at DRIVE START — the first control press (`noteDriveStart`)
+  arms it, and `maybeAutoRecenter` captures it once the phone is actually in a
+  LANDSCAPE pose (gated on the gravity classifier `currentPhys ∈ L-pri|L-sec` —
+  used ONLY to TIME the capture, never to select the steer axis). It is NOT
+  captured at permission/unlock time: the iOS motion prompt is PORTRAIT, so the
+  old `calibrate()`-on-unlock locked a portrait zero → steering read ~90° off the
+  rendered-landscape frame ("works only by luck of hold-at-permission" bug — now
+  removed). `STEER_SIGN` (default +1) flips left/right globally if a device reads
+  mirrored. Re-center is one-shot per session; reload to re-zero. CANNOT be tested
+  headless (no sensors + Supabase env gate) — verify on a real phone.
+  3-finger tap toggles the orientation debug strip (`steer X.XX`, `drv`, `cal`).
 - `world.ts` — the drawn desktop: `layoutDesktop`, `drawWallpaper`, `drawOverlay`,
   `drawClock`, collision rects (`rebuildRects`), icon hit-test/drag
   (`iconAt`/`clampIconToBounds`/`resolveIconDrop`), types `DesktopWorld`/`DesktopIcon`.
