@@ -54,17 +54,34 @@ deployment-hash URL); `steer-it.vercel.app` also serves it.
   (`iconAt`/`clampIconToBounds`/`resolveIconDrop`), types `DesktopWorld`/`DesktopIcon`.
 - `maps.ts` — MAP SYSTEM. `MapDefinition` (background/obstacles/spawn/bounds/wrap/
   drag), a registry (`registerMap`/`getMap`/`listMaps`/`hasMap`, `DEFAULT_MAP_ID`),
-  `desktopMap` (map 1, delegating to `world.ts`), and `flatTrackMap` (map 2 — a
-  STADIUM dirt oval via `computeStadium`/`stadiumPath`/`stadiumBarriers`: straights
-  + semicircle turns; barriers ONLY on the inner/outer edges (straights = thin
-  rects, turns = small squares strictly off-band) so the band drives freely;
-  grandstands (crowd only) + floodlights decor; grid spawn on the start line.
-  NO ads yet — all placeholder banners removed; real ad surfaces come later
+  `desktopMap` (map 1, delegating to `world.ts`), and the STADIUM-oval family
+  (maps 2 + 3 — a wide oval via `computeStadium`/`stadiumPath`/`stadiumBarriers`:
+  straights + semicircle turns; barriers ONLY on the inner/outer edges (straights
+  = thin rects, turns = small squares strictly off-band) so the band drives
+  freely; grandstands (crowd only) + floodlights decor; grid spawn on the start
+  line. NO ads yet — all placeholder banners removed; real ad surfaces come later
   beside the stands + in the infield. Band widened ~⅓ INWARD (outer edge fixed,
   inner moved toward centre)).
-  Per-map smoke tint via `MapDefinition.smokeColor` ([r,g,b], default white):
-  desktop = white rubber smoke, flat = brown dust (`effects.ts` stores the tint
-  per particle).
+  STADIUM FACTORY — both ovals are built by ONE `makeStadiumMap({id,name,surface,
+  smokeColor})` factory so they share a SINGLE source of truth for geometry,
+  barriers, spawn grid, bounds, `fixedWorld`, `startLine`, and decor (proven
+  mathematically identical: 182 barrier rects / startLine / 8-spawn grid all
+  match). The ONLY per-map inputs are VISUALS — the racing-ring `surface`
+  ('dirt'|'asphalt') and the `smokeColor`; NO physics/grip override is taken or
+  applied (every stadium map inherits the single locked tune identically —
+  per-surface grip comes LATER, on the dirt side; asphalt is the grippy
+  baseline). The ring surface is painted by ONE shared `drawTrackSurface`-style
+  routine (`drawStadiumSurface(ctx,wPx,hPx,style)`) keyed by `SURFACE_STYLES`
+  (only the ring gradient + groove tints differ), and decor by one shared
+  `drawStadiumDecor`. The two maps: **`flatTrackMap`** (id `'flat'`, "Flat Track")
+  = warm-brown DIRT ring + brown dust; **`asphaltTrackMap`** (id `'asphalt'`,
+  "Asphalt Oval") = dark tarmac-grey ASPHALT ring (subtle rubbered-in racing
+  line, NO lane markings/kerbs) + white rubber smoke. Both register, both appear
+  as their OWN map-select tile with a real preview; `steerSwitchMap('asphalt')`
+  works. An asphalt↔dirt hover toggle is DEFERRED.
+  Per-map smoke tint via `MapDefinition.smokeColor` ([r,g,b], default white
+  `[248,248,251]`): desktop = white rubber smoke, asphalt = white rubber smoke,
+  flat = brown dust `[170,126,84]` (`effects.ts` stores the tint per particle).
   FIXED-WORLD scaling via `MapDefinition.fixedWorld` ({widthM,heightM}): when set
   (the oval), the map is ALWAYS built at that exact logical size — so
   `computeStadium` yields the SAME wide oval regardless of window — and desktop.ts
@@ -442,12 +459,21 @@ phone→desktop `join | color | name | leave | control`; desktop→phone `lobby 
   obstacles+collision, spawn, bounds+wrap, `trackType` 'open'|'circuit', optional
   decor + `smokeColor` + `fixedWorld`, draggable flag). The desktop is map 1
   (`desktopMap`, 'open'). `switchMap(id)` rebuilds world + layers, clears skids,
-  resets the (per-map) race track, exits the editor, and respawns cars. **Map 2 =
-  `flatTrackMap`** ('flat', 'circuit', 90s dirt oval): brown dirt ring + green
-  infield + purple night ground, tyre-wall barriers (FIXED, edge-only AABB rects),
-  grandstands (crowd only — NO ads yet) + floodlights, 2-wide grid spawn on the
-  start/finish line, brown DUST `smokeColor`. Maps are picked via the START RACE →
-  map-select tiles (real previews); `steerSwitchMap('flat')` dev hook still works.
+  resets the (per-map) race track, exits the editor, and respawns cars. **Maps 2
+  + 3 = the STADIUM-oval twins**, both built by the ONE `makeStadiumMap` factory
+  (shared geometry/barriers/spawn/bounds/`fixedWorld`/`startLine`/decor —
+  guaranteed identical), differing ONLY in the racing-ring surface + smoke:
+  **`flatTrackMap`** ('flat', 90s DIRT oval): brown dirt ring + brown DUST smoke;
+  **`asphaltTrackMap`** ('asphalt', "Asphalt Oval"): dark tarmac-grey ASPHALT ring
+  (subtle rubbered-in line, NO markings/kerbs) + white rubber smoke. Both share
+  green infield + purple night ground, tyre-wall barriers (FIXED, edge-only AABB
+  rects), grandstands (crowd only — NO ads yet) + floodlights, 2-wide grid spawn
+  on the start/finish line. NO per-map physics/grip override — the asphalt twin
+  inherits the locked tune byte-for-byte (physics.ts unchanged; per-surface grip
+  deferred to the dirt side). Maps are picked via the START RACE → map-select
+  tiles (real previews — the asphalt map auto-appears as its own tile);
+  `steerSwitchMap('flat')` / `steerSwitchMap('asphalt')` dev hooks work. An
+  asphalt↔dirt hover toggle is DEFERRED.
 - **Vercel/QR blocker FIXED** — the QR pointed to a protected deployment-hash URL
   (login wall for other players). Fix: the QR is built from env var `VITE_PUBLIC_BASE_URL`
   (= production domain), not window.location.origin. + disable Vercel Authentication.

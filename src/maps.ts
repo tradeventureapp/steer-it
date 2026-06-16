@@ -185,16 +185,22 @@ export const desktopMap: MapDefinition = {
 };
 
 // =============================================================================
-//  MAP 2 — flat-track dirt oval (90s short-track / Outrun vibe).
+//  STADIUM OVALS — a family of 90s short-track / Outrun-vibe maps that share
+//  ONE geometry + decor source of truth (the builders below + the makeStadiumMap
+//  factory) and differ ONLY in the racing-ring surface + smoke colour:
+//    • flatTrackMap    (id 'flat')    — warm-brown DIRT ring, brown dust
+//    • asphaltTrackMap (id 'asphalt') — dark tarmac ASPHALT ring, white smoke
 //
-//  A warm-brown dirt oval ring (drivable) between a dark night infield and the
-//  outside ground, bounded by tyre-wall barriers (FIXED — draggableObstacles:
-//  false) tessellated into many small AABB rects so the arcade collision keeps
-//  cars on the track. Decor (grandstands, neon ad banners, floodlights) is
-//  non-collidable. Cars spawn in a 2-wide grid behind the start/finish line.
+//  An oval ring (drivable) sits between a dark night infield and the outside
+//  ground, bounded by tyre-wall barriers (FIXED — draggableObstacles: false)
+//  tessellated into many small AABB rects so the arcade collision keeps cars on
+//  the track. Decor (grandstands, floodlights) is non-collidable. Cars spawn in
+//  a 2-wide grid behind the start/finish line.
 //
-//  All geometry derives deterministically from the world size via computeOval()
-//  so createWorld (rects/spawn) and drawBackground (which gets no world) agree.
+//  All geometry derives deterministically from the world size via
+//  computeStadium() so createWorld (rects/spawn) and drawBackground (which gets
+//  no world) agree, and every map built by the factory is mathematically
+//  identical except for the surface visuals. NO per-map physics/grip override.
 // =============================================================================
 
 // STADIUM oval (rounded rectangle): top & bottom STRAIGHTS joined by left & right
@@ -382,148 +388,229 @@ const FLAT_LOGICAL = {
   heightM: SCREEN_H / CONFIG.pxPerMeter,
 };
 
-export const flatTrackMap: MapDefinition = {
+// ---- Racing-ring SURFACE styles -----------------------------------------------
+// The ONE thing that differs between the stadium twins: the ring fill + groove
+// tints (and, paired with it, the smoke colour, which lives on the map). The
+// DIRT style is the original warm-brown look (unchanged); the ASPHALT style is
+// clean dark tarmac grey with a subtle rubbered-in racing line — NO lane
+// markings, NO kerbs. Everything else (night ground, infield, start/finish
+// stripe, geometry, barriers, decor) is identical, so the rings can never
+// diverge. Per-surface GRIP is NOT here — that comes later, on the dirt side;
+// asphalt is the grippy baseline and inherits the locked physics tune as-is.
+export type TrackSurfaceStyle = 'dirt' | 'asphalt';
+interface SurfaceStyle {
+  ringInner: string;    // racing-ring radial gradient — inner stop
+  ringOuter: string;    // racing-ring radial gradient — outer stop
+  lineStroke: string;   // worn racing-line band at mid radius
+  grooveStroke: string; // faint concentric surface grooves
+}
+const SURFACE_STYLES: Record<TrackSurfaceStyle, SurfaceStyle> = {
+  dirt: {
+    ringInner: '#8a5226', ringOuter: '#693d1b',
+    lineStroke: 'rgba(176,124,72,0.45)',
+    grooveStroke: 'rgba(80,48,22,0.5)',
+  },
+  asphalt: {
+    // Dark tarmac grey; the "worn line" reads as a faint rubbered-in darker
+    // band rather than a lighter dirt groove. Subtle texture only.
+    ringInner: '#3b3e44', ringOuter: '#2a2c31',
+    lineStroke: 'rgba(24,26,30,0.38)',
+    grooveStroke: 'rgba(18,19,22,0.5)',
+  },
+};
+
+// Surface layer (UNDER the skids): night ground, racing ring (style-tinted),
+// racing-line grooves, infield, start/finish stripe. Recomputed from the pixel
+// size. SHARED by every stadium map — only the `style` fill/tint differs, so the
+// dirt and asphalt rings are guaranteed to be the same shape down to the pixel.
+function drawStadiumSurface(
+  ctx: CanvasRenderingContext2D, wPx: number, hPx: number, style: TrackSurfaceStyle,
+) {
+  const s = SURFACE_STYLES[style];
+  const px = CONFIG.pxPerMeter;
+  const g = computeStadium(wPx / px, hPx / px);
+  const cx = g.cx * px, cy = g.cy * px, sx = g.sx * px;
+  const OYh = g.OYh * px, IYh = g.IYh * px, midYh = (OYh + IYh) / 2;
+
+  const bg = ctx.createLinearGradient(0, 0, 0, hPx);
+  bg.addColorStop(0, '#241a33'); bg.addColorStop(1, '#130d1d');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, wPx, hPx);
+
+  // Racing ring — fill the outer stadium with the surface gradient.
+  const ring = ctx.createRadialGradient(cx, cy, IYh, cx, cy, sx + OYh);
+  ring.addColorStop(0, s.ringInner); ring.addColorStop(1, s.ringOuter);
+  ctx.fillStyle = ring;
+  stadiumPath(ctx, cx, cy, sx, OYh); ctx.fill();
+
+  // Worn racing line (band at mid) + faint grooves.
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = s.lineStroke;
+  ctx.lineWidth = (OYh - IYh) * 0.32;
+  stadiumPath(ctx, cx, cy, sx, midYh); ctx.stroke();
+  ctx.strokeStyle = s.grooveStroke; ctx.lineWidth = 2;
+  for (const f of [0.72, 0.5, 0.28]) {
+    stadiumPath(ctx, cx, cy, sx, IYh + (OYh - IYh) * f); ctx.stroke();
+  }
+
+  // Infield — carve the dark-green centre (inner stadium).
+  const inf = ctx.createLinearGradient(0, cy - IYh, 0, cy + IYh);
+  inf.addColorStop(0, '#22382b'); inf.addColorStop(1, '#192c21');
+  ctx.fillStyle = inf;
+  stadiumPath(ctx, cx, cy, sx, IYh); ctx.fill();
+
+  // Start/finish — checkered stripe across the bottom straight (x = cx).
+  const yTop = cy + IYh, yBot = cy + OYh, segs = 9;
+  const segH = (yBot - yTop) / segs, lw = 1.2 * px;
+  for (let i = 0; i < segs; i++) {
+    ctx.fillStyle = i % 2 ? '#0c0c0c' : '#eef0f2';
+    ctx.fillRect(cx - lw / 2, yTop + i * segH, lw, segH);
+  }
+}
+
+// Decor + barriers (ABOVE the skids): grandstands (crowd only), floodlights,
+// tyre walls. SHARED by every stadium map — identical for dirt and asphalt. NO
+// ads/banners; real ad surfaces come later (beside the stands + infield).
+function drawStadiumDecor(ctx: CanvasRenderingContext2D, world: MapWorld, px: number) {
+  const g = (world as FlatWorld).geom;
+  const cx = g.cx * px, cy = g.cy * px, sx = g.sx * px;
+  const OYh = g.OYh * px, IYh = g.IYh * px;
+  const barrierPx = Math.max(3, g.bandW * px * 0.16);
+
+  // Grandstands (crowd only): along the top straight + behind each turn.
+  // ~20% SHORTER than the track span (the 0.8 factor) so the corners stay open
+  // for ad billboards later.
+  const standH = Math.min(48, OYh * 0.36);
+  drawStand(ctx, cx, cy - OYh - 7, 0, (sx * 2 + OYh) * 0.8, standH);
+  drawStand(ctx, cx - sx - OYh - 7, cy, -Math.PI / 2, OYh * 1.6 * 0.8, standH);
+  drawStand(ctx, cx + sx + OYh + 7, cy, Math.PI / 2, OYh * 1.6 * 0.8, standH);
+
+  // Floodlights at the four outside corners. `gy` is the outward direction, so
+  // top lights (gy=-1) face down onto the track and bottom lights (gy=+1) are
+  // MIRRORED to face up onto it — every lamp points inward at the surface.
+  for (const [gx, gy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) {
+    drawFloodlight(ctx, cx + gx * (sx + OYh * 0.55), cy + gy * (OYh + 9), gy);
+  }
+
+  // Barriers (tyre walls) on the inner + outer edges — match the collision.
+  drawStadiumWall(ctx, cx, cy, sx, OYh, barrierPx);
+  drawStadiumWall(ctx, cx, cy, sx, IYh, barrierPx);
+}
+
+// =============================================================================
+//  Stadium-map FACTORY. Every stadium oval (the dirt original + the asphalt
+//  twin, and any future surface) is built here, so they share ONE source of
+//  truth for geometry, barriers, spawn grid, bounds, fixedWorld scaling,
+//  start/finish line, and decor. The ONLY per-map inputs are id/name, the
+//  racing-ring surface STYLE, and the smoke colour — i.e. visuals only. NO
+//  physics/grip override is taken or applied: every stadium map inherits the
+//  single locked physics tune identically (per-surface grip comes later).
+// =============================================================================
+function makeStadiumMap(opts: {
+  id: string;
+  name: string;
+  surface: TrackSurfaceStyle;
+  smokeColor: [number, number, number];
+}): MapDefinition {
+  return {
+    id: opts.id,
+    name: opts.name,
+    trackType: 'circuit',   // bounded oval → laps-only editor; built-in start line
+
+    smokeColor: opts.smokeColor,
+
+    // Fixed-shape world: built at FLAT_LOGICAL metres regardless of the window
+    // and rendered with a uniform scale-to-fit, so the oval never squashes.
+    fixedWorld: FLAT_LOGICAL,
+
+    // Built-in start/finish: a START gate centred on the checkered line across
+    // the bottom straight (x = cx), with a trigger spanning the band so a car
+    // always trips it. In circuit mode this single gate is start AND finish.
+    startLine(world) {
+      const g = (world as FlatWorld).geom;
+      const mid = (g.IYh + g.OYh) / 2;   // band centre radius
+      return {
+        type: 'start',
+        x: g.cx,
+        y: g.cy + mid,                   // band centre on the BOTTOM straight
+        radius: g.bandW / 2,             // covers the band width
+        angle: Math.PI / 2,              // vertical (across the straight)
+        // Cars race +x across the bottom straight (spawn heading 0). Only a
+        // +x crossing counts; reversing (−x) over the line does not.
+        forward: 0,
+        // Far point = the TOP straight (opposite side of the oval). The lap arms
+        // only once the car gets near there, so back-and-forth / tiny circles at
+        // the start line never complete a lap. Generous radius (one band width).
+        farX: g.cx,
+        farY: g.cy - mid,
+        farRadius: g.bandW,
+      };
+    },
+
+    createWorld(widthM, heightM) {
+      const g = computeStadium(widthM, heightM);
+      // Barriers ONLY on the inner + outer edges; the band between is rect-free.
+      const world: FlatWorld = {
+        width: widthM, height: heightM, rects: stadiumBarriers(g), geom: g,
+      };
+      return world;
+    },
+
+    drawBackground(ctx, wPx, hPx) {
+      drawStadiumSurface(ctx, wPx, hPx, opts.surface);
+    },
+
+    drawObstacles(ctx, world, px, _dragged) {
+      drawStadiumDecor(ctx, world, px);
+    },
+
+    // Grid spawn: 2-wide, lined up behind the start line (x = cx) on the bottom
+    // straight, facing +x (along the track). Non-overlapping for N.
+    spawn(slot, world) {
+      const g = (world as FlatWorld).geom;
+      const inner = g.cy + g.IYh, outer = g.cy + g.OYh;
+      const lane0 = inner + (outer - inner) * 0.34;
+      const lane1 = inner + (outer - inner) * 0.66;
+      const col = slot % 2, row = Math.floor(slot / 2);
+      return { x: g.cx - 1.5 - row * 2.6, y: col === 0 ? lane0 : lane1, heading: 0 };
+    },
+
+    // Closed track: the barriers do the real containment. wrap() just clamps a
+    // car that somehow escaped the world rect (no torus wrap). true = teleported.
+    wrap(car, world) {
+      const m = 0.5;
+      let clamped = false;
+      if (car.x < m) { car.x = m; car.vx = 0; clamped = true; }
+      else if (car.x > world.width - m) { car.x = world.width - m; car.vx = 0; clamped = true; }
+      if (car.y < m) { car.y = m; car.vy = 0; clamped = true; }
+      else if (car.y > world.height - m) { car.y = world.height - m; car.vy = 0; clamped = true; }
+      return clamped;
+    },
+
+    draggableObstacles: false,   // fixed walls — the drag hooks are never called
+  };
+}
+
+// MAP 2 — the original DIRT stadium oval (warm brown ring, brown DUST smoke).
+export const flatTrackMap: MapDefinition = makeStadiumMap({
   id: 'flat',
   name: 'Flat Track',
-  trackType: 'circuit',   // bounded oval → laps-only editor; built-in start line
+  surface: 'dirt',
+  smokeColor: [170, 126, 84],   // warm brown/tan dust
+});
 
-  // Dirt surface → warm brown/tan DUST instead of white rubber smoke.
-  smokeColor: [170, 126, 84],
-
-  // Fixed-shape world: built at FLAT_LOGICAL metres regardless of the window and
-  // rendered with a uniform scale-to-fit, so the oval never squashes on resize.
-  fixedWorld: FLAT_LOGICAL,
-
-  // Built-in start/finish: a START gate centred on the checkered line across the
-  // bottom straight (x = cx), with a trigger spanning the dirt band so a car
-  // always trips it. In circuit mode this single gate is start AND finish.
-  startLine(world) {
-    const g = (world as FlatWorld).geom;
-    const mid = (g.IYh + g.OYh) / 2;   // band centre radius
-    return {
-      type: 'start',
-      x: g.cx,
-      y: g.cy + mid,                   // band centre on the BOTTOM straight
-      radius: g.bandW / 2,             // covers the band width
-      angle: Math.PI / 2,              // vertical (across the straight)
-      // Cars race +x across the bottom straight (spawn heading 0). Only a
-      // +x crossing counts; reversing (−x) over the line does not.
-      forward: 0,
-      // Far point = the TOP straight (opposite side of the oval). The lap arms
-      // only once the car gets near there, so back-and-forth / tiny circles at
-      // the start line never complete a lap. Generous radius (one band width).
-      farX: g.cx,
-      farY: g.cy - mid,
-      farRadius: g.bandW,
-    };
-  },
-
-  createWorld(widthM, heightM) {
-    const g = computeStadium(widthM, heightM);
-    // Barriers ONLY on the inner + outer edges; the band between is rect-free.
-    const world: FlatWorld = {
-      width: widthM, height: heightM, rects: stadiumBarriers(g), geom: g,
-    };
-    return world;
-  },
-
-  // Surface layer (UNDER the skids): night ground, dirt band, racing-line
-  // grooves, infield, start/finish stripe. Recomputed from the pixel size.
-  drawBackground(ctx, wPx, hPx) {
-    const px = CONFIG.pxPerMeter;
-    const g = computeStadium(wPx / px, hPx / px);
-    const cx = g.cx * px, cy = g.cy * px, sx = g.sx * px;
-    const OYh = g.OYh * px, IYh = g.IYh * px, midYh = (OYh + IYh) / 2;
-
-    const bg = ctx.createLinearGradient(0, 0, 0, hPx);
-    bg.addColorStop(0, '#241a33'); bg.addColorStop(1, '#130d1d');
-    ctx.fillStyle = bg; ctx.fillRect(0, 0, wPx, hPx);
-
-    // Dirt band (warm brown) — fill the outer stadium.
-    const dirt = ctx.createRadialGradient(cx, cy, IYh, cx, cy, sx + OYh);
-    dirt.addColorStop(0, '#8a5226'); dirt.addColorStop(1, '#693d1b');
-    ctx.fillStyle = dirt;
-    stadiumPath(ctx, cx, cy, sx, OYh); ctx.fill();
-
-    // Worn racing line (lighter band at mid) + faint grooves.
-    ctx.lineJoin = 'round';
-    ctx.strokeStyle = 'rgba(176,124,72,0.45)';
-    ctx.lineWidth = (OYh - IYh) * 0.32;
-    stadiumPath(ctx, cx, cy, sx, midYh); ctx.stroke();
-    ctx.strokeStyle = 'rgba(80,48,22,0.5)'; ctx.lineWidth = 2;
-    for (const f of [0.72, 0.5, 0.28]) {
-      stadiumPath(ctx, cx, cy, sx, IYh + (OYh - IYh) * f); ctx.stroke();
-    }
-
-    // Infield — carve the dark-green centre (inner stadium).
-    const inf = ctx.createLinearGradient(0, cy - IYh, 0, cy + IYh);
-    inf.addColorStop(0, '#22382b'); inf.addColorStop(1, '#192c21');
-    ctx.fillStyle = inf;
-    stadiumPath(ctx, cx, cy, sx, IYh); ctx.fill();
-
-    // Start/finish — checkered stripe across the bottom straight (x = cx).
-    const yTop = cy + IYh, yBot = cy + OYh, segs = 9;
-    const segH = (yBot - yTop) / segs, lw = 1.2 * px;
-    for (let i = 0; i < segs; i++) {
-      ctx.fillStyle = i % 2 ? '#0c0c0c' : '#eef0f2';
-      ctx.fillRect(cx - lw / 2, yTop + i * segH, lw, segH);
-    }
-  },
-
-  // Decor + barriers (ABOVE the skids). NO ads/banners — grandstands hold
-  // spectators only; real ad surfaces come later (beside the stands + infield).
-  drawObstacles(ctx, world, px, _dragged) {
-    const g = (world as FlatWorld).geom;
-    const cx = g.cx * px, cy = g.cy * px, sx = g.sx * px;
-    const OYh = g.OYh * px, IYh = g.IYh * px;
-    const barrierPx = Math.max(3, g.bandW * px * 0.16);
-
-    // Grandstands (crowd only): along the top straight + behind each turn.
-    // ~20% SHORTER than the track span (the 0.8 factor) so the corners stay open
-    // for ad billboards later.
-    const standH = Math.min(48, OYh * 0.36);
-    drawStand(ctx, cx, cy - OYh - 7, 0, (sx * 2 + OYh) * 0.8, standH);
-    drawStand(ctx, cx - sx - OYh - 7, cy, -Math.PI / 2, OYh * 1.6 * 0.8, standH);
-    drawStand(ctx, cx + sx + OYh + 7, cy, Math.PI / 2, OYh * 1.6 * 0.8, standH);
-
-    // Floodlights at the four outside corners. `gy` is the outward direction, so
-    // top lights (gy=-1) face down onto the track and bottom lights (gy=+1) are
-    // MIRRORED to face up onto it — every lamp points inward at the surface.
-    for (const [gx, gy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) {
-      drawFloodlight(ctx, cx + gx * (sx + OYh * 0.55), cy + gy * (OYh + 9), gy);
-    }
-
-    // Barriers (tyre walls) on the inner + outer edges — match the collision.
-    drawStadiumWall(ctx, cx, cy, sx, OYh, barrierPx);
-    drawStadiumWall(ctx, cx, cy, sx, IYh, barrierPx);
-  },
-
-  // Grid spawn: 2-wide, lined up behind the start line (x = cx) on the bottom
-  // straight, facing +x (along the track). Non-overlapping for N.
-  spawn(slot, world) {
-    const g = (world as FlatWorld).geom;
-    const inner = g.cy + g.IYh, outer = g.cy + g.OYh;
-    const lane0 = inner + (outer - inner) * 0.34;
-    const lane1 = inner + (outer - inner) * 0.66;
-    const col = slot % 2, row = Math.floor(slot / 2);
-    return { x: g.cx - 1.5 - row * 2.6, y: col === 0 ? lane0 : lane1, heading: 0 };
-  },
-
-  // Closed track: the barriers do the real containment. wrap() just clamps a
-  // car that somehow escaped the world rect (no torus wrap). true = teleported.
-  wrap(car, world) {
-    const m = 0.5;
-    let clamped = false;
-    if (car.x < m) { car.x = m; car.vx = 0; clamped = true; }
-    else if (car.x > world.width - m) { car.x = world.width - m; car.vx = 0; clamped = true; }
-    if (car.y < m) { car.y = m; car.vy = 0; clamped = true; }
-    else if (car.y > world.height - m) { car.y = world.height - m; car.vy = 0; clamped = true; }
-    return clamped;
-  },
-
-  draggableObstacles: false,   // fixed walls — the drag hooks are never called
-};
+// MAP 3 — the ASPHALT twin: byte-for-byte the same stadium (geometry, barriers,
+// spawn, bounds, decor) via the shared factory, differing ONLY in the ring
+// surface (dark tarmac grey) and the smoke (white rubber). No physics override —
+// it inherits the locked tune exactly; per-surface grip is deferred to the dirt
+// side. A hover/asphalt↔dirt toggle is deferred — for now it's its own tile.
+export const asphaltTrackMap: MapDefinition = makeStadiumMap({
+  id: 'asphalt',
+  name: 'Asphalt Oval',
+  surface: 'asphalt',
+  smokeColor: [248, 248, 251], // white rubber smoke (the default tyre-smoke tint)
+});
 
 // Register the built-in maps. The desktop is FIRST (the default).
 registerMap(desktopMap);
 registerMap(flatTrackMap);
+registerMap(asphaltTrackMap);
