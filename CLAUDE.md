@@ -65,21 +65,24 @@ deployment-hash URL); `steer-it.vercel.app` also serves it.
   viewport-driven, so it works with NO device-motion permission and NEVER leaves
   a broken portrait layout (the old gravity-driven JS `computeRot` returned 0°
   for the portrait case → the bug). Gravity is still read for STEERING only.
-  STEERING REFERENCE FRAME (fixed): steer = the phone's ROLL around the screen
-  normal, via a fixed cross-dot on the in-plane gravity `(ax,ay)` measured
-  RELATIVE TO a captured landscape NEUTRAL — orientation-agnostic (the screen
-  normal always faces the player, so the roll sign is consistent in every hold).
-  The neutral is captured at DRIVE START — the first control press (`noteDriveStart`)
-  arms it, and `maybeAutoRecenter` captures it once the phone is actually in a
-  LANDSCAPE pose (gated on the gravity classifier `currentPhys ∈ L-pri|L-sec` —
-  used ONLY to TIME the capture, never to select the steer axis). It is NOT
-  captured at permission/unlock time: the iOS motion prompt is PORTRAIT, so the
-  old `calibrate()`-on-unlock locked a portrait zero → steering read ~90° off the
-  rendered-landscape frame ("works only by luck of hold-at-permission" bug — now
-  removed). `STEER_SIGN` (default +1) flips left/right globally if a device reads
-  mirrored. Re-center is one-shot per session; reload to re-zero. CANNOT be tested
-  headless (no sensors + Supabase env gate) — verify on a real phone.
-  3-finger tap toggles the orientation debug strip (`steer X.XX`, `drv`, `cal`).
+  STEERING = PITCH-INVARIANT ROLL (`steeringRollDeg`): steer is read purely from
+  the gravity component along the device's LONG axis (`lastAy` = device Y = the
+  screen's horizontal / left-right axis in landscape), as `asin(ay/|g|)` in
+  degrees, then the existing deadzone(3°)+range(55°)+expo(1.0)+`STEER_SIGN`
+  mapping. Because PITCH (tilting toward/away from you) is a rotation ABOUT that
+  same long axis, it cannot change the axis's own gravity component → pure pitch
+  contributes ZERO steer; only true left/right ROLL moves it. Level = 0 for
+  EVERYONE with NO baseline / no per-user neutral snapshot (symmetric about
+  level). This REPLACED the old cross-dot-vs-captured-neutral approach, which
+  mixed pitch into the reading and needed a drive-start re-center; ALL of that
+  (`calibrate`/`calibAx`/`calibAy`/`calibrated`/`recalibrating`/`driveStarted`/
+  `noteDriveStart`/`maybeAutoRecenter`) is REMOVED. The full 3-axis magnitude
+  normalises the angle so pitch (which only bleeds gravity into Z) never scales
+  the centre. `STEER_SIGN` (default +1) flips left/right globally if a device
+  reads mirrored (the long-axis gravity sign depends on which way the phone was
+  turned into landscape). CANNOT be tested headless (no sensors + Supabase env
+  gate) — verify on a real phone. 3-finger tap toggles the orientation debug
+  strip (now shows `roll=…° steer=X.XX`).
 - `world.ts` — the drawn desktop: `layoutDesktop`, `drawWallpaper`, `drawOverlay`,
   `drawClock`, collision rects (`rebuildRects`), icon hit-test/drag
   (`iconAt`/`clampIconToBounds`/`resolveIconDrop`), types `DesktopWorld`/`DesktopIcon`.
