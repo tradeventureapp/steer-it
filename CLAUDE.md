@@ -123,8 +123,35 @@ deployment-hash URL); `steer-it.vercel.app` also serves it.
   removed in p24 (scaled like the catch/grip knobs) so the drift TRAVELS instead of
   donuting in place; THEN the catch (un-gated by the now-higher speed) can fine-tune the
   angle. The catch line is shipped as the proven foundation (inert until speed holds),
-  live on the D tuner. **NEXT: scaled speed-hold (driftSimSpeedHold) so the drift travels;
-  then re-evaluate the catch; then the full car-parameter rebuild.**
+  live on the D tuner.
+  **p27 — SIM SPEED-HOLD WAVE (Verze 2, the fix that made the drift TRAVEL):** added a
+  β-faded, throttle-driven, handbrake-excluded, entry-capped speed-hold correction along
+  VELOCITY in `simDriftSustain` (after the scrub block) + `CONFIG.driftSimSpeedHold`
+  (default **0.5**, window 0.4–0.7) + per-car `CarState.driftEntrySpeed` (captured at the
+  latch). `betaFactor = clamp((|β|−20°)/(40°−20°),0,1)` → FULL in deep β (open drift →
+  retains momentum → TRAVELS), FADES to 0 as β closes 40°→20° → hands back to normal
+  UNCAPPED engine drive which accelerates the car out past entry. One-sided cap at
+  `driftEntrySpeed` (refills toward entry, never net-gains). `SPEEDHOLD_REF = 26` m/s².
+  **MEASURED — all guardrails + the wave PASS:** (a) arcade byte-identical to HEAD
+  (0.0e+0); (b) speedHold=0 byte-identical to pre-change sim (floor); **(d) THE WAVE works
+  — entry 55 → open drops to ~14 km/h → straighten+throttle ACCELERATES out to 62 km/h
+  (≥ entry) via normal drive**; (e) deep-β anti-boost cap holds (full-lock never exceeds
+  entry: 44<60 km/h); (f) handbrake guardrail EXACT — speedHold contribution 0.0e+0 under
+  handbrake, hb+gas scrubs to ~1 km/h (boost-donut dead); (g) off-throttle scrubs, 360°
+  reachable, recovery clean; (h) determinism + per-car (no module state). **The drift now
+  TRAVELS and HOLDS:** moderate steer settles at a bounded **β≈37° @ ~12 km/h** (vs p26's
+  collapsing donut at 5–10 km/h with wild β50–77°) — nothing spins, the angle is held by
+  the speed-hold/grip equilibrium. **HONEST CAVEATS:** (1) the **catch (`driftSimCatch`)
+  is STILL inert** — catch 0 vs 0.45 identical even now, because the spin-arm's
+  `spinRelease` (armed by the handbrake provoke, sustained at steer ≥0.47) zeroes
+  `alignGate` ahead of the catch; it is NOT currently needed (the drift holds without it),
+  but to make it bite the sim spin-arm SUSTAIN threshold must be raised so moderate steer
+  lets it decay (flagged, not done). (2) Travel speed is **modest** (~12 km/h, R≈0.7 m =
+  a tight traveling donut, not the 20–35 km/h target) — raising `SPEEDHOLD_REF` or the
+  knob pushes it up to the entry cap; left for feel-tuning. Live on the D tuner alongside
+  the other sim knobs. **NEXT: feel-test on phone; raise the sim spin-arm sustain
+  threshold so the catch bites (finer angle control); tune travel speed; then the E30
+  full car-parameter rebuild (Verze 3). Handbrake drift behaviour = Pass 3.**
 - `desktop.ts` — game surface (authority): fixed-timestep loop, per-slot car map,
   render, obstacle + car-car collisions, car drawing, HUD, skids/smoke, the track
   editor (key E), lobby wiring, QR.

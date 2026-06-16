@@ -503,6 +503,15 @@ export const CONFIG = {
   // runaway yaw is damped — β stays EMERGENT (points the front at the MEASURED slip,
   // does NOT command a β target; no governor). Usable window ~0.4–0.6.
   driftSimCatch: 0.45,
+  // SIM speed-hold (p27, the β-faded WAVE): a throttle-driven, handbrake-excluded,
+  // entry-capped correction along VELOCITY that acts only in DEEP β (open drift) so
+  // the drift TRAVELS instead of donuting in place — which raises speed enough to
+  // un-gate the catch. As the drift CLOSES (β shrinks 40°→20°) it FADES to 0 and hands
+  // back to normal UNCAPPED engine drive, which accelerates the car out past entry on
+  // exit (real returning traction, NOT this term). One-sided cap at car.driftEntrySpeed
+  // → retains/refills toward entry, never net-gains (no boost-donut). 0 = raw (collapses
+  // to donut); window ~0.4–0.7.
+  driftSimSpeedHold: 0.5,
 };
 
 export type Config = typeof CONFIG;
@@ -553,6 +562,11 @@ export interface CarState {
   prevForwardVel: number;
   axLong: number;
 
+  // Sim speed-hold (p27): the speed at the instant a sim drift latched. The
+  // one-sided anti-boost ceiling for the deep-β retain correction. Written only
+  // in the sim branch (simDriftSustain); unused/0 in arcade.
+  driftEntrySpeed: number;
+
   // Derived, updated every step (for HUD / skid logic).
   speed: number;
   forwardSpeed: number;
@@ -582,6 +596,7 @@ export function makeCar(x: number, y: number, heading: number = -Math.PI / 2): C
     slideBlendSmooth: 0,
     spinTimer: 0,
     prevForwardVel: 0, axLong: 0,
+    driftEntrySpeed: 0,
     speed: 0, forwardSpeed: 0,
     frontSlip: 0, rearSlip: 0,
     slipRatio: 0, wheelSpin: 0,
@@ -893,7 +908,10 @@ function simDriftSustain(car: CarState, input: Inputs, dt: number, c: Config, fo
      input.throttle > c.powerOverThrottle);
   const reversedSpin = forwardVel < -0.5 && car.spinTimer === 0;
   if (!car.driftActive) {
-    if (sliding && provoke && !reversedSpin) car.driftActive = true;
+    if (sliding && provoke && !reversedSpin) {
+      car.driftActive = true;
+      car.driftEntrySpeed = vNow;   // p27 speed-hold anti-boost ceiling (entry speed)
+    }
   } else if (reversedSpin ||
              ((!sliding || (Math.abs(bodyBeta) < c.driftLatchRelease && !provoke)) &&
               car.flipTimer <= 0)) {
@@ -907,6 +925,31 @@ function simDriftSustain(car: CarState, input: Inputs, dt: number, c: Config, fo
     const drag = Math.min(0.5, c.driftScrubRate * car.slideBlendSmooth * driftIntent * dt);
     car.vx -= car.vx * drag;
     car.vy -= car.vy * drag;
+  }
+  // SPEED-HOLD WAVE (p27) — a throttle-driven correction along VELOCITY that retains
+  // the momentum the 2-DOF tyre model wastes at deep β, so the drift TRAVELS instead of
+  // collapsing to an on-spot donut (which un-gates the catch). It is:
+  //   - β-FADED: betaFactor = 1 in deep β (open), → 0 as β closes 40°→20°. When the drift
+  //     closes, this vanishes and normal UNCAPPED engine drive (untouched) accelerates the
+  //     car out PAST entry (real returning traction). The OPEN→CLOSE wave is continuous.
+  //   - THROTTLE-DRIVEN (∝ driftIntent) and HANDBRAKE-EXCLUDED (the guardrail: zero under
+  //     handbrake, so handbrake+throttle gets no retention → the old boost-donut can't return).
+  //   - ANTI-BOOST: one-sided cap at car.driftEntrySpeed — refills toward entry, never net-
+  //     gains. Speed exceeds entry ONLY at low β via normal drive (nose aligned = not a donut).
+  // Acts along velocity (orthogonal to yaw) → cannot pin β; radius stays v/ω from the carve.
+  if (govMode > 0 && vNow > 0.3 && c.driftSimSpeedHold > 0 && !input.handbrake) {
+    const SPEEDHOLD_REF = 26;   // m/s² full-authority along-velocity retain (deep β, full gas)
+    const betaDeg = Math.abs(bodyBeta) * 180 / Math.PI;
+    const betaFactor = clamp((betaDeg - 20) / (40 - 20), 0, 1);   // 1 deep (open) … 0 closed
+    if (betaFactor > 0 && vNow < car.driftEntrySpeed) {
+      const accel = c.driftSimSpeedHold * driftIntent * car.slideBlendSmooth * betaFactor * SPEEDHOLD_REF;
+      // Refill toward entry along velocity; one-sided clamp so |v| can never exceed entry.
+      const headroom = car.driftEntrySpeed - vNow;            // > 0 here
+      const gain = Math.min(accel * dt, headroom);            // never overshoot the ceiling
+      const k = gain / vNow;
+      car.vx += car.vx * k;
+      car.vy += car.vy * k;
+    }
   }
   // SPIN ARM (kept) — the one retained non-physics term. A hard steer-INTO held past
   // spinReleaseHold ADDS yaw (spinYawRate) so a full-lock-held drift over-rotates into the
