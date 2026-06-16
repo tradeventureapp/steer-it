@@ -71,17 +71,39 @@ deployment-hash URL); `steer-it.vercel.app` also serves it.
   (the ONE retained non-physics term — additive `spinYawRate` so full-lock-held reaches
   the 360°). NO governor / β-target / curvature controller / `driftAssist` scaling — β,
   radius and speed all fall out of the tyre forces. `driftSpeedSensitivity` (1.0 = full
-  v²) is RESERVED, not wired. TRUTHFUL p24 sweep (raw, reported not patched): radius
-  widens ~v² with speed (very wide high-speed, ~57 m at 80 km/h/25%), tightens with
-  steer but 25–75% is COMPRESSED then full-lock CLIFFS to a ~0.6–2 m pivot; **mid-steer
-  drifts DROP OUT above ~20 km/h (rear regrips → grip turn) — only full-lock/throttle
-  sustains, then spins.** Honest raw behaviour (no β-stabiliser → the slide isn't held);
-  making mid-steer hold is Pass 2 (entry-ease / keep the rear lit), deliberately NOT
-  patched. Full-lock scrubs honestly (62→11 km/h) to a ~0.6 m pivot; no zero-speed
-  anchor (front force capped at `peakLatGripFront`). Both pure per-car functions (no
-  module state/time/random → deterministic, N-car safe). Dev toggle (arcade⇄sim) +
-  `driftFrontCarve`/`driftScrubRate` on the PC 'D' tuner; NO player menu yet. (An earlier
-  yaw-rate-target attempt was REVERTED — it imposed yaw, didn't stabilise β.)
+  v²) is RESERVED, not wired.
+  **p25 — SIM REAR-GRIP FIX (mid-steer drop-out → sustain):** p24 dropped out at
+  moderate steer because rear KINETIC reaction (`budget·rearDriftFriction` = 16200·0.65
+  = 10530 N) > engine drive (~9000 N) → the wheel couldn't stay spun → rear regripped →
+  grip turn (only full-lock's lateral slip kept it lit). FIX = a SIM-gated lower rear
+  kinetic friction `CONFIG.driftSimRearGrip` (default **0.50**, vs arcade 0.65), swapped
+  into `fk = budget·grip` ONLY when `driftMode==='sim' && car.driftActive` (one value at
+  physics.ts:1182, feeding BOTH the slide force AND the wheel re-integration). Reaction
+  16200·0.50 = 8100 N < 9000 drive → the wheel STAYS spun under throttle → `rho>1` → rear
+  lateral grip stays collapsed → the slide SUSTAINS, throttle-driven (real physics: a
+  drift-setup car has a lower-grip rear; NO β-target/assist). Arcade uses
+  `rearDriftFriction` unchanged → byte-identical (proven 0.0e+0 full suite).
+  **HONEST MEASURED RESULT (the key finding):** the grip fix WORKS — the drift now
+  LATCHES 100% across the steer range (no more drop-out) — BUT raw sim **SPINS at any
+  steer ≥ ~0.5 at every grip 0.40–0.65** (continuous rotation ω≈5 rad/s, not a held
+  angle). The spin is NOT from rear grip — it's the **front-carve relaxation removing the
+  auto-countersteer (`alignGate`)**: nothing pulls the heading back to the velocity, so
+  the provoked yaw runs away. There is **NO raw `driftSimRearGrip` value that both
+  sustains AND avoids spinning at moderate steer** (only 0.25 steer / ~20 km/h grips
+  without spinning). Recovery is CLEAN (lift+straighten → ω→0, β→0, regrips — at all
+  grips 0.40/0.45/0.50), so it's twitchy/spinny, NOT a soft-lock. CONCLUSION: raw sim
+  needs the **CATCH-ASSIST brought forward = re-introduce scaled auto-countersteer
+  (`alignGate`) via `driftAssist`** to convert the sustained-but-spinning slide into a
+  held drift — exactly the deferred assist. NOT added here (per the raw-only constraint);
+  flagged for the next pass. Default left 0.50 (sustains + recovers cleanly). Speed-pinned
+  radius @0.50 is controllable (R 1.1–3.8 m steer 0.5–1.0, wide only at 0.25); scrub
+  honest (62→5 km/h full-lock). Foot-brake edge: a broken-loose foot brake drops
+  `driftActive` (so it leaves the sim path almost immediately) → negligible. Both pure
+  per-car functions (deterministic, N-car safe; no new module state). Dev toggle
+  (arcade⇄sim) + `driftFrontCarve`/`driftScrubRate`/`driftSimRearGrip` on the PC 'D'
+  tuner; NO player menu yet. (An earlier yaw-rate-target attempt was REVERTED — it
+  imposed yaw, didn't stabilise β.) **NEXT: catch-assist (scaled auto-countersteer via
+  `driftAssist`) to hold the angle; then the planned full car-parameter rebuild.**
 - `desktop.ts` — game surface (authority): fixed-timestep loop, per-slot car map,
   render, obstacle + car-car collisions, car drawing, HUD, skids/smoke, the track
   editor (key E), lobby wiring, QR.

@@ -183,12 +183,16 @@ document.body.appendChild(brakeTunerEl);
     (v) => { CONFIG.brakeGripFraction = v; },
     0.05, 0.4, 1.2, (v) => v.toFixed(2));
 
-  // p24 — SIM-branch drift knobs (only affect driftMode==='sim'; RAW defaults).
-  subhead('SIM DRIFT p24 — raw (carve 1.0 / scrub 0)');
+  // p24/p25 — SIM-branch drift knobs (only affect driftMode==='sim').
+  // rearGrip 0.50 makes the slide SUSTAIN (no mid-steer drop-out) but RAW sim
+  // (no auto-countersteer catch) SPINS at moderate steer — recovers on lift.
+  subhead('SIM DRIFT — carve1.0 rearGrip0.50 (sustains; spins, needs catch)');
   mkRow('driftFrontCarve', () => CONFIG.driftFrontCarve, (v) => { CONFIG.driftFrontCarve = v; },
     0.1, 0, 1, (v) => v.toFixed(2));
   mkRow('driftScrubRate', () => CONFIG.driftScrubRate, (v) => { CONFIG.driftScrubRate = v; },
     0.2, 0, 4, (v) => v.toFixed(2));
+  mkRow('driftSimRearGrip', () => CONFIG.driftSimRearGrip, (v) => { CONFIG.driftSimRearGrip = v; },
+    0.025, 0.30, 0.65, (v) => v.toFixed(3));
 
   // p23 — DRIFT MODEL dev toggle (arcade ⇄ sim). 'sim' is the new front-carve model
   // (WORK IN PROGRESS — currently mirrors arcade). Dev-only; no player menu yet.

@@ -487,6 +487,13 @@ export const CONFIG = {
   driftFrontCarve: 1.0,        // 0 = front neutered (arcade-like) … 1 = full front authority (raw carve)
   driftScrubRate: 0.0,         // EXTRA along-velocity drag while sliding; 0 = pure physical scrub only
   driftSpeedSensitivity: 1.0,  // RESERVED (arcade tuning): 1 = full physical v² (raw, default); <1 would soften — NOT wired in raw Pass 1
+  // SIM rear KINETIC friction (replaces rearDriftFriction in the rear force ONLY
+  // when driftMode==='sim' && car.driftActive). Lower than arcade's 0.65 so the
+  // kinetic reaction (budget·thisGrip) drops BELOW engine drive (~9000 N) → under
+  // throttle the rear wheel STAYS spun → rho>1 → rear lateral grip stays collapsed
+  // → the slide SUSTAINS at moderate steer, throttle-driven (no β-target/assist).
+  // Default = middle of the measured sustaining-without-spinning window (check b).
+  driftSimRearGrip: 0.50,
 };
 
 export type Config = typeof CONFIG;
@@ -1179,7 +1186,16 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
     rearLongForce =  budget * nLong;
     rearLatForce  = -budget * nLat;
   } else {
-    const fk = budget * c.rearDriftFriction;
+    // SIM branch: drop the rear KINETIC friction so the reaction (budget·grip)
+    // falls below engine drive → the wheel stays spun → the slide sustains
+    // (throttle-driven, no assist). Arcade uses rearDriftFriction unchanged →
+    // byte-identical. Gated on last-frame driftActive (same gate as the front
+    // carve), so grip/launch/arcade are untouched. This fk feeds BOTH the slide
+    // force AND the wheel re-integration below (rearLongForce).
+    const rearKineticFriction = (c.driftMode === 'sim' && car.driftActive)
+      ? c.driftSimRearGrip
+      : c.rearDriftFriction;
+    const fk = budget * rearKineticFriction;
     rearLongForce =  fk * (nLong / rho);
     rearLatForce  = -fk * (nLat  / rho);
     // The implicit predictor assumed the full linear reaction; while
