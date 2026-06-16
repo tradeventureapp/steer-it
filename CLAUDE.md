@@ -247,6 +247,32 @@ deployment-hash URL); `steer-it.vercel.app` also serves it.
   ~0.4-0.5 m/s, so 0.35 was too low to catch it → it crept several metres over
   10+ s; 0.6 catches it). Gated on idle+low-speed, so driving/throttle-crawl/drift
   are untouched. `phys-debug` (D) shows `|v|`/`yaw`/`rest=Y` to verify 0 at rest.
+- **FOOT BRAKE — grip-relative target-slip (p21).** `brakeForce = 30000` (was 21000)
+  + NEW `brakeGripFraction = 0.85` (physics.ts). The foot brake was reworked from an
+  explicit per-frame wheel-speed DECREMENT into a force inside the friction circle:
+  it pulls the rear wheel toward the slip that yields EXACTLY its demanded force
+  (`sTarget = −(Fbrake/budget)·slipRatioPeak`, `Fbrake = brake·brakeForce·brakeRearShare`)
+  and breaks the rear loose only when `Fbrake > brakeGripFraction·budget·longHeadroom`
+  (`longHeadroom = sqrt(1−nLat²)`). This is **Fix 1** (grip decides WHEN it lets go,
+  not just force) and inherently delivers **Fix 2** (the old `Δwheelspeed ÷ shrinking
+  sDenom` artifact that locked a sustained LIGHT brake at low speed ~11-22 km/h is
+  gone — slip is now ∝ Fbrake, speed-INDEPENDENT). Force is LINEAR in pedal, constant
+  vs speed (longer stop from higher speed falls out of physics). Near-full pedal on
+  asphalt CAN break loose → skid (NO ABS); light/medium keeps grip. The whole new
+  path is gated behind `brake>0 && !handbrake && !reverseMode`; a broken-loose foot
+  brake is added to the wheel lock-force decrement so it locks + sustains via the
+  SAME path the handbrake uses. Handbrake / throttle-wheelspin / launch / pivot /
+  steering / `slipDenomFloor` / cornering + power-over breakaway are UNTOUCHED
+  (verified: brake==0 byte-IDENTICAL across idle/launch/cornering/donut/spin;
+  handbrake drift+donut byte-identical; sweep: OLD locks 10% brake at 5-20 km/h, NEW
+  never locks at any speed). **NOTE the tuning relationship:** at the shipped defaults
+  (30000 / 0.85) max foot demand `0.35·30000 = 10500 N < 0.85·budget = 13770 N`, so
+  near-full does NOT yet break loose — raise `brakeForce` toward ~42000 (or lower
+  `brakeGripFraction` toward ~0.62) to make near-full skid. **Both are LIVE-TUNABLE
+  on the PC `D` debug HUD** (`#brake-tuner` +/- steppers mutating CONFIG in-memory;
+  bake the chosen values later). Per-surface DIRT brake-skid comes later, free, by
+  lowering the rear grip budget (the breakaway is now budget-relative). `brakeRearShare
+  = 0.35` unchanged.
 - `CONFIG.pxPerMeter = 22`, `CONFIG.carCollisionRadius = 0.85` (physics.ts). Physics
   body is the 1/3-scale car (`wheelbase 2.6/3`, `trackWidth 1.6/3`).
 - `FX_CONFIG.maxParticles = 340` (effects.ts) — shared cap across all cars.

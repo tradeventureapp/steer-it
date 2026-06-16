@@ -158,7 +158,15 @@ export const CONFIG = {
                                     //   onto an established drift it stays engaged until β
                                     //   falls below this (hysteresis), so a held drift never
                                     //   collapses to grip but a gentle corner never trips it
-  brakeForce: 21000,                // p10 14000 → 21000 ↑ (p12) braking scaled with grip
+  brakeForce: 30000,                // p21 21000 → 30000 — the foot brake is now GRIP-RELATIVE
+                                    //   (force-proportional target-slip). It became weaker/linear,
+                                    //   so raised to keep stopping power. LIVE-TUNED on the PC 'D'
+                                    //   debug HUD (bake the chosen value later).
+  // p21 — foot-brake grip-relative breakaway: the rear keeps grip while the brake
+  // FORCE DEMAND stays within this fraction of the friction-circle longitudinal
+  // grip; a near-full pedal exceeds it and the rear breaks loose into a skid (NO
+  // ABS). <1 = can lock on asphalt; 1.0 = foot brake never locks. LIVE-TUNED.
+  brakeGripFraction: 0.85,          // p21 start (near-full pedal breaks loose)
 
   // ---------- Resistance (unchanged) ----------
   dragCoeff: 2.5,                   // air drag, force = dragCoeff * v * |v|
@@ -788,43 +796,63 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   // roll freely backwards) and the body gets a reverse force in section 6.
   const reverseMode = input.brake > 0.1 && !input.handbrake && forwardVel < 0.2;
 
-  // Brake torque on the rear wheel: rear share of the pedal + handbrake.
-  // The handbrake LOCKS the wheel, which drives the slip ratio hard
-  // negative and — through the circle — collapses lateral grip. That IS
-  // the handbrake-drift mechanic.
-  const rearBrakeF = (reverseMode ? 0 : input.brake * c.brakeForce * c.brakeRearShare) +
-    (input.handbrake ? c.handbrakeLockForce : 0);
-
   const vg = rearLong;                                   // ground speed at rear patch
   const sDenom = Math.max(c.slipDenomFloor, Math.abs(vg));
   const mw = c.wheelSpinInertia;
+  const nLat = rearSlip / alphaPeakRear;                 // rear lateral grip usage
 
-  // Brake torque OPPOSES wheel rotation and clamps at zero — a brake can
-  // stop the wheel but never spin it the other way. (p6 fix: the old code
-  // applied the brake as a signed constant force inside the implicit
-  // solve, which drove wheel speed NEGATIVE at standstill; the locked-
-  // wheel slip then physically THRUST the car backwards — the "handbrake
-  // reverses the car" bug.) The wheel may still legitimately roll
-  // backwards when the GROUND drags it there (reverse driving).
-  const dWvBrake = (dt / mw) * rearBrakeF;
+  // ---- FOOT BRAKE (p21) — GRIP-RELATIVE TARGET-SLIP, inside the friction circle.
+  // The HANDBRAKE keeps its own lock-force decrement (unchanged). The FOOT brake
+  // no longer subtracts a fixed wheel-speed step: that old explicit decrement
+  // faked a low-speed lockup (a constant Δwheel-speed ÷ a shrinking sDenom blew
+  // the slip ratio up below ~20 km/h). Instead the foot brake pulls the rear
+  // wheel toward the slip that yields EXACTLY its demanded force, and breaks the
+  // rear loose only when that demand exceeds the available rear longitudinal grip:
+  //   Fbrake       = brake · brakeForce · brakeRearShare
+  //   longHeadroom = sqrt(1 − nLat²)                     (friction-circle long capacity)
+  //   grips  while  Fbrake ≤ brakeGripFraction · budget · longHeadroom
+  //   sTarget      = −(Fbrake / budget) · slipRatioPeak  (∝ Fbrake, NO 1/sDenom → speed-independent)
+  // Gated to the pure foot-brake case so handbrake / reverse / no-brake stay
+  // byte-identical. GRIPPING → pull wv toward the target at the brake's own rate,
+  // never past it (a light/medium pedal can't fake a lockup at any speed). BROKEN
+  // LOOSE → add the demand to the wheel lock-force decrement so it locks AND
+  // sustains via the same path the handbrake uses → the existing rho>1 kinetic-
+  // scrub skid (no ABS). Because sTarget ∝ Fbrake (no 1/sDenom), the old low-speed
+  // lockup artifact is gone — same slip at 5 and 50 km/h.
+  const footActive = input.brake > 0 && !input.handbrake && !reverseMode;
+  const footDemand = footActive ? input.brake * c.brakeForce * c.brakeRearShare : 0;
+  const longHeadroom = Math.sqrt(Math.max(0, 1 - Math.min(1, nLat * nLat)));
+  const footGrips = footActive && footDemand <= c.brakeGripFraction * budget * longHeadroom;
+  const footTargetWv = vg - (footDemand / budget) * c.slipRatioPeak * sDenom;
+
+  // Wheel lock-force decrement: handbrake (unchanged) + a BROKEN-LOOSE foot brake.
+  // Clamps at zero — a brake can stop the wheel but never spin it the other way
+  // (the p6 standstill-reverse fix); the wheel may still roll backwards when the
+  // GROUND drags it there.
+  const lockForceF = (input.handbrake ? c.handbrakeLockForce : 0) +
+    (footActive && !footGrips ? footDemand : 0);
+  const dWvBrake = (dt / mw) * lockForceF;
   const brakeClamp = (w: number) =>
     w > 0 ? Math.max(0, w - dWvBrake) : w < 0 ? Math.min(0, w + dWvBrake) : 0;
 
-  // Wheel-speed update, stage 1: drive + traction. The linear traction
-  // region is numerically STIFF (tiny wheel inertia against a steep
-  // force-vs-slip slope), so it's integrated IMPLICITLY — unconditionally
-  // stable at any dt:
+  // Wheel-speed update, stage 1: drive + traction (implicit, unconditionally
+  // stable). Stage 2: the zero-clamped lock-force decrement. Stage 3 (foot grip):
+  // the target-slip clamp.
   //   wv' = (drive − k·(wv − vg)) / mw,   k = budget/(slipPeak·denom)
   //   wvNew = (wv + dt/mw·(drive + k·vg)) / (1 + dt·k/mw)
-  // Stage 2: the zero-clamped brake torque above.
   const kSlip = budget / (c.slipRatioPeak * sDenom);
   const wv0 = car.rearWheelSpeed;
   let wv = (wv0 + (dt / mw) * (drive + kSlip * vg)) / (1 + (dt * kSlip) / mw);
   wv = brakeClamp(wv);
+  if (footGrips) {
+    // Pull the wheel toward the force-proportional slip at the brake's own rate,
+    // never past it → settles at sTarget (= demanded force), never locks.
+    const dWvFoot = (dt / mw) * footDemand;
+    wv = Math.max(footTargetWv, wv - dWvFoot);
+  }
 
   let s = (wv - vg) / sDenom;
   let nLong = s / c.slipRatioPeak;
-  const nLat = rearSlip / alphaPeakRear;
   let rho = Math.hypot(nLong, nLat);
 
   let rearLongForce: number;

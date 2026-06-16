@@ -123,6 +123,61 @@ debugEl.style.cssText =
 document.body.appendChild(debugEl);
 let debugOn = false;
 
+// ---------- Live BRAKE tuners (p21) — shown with the D debug HUD ----------
+// Clickable +/- steppers that mutate CONFIG in memory (resets on reload) so the
+// foot-brake feel can be dialled mid-drive on the PC, then baked into physics.ts.
+// Starting values: brakeForce 30000, brakeGripFraction 0.85.
+const brakeTunerEl = document.createElement('div');
+brakeTunerEl.id = 'brake-tuner';
+brakeTunerEl.style.cssText =
+  'position:fixed;right:8px;bottom:8px;z-index:9999;display:none;' +
+  'font:12px/1.3 ui-monospace,monospace;color:#ffd9b0;background:rgba(0,0,0,.72);' +
+  'padding:8px 10px;border-radius:6px;border:1px solid rgba(255,138,61,.5);' +
+  'pointer-events:auto;user-select:none;min-width:230px;';
+document.body.appendChild(brakeTunerEl);
+{
+  const title = document.createElement('div');
+  title.textContent = 'BRAKE TUNE — live (start 30000 / 0.85)';
+  title.style.cssText = 'font-weight:700;letter-spacing:.5px;margin-bottom:6px;color:#ff8a3d;';
+  brakeTunerEl.appendChild(title);
+
+  const mkRow = (
+    label: string, get: () => number, set: (v: number) => void,
+    step: number, lo: number, hi: number, fmt: (v: number) => string,
+  ) => {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:6px;margin-top:5px;';
+    const name = document.createElement('span');
+    name.textContent = label; name.style.cssText = 'flex:1;';
+    const val = document.createElement('b');
+    val.style.cssText = 'min-width:64px;text-align:center;color:#fff;';
+    const upd = () => { val.textContent = fmt(get()); };
+    const mkBtn = (txt: string, d: number) => {
+      const b = document.createElement('button');
+      b.type = 'button'; b.textContent = txt;
+      b.style.cssText =
+        'pointer-events:auto;cursor:pointer;font:700 13px/1 ui-monospace,monospace;' +
+        'width:26px;height:24px;border-radius:5px;color:#ffd9b0;' +
+        'background:rgba(255,138,61,.18);border:1px solid rgba(255,138,61,.55);';
+      b.addEventListener('click', (e) => {
+        e.preventDefault(); e.stopPropagation();
+        set(Math.max(lo, Math.min(hi, get() + d)));
+        upd();
+      });
+      return b;
+    };
+    row.append(name, mkBtn('−', -step), val, mkBtn('+', step));
+    upd();
+    brakeTunerEl.appendChild(row);
+  };
+
+  mkRow('brakeForce', () => CONFIG.brakeForce, (v) => { CONFIG.brakeForce = v; },
+    2000, 6000, 60000, (v) => String(Math.round(v)));
+  mkRow('brakeGripFraction', () => CONFIG.brakeGripFraction,
+    (v) => { CONFIG.brakeGripFraction = v; },
+    0.05, 0.4, 1.2, (v) => v.toFixed(2));
+}
+
 // ---------- Sound + visual effects ----------
 const sound = new SoundEngine();
 const fx = new Effects();
@@ -158,6 +213,7 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'd' || e.key === 'D') {
     debugOn = !debugOn;
     debugEl.style.display = debugOn ? 'block' : 'none';
+    brakeTunerEl.style.display = debugOn ? 'block' : 'none';
     if (hudBlEl) hudBlEl.style.display = debugOn ? 'flex' : 'none';
   }
   if (e.key === 'q' || e.key === 'Q') {
