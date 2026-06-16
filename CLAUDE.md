@@ -32,7 +32,15 @@ deployment-hash URL); `steer-it.vercel.app` also serves it.
 - `index.html` → loads `src/desktop.ts` (the PC / game surface).
 - `play.html` → loads `src/phone.ts` (the phone controller). The QR points at
   `${VITE_PUBLIC_BASE_URL}/play?s=<CODE>`.
-- `src/style.css` — all styling (desktop HUD, QR panel, editor, phone UI).
+- `src/style.css` — all styling (desktop HUD, QR panel, editor, phone UI). Every
+  surface derives from ONE synthwave design-token block at the top (`:root`):
+  brand gradient (`--grad-accent` pink→magenta→orange / `--grad-cta`), screen
+  background (`--screen-bg` purple grid + glow), `--gold` secondary (REPLACED the
+  retired neon-cyan accent — no cyan anywhere in the app), functional `--ok`
+  green, glow tokens (`--glow-hero` vs `--glow-subtle` for crisp in-game chrome),
+  and font tokens (`--font-display` = Orbitron headings / `--font-body` = UI text
+  + all numbers/HUD / `--font-mono` = debug terminals). Change the look here, not
+  per-rule.
 
 ### Key files (all source under `src/`)
 - `physics.ts` — vehicle model (drift physics). THE CORE — see rules below. Exports
@@ -369,6 +377,23 @@ phone→desktop `join | color | name | leave | control`; desktop→phone `lobby 
   Paired with the retro palette below — the 12-colour **`BLITZ_RS_COLORS`**
   (`vehicles.ts`) wired through `lobby.ts` `CAR_COLORS` to the phone picker +
   per-slot defaults + roster; the old bright neon car colours are gone.
+- **Unified synthwave design tokens (whole-UI restyle)** — ALL UI chrome now
+  derives from one `:root` token block in `style.css` (see the file's key-files
+  entry above): the title-screen language (pink→magenta→orange gradient, purple
+  grid background, hero vs subtle glow, Orbitron display + readable body fonts) is
+  applied across EVERY surface — main menu, map-select tiles + the Stadium Oval
+  Asphalt|Flattrack switcher, QR/lobby/roster, race HUD, finish banner, pause,
+  XP HUD + end card, finish-feed + podium, the in-race debug HUD (speed/DRIFT/
+  SLIP/WSPIN/pedals/steer), and the phone controller (TAP TO STEER, pedals,
+  lobby, colour picker, debug strip). The OLD neon-cyan accent is fully RETIRED —
+  replaced by a warm `--gold`; functional greens (connected/ready/gas) stay.
+  In-game readouts use the SUBTLE glow + body font so numbers stay crisp in
+  motion. The QR matrix is left high-contrast white (scannable) — only its frame
+  is themed. Verified by rendering the real `style.css` against static harness
+  pages (menu/map-select/HUD/podium/phone) in the dev server + screenshots; no
+  cyan remains. CSS/markup-only: `physics.ts` byte-identical, the canvas render /
+  track art / car / smoke untouched (the canvas race-gate marker `RACE_CYAN` in
+  desktop.ts is part of the render path, left per the no-render-changes rule).
 - **Logo** — retro-synthwave "STEER IT" (chrome + magenta->orange gradient, neon).
 - **Neon phone UI** — TAP TO STEER + GAS/BRAKE/E-BRAKE pedals, synthwave style.
   Force-landscape is pure CSS (viewport `--rot`, gravity/permission-independent;
