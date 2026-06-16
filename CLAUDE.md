@@ -34,13 +34,22 @@ deployment-hash URL); `steer-it.vercel.app` also serves it.
   `${VITE_PUBLIC_BASE_URL}/play?s=<CODE>`.
 - `src/style.css` — all styling (desktop HUD, QR panel, editor, phone UI). Every
   surface derives from ONE synthwave design-token block at the top (`:root`):
-  brand gradient (`--grad-accent` pink→magenta→orange / `--grad-cta`), screen
-  background (`--screen-bg` purple grid + glow), `--gold` secondary (REPLACED the
-  retired neon-cyan accent — no cyan anywhere in the app), functional `--ok`
-  green, glow tokens (`--glow-hero` vs `--glow-subtle` for crisp in-game chrome),
-  and font tokens (`--font-display` = Orbitron headings / `--font-body` = UI text
-  + all numbers/HUD / `--font-mono` = debug terminals). Change the look here, not
-  per-rule.
+  the SUNSET hero language (matches the Claude-designed "Steer It Hero"): logo
+  fill `--grad-accent` = vertical gold→orange→pink→magenta; CTA `--grad-cta` =
+  horizontal orange→pink→VIOLET; `--screen-bg` = a sunset BLOOM (orange core →
+  pink → purple, behind the hero) + faint tinted grid; `--gold` secondary
+  (REPLACED the retired neon-cyan accent — no cyan anywhere in the app);
+  functional `--ok` green; glow tokens (`--glow-hero` vs `--glow-subtle` for
+  crisp in-game chrome); font tokens (`--font-display` = Orbitron headings /
+  `--font-body` = UI text + all numbers/HUD / `--font-mono` = debug terminals).
+  The HERO WORDMARK treatment (shared by `.menu-logo`, `#qr-logo`, `#pause-title`,
+  `.rf-title`, `#unlock`): a sunset-gradient text FILL with a fat WHITE outline +
+  stacked dark 3D EXTRUDE + outer glow, painted behind by a `::before` that
+  mirrors the text via a `data-text` attribute (em-based offsets so it scales per
+  wordmark). The MAIN MENU is a cardless full-bleed hero (`#main-menu .menu-card`
+  bg/border/shadow removed) so the bloom sits directly behind STEER IT; the
+  tagline is "DRIFT YOUR DESKTOP" (italic, outlined). Map-select/pause/results
+  keep their card. Change the look here, not per-rule.
 
 ### Key files (all source under `src/`)
 - `physics.ts` — vehicle model (drift physics). THE CORE — see rules below. Exports
@@ -394,7 +403,10 @@ phone→desktop `join | color | name | leave | control`; desktop→phone `lobby 
   cyan remains. CSS/markup-only: `physics.ts` byte-identical, the canvas render /
   track art / car / smoke untouched (the canvas race-gate marker `RACE_CYAN` in
   desktop.ts is part of the render path, left per the no-render-changes rule).
-- **Logo** — retro-synthwave "STEER IT" (chrome + magenta->orange gradient, neon).
+- **Logo** — "STEER IT" 3D outlined SUNSET wordmark (gold→orange→pink fill, fat
+  white outline + dark extrude + glow), matching the Claude-designed hero. Same
+  treatment on the QR/pause/finish wordmarks + phone TAP TO STEER (see the design-
+  token entry above).
 - **Neon phone UI** — TAP TO STEER + GAS/BRAKE/E-BRAKE pedals, synthwave style.
   Force-landscape is pure CSS (viewport `--rot`, gravity/permission-independent;
   steering calibration reads gravity only in the landscape pose). Buttons polished:

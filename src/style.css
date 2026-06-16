@@ -10,9 +10,10 @@
    NOTE: this is presentation only — physics/render/track art are untouched.
    ========================================================================== */
 :root {
-  /* Accent gradient — neon pink → magenta → orange (headline fill / primary CTA). */
-  --grad-accent: linear-gradient(100deg, #ff2d95 0%, #ff5fa2 42%, #ff8a3d 100%);
-  --grad-cta:    linear-gradient(180deg, #ff8a3d 0%, #ff2d95 55%, #b3146a 100%);
+  /* Hero wordmark fill — SUNSET, top→bottom: gold → orange → pink → magenta. */
+  --grad-accent: linear-gradient(180deg, #ffe35a 0%, #ffae3d 30%, #ff479e 66%, #e81d86 100%);
+  /* Primary CTA — horizontal SUNSET INTO VIOLET (orange → pink → purple). */
+  --grad-cta:    linear-gradient(95deg, #ff9a3d 0%, #ff2d95 52%, #9b3fd4 100%);
 
   /* Core hues */
   --pink:      #ff2d95;
@@ -35,11 +36,12 @@
 
   /* Full synthwave screen background (radial glow + faint grid + vertical fade). */
   --screen-bg:
-    radial-gradient(120% 80% at 50% 8%, rgba(255, 45, 149, 0.16), transparent 55%),
-    radial-gradient(120% 90% at 50% 108%, rgba(255, 138, 61, 0.12), transparent 55%),
+    radial-gradient(58% 40% at 50% 46%, rgba(255, 156, 54, 0.5), transparent 60%),
+    radial-gradient(84% 60% at 50% 50%, rgba(255, 60, 140, 0.34), transparent 66%),
+    radial-gradient(130% 100% at 50% 74%, rgba(112, 40, 168, 0.42), transparent 76%),
     linear-gradient(90deg, var(--grid) 1px, transparent 1px) 0 0 / 46px 46px,
     linear-gradient(var(--grid) 1px, transparent 1px) 0 0 / 46px 46px,
-    linear-gradient(180deg, var(--bg-top) 0%, var(--bg-mid) 60%, var(--bg-bot) 100%);
+    linear-gradient(180deg, #1a0a2e 0%, #0c0618 60%, #040108 100%);
 
   /* Text */
   --text:       #f3e9ff;  /* bright body text */
@@ -115,20 +117,65 @@ body.desktop #game { display: block; width: 100vw; height: 100vh; }
     inset 0 0 60px rgba(255, 138, 61, 0.06);
 }
 .menu-card.wide { padding: 32px 40px 26px; }
-.menu-logo {
-  font-family: var(--font-display);
-  font-weight: 900; font-size: 60px; letter-spacing: 5px; line-height: 1;
+/* MAIN MENU is a clean full-bleed hero (like the reference): no card chrome, so
+   the sunset bloom sits directly behind the logo. (Map-select / pause / results
+   keep their card.) */
+#main-menu .menu-card { background: none; border: none; box-shadow: none; padding: 0; gap: 14px; }
+
+/* ===== 3D OUTLINED SUNSET WORDMARK ========================================
+   The hero logo treatment (and every STEER IT / big heading): a sunset-gradient
+   FILL on top, with a fat WHITE outline + a stacked dark EXTRUDE + outer glow
+   painted BEHIND it by a ::before that mirrors the text via data-text. All
+   offsets are in `em` so it scales with each wordmark's font-size. ========== */
+.wordmark, .menu-logo, #qr-logo, #pause-title, #race-finish .rf-title {
+  position: relative;
+  font-family: var(--font-display); font-weight: 900; line-height: 1;
   background-image: var(--grad-accent);
   -webkit-background-clip: text; background-clip: text;
   -webkit-text-fill-color: transparent; color: transparent;
-  filter: var(--ds-hero);
 }
-.menu-sub, .menu-title {
+.wordmark::before, .menu-logo::before, #qr-logo::before,
+#pause-title::before, #race-finish .rf-title::before {
+  content: attr(data-text);
+  position: absolute; left: 0; top: 0; width: 100%;
+  z-index: -1; text-align: inherit;
+  -webkit-text-fill-color: #fff; color: #fff;
+  -webkit-text-stroke: 0.2em #fff;
+  text-shadow:
+    0.03em 0.045em 0 #46123f,
+    0.06em 0.085em 0 #340c30,
+    0.09em 0.13em 0 #240821,
+    0.12em 0.17em 0.12em rgba(0, 0, 0, 0.6),
+    0 0 0.5em rgba(255, 80, 150, 0.5),
+    0 0 1em rgba(255, 150, 60, 0.4);
+}
+.menu-logo {
+  font-size: 74px; letter-spacing: 8px; margin-bottom: 2px;
+}
+
+/* Tagline "DRIFT YOUR DESKTOP" — italic, sunset-gradient fill with a thin white
+   outline + soft drop, echoing the logo. */
+.menu-sub {
+  position: relative;
   font-family: var(--font-display);
-  font-weight: 800; font-size: 13px; letter-spacing: 6px;
+  font-weight: 800; font-style: italic; font-size: 19px; letter-spacing: 6px;
+  background-image: linear-gradient(180deg, #ffb84d 0%, #ff479e 100%);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent;
+  transform: skewX(-7deg);
+}
+.menu-sub::before {
+  content: attr(data-text);
+  position: absolute; left: 0; top: 0; width: 100%; z-index: -1;
+  -webkit-text-fill-color: #fff; color: #fff;
+  -webkit-text-stroke: 0.085em #fff;
+  text-shadow: 0.02em 0.03em 0 #340c30, 0.04em 0.055em 0.05em rgba(0, 0, 0, 0.5);
+}
+.menu-title {
+  font-family: var(--font-display);
+  font-weight: 800; font-size: 18px; letter-spacing: 7px; margin-bottom: 4px;
   color: var(--gold); text-shadow: var(--glow-gold);
 }
-.menu-title { font-size: 18px; letter-spacing: 7px; margin-bottom: 4px; }
 .menu-actions { display: flex; flex-direction: column; gap: 12px; width: 280px; margin-top: 6px; }
 .menu-btn {
   appearance: none; -webkit-appearance: none; cursor: pointer;
@@ -150,9 +197,12 @@ body.desktop #game { display: block; width: 100vw; height: 100vh; }
 .menu-btn.ghost:hover { box-shadow: 0 0 16px rgba(255, 45, 149, 0.5); transform: translateY(-1px); }
 .menu-btn:active { transform: translateY(1px); }
 .menu-foot {
-  font-family: var(--font-body);
-  font-size: 9px; letter-spacing: 2px; text-transform: uppercase;
-  color: var(--text-muted);
+  font-family: var(--font-display);
+  font-weight: 700; font-size: 10px; letter-spacing: 3px; text-transform: uppercase;
+  background-image: linear-gradient(90deg, #ff8a3d, #ff479e 50%, #9b3fd4);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent;
+  opacity: 0.7;
 }
 /* Map tiles — neon cards with a rendered mini-preview. */
 .map-tiles { display: flex; flex-wrap: wrap; gap: 18px; justify-content: center; max-width: 760px; }
@@ -236,16 +286,8 @@ body.desktop #hud-tr {
     inset 0 0 42px rgba(255, 138, 61, 0.06);
   display: flex; flex-direction: column; align-items: center; gap: 9px;
 }
-/* STEER IT wordmark — magenta→orange gradient text with glow. */
-#qr-logo {
-  font-family: var(--font-display);
-  font-weight: 900; font-size: 26px; letter-spacing: 3px; line-height: 1;
-  background-image: var(--grad-accent);
-  -webkit-background-clip: text; background-clip: text;
-  -webkit-text-fill-color: transparent; color: transparent;
-  filter: drop-shadow(0 0 8px rgba(255, 45, 149, 0.6))
-          drop-shadow(0 0 16px rgba(255, 138, 61, 0.4));
-}
+/* STEER IT wordmark — the shared 3D outlined sunset treatment, panel-sized. */
+#qr-logo { font-size: 30px; letter-spacing: 3px; }
 #qr-scan {
   font-weight: 800; font-size: 11px; letter-spacing: 4px;
   color: var(--gold); text-shadow: var(--glow-gold);
@@ -329,16 +371,7 @@ body.desktop #race-finish {
   z-index: 12; pointer-events: none; text-align: center;
   font-family: var(--font-display);
 }
-#race-finish .rf-title {
-  font-family: var(--font-display);
-  font-weight: 900; font-size: clamp(48px, 9vw, 110px); letter-spacing: 8px;
-  line-height: 1;
-  background-image: var(--grad-accent);
-  -webkit-background-clip: text; background-clip: text;
-  -webkit-text-fill-color: transparent; color: transparent;
-  filter: drop-shadow(0 0 16px rgba(255, 45, 149, 0.7))
-          drop-shadow(0 0 34px rgba(255, 138, 61, 0.5));
-}
+#race-finish .rf-title { font-size: clamp(48px, 9vw, 110px); letter-spacing: 8px; }
 #race-finish-time {
   margin-top: 10px;
   font-family: var(--font-body);
@@ -356,15 +389,7 @@ body.desktop #pause-overlay {
   background: var(--screen-bg);
   backdrop-filter: blur(2px);
 }
-#pause-title {
-  font-family: var(--font-display);
-  font-weight: 900; font-size: clamp(40px, 7vw, 72px); letter-spacing: 8px;
-  line-height: 1; margin-bottom: 4px;
-  background-image: var(--grad-accent);
-  -webkit-background-clip: text; background-clip: text;
-  -webkit-text-fill-color: transparent; color: transparent;
-  filter: var(--ds-hero);
-}
+#pause-title { font-size: clamp(40px, 7vw, 72px); letter-spacing: 8px; margin-bottom: 4px; }
 /* RESTART — warm GOLD accent, between the magenta RESUME and the ghost EXIT. */
 .menu-btn.alt {
   background: rgba(255, 194, 74, 0.12); color: #ffe6b3;
@@ -1122,6 +1147,18 @@ body.phone {
   -webkit-text-fill-color: transparent;
   color: transparent;
   animation: tapPulse 1.9s ease-in-out infinite;
+}
+/* White outline + soft extrude behind TAP TO STEER (echoes the hero logo). */
+#unlock::before {
+  content: attr(data-text);
+  position: absolute; inset: 0; z-index: -1;
+  display: grid; place-items: center; padding: 0 6%;
+  -webkit-text-fill-color: #fff; color: #fff;
+  -webkit-text-stroke: 0.09em #fff;
+  text-shadow:
+    0.025em 0.035em 0 #340c30,
+    0.05em 0.07em 0 #240821,
+    0 0 0.55em rgba(255, 80, 150, 0.5);
 }
 @keyframes tapPulse {
   0%, 100% {

@@ -19,8 +19,8 @@
          startup; dismissed into gameplay once a map is chosen. ===== -->
     <div id="main-menu" class="menu-screen">
       <div class="menu-card">
-        <div class="menu-logo">STEER&nbsp;IT</div>
-        <div class="menu-sub">DRIFT&nbsp;THE&nbsp;DESKTOP</div>
+        <div class="menu-logo" data-text="STEER&nbsp;IT">STEER&nbsp;IT</div>
+        <div class="menu-sub" data-text="DRIFT YOUR DESKTOP">DRIFT YOUR DESKTOP</div>
         <div class="menu-actions">
           <button type="button" class="menu-btn primary" id="btn-start-race">START RACE</button>
           <!-- More items (OPTIONS, LEADERBOARDS) slot in here later — none yet. -->
@@ -48,7 +48,7 @@
       </div>
     </aside>
     <div id="race-finish" hidden>
-      <div class="rf-title">FINISH</div>
+      <div class="rf-title" data-text="FINISH">FINISH</div>
       <div id="race-finish-time">0:00.0</div>
     </div>
 
@@ -128,7 +128,7 @@
          RESUME / RESTART / EXIT TO MENU. -->
     <div id="pause-overlay" hidden>
       <div class="menu-card">
-        <div id="pause-title">PAUSED</div>
+        <div id="pause-title" data-text="PAUSED">PAUSED</div>
         <div class="menu-actions">
           <button type="button" class="menu-btn primary" id="btn-resume">RESUME</button>
           <button type="button" class="menu-btn alt" id="btn-restart">RESTART</button>
@@ -139,7 +139,7 @@
 
     <aside id="hud-tr">
       <div id="qr-panel">
-        <div id="qr-logo">STEER&nbsp;IT</div>
+        <div id="qr-logo" data-text="STEER&nbsp;IT">STEER&nbsp;IT</div>
         <div id="qr-scan">SCAN TO PLAY</div>
         <div id="qr-frame">
           <canvas id="qr" width="160" height="160"></canvas>
