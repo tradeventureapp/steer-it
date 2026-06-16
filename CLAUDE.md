@@ -403,10 +403,14 @@ phone→desktop `join | color | name | leave | control`; desktop→phone `lobby 
   cyan remains. CSS/markup-only: `physics.ts` byte-identical, the canvas render /
   track art / car / smoke untouched (the canvas race-gate marker `RACE_CYAN` in
   desktop.ts is part of the render path, left per the no-render-changes rule).
-- **Logo** — "STEER IT" 3D outlined SUNSET wordmark (gold→orange→pink fill, fat
-  white outline + dark extrude + glow), matching the Claude-designed hero. Same
-  treatment on the QR/pause/finish wordmarks + phone TAP TO STEER (see the design-
-  token entry above).
+- **Logo** — the STEER IT + "DRIFT YOUR DESKTOP" lockup is a real IMAGE ASSET
+  (`public/logos/steer-it-logo.png`, transparent; a `-black-` variant is the
+  spare), drawn in the design tool with the correct rounded-italic font + baked
+  dark outline + sunset gradient. It is NOT CSS-styled text (an earlier attempt to
+  fake it with Orbitron + a text-stroke/extrude looked wrong and was scrapped).
+  `index.html` uses `<img class="hero-logo">` on the main menu and a small copy in
+  the QR join panel (`#qr-logo img`). PAUSED / FINISH are plain sunset-gradient
+  text (no outline). To swap the wordmark, replace the PNG.
 - **Neon phone UI** — TAP TO STEER + GAS/BRAKE/E-BRAKE pedals, synthwave style.
   Force-landscape is pure CSS (viewport `--rot`, gravity/permission-independent;
   steering calibration reads gravity only in the landscape pose). Buttons polished:
