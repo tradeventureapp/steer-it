@@ -408,9 +408,13 @@ phone→desktop `join | color | name | leave | control`; desktop→phone `lobby 
   spare), drawn in the design tool with the correct rounded-italic font + baked
   dark outline + sunset gradient. It is NOT CSS-styled text (an earlier attempt to
   fake it with Orbitron + a text-stroke/extrude looked wrong and was scrapped).
-  `index.html` uses `<img class="hero-logo">` on the main menu and a small copy in
-  the QR join panel (`#qr-logo img`). PAUSED / FINISH are plain sunset-gradient
-  text (no outline). To swap the wordmark, replace the PNG.
+  `index.html` uses `<img class="hero-logo">` on the main menu. The QR join panel
+  uses a SEPARATE logo-ONLY mark (no tagline, `steer-it-mark.png`) so the QR stays
+  large; that asset is on a BLACK background, dropped via `mix-blend-mode: screen`
+  on `#qr-logo img`. PAUSED / FINISH are plain sunset-gradient text (no outline).
+  Assets in `public/logos/`: `steer-it-logo.png` (full lockup, transparent — the
+  hero), `steer-it-mark.png` (logo-only, black-bg — the QR panel),
+  `steer-it-logo-black.png` (spare). To swap a wordmark, replace the PNG.
 - **Neon phone UI** — TAP TO STEER + GAS/BRAKE/E-BRAKE pedals, synthwave style.
   Force-landscape is pure CSS (viewport `--rot`, gravity/permission-independent;
   steering calibration reads gravity only in the landscape pose). Buttons polished:
