@@ -32,7 +32,7 @@ const STEER_EXPO = 1.0;
 // (left-right) axis, whose sign depends on which way the player turned the phone
 // into landscape, so ONE constant flips left/right for the whole app if a real
 // device reads mirrored. +1 = roll right → +steer, roll left → −steer.
-const STEER_SIGN = 1;
+const STEER_SIGN = -1;   // -1: real hardware read mirrored (left↔right) → flipped
 const SEND_HZ              = 30;
 // Analog pedal mapping: the top of the strip (player's visual outer edge,
 // away from the handbrake) is a saturation zone — any touch there pins the
