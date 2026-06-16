@@ -252,10 +252,37 @@ phone→desktop `join | color | name | leave | control`; desktop→phone `lobby 
   coexist). All other hybrid wins hold (recovery ~0.8 s, corners grip 1.8°, governor-
   sustained drift, launch 1.9 s, spin fires, rocket settles at assist=1). Holding a 40°+
   drift sits near the spin-arm threshold (tunable via `driftAngleMax` /
-  `spinReleaseThreshold`). LOW-SPEED power-over + steering-ONLY
-  transitions stay deferred to the handbrake-tap (Step B) — the front-slip limiter blocks
-  throttle-only break-loose at low speed by design; transitions DO chain when provoked
-  (handbrake-tap). **AWAITING phone feel-test.**
+  `spinReleaseThreshold`).
+- **p20 STEER-GATED POWER-OVER (current, post-p19b — AWAITING phone feel-test).**
+  Solves the two long-standing low-speed defects (the "locked donut" and weak
+  pure-throttle power-over) with ONE honest gate, no new latches. The low-speed
+  torque boost (`lowSpeedTorqueBoost`, the thing that tips the rear into wheelspin
+  off the line) is now **STEER-GATED** instead of throttle-only, and the standing
+  pivot is **neutralised** (`standingPivot 0` — the governed drift now owns low
+  speed): STRAIGHT wheel (|steer| ≤ `boostSteerDead` 0.10) → no boost → drive
+  stays under the kinetic reaction → clean **TRACTION** (realistic launch + the
+  p19b straighten+throttle EXIT re-grips); TURNED wheel (≥ `boostSteerFull` 0.45)
+  → full boost → drive exceeds reaction → wheelspin → a governed **MOVING**
+  power-over drift whose SIZE the steering sets — never a locked on-the-spot donut.
+  New tunable CONFIG (all p20): `lowSpeedTorqueBoost` 1.2→2.0, `torqueBoostFadeSpeed`
+  5→14, `boostSteerDead` 0.10, `boostSteerFull` 0.45, `standingPivot` 0,
+  `powerOverSpeed` 16 / `powerOverWheelspin` 0.25 / `powerOverThrottle` 0.45 (the
+  low-speed power-over PROVOKE term that engages governed drift). Sim-verified
+  OLD(p19b) vs NEW: launch 100%→**0% wheelspin** (traction, 2.0s/50km/h); throttle
+  donut 1.5m on-spot→**9.4m moving** drift (β31°); steering sets size **β
+  1/24/35/39/54°** across steer 0.2..1.0 (was 0.4..11° — pure-throttle power-over
+  was the known-weak caveat, now fixed); exit gate intact (straighten 2.6° /
+  hold 34.9°); recovery 0.4s; corner grip 2.0°; **handbrake hold @ real drift
+  speed β38.8° @ 46.9km/h = byte-identical to OLD**; rocket settles, spin reachable
+  (37.7°). **KEY FINDING:** the "(i) handbrake holds 63° at steer 0.7" reading was
+  OLD's standing pivot SPIKING at <4 km/h — the exact on-the-spot locked donut
+  Problem 1 removed; they are the SAME mechanism. At every real drift speed the
+  handbrake drift is identical OLD=NEW, so removing the pivot loses ONLY the
+  walking-pace on-the-spot spin (user chose "ship pivot-off"). DEFERRED to Path B
+  (need the betaTarget rework, not urgent): continuous throttle→size, continuous
+  power-over band speed-taper, full ~33km/h handoff-dip smoothing. Debug HUD now
+  reads the effective steer-gated boost multiplier (was the stale throttle-only
+  gate). Commit `3e3731c`. **AWAITING phone feel-test.**
 - Physics was LOCKED at the pre-rewrite "good enough" version (tag `pred-prepisem-fyziky`);
   the p18 HYBRID is a SMALL, targeted change on top of it (no rewrite — governor restructured
   behind one assist gain + two tunables). Don't touch with big rewrites — only small targeted
