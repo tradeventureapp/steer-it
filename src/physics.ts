@@ -308,8 +308,10 @@ export const CONFIG = {
   // p12: boost RAISED so the launch still lights up despite the low steady
   // enginePower (9000 × (1+1.2) = 19800 > 16200 budget → ignites), then
   // fades by torqueBoostFadeSpeed so at speed the drive is the grippy 9000.
-  lowSpeedTorqueBoost: 1.2,         // p9 0.5 → 1.2 ↑ (p12) launch ignition vs low eP
-  torqueBoostFadeSpeed: 5,          // p9 4 → 5 (p12)  m/s (~18 km/h) where boost = 0
+  lowSpeedTorqueBoost: 2.0,         // p20
+  torqueBoostFadeSpeed: 14,         // p20
+  boostSteerDead: 0.10,             // p20 |steer| below = straight = no spin boost
+  boostSteerFull: 0.45,             // p20 |steer| at/above = full spin boost
   burnoutThrottle: 0.9,             // p15 0.9 (p15b: ramp retuned). The launch torque-boost (the
                                     //   wheelspin ignition off the line) ramps in over
                                     //   [this, 1.0] — i.e. only the TOP of the pedal lights up.
@@ -436,6 +438,10 @@ export const CONFIG = {
   burnoutPivotVelBlend: 12.0,       // NEW (p12)  1/s blend of velocity onto front-pivot
   burnoutPivotFadeSpeed: 4.0,       // p10 (unchanged)  m/s (~20 km/h) where assist = 0
   burnoutPivotSteerDead: 0.12,      // NEW (p12)  |steer| below this = no pivot (launch)
+  standingPivot: 0,            // p20 0 = neutralised (governed drift owns low speed)
+  powerOverSpeed: 16,          // p20
+  powerOverWheelspin: 0.25,    // p20
+  powerOverThrottle: 0.45,     // p20
 
   // ---------- Collision vs desktop obstacles (p10) ----------
   // The car is treated as a circle against axis-aligned obstacle rects
@@ -749,14 +755,19 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   // peak-torque region — so cornering never starves the drive.
   // lowSpeedTorqueBoost is the launch end of the curve (gearing torque
   // multiplication off the line), fading out by torqueBoostFadeSpeed.
-  // The launch ignition is GATED on a near-pinned pedal (p15b): the boost
-  // ramps in over [burnoutThrottle, 1.0], so only the TOP of the analog pedal
-  // lights up. A half-strip finger sends ~0.67 → no boost → clean grip launch;
-  // the saturation zone sends 1.0 → full boost → burnout.
-  const boostGate = clamp(
-    (input.throttle - c.burnoutThrottle) / (1 - c.burnoutThrottle), 0, 1);
+  // STEER-GATED (p20): the boost — which is what tips the rear into wheelspin
+  // at low speed — now ramps in over [boostSteerDead, boostSteerFull] of |steer|
+  // and scales with throttle. STRAIGHT wheel (|steer| ≤ dead) → no boost → the
+  // drive stays under the kinetic reaction → clean TRACTION (realistic launch,
+  // and the straighten+throttle drift EXIT re-grips). TURNED wheel → boost →
+  // drive exceeds reaction → wheelspin → a governed, MOVING power-over drift
+  // whose size the steering sets — never a locked on-the-spot donut. This
+  // replaced the old throttle-only [burnoutThrottle,1.0] gate (which span the
+  // wheels straight off the line and, with the standing pivot, made the donut).
+  const boostSteer = clamp(
+    (Math.abs(input.steer) - c.boostSteerDead) / (c.boostSteerFull - c.boostSteerDead), 0, 1);
   const driveBoost = 1 + c.lowSpeedTorqueBoost *
-    Math.max(0, 1 - speed / c.torqueBoostFadeSpeed) * boostGate;
+    Math.max(0, 1 - speed / c.torqueBoostFadeSpeed) * boostSteer * input.throttle;
   const powerLimitedForce = Math.min(
     c.enginePower,
     c.enginePeakPowerW / Math.max(1, Math.abs(car.rearWheelSpeed)),
@@ -950,7 +961,7 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   // (the donut runs well above fadeSpeed, so it's never captured).
   const pivotFade = clamp(
     (c.burnoutPivotFadeSpeed - speed) / (c.burnoutPivotFadeSpeed * 0.4), 0, 1);
-  const pivotActive = pivotFade > 0 && spinNow > 0.3 &&
+  const pivotActive = c.standingPivot > 0 && pivotFade > 0 && spinNow > 0.3 &&
     input.throttle > 0.05 && Math.abs(input.steer) > c.burnoutPivotSteerDead;
   if (pivotActive) {
     const targetYaw = Math.sign(input.steer) * c.burnoutPivotMaxYaw * spinNow * pivotFade;
@@ -1027,7 +1038,9 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
     // the entry scrubbing all the speed and dropping the car into pivot mode.
     const provoke = input.handbrake ||
       Math.abs(input.steer) > 0.45 ||
-      Math.abs(bodyBeta) >= c.driftModeFull;
+      Math.abs(bodyBeta) >= c.driftModeFull ||
+      (forwardVel < c.powerOverSpeed && car.slideBlendSmooth > c.powerOverWheelspin &&
+       input.throttle > c.powerOverThrottle);
     // FIX 2 (p17): a SPUN-AROUND car — velocity anti-aligned with heading
     // (forwardVel < 0, i.e. true slip past ~90°) — must DROP OUT of governed
     // mode. Otherwise the speed governor's along-velocity thrust (below) keeps

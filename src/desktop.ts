@@ -1377,9 +1377,15 @@ function updateHud() {
 
   if (debugOn && s && cur) {
     // Mirror the physics gates so the screen shows WHY a burnout/spin did or
-    // didn't fire from the real commanded values.
-    const boostGate = Math.max(0, Math.min(1,
-      (cur.throttle - CONFIG.burnoutThrottle) / (1 - CONFIG.burnoutThrottle)));
+    // didn't fire from the real commanded values. The low-speed power-over boost
+    // is now STEER-GATED (straight = traction, turned = wheelspin): the readout
+    // shows the SAME effective multiplier the force path applies.
+    const boostSteer = Math.max(0, Math.min(1,
+      (Math.abs(cur.steer) - CONFIG.boostSteerDead) /
+      (CONFIG.boostSteerFull - CONFIG.boostSteerDead)));
+    const boostFade = Math.max(0, 1 - s.speed / CONFIG.torqueBoostFadeSpeed);
+    const boostMult =
+      1 + CONFIG.lowSpeedTorqueBoost * boostFade * boostSteer * cur.throttle;
     const armT = cur.handbrake
       ? CONFIG.spinReleaseThresholdHB : CONFIG.spinReleaseThreshold;
     // |v| and yaw with 3 decimals so a true rest reads EXACTLY 0.000 (the
@@ -1390,7 +1396,7 @@ function updateHud() {
       `slot ${lead!.slot}   steer ${cur.steer.toFixed(2)}   (spin-arm ≥ ${armT.toFixed(2)}${cur.handbrake ? ' HB' : ''})\n` +
       `throttle ${cur.throttle.toFixed(2)}  brake ${cur.brake.toFixed(2)}  hb ${cur.handbrake ? 'ON' : 'off'}\n` +
       `|v| ${s.speed.toFixed(3)} m/s   yaw ${s.angularVel.toFixed(3)} rad/s   rest=${parked ? 'Y' : 'n'} (≤${CONFIG.restSpeed})\n` +
-      `burnout boost ${(boostGate * 100).toFixed(0)}%   (ignites ≥ ${CONFIG.burnoutThrottle.toFixed(2)})\n` +
+      `power-over boost ×${boostMult.toFixed(2)}   (steer-gate ${(boostSteer * 100).toFixed(0)}% · throttle-gated)\n` +
       `spinTimer ${s.spinTimer.toFixed(2)}  drift ${s.driftActive ? 'Y' : 'n'}  wspin ${(s.wheelSpin * 100).toFixed(0)}%   cars ${cars.size}`;
   } else if (debugOn) {
     debugEl.textContent = `no car connected   cars ${cars.size}`;
