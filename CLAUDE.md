@@ -82,7 +82,11 @@ deployment-hash URL); `steer-it.vercel.app` also serves it.
   reads mirrored (the long-axis gravity sign depends on which way the phone was
   turned into landscape). CANNOT be tested headless (no sensors + Supabase env
   gate) — verify on a real phone. 3-finger tap toggles the orientation debug
-  strip (now shows `roll=…° steer=X.XX`).
+  strip (now shows `roll=…° steer=X.XX rng=…°`). The steering RANGE (full-lock
+  roll angle, default 55°) is TEMPORARILY live-tunable for feel testing via
+  "range −/+" tap targets in that strip (`tiltRangeDeg`, stepped 5° in 40–80°,
+  in-memory only, resets on reload); deadzone/expo/`STEER_SIGN`/asin math
+  unchanged. Bake the chosen value back to a const once decided.
 - `world.ts` — the drawn desktop: `layoutDesktop`, `drawWallpaper`, `drawOverlay`,
   `drawClock`, collision rects (`rebuildRects`), icon hit-test/drag
   (`iconAt`/`clampIconToBounds`/`resolveIconDrop`), types `DesktopWorld`/`DesktopIcon`.
