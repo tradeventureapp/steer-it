@@ -140,6 +140,12 @@ document.body.appendChild(brakeTunerEl);
   title.textContent = 'BRAKE TUNE — live (start 30000 / 0.85)';
   title.style.cssText = 'font-weight:700;letter-spacing:.5px;margin-bottom:6px;color:#ff8a3d;';
   brakeTunerEl.appendChild(title);
+  const subhead = (txt: string) => {
+    const d = document.createElement('div');
+    d.textContent = txt;
+    d.style.cssText = 'font-weight:700;letter-spacing:.5px;margin:9px 0 2px;color:#ff8a3d;';
+    brakeTunerEl.appendChild(d);
+  };
 
   const mkRow = (
     label: string, get: () => number, set: (v: number) => void,
@@ -176,6 +182,13 @@ document.body.appendChild(brakeTunerEl);
   mkRow('brakeGripFraction', () => CONFIG.brakeGripFraction,
     (v) => { CONFIG.brakeGripFraction = v; },
     0.05, 0.4, 1.2, (v) => v.toFixed(2));
+
+  // p24 — SIM-branch drift knobs (only affect driftMode==='sim'; RAW defaults).
+  subhead('SIM DRIFT p24 — raw (carve 1.0 / scrub 0)');
+  mkRow('driftFrontCarve', () => CONFIG.driftFrontCarve, (v) => { CONFIG.driftFrontCarve = v; },
+    0.1, 0, 1, (v) => v.toFixed(2));
+  mkRow('driftScrubRate', () => CONFIG.driftScrubRate, (v) => { CONFIG.driftScrubRate = v; },
+    0.2, 0, 4, (v) => v.toFixed(2));
 
   // p23 — DRIFT MODEL dev toggle (arcade ⇄ sim). 'sim' is the new front-carve model
   // (WORK IN PROGRESS — currently mirrors arcade). Dev-only; no player menu yet.

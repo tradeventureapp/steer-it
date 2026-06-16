@@ -61,14 +61,27 @@ deployment-hash URL); `steer-it.vercel.app` also serves it.
   FROZEN byte-identical to HEAD (proven: arcade==HEAD = 0.0 across grip/launch/drift/
   spin/handbrake/footbrake). It is frozen FOR NOW so the sim work can't regress it —
   NOT permanently locked; revisitable by choice. **`simDriftSustain()`** = the new
-  FRONT-CARVE physics drift (the approved Candidate-3 design) — WORK IN PROGRESS,
-  built pass-by-pass HERE; as of p23 it MIRRORS arcade (delegates) so the split is
-  behaviour-neutral. Both are pure per-car functions (no module state, no time/random
-  → deterministic, N-car safe). Dev toggle (arcade⇄sim) on the PC 'D' tuner; NO
-  player-facing Arcade/Sim menu yet (deferred until the sim branch is built + proven).
-  The earlier yaw-rate-target attempt was REVERTED (it failed the monotone-radius
-  proof — a yaw-rate target doesn't stabilise β); the corrected sim model is
-  front-carve-primary (radius from the steered front) + a β-damper + scrub.
+  drift, built p24 as **RAW EMERGENT FRONT-CARVE, PURE PHYSICS, NO assists** (the
+  deliberate foundation to tune arcade FROM). Inside a drift (sim+`driftActive`-gated,
+  so arcade/grip stay byte-identical) the front wheels are UN-NEUTERED — `alignGate` +
+  the front-slip limiter are relaxed by `driftFrontCarve` (1.0=full) — so the front's
+  lateral force CARVES the path and the radius EMERGES (`R = v²/a_lat`).
+  `simDriftSustain` itself only runs the LATCH (gates the carve), an honest SCRUB
+  (`driftScrubRate`, default 0 = pure physics; NO held-speed thrust), and the SPIN-ARM
+  (the ONE retained non-physics term — additive `spinYawRate` so full-lock-held reaches
+  the 360°). NO governor / β-target / curvature controller / `driftAssist` scaling — β,
+  radius and speed all fall out of the tyre forces. `driftSpeedSensitivity` (1.0 = full
+  v²) is RESERVED, not wired. TRUTHFUL p24 sweep (raw, reported not patched): radius
+  widens ~v² with speed (very wide high-speed, ~57 m at 80 km/h/25%), tightens with
+  steer but 25–75% is COMPRESSED then full-lock CLIFFS to a ~0.6–2 m pivot; **mid-steer
+  drifts DROP OUT above ~20 km/h (rear regrips → grip turn) — only full-lock/throttle
+  sustains, then spins.** Honest raw behaviour (no β-stabiliser → the slide isn't held);
+  making mid-steer hold is Pass 2 (entry-ease / keep the rear lit), deliberately NOT
+  patched. Full-lock scrubs honestly (62→11 km/h) to a ~0.6 m pivot; no zero-speed
+  anchor (front force capped at `peakLatGripFront`). Both pure per-car functions (no
+  module state/time/random → deterministic, N-car safe). Dev toggle (arcade⇄sim) +
+  `driftFrontCarve`/`driftScrubRate` on the PC 'D' tuner; NO player menu yet. (An earlier
+  yaw-rate-target attempt was REVERTED — it imposed yaw, didn't stabilise β.)
 - `desktop.ts` — game surface (authority): fixed-timestep loop, per-slot car map,
   render, obstacle + car-car collisions, car drawing, HUD, skids/smoke, the track
   editor (key E), lobby wiring, QR.

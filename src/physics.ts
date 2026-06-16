@@ -479,6 +479,14 @@ export const CONFIG = {
   // drift). 'sim' = the new front-carve physics drift (WORK IN PROGRESS — currently
   // mirrors arcade). Toggled live on the PC 'D' tuner. No player-facing menu yet.
   driftMode: 'arcade' as 'arcade' | 'sim',
+
+  // ---------- p24 — SIM-BRANCH drift (RAW emergent front-carve) ----------
+  // Only used when driftMode==='sim'. The sim drift is PURE PHYSICS (no assists):
+  // inside a drift the front wheels are UN-NEUTERED so their lateral force carves
+  // the path and the radius EMERGES (R = v²/a_lat). Knobs default to RAW.
+  driftFrontCarve: 1.0,        // 0 = front neutered (arcade-like) … 1 = full front authority (raw carve)
+  driftScrubRate: 0.0,         // EXTRA along-velocity drag while sliding; 0 = pure physical scrub only
+  driftSpeedSensitivity: 1.0,  // RESERVED (arcade tuning): 1 = full physical v² (raw, default); <1 would soften — NOT wired in raw Pass 1
 };
 
 export type Config = typeof CONFIG;
@@ -844,11 +852,71 @@ function arcadeDriftSustain(car: CarState, input: Inputs, dt: number, c: Config,
     }
 }
 
-// SIM drift — the front-carve, physics-based model. WORK IN PROGRESS: as of this commit
-// it MIRRORS arcade (delegates) so the split is behaviour-neutral; the new front-carve
-// physics is built HERE in subsequent passes, diverging from arcade.
+// SIM drift — RAW EMERGENT FRONT-CARVE model (p24 Pass 1). PURE PHYSICS, no assists:
+// the radius EMERGES from the un-neutered front wheel's force (the alignGate / front-slip-
+// limiter relaxation in step 2/2b above, sim-gated), not from any governor. This function
+// only (1) runs the LATCH (sets car.driftActive, which arms that front-carve relaxation),
+// (2) SCRUBS honestly (NO held-speed thrust; driftScrubRate adds optional EXTRA drag), and
+// (3) keeps the SPIN-ARM so a full-lock-held drift still reaches the deliberate 360°. There
+// is NO β-target, NO speed-pinning, NO curvature controller, NO driftAssist scaling — β,
+// radius and speed all fall out of the real tyre forces. The ONE non-physics term retained
+// is the spin-arm's additive yaw (spinYawRate) — flagged. worldForceX/Y/rearSlideBlend are
+// unused here (the raw model reads no governor inputs).
 function simDriftSustain(car: CarState, input: Inputs, dt: number, c: Config, forwardVel: number, bodyBeta: number, worldForceX: number, worldForceY: number, rearSlideBlend: number) {
-  arcadeDriftSustain(car, input, dt, c, forwardVel, bodyBeta, worldForceX, worldForceY, rearSlideBlend);
+  void worldForceX; void worldForceY; void rearSlideBlend;
+  const v2 = car.vx * car.vx + car.vy * car.vy;
+  const vNow = Math.sqrt(v2);
+  const driftIntent = input.throttle;
+  // ENGAGEMENT LATCH — identical hysteresis to arcade, so the slide provokes/holds the same
+  // way; its ONLY job here is to set car.driftActive, which gates the front-carve relaxation.
+  const sliding = car.slideBlendSmooth > 0.05 && driftIntent > 0;
+  const provoke = input.handbrake ||
+    Math.abs(input.steer) > 0.45 ||
+    Math.abs(bodyBeta) >= c.driftModeFull ||
+    (forwardVel < c.powerOverSpeed && car.slideBlendSmooth > c.powerOverWheelspin &&
+     input.throttle > c.powerOverThrottle);
+  const reversedSpin = forwardVel < -0.5 && car.spinTimer === 0;
+  if (!car.driftActive) {
+    if (sliding && provoke && !reversedSpin) car.driftActive = true;
+  } else if (reversedSpin ||
+             ((!sliding || (Math.abs(bodyBeta) < c.driftLatchRelease && !provoke)) &&
+              car.flipTimer <= 0)) {
+    car.driftActive = false;
+  }
+  const govMode = car.driftActive ? driftIntent * car.slideBlendSmooth : 0;
+  // SPEED SCRUB — honest: the front-carve drag + rear slide already bleed speed (physics).
+  // driftScrubRate adds OPTIONAL extra along-velocity drag (default 0 = pure physics). It
+  // only REMOVES energy → no speed pinning, no boost-donut.
+  if (govMode > 0 && vNow > 0.3 && c.driftScrubRate > 0) {
+    const drag = Math.min(0.5, c.driftScrubRate * car.slideBlendSmooth * driftIntent * dt);
+    car.vx -= car.vx * drag;
+    car.vy -= car.vy * drag;
+  }
+  // SPIN ARM (kept) — the one retained non-physics term. A hard steer-INTO held past
+  // spinReleaseHold ADDS yaw (spinYawRate) so a full-lock-held drift over-rotates into the
+  // deliberate 360°. Same debounce as arcade; bleeds off when not governing.
+  if (govMode > 0 && v2 > 1) {
+    const sgn = Math.sign(bodyBeta) || 1;
+    const steerBias = clamp(input.steer, -1, 1) * -sgn;
+    const intoAmount = clamp(steerBias, 0, 1);
+    const armThreshold = input.handbrake ? c.spinReleaseThresholdHB : c.spinReleaseThreshold;
+    const startSignal = input.handbrake ? Math.abs(input.steer) : intoAmount;
+    const armed = car.spinTimer !== 0;
+    const sustain = armed
+      ? (Math.abs(input.steer) >= armThreshold * 0.6 &&
+         Math.sign(input.steer) === Math.sign(car.spinTimer))
+      : (startSignal >= armThreshold);
+    const spinDir = armed ? Math.sign(car.spinTimer) : (Math.sign(input.steer) || -sgn);
+    let spinMag = Math.abs(car.spinTimer);
+    spinMag = sustain ? Math.min(c.spinReleaseHold, spinMag + dt) : Math.max(0, spinMag - dt * 2);
+    car.spinTimer = spinDir * spinMag;
+    const release = clamp(spinMag / c.spinReleaseHold, 0, 1);
+    if (release > 0) {
+      car.angularVel += spinDir * c.spinYawRate * release * Math.min(1, c.driftYawRelax * dt) * govMode;
+    }
+  } else if (car.spinTimer !== 0) {
+    car.spinTimer = Math.sign(car.spinTimer) * Math.max(0, Math.abs(car.spinTimer) - dt * 2);
+  }
 }
 
 export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFIG) {
@@ -895,12 +963,18 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   // physics over-rotates past 90° into a real spin. (Uses last frame's timer;
   // the governor updates it later this step — a one-frame lag is immaterial.)
   const spinRelease = clamp(Math.abs(car.spinTimer) / c.spinReleaseHold, 0, 1);
-  const alignGate = clamp(
+  let alignGate = clamp(
       (Math.abs(bodyBeta) - c.autoCounterStart) /
       (c.autoCounterFull - c.autoCounterStart), 0, 1) *
     c.autoCounterStrength *
     clamp((speed - 2) / 2, 0, 1) *
     (1 - spinRelease);
+  // p24 SIM front-carve: inside an established drift, UN-NEUTER the front so its
+  // lateral force CARVES the path (the emergent radius) instead of being auto-
+  // countersteered to the velocity direction. driftFrontCarve=1 removes the
+  // auto-countersteer entirely. SIM-ONLY + driftActive-gated (last frame) → arcade
+  // and grip cornering are byte-identical (the gate is off there).
+  if (c.driftMode === 'sim' && car.driftActive) alignGate *= (1 - c.driftFrontCarve);
   const alignAngle = clamp(bodyBeta, -c.maxSteerAngle, c.maxSteerAngle);
   let effectiveSteer =
     playerSteer * (1 - alignGate) +
@@ -926,7 +1000,12 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
     const t = clamp(
       (forwardVel - c.frontSlipLimitSpeedLow) /
       (c.frontSlipLimitSpeedHigh - c.frontSlipLimitSpeedLow), 0, 1);
-    const slipCap = c.maxSteerAngle + (c.frontSlipLimitOptimal - c.maxSteerAngle) * t;
+    let slipCap = c.maxSteerAngle + (c.frontSlipLimitOptimal - c.maxSteerAngle) * t;
+    // p24 SIM front-carve: relax the slip cap back toward full lock inside the drift
+    // so the front keeps real carving authority at speed. The front force is still
+    // bounded by peakLatGripFront (the physical p13 cap) so it can't anchor to zero.
+    // SIM-ONLY + driftActive-gated → arcade byte-identical.
+    if (c.driftMode === 'sim' && car.driftActive) slipCap += (c.maxSteerAngle - slipCap) * c.driftFrontCarve;
     const frontVelAngle = Math.atan2(lateralVel + car.angularVel * halfWB, forwardVel);
     effectiveSteer = clamp(effectiveSteer, frontVelAngle - slipCap, frontVelAngle + slipCap);
   }
