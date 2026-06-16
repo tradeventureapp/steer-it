@@ -115,6 +115,39 @@ body.desktop #game { display: block; width: 100vw; height: 100vh; }
   font-weight: 800; font-size: 13px; letter-spacing: 3px; color: #ffe9f4;
   text-shadow: 0 0 9px rgba(255, 45, 149, 0.6);
 }
+/* In-tile surface switcher (the merged "Stadium Oval" tile). Matches the tile
+   visual language: neon-cyan card tokens, the same font/letter-spacing. */
+.map-switch {
+  display: inline-flex; gap: 4px; padding: 3px; border-radius: 10px;
+  background: rgba(10, 6, 24, 0.55);
+  border: 1px solid rgba(45, 226, 230, 0.3);
+  /* Revealed on hover (pointer devices); see @media (hover) below. */
+  opacity: 0; transform: translateY(-3px);
+  transition: opacity 140ms, transform 140ms;
+}
+.map-seg {
+  appearance: none; -webkit-appearance: none; cursor: pointer;
+  font-family: inherit; font-weight: 800; font-size: 10px; letter-spacing: 2px;
+  padding: 5px 11px; border-radius: 7px; color: #bff4ff;
+  background: transparent; border: 1px solid transparent;
+  transition: background 120ms, color 120ms, box-shadow 140ms, border-color 140ms;
+}
+.map-seg:hover { color: #eafdff; }
+.map-seg.is-active {
+  color: #0a0618;
+  background: linear-gradient(180deg, #2de2e6 0%, #19b7cf 100%);
+  border-color: rgba(45, 226, 230, 0.8);
+  box-shadow: 0 0 12px rgba(45, 226, 230, 0.6);
+}
+/* Reveal the switcher on hover / keyboard focus (pointer-capable hosts). */
+@media (hover: hover) {
+  .map-tile-group:hover .map-switch,
+  .map-tile-group:focus-within .map-switch { opacity: 1; transform: translateY(0); }
+}
+/* Touch hosts have no hover → keep the switcher visible so it's tappable. */
+@media (hover: none) {
+  .map-switch { opacity: 1; transform: none; }
+}
 
 body.desktop #hud-tr {
   position: fixed; top: 20px; right: 20px;

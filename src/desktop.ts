@@ -237,43 +237,155 @@ function goFullscreen() {
   }
 }
 
+// Selected surface per map-select GROUP (group key → chosen member map id). Held
+// in module memory so the choice persists for the SESSION across reopening the
+// map select — NO localStorage/sessionStorage. Seeded lazily from each group's
+// default member (or its first member if none is flagged default).
+const groupSurface = new Map<string, string>();
+
+// The members of a surfaceGroup, in switcher order (ascending `order`).
+function groupMembers(key: string): MapDefinition[] {
+  return listMaps()
+    .map((m) => getMap(m.id))
+    .filter((d): d is MapDefinition => !!d && d.surfaceGroup?.key === key)
+    .sort((a, b) => a.surfaceGroup!.order - b.surfaceGroup!.order);
+}
+// The currently-selected member id for a group (default-seeded on first read).
+function selectedSurfaceId(key: string): string {
+  let id = groupSurface.get(key);
+  if (id && getMap(id)?.surfaceGroup?.key === key) return id;
+  const members = groupMembers(key);
+  const def = members.find((d) => d.surfaceGroup!.isDefault) ?? members[0];
+  id = def.id;
+  groupSurface.set(key, id);
+  return id;
+}
+
+// Render a map's mini-preview into an already-sized tile canvas (background +
+// decor). Shared by plain tiles and the grouped tile (re-called on a switch).
+function renderMapPreview(c: CanvasRenderingContext2D, def: MapDefinition, RW: number, RH: number) {
+  c.clearRect(0, 0, RW, RH);
+  try {
+    const w = def.createWorld(RW / CONFIG.pxPerMeter, RH / CONFIG.pxPerMeter);
+    def.drawBackground(c, RW, RH);
+    def.drawObstacles(c, w, CONFIG.pxPerMeter, null);
+  } catch { /* a preview must never break the menu */ }
+}
+
 // Build the map-select tiles from the registry (so new maps appear here
-// automatically). Each tile renders a REAL mini-preview of the map.
+// automatically). Each tile renders a REAL mini-preview of the map. Maps that
+// share a surfaceGroup.key collapse into ONE tile with an in-tile surface
+// switcher (presentation only — each member is still launched by its own id).
 function buildMapTiles() {
   if (!mapTilesEl) return;
   mapTilesEl.innerHTML = '';
   const dpr = window.devicePixelRatio || 1;
   const RW = 440, RH = 240, DW = 220, DH = 120;   // render 2×, display 1× (crisp)
-  for (const { id, name } of listMaps()) {
+  const renderedGroups = new Set<string>();
+
+  const makeCanvas = () => {
+    const cvs = document.createElement('canvas');
+    cvs.width = Math.floor(RW * dpr); cvs.height = Math.floor(RH * dpr);
+    cvs.style.width = DW + 'px'; cvs.style.height = DH + 'px';
+    const c = cvs.getContext('2d');
+    if (c) c.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return { cvs, c };
+  };
+
+  for (const { id } of listMaps()) {
     const def = getMap(id);
     if (!def) continue;
+
+    // ---- Grouped maps → one merged tile (built once, at the first member) ----
+    const grp = def.surfaceGroup;
+    if (grp) {
+      if (renderedGroups.has(grp.key)) continue;   // already built for this group
+      renderedGroups.add(grp.key);
+
+      const tile = document.createElement('div');
+      tile.className = 'map-tile map-tile-group';
+      tile.tabIndex = 0;
+      tile.setAttribute('role', 'button');
+
+      const thumb = document.createElement('span');
+      thumb.className = 'map-thumb';
+      const { cvs, c } = makeCanvas();
+      thumb.appendChild(cvs);
+
+      const label = document.createElement('span');
+      label.className = 'map-name';
+      label.textContent = grp.title;
+
+      // Segmented surface switcher (members in switcher order).
+      const sw = document.createElement('span');
+      sw.className = 'map-switch';
+      sw.setAttribute('role', 'group');
+      sw.setAttribute('aria-label', 'Surface');
+      const members = groupMembers(grp.key);
+      const renderSelected = () => {
+        if (c) renderMapPreview(c, getMap(selectedSurfaceId(grp.key)) ?? def, RW, RH);
+      };
+      const segs: HTMLButtonElement[] = [];
+      for (const member of members) {
+        const seg = document.createElement('button');
+        seg.type = 'button';
+        seg.className = 'map-seg';
+        seg.textContent = member.surfaceGroup!.option;
+        seg.dataset.id = member.id;
+        const refreshActive = () => {
+          const cur = selectedSurfaceId(grp.key);
+          for (const s of segs) s.classList.toggle('is-active', s.dataset.id === cur);
+        };
+        // Tap/click a segment → select that surface (works on touch + mouse);
+        // never bubbles to the tile body (so it doesn't launch the race).
+        seg.addEventListener('click', (e) => {
+          e.stopPropagation();
+          groupSurface.set(grp.key, member.id);
+          refreshActive();
+          renderSelected();
+        });
+        segs.push(seg);
+        sw.appendChild(seg);
+      }
+      // Initial active state + preview reflect the (default-seeded) selection.
+      const cur0 = selectedSurfaceId(grp.key);
+      for (const s of segs) s.classList.toggle('is-active', s.dataset.id === cur0);
+      renderSelected();
+
+      // Clicking the tile body (not a segment) launches the selected surface.
+      tile.addEventListener('click', (e) => {
+        if ((e.target as HTMLElement).closest('.map-switch')) return;
+        chooseMap(selectedSurfaceId(grp.key));
+      });
+      tile.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); chooseMap(selectedSurfaceId(grp.key)); }
+      });
+
+      tile.appendChild(thumb);
+      tile.appendChild(label);
+      tile.appendChild(sw);
+      mapTilesEl.appendChild(tile);
+      continue;
+    }
+
+    // ---- Ungrouped map → a plain tile (unchanged behaviour) ----
     const tile = document.createElement('button');
     tile.type = 'button';
     tile.className = 'map-tile';
 
     const thumb = document.createElement('span');
     thumb.className = 'map-thumb';
-    const cvs = document.createElement('canvas');
-    cvs.width = Math.floor(RW * dpr); cvs.height = Math.floor(RH * dpr);
-    cvs.style.width = DW + 'px'; cvs.style.height = DH + 'px';
-    const c = cvs.getContext('2d');
-    if (c) {
-      c.setTransform(dpr, 0, 0, dpr, 0, 0);
-      try {
-        const w = def.createWorld(RW / CONFIG.pxPerMeter, RH / CONFIG.pxPerMeter);
-        def.drawBackground(c, RW, RH);
-        def.drawObstacles(c, w, CONFIG.pxPerMeter, null);
-      } catch { /* a preview must never break the menu */ }
-    }
+    const { cvs, c } = makeCanvas();
+    if (c) renderMapPreview(c, def, RW, RH);
     thumb.appendChild(cvs);
 
     const label = document.createElement('span');
     label.className = 'map-name';
-    label.textContent = name;
+    label.textContent = def.name;
 
     tile.appendChild(thumb);
     tile.appendChild(label);
-    tile.addEventListener('click', () => chooseMap(id));
+    tile.addEventListener('click', () => chooseMap(def.id));
     mapTilesEl.appendChild(tile);
   }
 }

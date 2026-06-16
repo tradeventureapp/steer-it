@@ -42,10 +42,27 @@ export type MapObstacle = unknown;
 //             only a LAPS panel (0 = free-roam, N = N-lap race), e.g. the oval.
 export type TrackType = 'open' | 'circuit';
 
+// Optional map-select GROUPING. Maps that share a `surfaceGroup.key` collapse
+// into a SINGLE select tile (titled `title`) with an in-tile surface switcher;
+// each member contributes one switcher option (`option`, shown in `order`), and
+// the member flagged `isDefault` is the initially-selected surface. This is
+// PURELY a map-select presentation concern — every member stays independently
+// registered and is resolved by its own id at launch / in multiplayer.
+export interface SurfaceGroup {
+  key: string;        // shared key — members with the same key share one tile
+  title: string;      // the merged tile's label (e.g. "Stadium Oval")
+  option: string;     // this member's switcher label (e.g. "Asphalt")
+  order: number;      // switcher order (ascending; lowest = leftmost)
+  isDefault?: boolean; // this member is the group's default-selected surface
+}
+
 export interface MapDefinition {
   id: string;
   name: string;
   trackType: TrackType;
+
+  // See SurfaceGroup — optional map-select grouping metadata (presentation only).
+  surfaceGroup?: SurfaceGroup;
 
   // Circuit maps only: the built-in start/finish line as a race START element
   // (acts as start AND finish in circuit mode). Open maps omit it.
@@ -510,11 +527,14 @@ function makeStadiumMap(opts: {
   name: string;
   surface: TrackSurfaceStyle;
   smokeColor: [number, number, number];
+  surfaceGroup?: SurfaceGroup;
 }): MapDefinition {
   return {
     id: opts.id,
     name: opts.name,
     trackType: 'circuit',   // bounded oval → laps-only editor; built-in start line
+
+    surfaceGroup: opts.surfaceGroup,
 
     smokeColor: opts.smokeColor,
 
@@ -596,6 +616,11 @@ export const flatTrackMap: MapDefinition = makeStadiumMap({
   name: 'Flat Track',
   surface: 'dirt',
   smokeColor: [170, 126, 84],   // warm brown/tan dust
+  // Map-select grouping: shares the "Stadium Oval" tile; the "Flattrack" switcher
+  // option (second, after Asphalt). Still registered + launched by id 'flat'.
+  surfaceGroup: {
+    key: 'stadium-oval', title: 'Stadium Oval', option: 'Flattrack', order: 1,
+  },
 });
 
 // MAP 3 — the ASPHALT twin: byte-for-byte the same stadium (geometry, barriers,
@@ -608,6 +633,12 @@ export const asphaltTrackMap: MapDefinition = makeStadiumMap({
   name: 'Asphalt Oval',
   surface: 'asphalt',
   smokeColor: [248, 248, 251], // white rubber smoke (the default tyre-smoke tint)
+  // Map-select grouping: shares the "Stadium Oval" tile; the "Asphalt" switcher
+  // option (first) and the group's DEFAULT surface. Launched by id 'asphalt'.
+  surfaceGroup: {
+    key: 'stadium-oval', title: 'Stadium Oval', option: 'Asphalt', order: 0,
+    isDefault: true,
+  },
 });
 
 // Register the built-in maps. The desktop is FIRST (the default).

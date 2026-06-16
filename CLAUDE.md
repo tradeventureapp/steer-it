@@ -384,6 +384,23 @@ phone→desktop `join | color | name | leave | control`; desktop→phone `lobby 
   loaded. Host picks the map for everyone; phones are controllers only. Dev hooks
   (`steerSwitchMap`) still work. (HTML `#main-menu`/`#map-select` in index.html,
   styling in style.css, wiring in desktop.ts.)
+  SURFACE-GROUP TILES (presentation only): maps sharing a `MapDefinition.
+  surfaceGroup.key` collapse into ONE select tile (titled `surfaceGroup.title`)
+  with an in-tile segmented surface switcher. The two ovals (`'flat'` +
+  `'asphalt'`) merge into a single **"Stadium Oval"** tile whose switcher reads
+  **Asphalt | Flattrack** (order via `surfaceGroup.order`; Asphalt =
+  `isDefault`). The tile holds the selected surface in module memory
+  (`groupSurface` Map, SESSION-only — NO storage), DEFAULT `'asphalt'`; the
+  mini-preview re-renders the selected surface's `drawBackground`. The switcher
+  reveals on HOVER (pointer hosts) and is always visible + TAP-toggleable on
+  touch (`@media (hover:none)`); a segment click sets the surface (stops
+  propagation), the tile BODY click launches the selected id via `chooseMap →
+  switchMap`. Both maps stay independently `registerMap`'d and are resolved by
+  their own id at launch/in multiplayer — the merge is purely the select tile.
+  Other maps (e.g. Desktop) keep their own tiles. Dev hooks
+  `steerSwitchMap('asphalt')` / `steerSwitchMap('flat')` both still work (they
+  call `switchMap` directly, bypassing the tile). A future asphalt↔dirt
+  per-surface GRIP difference is still deferred (to the dirt side).
 - **Clean surface** — default shows only the game world + styled QR panel. Keys:
   **D** = debug HUD (speedo/slip/wspin/pedals), **Q** = hide QR panel, **P**/**Esc** =
   pause menu, **E** = editor, **M** = sound on/off (sound OFF by default).
@@ -470,10 +487,12 @@ phone→desktop `join | color | name | leave | control`; desktop→phone `lobby 
   rects), grandstands (crowd only — NO ads yet) + floodlights, 2-wide grid spawn
   on the start/finish line. NO per-map physics/grip override — the asphalt twin
   inherits the locked tune byte-for-byte (physics.ts unchanged; per-surface grip
-  deferred to the dirt side). Maps are picked via the START RACE → map-select
-  tiles (real previews — the asphalt map auto-appears as its own tile);
-  `steerSwitchMap('flat')` / `steerSwitchMap('asphalt')` dev hooks work. An
-  asphalt↔dirt hover toggle is DEFERRED.
+  deferred to the dirt side). In the START RACE map-select the two ovals are
+  MERGED into one **"Stadium Oval"** tile via `surfaceGroup` (hover/tap switcher
+  **Asphalt | Flattrack**, default asphalt — see the Main-menu DONE entry); both
+  ids stay independently registered + launched. `steerSwitchMap('flat')` /
+  `steerSwitchMap('asphalt')` dev hooks work. A per-surface GRIP difference is
+  DEFERRED.
 - **Vercel/QR blocker FIXED** — the QR pointed to a protected deployment-hash URL
   (login wall for other players). Fix: the QR is built from env var `VITE_PUBLIC_BASE_URL`
   (= production domain), not window.location.origin. + disable Vercel Authentication.
