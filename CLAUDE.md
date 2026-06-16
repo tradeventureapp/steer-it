@@ -102,8 +102,29 @@ deployment-hash URL); `steer-it.vercel.app` also serves it.
   per-car functions (deterministic, N-car safe; no new module state). Dev toggle
   (arcade⇄sim) + `driftFrontCarve`/`driftScrubRate`/`driftSimRearGrip` on the PC 'D'
   tuner; NO player menu yet. (An earlier yaw-rate-target attempt was REVERTED — it
-  imposed yaw, didn't stabilise β.) **NEXT: catch-assist (scaled auto-countersteer via
-  `driftAssist`) to hold the angle; then the planned full car-parameter rebuild.**
+  imposed yaw, didn't stabilise β.)
+  **p26 — SIM CATCH-ASSIST (added, but MEASURED INERT — real blocker found):** added
+  `CONFIG.driftSimCatch` (0..1, default 0.45) + the one β-gated line `alignGate *= (1 −
+  driftFrontCarve·(1 − driftSimCatch))` (physics.ts:984, sim+driftActive-gated) to
+  re-apply a tunable fraction of the auto-countersteer. PROVEN SAFE: catch=0 is
+  byte-identical to the pre-change sim build (no-op floor), arcade byte-identical to
+  HEAD, 360° still reachable, post-spin recovery clean. **BUT the catch has ZERO
+  measurable effect at ANY value (0→1.0 identical β/R/ω in every steady-state cell).**
+  ROOT CAUSE (the key finding): the raw sim drift **scrubs its speed away** (40–60 km/h
+  → **5–10 km/h**) and settles into a STABLE **on-the-spot donut** (β 50–77°, R 0.3–0.6 m,
+  ω≈4.5, ωsd≈0.05 = steady, NOT a runaway spin — the earlier "spin" was a `rev>1.25`
+  metric mislabelling steady circling). At that walking-pace speed the EXISTING
+  `alignGate` low-speed gate (`clamp((speed−2)/2)`, ≈0 below ~2 m/s) — plus the spin-arm's
+  `spinRelease` — already hold the countersteer at ~0, so the catch has nothing to scale.
+  **The missing lever is SPEED RETENTION, not countersteer.** Proof: the SPEED-PINNED
+  sweep (speed artificially held) gives a CONTROLLABLE radius (R 1.1–3.8 m, steer 0.5–1.0);
+  the FREE-RUN collapses only because the raw model loses the speed. So the real next pass
+  is a **scaled SPEED-HOLD** — bring back a fraction of the `vTarget` held-speed thrust
+  removed in p24 (scaled like the catch/grip knobs) so the drift TRAVELS instead of
+  donuting in place; THEN the catch (un-gated by the now-higher speed) can fine-tune the
+  angle. The catch line is shipped as the proven foundation (inert until speed holds),
+  live on the D tuner. **NEXT: scaled speed-hold (driftSimSpeedHold) so the drift travels;
+  then re-evaluate the catch; then the full car-parameter rebuild.**
 - `desktop.ts` — game surface (authority): fixed-timestep loop, per-slot car map,
   render, obstacle + car-car collisions, car drawing, HUD, skids/smoke, the track
   editor (key E), lobby wiring, QR.

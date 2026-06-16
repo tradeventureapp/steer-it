@@ -494,6 +494,15 @@ export const CONFIG = {
   // → the slide SUSTAINS at moderate steer, throttle-driven (no β-target/assist).
   // Default = middle of the measured sustaining-without-spinning window (check b).
   driftSimRearGrip: 0.50,
+  // SIM catch-assist (p26): re-applies a tunable FRACTION of the existing auto-
+  // countersteer (alignGate) inside a sim drift, so the sustained slide HOLDS a
+  // controllable angle instead of spinning. alignGate *= (1 − driftFrontCarve·(1 −
+  // driftSimCatch)). 0 = raw floor (collapses to the p24 full removal → spins);
+  // 1 = full countersteer restored (arcade-like, won't spin). β-gated (the alignGate
+  // ramp wakes 20°→40°), so turn-in/radius stay front-carve-driven and only the
+  // runaway yaw is damped — β stays EMERGENT (points the front at the MEASURED slip,
+  // does NOT command a β target; no governor). Usable window ~0.4–0.6.
+  driftSimCatch: 0.45,
 };
 
 export type Config = typeof CONFIG;
@@ -981,7 +990,16 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   // countersteered to the velocity direction. driftFrontCarve=1 removes the
   // auto-countersteer entirely. SIM-ONLY + driftActive-gated (last frame) → arcade
   // and grip cornering are byte-identical (the gate is off there).
-  if (c.driftMode === 'sim' && car.driftActive) alignGate *= (1 - c.driftFrontCarve);
+  // p26 catch-assist: re-apply a tunable FRACTION of alignGate so the slide HOLDS
+  // instead of spinning. driftSimCatch=0 → (1−driftFrontCarve) = the p24 full removal
+  // (raw spinning floor); =1 → ×1 = full countersteer. The (1−spinRelease) factor is
+  // already baked into alignGate above, so a committed spin still zeroes it regardless
+  // of catch (the deliberate 360° survives). β-gated by the alignGate ramp → silent
+  // through turn-in, wakes as β deepens. β stays emergent (points the front at the
+  // measured slip; no β-target).
+  if (c.driftMode === 'sim' && car.driftActive) {
+    alignGate *= (1 - c.driftFrontCarve * (1 - c.driftSimCatch));
+  }
   const alignAngle = clamp(bodyBeta, -c.maxSteerAngle, c.maxSteerAngle);
   let effectiveSteer =
     playerSteer * (1 - alignGate) +
