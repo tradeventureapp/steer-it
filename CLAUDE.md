@@ -178,8 +178,41 @@ deployment-hash URL); `steer-it.vercel.app` also serves it.
   rear grip is raised, but the ACTIVE levers are the drift-build power + fade. Power-to-grip
   live-tunable on the D tuner (`driftSimEnginePower` 12500 / `driftSimBoostFadeSpeed` 40).
   Trademark-safe: internal wording is generic "drift-build reference" only — NO BMW/E30/325i
-  anywhere. **NEXT: feel-test the power-slide on phone; raise the sim spin-arm sustain
-  threshold so the catch bites; tune travel speed. Handbrake drift behaviour = Pass 3.**
+  anywhere.
+  **p29 — SIM DRIFT TWO-GAP CLOSE (the TRAVELING DEEP drift, by tuning existing forces only):**
+  a STEP-0 sensitivity sweep (perturb each existing force, measure Δ equilibrium β) proved the
+  ONE lever that moves held β is the **front sliding-grip** (`peakLatGripFront·frontDriftFriction`):
+  ×0.7→β67°; catch/rearGrip/carve/yaw/inertia all INERT (≤0.1° Δ); `autoCounterStart` minor
+  (6°). Closed both gaps with multiplicative scales on existing forces (NO new terms):
+  • **(b) DEEPEN + TRAVEL = the win.** Raised the existing sim speed-hold (`SPEEDHOLD_REF`
+    26→40, `driftSimSpeedHold` 0.5→0.7) → a provoked free-run drift now **TRAVELS**: 40 km/h
+    entry → sustained **33 km/h @ β45°**, 55 entry → **49 km/h @ β43°** (was scrubbing to ~14
+    km/h @ β28°). Depth + travel both hit the 30–45° target. The shallow "~20°" was always the
+    scrubbed-to-low-speed donut; holding speed deepens it. + `CONFIG.driftSimFrontSlide` 0.9
+    (the swept β lever; mild — cliffs <0.78 at steer 0.6; cleans up the high-steer cases
+    55→40°). Low entries retain entry speed by the anti-boost cap (15 entry → 8.7 km/h, a
+    tighter donut — EXPECTED, the cap is logic, left alone).
+  • **(a) LOW-SPEED FRONT AUTHORITY — WEAK, honestly reported.** `CONFIG.driftSimFrontAuthority`
+    1.5 (a low-speed-faded ×scale on the existing `frontLatForce`, faded out by 8 m/s). Measured
+    only MARGINAL: steer 0.7 @ 15 km/h β 8→14° (pinned), steer 0.8 free-run 12→14°; **moderate
+    steer 0.4–0.6 STILL burns out at low speed (β 2–6°)** — gap (a) is NOT fully closed. Honest
+    physics resists a low-speed moderate-lock drift; the real drift path is **provoke (lock/
+    handbrake) → it travels deep**. Kept as a live knob (helps a bit, tunable), not oversold.
+  • **reversedSpin GUARD (the one logic change, sim-gated):** `reversedSpin` now also requires
+    `!(sim && |bodyBeta| ≥ driftModeFull)` so a deep slide's `forwardVel`-noise can't spuriously
+    un-latch the drift; a genuine low-speed reverse still drops it (proven). Arcade latch
+    byte-identical.
+  **MEASURED:** (a) ARCADE byte-identical to HEAD (0.0e+0, full suite — all p29 scales gated on
+  `sim && driftActive`); traveling drift 33–49 km/h @ β43–45°; full-lock 360° still reachable;
+  NOT a rocket (sim 0–50 1.42 s, top 124 = arcade); determinism + per-car, NO global
+  `slipDenomFloor`/`enginePower`/front-grip change. **CATCH A/B (`driftSimCatch` 0.45 vs 0.80):
+  IDENTICAL β 45±24° — still inert, kept 0.45 per the measurement rule.** Knobs live on the D
+  tuner (`driftSimFrontAuthority` / `driftSimFrontSlide` / raised `driftSimSpeedHold`).
+  **KNOWN CAVEATS:** the traveling drift β oscillates (~±24° around 45°) — deep + traveling but
+  not rock-steady (the catch can't damp it — inert); and gap (a) low-speed moderate-steer
+  initiation stays a burnout (needs lock/provoke). **NEXT: feel-test on phone; the β-oscillation
+  damping (the catch is still spin-arm-gated/inert — raising the sim spin-arm sustain threshold
+  remains the lever for a steadier angle); Handbrake drift behaviour = Pass 3.**
 - `desktop.ts` — game surface (authority): fixed-timestep loop, per-slot car map,
   render, obstacle + car-car collisions, car drawing, HUD, skids/smoke, the track
   editor (key E), lobby wiring, QR.

@@ -510,8 +510,9 @@ export const CONFIG = {
   // back to normal UNCAPPED engine drive, which accelerates the car out past entry on
   // exit (real returning traction, NOT this term). One-sided cap at car.driftEntrySpeed
   // → retains/refills toward entry, never net-gains (no boost-donut). 0 = raw (collapses
-  // to donut); window ~0.4–0.7.
-  driftSimSpeedHold: 0.5,
+  // to donut); window ~0.4–0.7. p29: 0.5→0.7 (with SPEEDHOLD_REF 26→40) so a ≥30 entry
+  // drift HOLDS ~28–30 km/h and travels (was scrubbing to ~14) → β deepens to ~38° at speed.
+  driftSimSpeedHold: 0.7,
 
   // ---------- p28 — SIM drift-build POWER-TO-GRIP (drift-build reference) ----------
   // The SIM car is given a drift-build engine: steady drive ABOVE the rear kinetic
@@ -526,6 +527,21 @@ export const CONFIG = {
   // the rear loose. Raised fade speed keeps that break-loose alive at mid/high speed.
   driftSimEnginePower: 12500,       // N — sim steady drive (arcade stays 9000)
   driftSimBoostFadeSpeed: 40,       // m/s — sim launch-boost fade (arcade stays 14)
+
+  // ---------- p29 — SIM drift two-gap close (multiplicative scales on EXISTING forces) ----
+  // (a) LOW-SPEED FRONT AUTHORITY: a sim+driftActive scale on the EXISTING frontLatForce,
+  // faded IN at low speed (×1 by ~8 m/s), so moderate lock (0.5–0.7) reaches enough front
+  // turn-in force to break the rear loose at low speed instead of burning out straight.
+  // Pure multiplier on a force that already exists — NOT a new force/yaw term. (Measured a
+  // MODEST help: steer 0.7 @ 15 km/h β 8°→14°; steer 0.5 stays shallow — low speed still
+  // favours more lock. Honest.)
+  driftSimFrontAuthority: 1.5,      // low-speed front-force ×scale (1 = off)
+  // (b) DEEPEN: a sim+driftActive scale on the EXISTING front lateral force (≈ the
+  // peakLatGripFront·frontDriftFriction sliding cap that STEP 0's sweep proved is the ONE
+  // lever that moves equilibrium β: ×0.7→β67°, everything else inert). LOWER = deeper β.
+  // Mild 0.9 (no cliff — the sweep cliffs at ~0.78 for steer 0.6). The DOMINANT depth lever
+  // is the speed-hold below (travel → β already ~38° at speed); this is the fine-deepen knob.
+  driftSimFrontSlide: 0.9,          // front sliding-grip ×scale (1 = off; <0.8 cliffs)
 };
 
 export type Config = typeof CONFIG;
@@ -920,7 +936,14 @@ function simDriftSustain(car: CarState, input: Inputs, dt: number, c: Config, fo
     Math.abs(bodyBeta) >= c.driftModeFull ||
     (forwardVel < c.powerOverSpeed && car.slideBlendSmooth > c.powerOverWheelspin &&
      input.throttle > c.powerOverThrottle);
-  const reversedSpin = forwardVel < -0.5 && car.spinTimer === 0;
+  // p29 reversedSpin GUARD (the ONE allowed logic change, sim-gated): at deep β the car
+  // momentarily points backward along its heading (forwardVel ≤ 0) WITHOUT actually
+  // reversing — bodyBeta uses |forwardVel| so a real reverse reads |bodyBeta|≈0 while a deep
+  // slide reads |bodyBeta|→90°. So in sim, only treat it as a true reversal (which drops the
+  // drift latch) when |bodyBeta| is BELOW the deep-drift band — otherwise a deep slide's
+  // forwardVel noise would spuriously un-latch the drift. Arcade latch byte-identical (gate off).
+  const reversedSpin = forwardVel < -0.5 && car.spinTimer === 0 &&
+    !(c.driftMode === 'sim' && Math.abs(bodyBeta) >= c.driftModeFull);
   if (!car.driftActive) {
     if (sliding && provoke && !reversedSpin) {
       car.driftActive = true;
@@ -952,7 +975,7 @@ function simDriftSustain(car: CarState, input: Inputs, dt: number, c: Config, fo
   //     gains. Speed exceeds entry ONLY at low β via normal drive (nose aligned = not a donut).
   // Acts along velocity (orthogonal to yaw) → cannot pin β; radius stays v/ω from the carve.
   if (govMode > 0 && vNow > 0.3 && c.driftSimSpeedHold > 0 && !input.handbrake) {
-    const SPEEDHOLD_REF = 26;   // m/s² full-authority along-velocity retain (deep β, full gas)
+    const SPEEDHOLD_REF = 40;   // m/s² full-authority along-velocity retain (p29 26→40: holds ≥30 entries)
     const betaDeg = Math.abs(bodyBeta) * 180 / Math.PI;
     const betaFactor = clamp((betaDeg - 20) / (40 - 20), 0, 1);   // 1 deep (open) … 0 closed
     if (betaFactor > 0 && vNow < car.driftEntrySpeed) {
@@ -1123,6 +1146,18 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   const isFrontSliding = Math.abs(frontLatForce) > c.peakLatGripFront;
   if (isFrontSliding) {
     frontLatForce = Math.sign(frontLatForce) * c.peakLatGripFront * c.frontDriftFriction;
+  }
+  // p29 SIM front scale (multiplicative on the EXISTING frontLatForce; sim+driftActive-gated
+  // so arcade/grip are byte-identical). TWO intents, handed off by SPEED so they don't fight:
+  //   (a) low-speed AUTHORITY — faded IN below ~8 m/s → boosts front turn-in so moderate lock
+  //       breaks the rear loose at low speed (driftActive latches on the |steer|>0.45 provoke,
+  //       so this acts during initiation);
+  //   (b) DEEPEN — driftSimFrontSlide (<1) lowers the front sliding-grip the drift balances
+  //       against → deeper equilibrium β (the ONE lever STEP 0's sweep moved).
+  if (c.driftMode === 'sim' && car.driftActive) {
+    const lowSpeedFade = clamp(1 - speed / 8, 0, 1);                 // 1 at rest → 0 by 8 m/s
+    const authority = 1 + (c.driftSimFrontAuthority - 1) * lowSpeedFade;
+    frontLatForce *= authority * c.driftSimFrontSlide;
   }
 
   // REAR (driven): combined-slip friction circle — PASS 4.
