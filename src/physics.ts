@@ -47,6 +47,12 @@ export const CONFIG = {
   // into a holdable angle instead of snapping around. (At 8.0 the yaw
   // inertia is ~600 kg·m², about 60% of the original full-size car.)
   inertiaScale: 8.0,                // p19b reverted 9.3 → 8.0 (feel-test: keep pre-p19 rotation)
+  // Verze 3 Stage ii — REAL-SIZE yaw/slip wheelbase, used ONLY in driftMode==='sim-real' (the
+  // physics yaw torque arm + axle slip velocities + inertia). Restores the yaw↔slide coupling
+  // the 1/3 arm (0.867) broke → lateral velocity scrubs ~6× slower → a deep drift can hold.
+  // PHYSICS-ONLY: render/collision/skid keep the small CONFIG.wheelbase (car looks identical).
+  // Inertia in sim-real = mass·simRealWheelbase²/12 = 676 (no inertiaScale hack).
+  simRealWheelbase: 2.6,            // m (vs the 1/3 visual wheelbase 0.867)
 
   // ---------- Engine / brakes ----------
   // Honest two-region torque curve (function of throttle & WHEEL speed):
@@ -1067,6 +1073,7 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   // simDriftSustain and inertia() then see 'sim' → sim-real behaves exactly like sim. Arcade
   // and sim are untouched (the if is false for them) → byte-identical. The real-size geometry
   // swap (Stage ii) will gate on the ORIGINAL mode, captured before this line.
+  const isSimReal = c.driftMode === 'sim-real';   // Stage ii: capture BEFORE normalising (gates real-size geometry)
   if (c.driftMode === 'sim-real') c = { ...c, driftMode: 'sim' };
   // ---- 1. Body-frame velocity (forward = +x_body, lateral = +y_body) ----
   // (computed first — the steering auto-align needs the slip direction)
@@ -1095,7 +1102,10 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   car.steerAngle += clamp(targetSteer - car.steerAngle, -maxStep, maxStep);
 
   const speed = Math.hypot(car.vx, car.vy);
-  const halfWB = c.wheelbase / 2;
+  // Stage ii: sim-real uses the REAL-SIZE yaw arm (1.3 m); arcade/sim keep 0.433 m → the else is
+  // the exact current expression → byte-identical. This halfWB feeds the yaw torque, the axle
+  // slip velocities (rearLat/frontLat = lateralVel ∓ ω·halfWB), frontVelAngle, and the pivot.
+  const halfWB = (isSimReal ? c.simRealWheelbase : c.wheelbase) / 2;
   // High-speed steering falloff (p13: superseded by the slip limiter below,
   // steerSpeedFalloff set to 1.0 = no-op; left in place as a fallback knob).
   const falloff = 1 - (1 - c.steerSpeedFalloff) *
@@ -1485,7 +1495,9 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   // ---- 8. Yaw torque (front pushes one way at +L/2, rear at -L/2) ----
   // 2D torque from force at offset (rx, ry): rx*Fy - ry*Fx. Axles are on the
   // body x-axis (ry = 0) so torque = rx * Fy.
-  const I = inertia(c);
+  // Stage ii: sim-real uses REAL inertia (mass·2.6²/12 = 676, no inertiaScale hack); arcade/sim
+  // call inertia(c) unchanged → byte-identical.
+  const I = isSimReal ? c.mass * c.simRealWheelbase * c.simRealWheelbase / 12 : inertia(c);
   const torque = halfWB * frontForceBodyY - halfWB * rearForceBodyY;
   const yawDamp = -c.angularDamping * I * car.angularVel;
   car.angularVel += (torque + yawDamp) / I * dt;

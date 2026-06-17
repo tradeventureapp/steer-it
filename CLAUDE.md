@@ -956,3 +956,26 @@ RS). **NEXT: Stage ii — swap the YAW/SLIP geometry to real-size (physWheelbase
 real inertia 676, drop inertiaScale) gated on the ORIGINAL mode (captured before the normalise),
 render+collision stay visual/small (car looks identical); CHECK lateral scrub −12→−2 m/s² + arcade/
 sim still 0. Then Stage iii band-aid drops, Stage iv re-tune, Stage v realistic handbrake.**
+
+---
+**VERZE 3 — STAGE ii (sim-real runs REAL-SIZE yaw/slip geometry — the keystone, DECISIVE PROOF
+passed):** sim-real now runs the physics yaw/slip geometry at real size while render/collision/HUD
+stay visual-small (car pixel-identical). Implementation (sim-real-gated, arcade+sim byte-identical):
+`const isSimReal = c.driftMode==='sim-real'` captured BEFORE the Stage-i normalise; `CONFIG.simRealWheelbase
+= 2.6` (PHYSICS-ONLY); `halfWB = (isSimReal ? simRealWheelbase : wheelbase)/2` (1.3 vs 0.433 — the
+ONE definition feeds the yaw torque arm, axle slip velocities `rearLat/frontLat = lateralVel ∓
+ω·halfWB`, frontVelAngle, pivot); inertia `= isSimReal ? mass·simRealWheelbase²/12 (=676) : inertia(c)`
+(drops the inertiaScale 8.0 hack, else byte-identical). RENDER/COLLISION UNTOUCHED: `desktop.ts`
+(car draw + skid wheel offsets) reads `CONFIG.wheelbase` (0.867, unmutated) and collision reads
+`carCollisionRadius` — `simRealWheelbase` lives ONLY in the step() physics locals → car looks +
+collides identical, same on-screen speed; ONLY the yaw↔slide coupling changes. trackWidth confirmed
+render-only (not in the force math). **MEASURED — DECISIVE:** **lateral scrub rate (β30 @ 40 km/h,
+same forces): SIM −12.13 m/s² → SIM-REAL −2.15 m/s² = 5.6× slower → the yaw↔slide coupling is
+RESTORED** (the root cause is fixed). (a) arcade vs HEAD 0.0e+0; (b) sim vs HEAD 0.0e+0; (e) raw deep
+drift sim-real settles 23k@β11 + holds the deep entry longer (β67→52) vs sim 18k@β9 — **INTENTIONALLY
+WILD/over-eager (real 1.3 m arm = ~2.7× yaw accel/N), the Stage-iv re-tune tames it**; (f) determinism
+0, multi-car independent, CONFIG.wheelbase unmutated (0.867). tsc + build clean; trademark clean
+(Blitz RS). **NEXT: Stage iii — drop the 1/3-symptom band-aids one at a time in sim-real (inertiaScale
+already gone; then the wave/frontLongDrag/frontAuthority; reconsider frontCarve/frontSlide/
+rearSlipFloor), measuring after each (deep drift still holds? spin still bleeds?). Then Stage iv
+re-tune (feel, phone), Stage v realistic handbrake.**
