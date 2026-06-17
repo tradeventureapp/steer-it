@@ -979,3 +979,22 @@ WILD/over-eager (real 1.3 m arm = ~2.7× yaw accel/N), the Stage-iv re-tune tame
 already gone; then the wave/frontLongDrag/frontAuthority; reconsider frontCarve/frontSlide/
 rearSlipFloor), measuring after each (deep drift still holds? spin still bleeds?). Then Stage iv
 re-tune (feel, phone), Stage v realistic handbrake.**
+
+---
+**VERZE 3 — STAGE iv (sim-real spin-arm-gated yaw-ceiling split — held-drift over-rotation TAMED):**
+the real 1.3 m arm made the held drift over-rotate (measured peak ω 4.8 ≈ 2× the physical path-bound
+ceiling a_lat/v ≈ 2.5 at 20 km/h). FIX (sim-real-gated, one clamp site + one knob): the yaw soft-clamp
+ceiling is now spin-arm-gated — `simRealDrift = isSimReal && spinRelease<0.5`; `yawCeiling = simRealDrift
+? driftSimDriftYawCeiling : maxYawRate`. **REFINEMENT (the prompt's soft-clamp-only left peak 4.3 — the
+soft decay 16.7%/frame can't catch the real-moment impulse): the sim-real HELD drift HARD-clips to the
+ceiling (`rate = simRealDrift ? 1 : softYawClampRate·dt`)** — a held drift's yaw is genuinely path-bound,
+so a hard clip is physical; arcade/sim and the committed SPIN keep the SOFT decay (entry headroom).
+`CONFIG.driftSimDriftYawCeiling = 2.6` (computed physical drift ceiling). **MEASURED:** (a) arcade vs
+HEAD 0.0e+0; (b) sim vs HEAD 0.0e+0; (c) **HELD DRIFT TAMED — peak ω 4.8 → 2.6, sustained 2.4,
+spinRelease 0.00** (no over-rotation into accidental spin); (d) **COMMITTED SPIN UNCHANGED — sustained
+3.2, spinRelease 1.00** (full hodiny); (e) **β NOT clamped — held drift still reaches β42° deep**, spin
+β84° (caps the spin-RATE, not the drift-ANGLE → deep drift reachable via active countersteer, entry just
+builds progressively); (f) exit accelerates (7→56), determinism 0, multi-car independent. Live on the D
+tuner (`driftSimDriftYawCeiling`, range 2.4–2.9). arcade+sim byte-identical; independent of the band-aids
+(Stage iii). **NEXT: PHONE FEEL-TEST sim-real (held drift controllable + not twitchy, deliberate spin
+still works, deep angle holdable with active countersteer); then Stage iii band-aid drops + force re-tune.**

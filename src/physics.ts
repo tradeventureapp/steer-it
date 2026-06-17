@@ -410,6 +410,13 @@ export const CONFIG = {
   // needed it most; the soft limit still stops runaway spins.
   maxYawRate: 3.2,                  // p19b reverted 2.5 → 3.2 (feel-test: keep pre-p19 rotation)
   softYawClampRate: 10,             // NEW (p7)  1/s decay applied to yaw above the limit
+  // Verze 3 Stage iv — sim-real HELD-DRIFT yaw ceiling (rad/s). The real 1.3 m arm makes the
+  // held drift over-rotate (measured peak ω 4.8 ≈ 2× the physical path-bound ceiling a_lat/v ≈
+  // 2.5 at 20 km/h). Applied ONLY in sim-real while the spin-arm is NOT armed (spinRelease<0.5)
+  // → a held drift is controllable, not twitchy. A COMMITTED spin (spinRelease≥0.5) keeps the
+  // higher maxYawRate 3.2 → the deliberate hodiny is unchanged. Caps the spin-RATE, NOT β (the
+  // drift ANGLE is never clamped → a deep drift stays reachable via active countersteer).
+  driftSimDriftYawCeiling: 2.6,     // rad/s (sim-real held drift; arcade/sim use maxYawRate)
 
   // ---------- Drift detection / skids ----------
   // Visual indicator only — independent of the physics slide cap. Lower
@@ -1505,10 +1512,19 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   // Soft yaw-rate limit (p7): yaw above maxYawRate is damped back hard
   // instead of hard-clipped — the hard clip froze rotation exactly when
   // a deep drift entry needed it. Still a firm backstop against runaway.
-  const yawExcess = Math.abs(car.angularVel) - c.maxYawRate;
+  // Stage iv: sim-real HELD drift (spin-arm NOT armed) is capped at the physical drift ceiling so
+  // it can't over-rotate; a COMMITTED spin (spinRelease≥0.5) keeps the higher maxYawRate (full
+  // hodiny). Arcade/sim → c.maxYawRate → byte-identical. Caps the spin-RATE, not β.
+  const simRealDrift = isSimReal && spinRelease < 0.5;
+  const yawCeiling = simRealDrift ? c.driftSimDriftYawCeiling : c.maxYawRate;
+  const yawExcess = Math.abs(car.angularVel) - yawCeiling;
   if (yawExcess > 0) {
-    car.angularVel -= Math.sign(car.angularVel) *
-      yawExcess * Math.min(1, c.softYawClampRate * dt);
+    // sim-real HELD drift: HARD clip to the physical path-bound ceiling (a held drift's yaw can't
+    // exceed a_lat/v — the soft decay let the real-moment impulse overshoot to ~4.8). arcade/sim
+    // and the committed SPIN keep the SOFT decay (entry headroom for the hodiny). β is NOT clamped
+    // → a deep drift is still reachable, the entry just builds progressively (≤ceiling), not twitchy.
+    const rate = simRealDrift ? 1 : Math.min(1, c.softYawClampRate * dt);
+    car.angularVel -= Math.sign(car.angularVel) * yawExcess * rate;
   }
 
   // Standing-pivot YAW (p12, declared assist — paired with the front-axle
