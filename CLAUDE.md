@@ -940,3 +940,19 @@ a held deep cornering drift at 30–40 km/h is not achievable on the honest 1/3-
 an artificial along-velocity term (the removed wave). The real options are: accept deep=slow /
 shallow=fast (honest), OR re-introduce a *bounded, non-spin* speed assist (a wave that's killed in
 a spin), OR rescale the whole car (Verze 3). Flagged for a decision — not patched.**
+
+---
+**VERZE 3 — STAGE i (sim-real branch added, byte-identical alias of sim — pure plumbing):** the
+approved real-size-physics rebuild begins. `CONFIG.driftMode` union extended to
+`'arcade' | 'sim' | 'sim-real'`; the D-toggle now cycles **arcade ⇄ sim ⇄ sim-real** (label
+"SIM-REAL (wip)"). Implementation = ONE line at the top of `step()`: `if (c.driftMode==='sim-real')
+c = { ...c, driftMode: 'sim' };` — a per-call shallow copy that normalises sim-real to sim for the
+WHOLE step (every driftMode gate, the dispatch, `simDriftSustain`, `inertia()` all then see 'sim').
+CONFIG is NEVER mutated (multi-car safe, deterministic). **MEASURED — all four identity proofs
+0.0e+0:** (a) arcade vs HEAD = 0; (b) sim vs HEAD = 0; (c) **sim-real == sim = 0** (exact alias this
+stage); (d) determinism = 0, CONFIG.driftMode unmutated after step, multi-car independent. Zero
+behaviour change — sim-real behaves exactly like sim. tsc + build clean; trademark clean (Blitz
+RS). **NEXT: Stage ii — swap the YAW/SLIP geometry to real-size (physWheelbase 2.6 / halfWB 1.3 /
+real inertia 676, drop inertiaScale) gated on the ORIGINAL mode (captured before the normalise),
+render+collision stay visual/small (car looks identical); CHECK lateral scrub −12→−2 m/s² + arcade/
+sim still 0. Then Stage iii band-aid drops, Stage iv re-tune, Stage v realistic handbrake.**

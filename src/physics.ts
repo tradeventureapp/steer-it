@@ -478,7 +478,7 @@ export const CONFIG = {
   // 'arcade' = the frozen governed-drift model (byte-identical to HEAD, the working
   // drift). 'sim' = the new front-carve physics drift (WORK IN PROGRESS — currently
   // mirrors arcade). Toggled live on the PC 'D' tuner. No player-facing menu yet.
-  driftMode: 'arcade' as 'arcade' | 'sim',
+  driftMode: 'arcade' as 'arcade' | 'sim' | 'sim-real',
 
   // ---------- p24 — SIM-BRANCH drift (RAW emergent front-carve) ----------
   // Only used when driftMode==='sim'. The sim drift is PURE PHYSICS (no assists):
@@ -1061,6 +1061,13 @@ function simDriftSustain(car: CarState, input: Inputs, dt: number, c: Config, fo
 }
 
 export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFIG) {
+  // ---- Verze 3 STAGE i — 'sim-real' is a BYTE-IDENTICAL ALIAS of 'sim' this stage.
+  // Normalise it to 'sim' for the WHOLE step (a per-call shallow copy — CONFIG is NEVER
+  // mutated, so it's multi-car safe and deterministic). Every driftMode gate, the dispatch,
+  // simDriftSustain and inertia() then see 'sim' → sim-real behaves exactly like sim. Arcade
+  // and sim are untouched (the if is false for them) → byte-identical. The real-size geometry
+  // swap (Stage ii) will gate on the ORIGINAL mode, captured before this line.
+  if (c.driftMode === 'sim-real') c = { ...c, driftMode: 'sim' };
   // ---- 1. Body-frame velocity (forward = +x_body, lateral = +y_body) ----
   // (computed first — the steering auto-align needs the slip direction)
   const cosH = Math.cos(car.heading);

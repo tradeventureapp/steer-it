@@ -230,10 +230,13 @@ document.body.appendChild(brakeTunerEl);
       'pointer-events:auto;cursor:pointer;font:700 12px/1 ui-monospace,monospace;' +
       'padding:5px 12px;border-radius:5px;color:#ffd9b0;' +
       'background:rgba(255,138,61,.18);border:1px solid rgba(255,138,61,.55);';
-    const upd = () => { btn.textContent = CONFIG.driftMode === 'sim' ? 'SIM (wip)' : 'ARCADE'; };
+    const LABEL = { arcade: 'ARCADE', sim: 'SIM (wip)', 'sim-real': 'SIM-REAL (wip)' } as const;
+    const upd = () => { btn.textContent = LABEL[CONFIG.driftMode]; };
     btn.addEventListener('click', (e) => {
       e.preventDefault(); e.stopPropagation();
-      CONFIG.driftMode = CONFIG.driftMode === 'sim' ? 'arcade' : 'sim';
+      // cycle arcade ⇄ sim ⇄ sim-real (Verze 3 dev toggle)
+      CONFIG.driftMode = CONFIG.driftMode === 'arcade' ? 'sim'
+        : CONFIG.driftMode === 'sim' ? 'sim-real' : 'arcade';
       upd();
     });
     upd();
