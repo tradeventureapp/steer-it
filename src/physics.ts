@@ -512,6 +512,20 @@ export const CONFIG = {
   // → retains/refills toward entry, never net-gains (no boost-donut). 0 = raw (collapses
   // to donut); window ~0.4–0.7.
   driftSimSpeedHold: 0.5,
+
+  // ---------- p28 — SIM drift-build POWER-TO-GRIP (drift-build reference) ----------
+  // The SIM car is given a drift-build engine: steady drive ABOVE the rear kinetic
+  // reaction so throttle WILLINGLY spins the rear and holds a power-slide. Used ONLY
+  // when driftMode==='sim' (always, as a car PARAMETER — not a drift-only assist);
+  // arcade keeps enginePower 9000 / torqueBoostFadeSpeed 14 → byte-identical.
+  //   reaction (default grip) = budget·rearDriftFriction = 16200·0.65 = 10530 N
+  //   reaction (in a sim drift) = budget·driftSimRearGrip = 16200·0.50 =  8100 N
+  // driftSimEnginePower 12500 sits +1970 N over the 10530 reaction (willing wheelspin,
+  // STAYS spun) yet 3700 N UNDER the 16200 static budget → straight-line still GRIPS
+  // (clean launch, no rocket); only a TURNED throttle (the steer-gated boost) breaks
+  // the rear loose. Raised fade speed keeps that break-loose alive at mid/high speed.
+  driftSimEnginePower: 12500,       // N — sim steady drive (arcade stays 9000)
+  driftSimBoostFadeSpeed: 40,       // m/s — sim launch-boost fade (arcade stays 14)
 };
 
 export type Config = typeof CONFIG;
@@ -1156,12 +1170,18 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   // whose size the steering sets — never a locked on-the-spot donut. This
   // replaced the old throttle-only [burnoutThrottle,1.0] gate (which span the
   // wheels straight off the line and, with the standing pivot, made the donut).
+  // p28 SIM drift-build engine: a sim-gated higher steady drive + slower boost fade
+  // (a car PARAMETER, applied whenever driftMode==='sim') so throttle willingly spins
+  // the rear and the power-slide survives at speed. Arcade uses enginePower 9000 /
+  // torqueBoostFadeSpeed 14 unchanged → byte-identical (the gate is off there).
+  const simEngine = c.driftMode === 'sim' ? c.driftSimEnginePower : c.enginePower;
+  const simFade   = c.driftMode === 'sim' ? c.driftSimBoostFadeSpeed : c.torqueBoostFadeSpeed;
   const boostSteer = clamp(
     (Math.abs(input.steer) - c.boostSteerDead) / (c.boostSteerFull - c.boostSteerDead), 0, 1);
   const driveBoost = 1 + c.lowSpeedTorqueBoost *
-    Math.max(0, 1 - speed / c.torqueBoostFadeSpeed) * boostSteer * input.throttle;
+    Math.max(0, 1 - speed / simFade) * boostSteer * input.throttle;
   const powerLimitedForce = Math.min(
-    c.enginePower,
+    simEngine,
     c.enginePeakPowerW / Math.max(1, Math.abs(car.rearWheelSpeed)),
   );
   // Handbrake cuts drive to the rear wheel (p9) — the arcade clutch-kick.
@@ -1181,7 +1201,18 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   const reverseMode = input.brake > 0.1 && !input.handbrake && forwardVel < 0.2;
 
   const vg = rearLong;                                   // ground speed at rear patch
-  const sDenom = Math.max(c.slipDenomFloor, Math.abs(vg));
+  // p28 wheelspin-during-slide fix (SIM + driftActive only): the slip-ratio denominator
+  // (and thus the traction stiffness kSlip + the wheel-overspeed clamp) normally uses
+  // |vg| = |forwardVel|, which COLLAPSES toward 0 in a sideways slide → sDenom floors →
+  // kSlip blows up → the wheel GLUES to the (near-zero) forward speed → s≈0, no wheelspin,
+  // no longitudinal force ("wheels do nothing while sideways"). Inside a sim drift, use
+  // TOTAL speed instead so the denominator stays large and the rear keeps spinning DURING
+  // the slide. The slip NUMERATOR (wv − vg) keeps vg=forwardVel (the real rolling speed).
+  // Arcade / launch / brake untouched (gate off) → byte-identical.
+  const slipRef = (c.driftMode === 'sim' && car.driftActive)
+    ? Math.sqrt(car.vx * car.vx + car.vy * car.vy)
+    : Math.abs(vg);
+  const sDenom = Math.max(c.slipDenomFloor, slipRef);
   const mw = c.wheelSpinInertia;
   const nLat = rearSlip / alphaPeakRear;                 // rear lateral grip usage
 

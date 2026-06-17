@@ -183,10 +183,10 @@ document.body.appendChild(brakeTunerEl);
     (v) => { CONFIG.brakeGripFraction = v; },
     0.05, 0.4, 1.2, (v) => v.toFixed(2));
 
-  // p24/p25/p26/p27 — SIM-branch drift knobs (only affect driftMode==='sim').
-  // rearGrip sustains; speedHold (window .4–.7) makes the drift TRAVEL (β-faded wave);
-  // catch (window .4–.6) holds the angle once it travels; carve 1.0 = full front.
-  subhead('SIM DRIFT — carve1.0 rearGrip0.50 speedHold0.5 catch0.45');
+  // p24..p28 — SIM-branch drift knobs (only affect driftMode==='sim').
+  // p28 drift-build POWER: enginePower 12500 N (>10530 reaction → willing wheelspin,
+  // <16200 budget → grips straight); boostFade 40 keeps the slide alive at speed.
+  subhead('SIM DRIFT — drift-build power 12500N / fade 40 (arcade=9000/14)');
   mkRow('driftFrontCarve', () => CONFIG.driftFrontCarve, (v) => { CONFIG.driftFrontCarve = v; },
     0.1, 0, 1, (v) => v.toFixed(2));
   mkRow('driftScrubRate', () => CONFIG.driftScrubRate, (v) => { CONFIG.driftScrubRate = v; },
@@ -197,6 +197,10 @@ document.body.appendChild(brakeTunerEl);
     0.05, 0, 1, (v) => v.toFixed(2));
   mkRow('driftSimSpeedHold', () => CONFIG.driftSimSpeedHold, (v) => { CONFIG.driftSimSpeedHold = v; },
     0.05, 0, 1, (v) => v.toFixed(2));
+  mkRow('driftSimEnginePower', () => CONFIG.driftSimEnginePower, (v) => { CONFIG.driftSimEnginePower = v; },
+    500, 9000, 18000, (v) => String(Math.round(v)));
+  mkRow('driftSimBoostFadeSpeed', () => CONFIG.driftSimBoostFadeSpeed, (v) => { CONFIG.driftSimBoostFadeSpeed = v; },
+    2, 14, 60, (v) => v.toFixed(0));
 
   // p23 — DRIFT MODEL dev toggle (arcade ⇄ sim). 'sim' is the new front-carve model
   // (WORK IN PROGRESS — currently mirrors arcade). Dev-only; no player menu yet.

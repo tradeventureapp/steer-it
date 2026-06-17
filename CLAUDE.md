@@ -149,9 +149,37 @@ deployment-hash URL); `steer-it.vercel.app` also serves it.
   lets it decay (flagged, not done). (2) Travel speed is **modest** (~12 km/h, R≈0.7 m =
   a tight traveling donut, not the 20–35 km/h target) — raising `SPEEDHOLD_REF` or the
   knob pushes it up to the entry cap; left for feel-tuning. Live on the D tuner alongside
-  the other sim knobs. **NEXT: feel-test on phone; raise the sim spin-arm sustain
-  threshold so the catch bites (finer angle control); tune travel speed; then the E30
-  full car-parameter rebuild (Verze 3). Handbrake drift behaviour = Pass 3.**
+  the other sim knobs.
+  **p28 — SIM DRIFT-BUILD POWER-TO-GRIP (throttle now WILLINGLY spins the rear):** the
+  audit found the car couldn't power-slide because steady drive (9000 N) sits BELOW both
+  the static grip budget (16200 N) and the kinetic reaction (budget·rearDriftFriction =
+  10530 N) — deliberate (grippy corners), but it means pure throttle never breaks the rear
+  loose. FIX = a SIM-gated drift-build engine (a car PARAMETER, applied whenever
+  `driftMode==='sim'`, NOT driftActive-gated): `CONFIG.driftSimEnginePower` **12500 N**
+  (+1970 over the 10530 reaction → willing wheelspin that STAYS spun, yet 3700 UNDER the
+  16200 static budget → straight-line still GRIPS, no rocket) + `CONFIG.driftSimBoostFadeSpeed`
+  **40 m/s** (vs arcade 14 → the steer-gated launch boost stays alive at mid/high speed so
+  the power-slide works moving, not just at standstill). Wired at the `driveBoost`/
+  `powerLimitedForce` block (`simEngine`/`simFade` locals, sim-gated). PAIRED with a
+  sim+driftActive-gated **total-speed slip normalisation** (`sDenom = max(floor, |v_total|)`
+  inside a sim drift, vs `|forwardVel|` otherwise) so the slip-ratio denominator/stiffness
+  can't collapse when `forwardVel→0` sideways. **MEASURED:** (a) ARCADE byte-identical to
+  HEAD (0.0e+0 across cornering/launch/brake/drift/handbrake/top-speed — engine/fade/slip
+  all gated off in arcade); **(b) SIM POWER-SLIDE works — throttle+steer (NO handbrake)
+  breaks the rear loose and holds wheelSpin 100% / rho>1 across 20/40/60/80 km/h** (not
+  just standstill); (d) NOT A ROCKET — sim straight-line GRIPS (0% wheelspin, no burnout),
+  0–50 km/h 1.42 s (vs arcade 1.98 s — stronger but sane), top speed 124 km/h = arcade
+  (the P/v crossover is unchanged); (e) determinism + per-car, NO global `slipDenomFloor`
+  change (the total-speed denom is sim+driftActive-gated). **HONEST NOTE:** the total-speed
+  slip-normalisation (#4) measures as **no behavioural change** — `driftSimRearGrip` (0.50,
+  already shipped) keeps the rear lit at deep β, and wheelSpin%/longitudinal force saturate
+  at `maxSlipRatio` regardless of the denominator, so the deep-β wheelspin is already
+  healthy; the term is kept as a harmless, more-correct normalisation + a safety net if
+  rear grip is raised, but the ACTIVE levers are the drift-build power + fade. Power-to-grip
+  live-tunable on the D tuner (`driftSimEnginePower` 12500 / `driftSimBoostFadeSpeed` 40).
+  Trademark-safe: internal wording is generic "drift-build reference" only — NO BMW/E30/325i
+  anywhere. **NEXT: feel-test the power-slide on phone; raise the sim spin-arm sustain
+  threshold so the catch bites; tune travel speed. Handbrake drift behaviour = Pass 3.**
 - `desktop.ts` — game surface (authority): fixed-timestep loop, per-slot car map,
   render, obstacle + car-car collisions, car drawing, HUD, skids/smoke, the track
   editor (key E), lobby wiring, QR.
