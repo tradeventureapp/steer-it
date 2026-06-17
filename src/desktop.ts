@@ -183,10 +183,10 @@ document.body.appendChild(brakeTunerEl);
     (v) => { CONFIG.brakeGripFraction = v; },
     0.05, 0.4, 1.2, (v) => v.toFixed(2));
 
-  // p24..p29 — SIM-branch drift knobs (only affect driftMode==='sim').
-  // p28 power 12500N/fade40; p29 frontAuth (low-speed initiate) / frontSlide (deepen, <0.8
-  // cliffs) / speedHold 0.7 (travel ~28-30km/h → β~38° at speed).
-  subhead('SIM DRIFT — power12500 frontAuth1.5 frontSlide0.9 speedHold0.7');
+  // p24..p30 — SIM-branch drift knobs (only affect driftMode==='sim').
+  // p28 power; p29 frontAuth/frontSlide/speedHold; p30 spinArm 0.95/0.97 (only a committed
+  // full lock spins → moderate-lock drifts HOLD, countersteer catches).
+  subhead('SIM DRIFT — power frontAuth frontSlide speedHold + spinArm.95/.97');
   mkRow('driftFrontCarve', () => CONFIG.driftFrontCarve, (v) => { CONFIG.driftFrontCarve = v; },
     0.1, 0, 1, (v) => v.toFixed(2));
   mkRow('driftScrubRate', () => CONFIG.driftScrubRate, (v) => { CONFIG.driftScrubRate = v; },
@@ -205,6 +205,10 @@ document.body.appendChild(brakeTunerEl);
     0.1, 1.0, 3.0, (v) => v.toFixed(2));
   mkRow('driftSimFrontSlide', () => CONFIG.driftSimFrontSlide, (v) => { CONFIG.driftSimFrontSlide = v; },
     0.025, 0.70, 1.0, (v) => v.toFixed(3));
+  mkRow('driftSimSpinArm', () => CONFIG.driftSimSpinArm, (v) => { CONFIG.driftSimSpinArm = v; },
+    0.025, 0.50, 1.0, (v) => v.toFixed(3));
+  mkRow('driftSimSpinArmHB', () => CONFIG.driftSimSpinArmHB, (v) => { CONFIG.driftSimSpinArmHB = v; },
+    0.025, 0.50, 1.0, (v) => v.toFixed(3));
 
   // p23 — DRIFT MODEL dev toggle (arcade ⇄ sim). 'sim' is the new front-carve model
   // (WORK IN PROGRESS — currently mirrors arcade). Dev-only; no player menu yet.

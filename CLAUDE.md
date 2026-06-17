@@ -210,9 +210,32 @@ deployment-hash URL); `steer-it.vercel.app` also serves it.
   tuner (`driftSimFrontAuthority` / `driftSimFrontSlide` / raised `driftSimSpeedHold`).
   **KNOWN CAVEATS:** the traveling drift β oscillates (~±24° around 45°) — deep + traveling but
   not rock-steady (the catch can't damp it — inert); and gap (a) low-speed moderate-steer
-  initiation stays a burnout (needs lock/provoke). **NEXT: feel-test on phone; the β-oscillation
-  damping (the catch is still spin-arm-gated/inert — raising the sim spin-arm sustain threshold
-  remains the lever for a steadier angle); Handbrake drift behaviour = Pass 3.**
+  initiation stays a burnout (needs lock/provoke).
+  **p30 — SIM DRIFT NOW HOLDABLE (spin-arm threshold raise — the catchable drift):** the phone
+  feel-test found the p29 traveling drift couldn't be HELD — it spun out and countersteer
+  couldn't catch it. MEASURED ROOT CAUSE: during a normal moderate-lock drift the **spin-arm
+  was armed the whole time** (`spinTimer` 0.15, `spinRelease` 1.0), which (1) zeroed `alignGate`
+  → killed the auto-catch, and (2) **injected `spinYawRate` the player couldn't overcome** → β
+  ran away (−88→+87°, ω 5.5). The spin-arm armed because the handbrake provoke (steer 0.9 ≥
+  `spinReleaseThresholdHB` 0.90) armed it and holding steer 0.7 sustained it. FIX = sim-gated
+  higher arm thresholds (value change only, NO new force term): `CONFIG.driftSimSpinArm` **0.95**
+  (vs arcade `spinReleaseThreshold` 0.78) + `driftSimSpinArmHB` **0.97** (vs `spinReleaseThresholdHB`
+  0.90), swapped at the `armThreshold` site only when `driftMode==='sim'`. Now a moderate-lock
+  drift never arms the spin-arm → `spinRelease` stays 0 → `alignGate` + the player's countersteer
+  regain authority. **MEASURED:** (a) ARCADE byte-identical to HEAD (0.0e+0, full suite —
+  thresholds sim-gated); **(b) DRIFT HOLDS — hold steer 0.7 → β −42° held, ω 5.5→1.0 (no runaway,
+  β bounded ±36 vs ±88); β TRACKS steer (ease 0.4→β3, 0.6→β16, 0.7→β42) = controllable**;
+  (c) 360° still reachable at committed full lock via the HB provoke (arms at |steer|≥0.97);
+  (d) CATCH A/B 0.45 vs 0.70 STILL identical (β16±1.8) → kept 0.45 — still inert because the
+  SETTLED drift sits at β≈16° BELOW `alignGate`'s 20° engagement (`autoCounterStart`); (e) not a
+  rocket (sim 0-50 1.42s, top 124), determinism + per-car, NO global spin-arm threshold change.
+  **KNOWN CAVEATS:** holdable + controllable but still oscillates somewhat (ω 1–1.4, not
+  rock-steady); a HARD opposite countersteer flick transitions the drift (expected = a
+  Scandinavian flick), gentle countersteer controls the angle cleanly; the catch stays inert
+  until the held β exceeds 20° (lowering sim `autoCounterStart` is the next lever for a steadier
+  auto-damp). Knobs (`driftSimSpinArm`/`driftSimSpinArmHB`) live on the D tuner. **NEXT: feel-test
+  the holdable drift on phone; if wobbly, lower sim `autoCounterStart` so the catch engages
+  earlier; Handbrake drift behaviour = Pass 3.**
 - `desktop.ts` — game surface (authority): fixed-timestep loop, per-slot car map,
   render, obstacle + car-car collisions, car drawing, HUD, skids/smoke, the track
   editor (key E), lobby wiring, QR.

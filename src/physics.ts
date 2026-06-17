@@ -542,6 +542,17 @@ export const CONFIG = {
   // Mild 0.9 (no cliff — the sweep cliffs at ~0.78 for steer 0.6). The DOMINANT depth lever
   // is the speed-hold below (travel → β already ~38° at speed); this is the fine-deepen knob.
   driftSimFrontSlide: 0.9,          // front sliding-grip ×scale (1 = off; <0.8 cliffs)
+  // ---------- p30 — SIM spin-arm arm thresholds (make the drift HOLDABLE) ----------
+  // The spin-arm (the deliberate-360 yaw injector) was arming during EVERY normal
+  // moderate-lock drift, which zeroed alignGate (killed the auto-catch) AND injected
+  // spinYawRate the player couldn't overcome → β ran away (−76→+87°, ω 5.5). Raising
+  // the arm threshold (sim-only) so it ONLY arms on a COMMITTED near-full-lock keeps it
+  // OFF in a normal drift → spinRelease stays 0 → alignGate + countersteer regain
+  // authority → the drift HOLDS (ω ~1.5). 360° preserved: committed full lock (≈1.0)
+  // still clears these. Threshold value change only — NO new force term. Arcade reads
+  // spinReleaseThreshold (0.78) / spinReleaseThresholdHB (0.90) → byte-identical.
+  driftSimSpinArm:   0.95,          // throttle arm (vs arcade spinReleaseThreshold 0.78)
+  driftSimSpinArmHB: 0.97,          // handbrake arm (vs arcade spinReleaseThresholdHB 0.90)
 };
 
 export type Config = typeof CONFIG;
@@ -995,7 +1006,13 @@ function simDriftSustain(car: CarState, input: Inputs, dt: number, c: Config, fo
     const sgn = Math.sign(bodyBeta) || 1;
     const steerBias = clamp(input.steer, -1, 1) * -sgn;
     const intoAmount = clamp(steerBias, 0, 1);
-    const armThreshold = input.handbrake ? c.spinReleaseThresholdHB : c.spinReleaseThreshold;
+    // p30: sim-gated higher arm threshold so the spin-arm only fires on a COMMITTED
+    // near-full-lock — NOT on a normal moderate-lock drift (which left alignGate zeroed
+    // and the drift un-holdable). Arcade uses the originals → byte-identical.
+    const sim = c.driftMode === 'sim';
+    const armThreshold = input.handbrake
+      ? (sim ? c.driftSimSpinArmHB : c.spinReleaseThresholdHB)
+      : (sim ? c.driftSimSpinArm : c.spinReleaseThreshold);
     const startSignal = input.handbrake ? Math.abs(input.steer) : intoAmount;
     const armed = car.spinTimer !== 0;
     const sustain = armed
