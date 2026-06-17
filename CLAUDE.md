@@ -259,9 +259,34 @@ deployment-hash URL); `steer-it.vercel.app` also serves it.
   km/h @ β43–45" was the PRE-p30 SPINNING car (β45 = mean of a rotating car); **p30 already
   settled it to a held β≈16° @ ~15 km/h** — p31 preserves that exactly (not a p31 regression; the
   check compared a stale baseline). Knobs (`driftSimLoadTransferGain` 0 / `driftSimRearSlipFloor`
-  4.0) live on the D tuner; determinism + per-car. **NEXT: feel-test on phone (clean pull-away, no
-  false burnout/skids, monotonic throttle); the shallow-held-drift depth (β16) + catch engagement
-  (<20°) remain the open feel items; Handbrake drift behaviour = Pass 3.**
+  4.0) live on the D tuner; determinism + per-car.
+  **p32 — SIM SPEED-HOLD WAVE REMOVED (rocket donut killed; drift speed now honest throttle-vs-
+  scrub):** phone video of a deliberate spin (hodiny) at full throttle showed the car HOLDING
+  65–74 km/h THROUGHOUT the spin (never-slowing rotating carousel, huge looping skids) — physically
+  wrong (a spin = enormous scrub → must bleed). ROOT (measured): the p27 speed-hold `wave`
+  (`driftSimSpeedHold`) is `betaFactor`-gated to DEEP β, i.e. ONLY the SPIN regime, where it pumps
+  speed back to `driftEntrySpeed` every frame → holds 70 km/h. FIX = `CONFIG.driftSimSpeedHold`
+  **default 0** (wave OFF; block kept = proven no-op, reversible on D). p28's drift-build power
+  makes the wave REDUNDANT for the normal drift. **MEASURED:** (a) ARCADE byte-identical (0.0e+0,
+  wave sim-only); **(b) SPIN BLEEDS — full-lock+throttle from 70 km/h: wave-on held 53→70 (rocket)
+  → wave-off BLEEDS 52→6 km/h ✓**; (c) normal drift still sustains on HONEST DRIVE (17 km/h, not
+  scrub-to-stop); **(h) DRIFT EXIT ACCELERATES — straighten+throttle CLIMBS 5→69 km/h** (aligned
+  nose → drive aligned → propels; runs on honest drive, NOT the wave); acceptance test (hair 0.05 +
+  20% throttle = 0% wheelspin) + arcade identity intact; determinism + per-car.
+  **HONEST SIDE EFFECTS (reported, the accepted trade):** the wave WAS what made a deep drift
+  "travel" — removing it means the sustained drift is now **honest throttle-vs-scrub: ~16–18 km/h
+  at ANY angle** (both shallow steer 0.55 AND deep 0.8 bleed 50→~16–18 from a fast entry — the
+  drive points along HEADING, ~60–80° off velocity at drift angle, so it CANNOT hold drift speed at
+  any angle on 1/3-scale; this is PHYSICS, not an `enginePower` bug — confirmed, NOT chased). The
+  held drift is also **shallower + a tighter low-speed donut** than with the wave (β≈9° @ ω≈3.4 vs
+  the p30 β16/ω1) — β stays BOUNDED (controllable tight donut, NOT a spin-out), just slower→tighter.
+  So: **spins BLEED, the straighten-throttle EXIT accelerates hard, the drift HOLDS but slow/shallow
+  — the "fast deep traveling drift" was the artificial wave and is gone by choice** (the player
+  chose honest physics over the rocket). (Earlier p29 "traveling 33–49 @ β43" = this wave holding a
+  spinning car — corrected.) `driftSimSpeedHold` live on D (raise to re-enable the wave).
+  **NEXT: feel-test on phone (spins bleed, exit accelerates, no rocket); if the slow/shallow
+  sustained drift feels weak, that's the depth item — needs a NON-wave lever (or accept honest
+  physics); Handbrake drift behaviour = Pass 3.**
 - `desktop.ts` — game surface (authority): fixed-timestep loop, per-slot car map,
   render, obstacle + car-car collisions, car drawing, HUD, skids/smoke, the track
   editor (key E), lobby wiring, QR.

@@ -510,9 +510,15 @@ export const CONFIG = {
   // back to normal UNCAPPED engine drive, which accelerates the car out past entry on
   // exit (real returning traction, NOT this term). One-sided cap at car.driftEntrySpeed
   // → retains/refills toward entry, never net-gains (no boost-donut). 0 = raw (collapses
-  // to donut); window ~0.4–0.7. p29: 0.5→0.7 (with SPEEDHOLD_REF 26→40) so a ≥30 entry
-  // drift HOLDS ~28–30 km/h and travels (was scrubbing to ~14) → β deepens to ~38° at speed.
-  driftSimSpeedHold: 0.7,
+  // to donut); window ~0.4–0.7.
+  // p32: REMOVED (default 0). MEASURED: betaFactor gates the wave to deep β, i.e. ONLY the
+  // SPIN regime — there it pumps speed back to entry → the "rocket donut" (held 70 km/h vs
+  // bled to 6 with it off). p28's drift-build power makes the normal drift sustain on HONEST
+  // DRIVE (16–17 km/h @ β10–14, the wave wasn't acting at β<20° anyway), and a spin BLEEDS
+  // correctly without it. Drift speed is now honest throttle-vs-scrub: aligned drive carries
+  // speed (shallow drift / straighten-throttle exit), misaligned deep drive bleeds (spin).
+  // Block kept (no-op at 0) → reversible via the D tuner.
+  driftSimSpeedHold: 0,
 
   // ---------- p28 — SIM drift-build POWER-TO-GRIP (drift-build reference) ----------
   // The SIM car is given a drift-build engine: steady drive ABOVE the rear kinetic

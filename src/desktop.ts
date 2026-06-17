@@ -187,7 +187,7 @@ document.body.appendChild(brakeTunerEl);
   // p28 power; p29 frontAuth/frontSlide/speedHold; p30 spinArm .95/.97; p31 loadTransferGain 0
   // (no throttle→grip inversion) + rearSlipFloor 4.0 (kills false low-speed burnout, full-lock
   // low-speed drift survives by magnitude).
-  subhead('SIM DRIFT — spinArm.95/.97 + ltGain0 + rearSlipFloor4');
+  subhead('SIM DRIFT — spinArm.95/.97 ltGain0 slipFloor4 speedHold0(wave off)');
   mkRow('driftFrontCarve', () => CONFIG.driftFrontCarve, (v) => { CONFIG.driftFrontCarve = v; },
     0.1, 0, 1, (v) => v.toFixed(2));
   mkRow('driftScrubRate', () => CONFIG.driftScrubRate, (v) => { CONFIG.driftScrubRate = v; },
