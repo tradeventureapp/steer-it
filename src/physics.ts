@@ -572,6 +572,15 @@ export const CONFIG = {
   // slides) → the false burnout dies while the real full-lock low-speed drift (p29/p30) SURVIVES.
   // Only acts below ~floor m/s of forwardVel (max(floor,|fwd|)); above it |fwd| dominates = no-op.
   driftSimRearSlipFloor: 4.0,       // m/s (vs the shared MIN_LONG 0.5; raised for the REAR in sim)
+  // ---------- p33 — SIM front longitudinal-brake cut (deep drift SUSTAINS) ----------
+  // FREE-RUN measured: the spinning rear propels +8000 N along velocity (constant), but the
+  // front cornering force projected to body-X (−frontLatForce·sin(steer)) brakes −6600 N
+  // (shallow β) to −15000 N (deep β) → cancels/exceeds the rear → the drift crawls. This scales
+  // DOWN that front along-heading brake ONLY in a sim drift, so the countersteered front ROLLS
+  // (corners but doesn't brake along heading) → the rear's drive sustains a full-throttle DEEP
+  // drift. frontForceBodyY (lateral/cornering = radius/turn-in/yaw) is UNTOUCHED. A spin still
+  // bleeds (rear propulsion misaligned at deep β, cosβ→0). 1 = off (no cut); value measured.
+  driftSimFrontLongDrag: 1.0,       // 0..1 ×scale on the front body-X brake (measured below)
 };
 
 export type Config = typeof CONFIG;
@@ -1453,7 +1462,12 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   // rotate by steerAngle into the BODY frame. The rear tire contributes
   // BOTH components now: longitudinal (engine/brake through the contact
   // patch) and lateral.
-  const frontForceBodyX = -frontLatForce * fs;
+  // p33: scale DOWN the front's along-heading BRAKE in a sim drift (the countersteered front
+  // ROLLS — corners but sheds the along-velocity drag). Body-Y (lateral cornering = radius/turn/
+  // yaw) is UNTOUCHED. Body-X is NOT in the yaw torque (axles on body-x) so the turn is unaffected.
+  // Arcade / non-drift untouched (gate off); steer→0 → fs→0 → no effect (exit/straight unaffected).
+  const frontLongDrag = (c.driftMode === 'sim' && car.driftActive) ? c.driftSimFrontLongDrag : 1;
+  const frontForceBodyX = -frontLatForce * fs * frontLongDrag;
   const frontForceBodyY =  frontLatForce * fc;
   const rearForceBodyX  = rearLongForce;
   const rearForceBodyY  = rearLatForce;

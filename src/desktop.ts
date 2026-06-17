@@ -187,7 +187,7 @@ document.body.appendChild(brakeTunerEl);
   // p28 power; p29 frontAuth/frontSlide/speedHold; p30 spinArm .95/.97; p31 loadTransferGain 0
   // (no throttle→grip inversion) + rearSlipFloor 4.0 (kills false low-speed burnout, full-lock
   // low-speed drift survives by magnitude).
-  subhead('SIM DRIFT — spinArm.95/.97 ltGain0 slipFloor4 speedHold0(wave off)');
+  subhead('SIM DRIFT — spinArm ltGain0 slipFloor4 waveOff + frontLongDrag(1=off)');
   mkRow('driftFrontCarve', () => CONFIG.driftFrontCarve, (v) => { CONFIG.driftFrontCarve = v; },
     0.1, 0, 1, (v) => v.toFixed(2));
   mkRow('driftScrubRate', () => CONFIG.driftScrubRate, (v) => { CONFIG.driftScrubRate = v; },
@@ -210,6 +210,8 @@ document.body.appendChild(brakeTunerEl);
     0.025, 0.50, 1.0, (v) => v.toFixed(3));
   mkRow('driftSimSpinArmHB', () => CONFIG.driftSimSpinArmHB, (v) => { CONFIG.driftSimSpinArmHB = v; },
     0.025, 0.50, 1.0, (v) => v.toFixed(3));
+  mkRow('driftSimFrontLongDrag', () => CONFIG.driftSimFrontLongDrag, (v) => { CONFIG.driftSimFrontLongDrag = v; },
+    0.05, 0, 1.0, (v) => v.toFixed(2));
   mkRow('driftSimLoadTransferGain', () => CONFIG.driftSimLoadTransferGain, (v) => { CONFIG.driftSimLoadTransferGain = v; },
     0.05, 0, 0.35, (v) => v.toFixed(2));
   mkRow('driftSimRearSlipFloor', () => CONFIG.driftSimRearSlipFloor, (v) => { CONFIG.driftSimRearSlipFloor = v; },

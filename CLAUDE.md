@@ -916,3 +916,27 @@ phone→desktop `join | color | name | leave | control`; desktop→phone `lobby 
 sections carry knowledge not readable from code — preserve them. Technical details (file
 and function names, CONFIG keys, constants, build/test commands) should be corrected to
 match the actual repo whenever they drift.*
+
+---
+**p33 — SIM front longitudinal-brake knob (added, but the deep+fast goal is PHYSICALLY UNREACHABLE
+— honest negative result):** the FREE-RUN decomposition (p32 follow-up) proved the spinning rear
+propels +8000 N along velocity (constant, NOT collapsed) but the front cornering force projected
+to body-X brakes −6600 N (shallow β) to −15000 N (deep β) → the drift crawls. Added
+`CONFIG.driftSimFrontLongDrag` (0..1, sim+driftActive ×scale on `frontForceBodyX = −frontLatForce·
+sin(steer)`, the front's along-heading brake; body-Y/cornering/yaw UNTOUCHED — body-X isn't in the
+yaw torque so the turn is unaffected). **MEASURED the value sweep — and it does NOT deliver the
+goal:** cutting the front brake DOES raise sustained speed (scale 1.0→0.1: 16→24 km/h) **BUT it
+SHALLOWS the drift** (β 14°→7°), because the car re-aligns to a shallower/faster equilibrium — it
+never holds a DEEP (β25–35°) drift at speed. Root: a DEEP drift inherently bleeds because the rear
+propulsion is MISALIGNED from velocity (`cosβ` small) → less along-velocity drive → slow; cutting
+the front brake just lets it settle shallower-faster, not deep-fast. So **deep+fast is the same
+physical wall the wave faked** (the wave pumped speed along velocity → rocket; honest physics gives
+deep=slow OR shallow=fast, not both). Spin still bleeds (5–10 km/h at all scales ✓), shallow
+doesn't runaway (≤21 km/h ✓) — but the DEEP-sustain goal fails. **Per the prompt's own "STOP and
+report if one value can't satisfy all" clause, DEFAULT LEFT 1.0 (no-op, proven BYTE-IDENTICAL to
+HEAD in both arcade AND sim) — NOT shipped as an active change.** The knob is live on the D tuner
+(dial ~0.2 for a faster-but-shallower drift IF that's an acceptable trade). **HONEST CONCLUSION:
+a held deep cornering drift at 30–40 km/h is not achievable on the honest 1/3-scale model without
+an artificial along-velocity term (the removed wave). The real options are: accept deep=slow /
+shallow=fast (honest), OR re-introduce a *bounded, non-spin* speed assist (a wave that's killed in
+a spin), OR rescale the whole car (Verze 3). Flagged for a decision — not patched.**
