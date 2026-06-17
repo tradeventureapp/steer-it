@@ -553,6 +553,19 @@ export const CONFIG = {
   // spinReleaseThreshold (0.78) / spinReleaseThresholdHB (0.90) → byte-identical.
   driftSimSpinArm:   0.95,          // throttle arm (vs arcade spinReleaseThreshold 0.78)
   driftSimSpinArmHB: 0.97,          // handbrake arm (vs arcade spinReleaseThresholdHB 0.90)
+  // ---------- p31 — SIM throttle→grip cleanup (no inversion, no false low-speed burnout) ----
+  // (A) rearLoadFactor (p19b loadTransferGain) ADDS rear lateral grip under throttle (accel) →
+  // more throttle = MORE grip, INVERTING the player's principle (throttle modulates grip via the
+  // force-vs-grip ratio). Zero it in SIM → throttle ONLY removes grip via the friction circle
+  // (monotonic less-throttle = more-grip at all speeds). Arcade keeps loadTransferGain 0.35.
+  driftSimLoadTransferGain: 0,
+  // (B) REAR low-speed slip-angle floor (sim-only, REAR ONLY — front MIN_LONG untouched). At low
+  // speed a hair of lateral reads as a HUGE slip angle (small forwardVel denom) → false sliding
+  // → drive spins the wheel UNOPPOSED → false burnout + skids. Raising the rear denominator floor
+  // is MAGNITUDE-SENSITIVE: atan2(0.3, 4)=4° (hair → grips) but atan2(3, 4)=37° (full lock → still
+  // slides) → the false burnout dies while the real full-lock low-speed drift (p29/p30) SURVIVES.
+  // Only acts below ~floor m/s of forwardVel (max(floor,|fwd|)); above it |fwd| dominates = no-op.
+  driftSimRearSlipFloor: 4.0,       // m/s (vs the shared MIN_LONG 0.5; raised for the REAR in sim)
 };
 
 export type Config = typeof CONFIG;
@@ -1049,7 +1062,10 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   car.axLong += (axInstant - car.axLong) * Math.min(1, c.loadTransferSmooth * dt);
   car.prevForwardVel = forwardVel;
   const axNorm = clamp(car.axLong / c.loadTransferRefAccel, 0, 1);   // accel-only
-  const rearLoadFactor = 1 + c.loadTransferGain * axNorm;   // throttle → rear grips → exit aid
+  // p31 (A): SIM zeroes loadTransferGain so throttle never ADDS rear grip (no inversion);
+  // arcade keeps 0.35 → byte-identical.
+  const ltGain = c.driftMode === 'sim' ? c.driftSimLoadTransferGain : c.loadTransferGain;
+  const rearLoadFactor = 1 + ltGain * axNorm;   // throttle → rear grips → exit aid (arcade only now)
 
   // ---- 2. Steering: ease front wheel toward target lock ----
   const targetSteer = clamp(input.steer, -1, 1) * c.maxSteerAngle;
@@ -1154,7 +1170,12 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   // huge phantom lateral forces from numerical noise).
   const MIN_LONG = 0.5;
   const frontSlip = Math.atan2(frontWheelLat, Math.max(MIN_LONG, Math.abs(frontWheelLong)));
-  const rearSlip  = Math.atan2(rearLat,       Math.max(MIN_LONG, Math.abs(rearLong)));
+  // p31 (B): SIM raises the REAR slip-angle denominator floor only (front MIN_LONG untouched).
+  // Magnitude-sensitive: a hair of lateral at low speed now reads as a SMALL angle (grips, no
+  // false burnout) while a full-lock big lateral still reads large (real low-speed drift survives).
+  // Acts only below ~floor m/s of |rearLong| (=|forwardVel|); above it |fwd| dominates → no-op.
+  const rearSlipFloor = c.driftMode === 'sim' ? c.driftSimRearSlipFloor : MIN_LONG;
+  const rearSlip  = Math.atan2(rearLat,       Math.max(rearSlipFloor, Math.abs(rearLong)));
 
   // ---- 5. Tire forces ----
   // FRONT (undriven): pure lateral, linear in slip angle, clamped at peak,

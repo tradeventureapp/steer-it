@@ -233,9 +233,35 @@ deployment-hash URL); `steer-it.vercel.app` also serves it.
   rock-steady); a HARD opposite countersteer flick transitions the drift (expected = a
   Scandinavian flick), gentle countersteer controls the angle cleanly; the catch stays inert
   until the held β exceeds 20° (lowering sim `autoCounterStart` is the next lever for a steadier
-  auto-damp). Knobs (`driftSimSpinArm`/`driftSimSpinArmHB`) live on the D tuner. **NEXT: feel-test
-  the holdable drift on phone; if wobbly, lower sim `autoCounterStart` so the catch engages
-  earlier; Handbrake drift behaviour = Pass 3.**
+  auto-damp). Knobs (`driftSimSpinArm`/`driftSimSpinArmHB`) live on the D tuner.
+  **p31 — SIM THROTTLE→GRIP cleanup (no inversion + no false low-speed burnout):** phone test
+  found two unhealthy low-speed behaviours on a STRAIGHT pull-away. **(A) throttle→grip inversion:**
+  `rearLoadFactor` (p19b `loadTransferGain` 0.35) ADDS rear lateral grip under acceleration (0.3
+  throttle→×1.16, 1.0→×1.35) → more throttle = MORE grip, inverting the player's force-vs-grip
+  principle. FIX = sim-gated `CONFIG.driftSimLoadTransferGain` **0** (arcade keeps 0.35 →
+  byte-identical) so throttle ONLY removes grip via the friction circle (monotonic). **(B) false
+  low-speed burnout + false skids:** `rearSlip = atan2(rearLat, max(MIN_LONG 0.5, |forwardVel|))`
+  — at low speed a HAIR of lateral reads as a huge slip angle → `nLat>1` → `rho>1` → false
+  `isRearSliding` → the rear longitudinal reaction collapses → drive spins the wheel UNOPPOSED at
+  any throttle → a 4 m burnout that then cruises (the car still accelerates — false visual/feel).
+  FIX = sim-gated **REAR-ONLY** slip-angle floor `CONFIG.driftSimRearSlipFloor` **4.0** (front
+  `MIN_LONG` 0.5 untouched). MAGNITUDE-SENSITIVE (the key): `atan2(0.3, 4)=4°` (a hair → grips, no
+  burnout) but `atan2(3, 4)=37°` (full lock → still slides) → the false burnout dies WHILE the
+  real full-lock low-speed drift SURVIVES. Acts only below ~4 m/s `|forwardVel|`; above it `|fwd|`
+  dominates → no-op. **MEASURED:** (a) ARCADE byte-identical to HEAD (0.0e+0, full suite — both
+  sim-gated); **(b) ACCEPTANCE TEST PASSES — hair-steer (0.05) + 20–30% throttle: 100%→0%
+  wheelspin, drives cleanly to ~17–26 km/h** (no 4 m burnout); (c) throttle→grip MONOTONIC at all
+  speeds; **(e) ⚠️ LOW-SPEED FULL-LOCK DRIFT SURVIVES — β 27/21/21° at 10/15/20 km/h UNCHANGED**
+  before vs after (the magnitude floor preserved it); (f) false skid 5→0 frames; (g) drift exit
+  hooks up (lift 100→23% wheelspin); not a rocket (0-50 1.42s, top 124). **FIX A proven INERT in
+  the wave-exit + straight-accel** (ltGain 0 vs 0.35 → identical 45 km/h exit, 1.42s 0-50) — it
+  ONLY removes the inversion, no regression. **CHECK-(d) CLARIFICATION:** the p29 "traveling 33–49
+  km/h @ β43–45" was the PRE-p30 SPINNING car (β45 = mean of a rotating car); **p30 already
+  settled it to a held β≈16° @ ~15 km/h** — p31 preserves that exactly (not a p31 regression; the
+  check compared a stale baseline). Knobs (`driftSimLoadTransferGain` 0 / `driftSimRearSlipFloor`
+  4.0) live on the D tuner; determinism + per-car. **NEXT: feel-test on phone (clean pull-away, no
+  false burnout/skids, monotonic throttle); the shallow-held-drift depth (β16) + catch engagement
+  (<20°) remain the open feel items; Handbrake drift behaviour = Pass 3.**
 - `desktop.ts` — game surface (authority): fixed-timestep loop, per-slot car map,
   render, obstacle + car-car collisions, car drawing, HUD, skids/smoke, the track
   editor (key E), lobby wiring, QR.
