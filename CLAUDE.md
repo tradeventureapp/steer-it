@@ -998,3 +998,41 @@ builds progressively); (f) exit accelerates (7→56), determinism 0, multi-car i
 tuner (`driftSimDriftYawCeiling`, range 2.4–2.9). arcade+sim byte-identical; independent of the band-aids
 (Stage iii). **NEXT: PHONE FEEL-TEST sim-real (held drift controllable + not twitchy, deliberate spin
 still works, deep angle holdable with active countersteer); then Stage iii band-aid drops + force re-tune.**
+
+---
+**VERZE 3 — STAGE iv (REAL-GRIP scale in sim-real — the car finally DRIFTS; geometry + yaw + grip
+complete):** the keystone investigation found the grip model was inflated ~2–2.6× real tyre μ (front
+static μ 3.44, rear 2.75, front kinetic 2.57, rear 1.38 — vs real 1.3–1.5 static / 0.7–1.0 kinetic)
+AND the front OUT-gripped the rear (static ratio 1.25 → the front over-bit: held the angle but BRAKED
+the attitude away → the drift died in <1s). Stage ii fixed the GEOMETRY to real size but left the GRIP
+inflated → still a hybrid. **The honest completion = bring the grip to real μ too, CONSISTENTLY** (the
+WHOLE static-grip set scaled together, front ≤ rear like a real RWD — single-lever cuts were measured to
+just straighten/shallow, never live). Three sim-real-gated CONFIG values (each a ternary whose else = the
+EXACT inflated constant → arcade + sim byte-identical): `simRealGripBudgetRear` **8100** (μ_static_rear
+~1.38, vs 16200), `simRealPeakLatGripFront` **6500** (μ ~1.10, < rear → fixes the over-bite, vs 20250),
+`simRealStiffnessScale` **0.5** (×scale on front+rear `corneringStiffness` so the peak-grip slip angle
+budget/stiffness is preserved). KINETIC FRACTIONS KEPT (`driftSimRearGrip` 0.50 / `frontDriftFriction`
+0.83 / `driftSimFrontSlide` 0.9 / `rearDriftFriction` — already ~real 0.5–0.6). Wired as gated locals at
+the front-force site (`peakLatGripFront`/`stiffFront`, physics.ts ~1119) + the rear `budget`/`alphaPeakRear`
+(physics.ts ~1263); `isSimReal` captured at the top (Stage ii) is in scope at both. **MEASURED:** (a)
+ARCADE identity vs HEAD **0.0e+0** (full suite: grip corner / launch / provoke+sustain / spin / handbrake
+/ foot brake); (b) SIM identity vs HEAD **0.0e+0** (sim keeps the inflated grip); **(c) THE KEYSTONE — the
+car finally drifts: inflated→real-grip took a provoked drift from lifetime 0.7s / β2° / 51k to lifetime
+1.8s / β15° / 17k** (under active countersteer) — the drift now LIVES (2.6× longer), is DEEP + HOLDABLE
+(β2→15°), and TRAVELS at a visible ~17 km/h (not on-the-spot); (d) MECHANISM confirmed — the rear CARRIES
+at real kinetic μ (doesn't snap back to grip) + the front (now ≤ rear) STEERS without over-braking the
+attitude; (e) SPIN STILL BLEEDS 63→16k over 3s (no rocket); (f) CORNERING in sim-real is now LOOSER —
+steer0.4+gas0.5 breaks to β53° (vs arcade β1° grippy), yaw 1.19 = still corners (real-E30 slides willingly,
+SIM-REAL ONLY → arcade/sim corners stay grippy byte-identical); (g) EXIT is GENTLER (real low-grip) — from
+a deep drift, straighten+throttle dips through the de-rotation (25k→1k as β69→2°) then ACCELERATES out
+1→31k over 3s; straight-line 0–50 in 4.7s (vs the inflated rocket); (h) Stage-iv yaw ceiling holds,
+determinism 0, multi-car independent. Live-tunable on the D tuner (`simRealGripBudgetRear` /
+`simRealPeakLatGripFront` / `simRealStiffnessScale`). Trademark-clean (NO brand strings in code/comments;
+"Blitz RS" only). **ACCEPTED TRADE-OFFS (confirmed, not bugs, ALL sim-real-only): the deep drift travels
+at MODERATE speed (~17 km/h, not 30 — the 30 was the wave's fiction; a real deep drift scrubs speed too,
+the geometry wall `drive·cosβ < scrub` is SOFTENED not removed), the power-exit is gentler, and grippy
+cornering is looser. arcade/sim keep the grippy race feel.** Verze 3 (geometry + yaw + grip) is now
+COMPLETE — **sim-real = realistic, and it genuinely drifts.** **NEXT: phone feel-test sim-real (provoke →
+hold a deep drift ~2s with countersteer → power out; deliberate spin still bleeds; looser corners +
+gentler exit feel right). If it feels right, sim-real becomes the player drift mode; Stage iii band-aid
+cleanup (drop the now-redundant 1/3-symptom knobs in sim-real) is independent and can follow.**
