@@ -1036,3 +1036,38 @@ COMPLETE — **sim-real = realistic, and it genuinely drifts.** **NEXT: phone fe
 hold a deep drift ~2s with countersteer → power out; deliberate spin still bleeds; looser corners +
 gentler exit feel right). If it feels right, sim-real becomes the player drift mode; Stage iii band-aid
 cleanup (drop the now-redundant 1/3-symptom knobs in sim-real) is independent and can follow.**
+
+---
+**SIM-BRANCH SMART WAVE (sim-real felt bad in-hand on the phone → back to the plain 'sim' branch with
+an honest arcade assist):** the sim-real real-grip car DRIFTED but felt wrong to drive, so the player
+returned to the **plain 'sim'** branch and accepted ONE bounded arcade assist to make its drift TRAVEL.
+The old p27 speed-hold `wave` (`driftSimSpeedHold`, removed p32) was β-gated → it also fired in a SPIN →
+rocket. **The fix = re-enable it spin-safely.** An AUDIT first proved (a) the discriminator is CLEAN:
+`spinRelease` (=|spinTimer|/spinReleaseHold) is **binary — 0.00 in a held drift (entry AND settled),
+1.00 in a committed spin**, no overlap (a raw-ω gate would be risky: drift entry ω 3.5 vs spin 5.5); and
+(b) the wave is the biggest single win but NOT the whole drift — the **catch (`driftSimCatch`) is dead**
+(settled β ~9° sits below the 20° `autoCounterStart`; tested — lowering `autoCounterStart` does NOT wake
+it and shortens lifetime → it's a deeper dead mechanism, a SEPARATE pass, not touched here). IMPLEMENTED
+(plain-sim only, re-using the existing wave block — NO new force term): (1) **SIM-ONLY GATE** — the wave
+fires only when `!isSimReal`; since `isSimReal` (captured in `step()` at the Stage-i normalise) is NOT in
+scope inside `simDriftSustain`, it was **plumbed in as a new param** (`simDriftSustain(…, isSimReal)`,
+passed from the call site) — arcade never reaches `simDriftSustain` (dispatch), sim-real is the normalised
+'sim' but `isSimReal=true` → excluded → arcade + sim-real BYTE-IDENTICAL; (2) **SPIN GATE** —
+`× (1 − spinRelease)` → in a spin spinRelease→1 → the wave term → 0 → speed bleeds identical to wave-OFF
+→ **algebraically can't rocket**; (3) **ENTRY CAP** kept (one-sided clamp at `car.driftEntrySpeed`, never
+pumps above entry); (4) **THROTTLE FADE** kept (∝ `driftIntent` → lift = scrubs/exits); (5)
+`CONFIG.driftSimSpeedHold` default **0 → 0.5**; (6) the `betaFactor` lower bound relaxed **20°→10°** via
+new `CONFIG.driftSimWaveBetaMin` (10, live on D) so the traveling slide (~β9°) stays in the wave window
+longer (safe now that spinRelease guards the spin). **MEASURED:** (a) ARCADE vs HEAD **0.0e+0**; (b)
+**SIM-REAL vs HEAD 0.0e+0** (the gating-trap check — wave does NOT leak into the frozen branch); (c) SPIN
+**BLEEDS** (full-lock+HB+throttle 54→5k over 3s — NO rocket, vs the old β-gated wave's 54→60k); (d) DRIFT
+**TRAVELS** — lifetime **0.7→1.7s (2.4×)**, deep-fast entry (β70@50k) → traveling slide (~β8@23k) instead
+of the on-spot donut; (e) lift SCRUBS (42→24k) + straighten-throttle EXIT ACCELERATES (24→64k); (f)
+determinism 0, multi-car (per-car `driftEntrySpeed`). tsc + build clean; trademark clean (Blitz RS).
+**HONEST SCOPE:** this gives a **punchy arcade drift that TRAVELS** (deep-fast entry → traveling slide →
+clean exit), NOT a stable deep SUSTAINED drift — the angle still washes to shallow (~β9°) and the
+**auto-catch stays dead** (separate pass, flagged, not bundled). `driftSimSpeedHold` (0.5) +
+`driftSimWaveBetaMin` (10°) live on the D tuner. **Arcade + sim-real FROZEN. NEXT: phone feel-test the
+sim drift (provoke → it kicks out deep+fast and travels → catch with countersteer → power out; deliberate
+spin still bleeds, no rocket). If the manual-countersteer feel is too twitchy, reviving the dead catch is
+the next (separate) item.**

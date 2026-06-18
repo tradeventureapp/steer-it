@@ -198,6 +198,8 @@ document.body.appendChild(brakeTunerEl);
     0.05, 0, 1, (v) => v.toFixed(2));
   mkRow('driftSimSpeedHold', () => CONFIG.driftSimSpeedHold, (v) => { CONFIG.driftSimSpeedHold = v; },
     0.05, 0, 1, (v) => v.toFixed(2));
+  mkRow('driftSimWaveBetaMin', () => CONFIG.driftSimWaveBetaMin, (v) => { CONFIG.driftSimWaveBetaMin = v; },
+    1, 5, 30, (v) => v.toFixed(0));
   mkRow('driftSimEnginePower', () => CONFIG.driftSimEnginePower, (v) => { CONFIG.driftSimEnginePower = v; },
     500, 9000, 18000, (v) => String(Math.round(v)));
   mkRow('driftSimBoostFadeSpeed', () => CONFIG.driftSimBoostFadeSpeed, (v) => { CONFIG.driftSimBoostFadeSpeed = v; },
