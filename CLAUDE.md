@@ -1081,3 +1081,32 @@ clean exit), NOT a stable deep SUSTAINED drift — the angle still washes to sha
 sim drift (provoke → it kicks out deep+fast and travels → catch with countersteer → power out; deliberate
 spin still bleeds, no rocket). If the manual-countersteer feel is too twitchy, reviving the dead catch is
 the next (separate) item.**
+
+---
+**SIM-REAL LOW-SPEED SLIDE GATE (fix #1 — kills the low-speed false burnout + smoke + false drift-latch):**
+phone video (HUD-confirmed) showed a sim-real low-speed pathology: at 7–15 km/h, near-full steer, MINIMAL
+throttle (0.15) → WSPIN 53% (a BURNOUT on almost no gas), the car barely turns ("stiff stick"), and smoke
+forms. DIAGNOSIS (instrumented, measured): the cluster is **sim-real ONLY** (arcade + sim turn cleanly,
+no smoke) — NOT the `slipDenomFloor`/`driftSimRearSlipFloor` blow-up the symptom suggested (those floors
+are inactive/mitigating here). ROOT = the **real arm** (`simRealWheelbase`/halfWB 1.3 m, 3× the 1/3 arm):
+the rear slip angle `atan2(lateralVel − ω·halfWB, …)` blows up at low speed because `ω·halfWB` is large →
+any rotation (ω≈1) inflates the rear-axle lateral velocity → rho>1 → a FALSE slide → (a) SMOKE (skid
+trigger = `isRearSliding`), (b) `driftActive` latches → the rear goes KINETIC (`driftSimRearGrip` 0.5,
+low) so the 12500 sim-engine ×1.27 boost spins the wheel on 0.15 throttle → WSPIN 74% (reproduced, matches
+the video). It's the flip side of what makes sim-real drift at 40 km/h (a feature at speed, a bug at
+12 km/h). FIX #1 = `CONFIG.driftSimLowSpeedGripSpeed` **5.0** m/s + a sim-real-gated **rearYawFactor =
+clamp(speed / driftSimLowSpeedGripSpeed, 0, 1)** that fades the `ω·halfWB` (yaw) contribution to the REAR
+slip in over 0..5 m/s (`rearLat = lateralVel − ω·halfWB·rearYawFactor`, physics.ts ~1222) — so below the
+gate the rear stays GRIPPING (rho<1, no false slide) and above it the full real coupling returns (drift
+intact). ONLY the LATERAL/yaw term is touched → LONGITUDINAL wheelspin (launch, handbrake lock — both
+nLong-driven) is UNAFFECTED. **MEASURED:** (a) ARCADE vs HEAD **0.0e+0**; (b) SIM vs HEAD **0.0e+0** (gate
+is `isSimReal`-only); **(c) KEYSTONE — WSPIN 39→0%, rho 1.34→0.24, smoke ON→OFF** at the video state (the
+rear grips; `driftActive` may still flag but with rho<1 it's harmless — no kinetic burnout); (d) LAUNCH
+0–50 1.42s unchanged + low-speed handbrake spin preserved (WSPIN 58%, nLong-driven); (e) HIGH-SPEED drift
+(provoke 50k) lifetime/β **identical to HEAD** (factor=1 above 5 m/s); (f) SMOOTH — `rearYawFactor` is a
+continuous ramp (no snap); (g) foot brake unaffected, determinism 0, multi-car. tsc + build clean;
+trademark clean. Live on the D tuner (`driftSimLowSpeedGripSpeed`, 2–10). **RESIDUAL (honest, fix #2
+DEFERRED):** the low-speed TURN-AMOUNT (~54° vs arcade 81°) is geometry + the stronger sim engine, NOT the
+latch — the gate fixes the burnout/smoke/false-slide but not the turn amount (a separate pass: tame the
+low-speed sim engine/boost, or accept the real-geometry turn). **NEXT: phone test sim-real low speed
+(no burnout on light throttle, no smoke crawling, turns as a grip turn not a latched slide).**

@@ -216,6 +216,8 @@ document.body.appendChild(brakeTunerEl);
     0.05, 0, 1.0, (v) => v.toFixed(2));
   mkRow('driftSimDriftYawCeiling', () => CONFIG.driftSimDriftYawCeiling, (v) => { CONFIG.driftSimDriftYawCeiling = v; },
     0.1, 2.0, 3.6, (v) => v.toFixed(2));
+  mkRow('driftSimLowSpeedGripSpeed', () => CONFIG.driftSimLowSpeedGripSpeed, (v) => { CONFIG.driftSimLowSpeedGripSpeed = v; },
+    0.5, 2.0, 10.0, (v) => v.toFixed(1));
   mkRow('driftSimLoadTransferGain', () => CONFIG.driftSimLoadTransferGain, (v) => { CONFIG.driftSimLoadTransferGain = v; },
     0.05, 0, 0.35, (v) => v.toFixed(2));
   mkRow('driftSimRearSlipFloor', () => CONFIG.driftSimRearSlipFloor, (v) => { CONFIG.driftSimRearSlipFloor = v; },

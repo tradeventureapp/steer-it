@@ -418,6 +418,16 @@ export const CONFIG = {
   // drift ANGLE is never clamped → a deep drift stays reachable via active countersteer).
   driftSimDriftYawCeiling: 2.6,     // rad/s (sim-real held drift; arcade/sim use maxYawRate)
 
+  // Low-speed slide GATE (sim-real ONLY, fix #1). The real arm (halfWB 1.3 m, 3× the 1/3 arm)
+  // makes the rear slip angle (atan2(lateralVel − ω·halfWB, …)) blow up at low speed — any
+  // rotation inflates the rear-axle lateral velocity → rho>1 → a FALSE slide → smoke + driftActive
+  // latch + the rear goes kinetic so the 12500 sim-engine spins the wheel on a hair of throttle
+  // (the low-speed false BURNOUT). It's the flip side of what makes sim-real drift at 40 km/h, so
+  // gate it by SPEED: below this, the ω·halfWB (yaw) contribution to the REAR slip is faded out so
+  // the rear stays in GRIP (rho<1, no false slide). Longitudinal wheelspin (launch, handbrake
+  // lock) is nLong-driven → UNTOUCHED. Above this → full real coupling → the drift is intact.
+  driftSimLowSpeedGripSpeed: 5.0,   // m/s (~18 km/h); the yaw→rear-slip coupling fades in over 0..this
+
   // ---------- Drift detection / skids ----------
   // Visual indicator only — independent of the physics slide cap. Lower
   // so skids and the DRIFT badge show up as soon as the rear is past
@@ -1219,7 +1229,14 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   const frontLong = forwardVel;
   const frontLat  = lateralVel + car.angularVel * halfWB;
   const rearLong  = forwardVel;
-  const rearLat   = lateralVel - car.angularVel * halfWB;
+  // Low-speed slide gate (sim-real fix #1): fade the ω·halfWB (yaw) contribution to the REAR slip
+  // in over [0, driftSimLowSpeedGripSpeed] so the real arm can't latch a FALSE low-speed slide.
+  // sim-real-gated → arcade + sim keep the full term byte-identical. Only the LATERAL (yaw) term
+  // is touched → longitudinal wheelspin (launch / handbrake lock, nLong-driven) is unaffected.
+  const rearYawFactor = isSimReal
+    ? clamp(speed / Math.max(0.001, c.driftSimLowSpeedGripSpeed), 0, 1)
+    : 1;
+  const rearLat   = lateralVel - car.angularVel * halfWB * rearYawFactor;
 
   // Rotate front-axle velocity into the steered wheel frame.
   const fc = Math.cos(effectiveSteer);
