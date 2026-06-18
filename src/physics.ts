@@ -418,20 +418,6 @@ export const CONFIG = {
   // drift ANGLE is never clamped → a deep drift stays reachable via active countersteer).
   driftSimDriftYawCeiling: 2.6,     // rad/s (sim-real held drift; arcade/sim use maxYawRate)
 
-  // Stage iv — REAL-GRIP scale (sim-real ONLY). The arcade/sim grip is inflated ~2-2.6× real
-  // tyre μ (front static μ 3.44, rear 2.75) with the front OUT-gripping the rear (ratio 1.25 →
-  // the front over-bites: holds the angle but BRAKES the attitude away → the drift dies in <1s).
-  // Measured: scaling the WHOLE static-grip set CONSISTENTLY to real μ (front ≤ rear, like a real
-  // RWD) more than TRIPLED drift lifetime (0.7→2.2s) and took β from a dead 2° to a holdable 19°
-  // — the rear now CARRIES at real kinetic μ, the front STEERS without over-braking. Kinetic
-  // FRACTIONS (driftSimRearGrip / frontDriftFriction / driftSimFrontSlide / rearDriftFriction) are
-  // KEPT — already ~real 0.5-0.6. Cornering stiffness is scaled the SAME so the peak-grip slip
-  // angle (budget/stiffness) is preserved. Live-tunable on the D tuner. Each is sim-real-gated in
-  // step() (else = the exact inflated constant → arcade + sim byte-identical).
-  simRealGripBudgetRear: 8100,      // sim-real rear STATIC budget (μ ~1.38, vs inflated 16200)
-  simRealPeakLatGripFront: 6500,    // sim-real front peak (μ ~1.10, < rear → fixes the over-bite)
-  simRealStiffnessScale: 0.5,       // sim-real ×scale on front+rear cornering stiffness (keeps slip-angle)
-
   // ---------- Drift detection / skids ----------
   // Visual indicator only — independent of the physics slide cap. Lower
   // so skids and the DRIFT badge show up as soon as the rear is past
@@ -1151,12 +1137,6 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   // the exact current expression → byte-identical. This halfWB feeds the yaw torque, the axle
   // slip velocities (rearLat/frontLat = lateralVel ∓ ω·halfWB), frontVelAngle, and the pivot.
   const halfWB = (isSimReal ? c.simRealWheelbase : c.wheelbase) / 2;
-  // Stage iv (sim-real): REAL-GRIP — the whole static-grip set scaled to real μ, front ≤ rear,
-  // stiffness scaled the same so the peak-grip slip angle holds. else = the EXACT current constant
-  // → arcade + sim byte-identical. Kinetic fractions (frontDriftFriction / driftSimFrontSlide /
-  // driftSimRearGrip / rearDriftFriction) are KEPT. These feed the front force (§5) + the rear budget.
-  const peakLatGripFront = isSimReal ? c.simRealPeakLatGripFront : c.peakLatGripFront;
-  const stiffFront = isSimReal ? c.corneringStiffnessFront * c.simRealStiffnessScale : c.corneringStiffnessFront;
   // High-speed steering falloff (p13: superseded by the slip limiter below,
   // steerSpeedFalloff set to 1.0 = no-op; left in place as a fallback knob).
   const falloff = 1 - (1 - c.steerSpeedFalloff) *
@@ -1263,10 +1243,10 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   // ---- 5. Tire forces ----
   // FRONT (undriven): pure lateral, linear in slip angle, clamped at peak,
   // kinetic fraction once sliding — unchanged from earlier passes.
-  let frontLatForce = -stiffFront * frontSlip;
-  const isFrontSliding = Math.abs(frontLatForce) > peakLatGripFront;
+  let frontLatForce = -c.corneringStiffnessFront * frontSlip;
+  const isFrontSliding = Math.abs(frontLatForce) > c.peakLatGripFront;
   if (isFrontSliding) {
-    frontLatForce = Math.sign(frontLatForce) * peakLatGripFront * c.frontDriftFriction;
+    frontLatForce = Math.sign(frontLatForce) * c.peakLatGripFront * c.frontDriftFriction;
   }
   // p29 SIM front scale (multiplicative on the EXISTING frontLatForce; sim+driftActive-gated
   // so arcade/grip are byte-identical). TWO intents, handed off by SPEED so they don't fight:
@@ -1299,8 +1279,8 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   // spins → nLong grows → the force vector rotates longitudinal → lateral
   // grip collapses → the rear steps out. Lift → the wheel grips up
   // (nLong → 0) → the budget swings back lateral → the rear hooks up.
-  const budget = isSimReal ? c.simRealGripBudgetRear : c.tireGripBudgetRear;
-  const alphaPeakRear = budget / (isSimReal ? c.corneringStiffnessRear * c.simRealStiffnessScale : c.corneringStiffnessRear);
+  const budget = c.tireGripBudgetRear;
+  const alphaPeakRear = budget / c.corneringStiffnessRear;
 
   // Engine drive force at the rear contact patch — an HONEST torque curve,
   // a function of THROTTLE and WHEEL SPEED ONLY (no slip-angle term; the

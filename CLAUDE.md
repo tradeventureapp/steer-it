@@ -1000,6 +1000,16 @@ tuner (`driftSimDriftYawCeiling`, range 2.4–2.9). arcade+sim byte-identical; i
 still works, deep angle holdable with active countersteer); then Stage iii band-aid drops + force re-tune.**
 
 ---
+**⚠️ REVERTED (the grip-scale step below was undone — sim-real grip is back to the inflated values).
+The phone feel-test of the real-grip sim-real car drove badly, so the player returned to the plain
+'sim' branch. This step was reverted (commit removing `simRealGripBudgetRear`/`simRealPeakLatGripFront`/
+`simRealStiffnessScale` + their step() gating + the D-tuner rows). KEPT: Stage ii geometry (real
+`simRealWheelbase` 2.6 / halfWB 1.3 / inertia 676) and the Stage iv yaw-ceiling split
+(`driftSimDriftYawCeiling`). Sim-real now = byte-identical to the pre-grip commit (`c1ceb57`): real
+geometry + yaw ceiling + the OLD inflated grip (so it "barely drifts" again — that was the point of
+the grip step, now undone). Arcade + sim byte-identical throughout (the grip gating was sim-real-only).
+The entry below is retained for history.**
+
 **VERZE 3 — STAGE iv (REAL-GRIP scale in sim-real — the car finally DRIFTS; geometry + yaw + grip
 complete):** the keystone investigation found the grip model was inflated ~2–2.6× real tyre μ (front
 static μ 3.44, rear 2.75, front kinetic 2.57, rear 1.38 — vs real 1.3–1.5 static / 0.7–1.0 kinetic)

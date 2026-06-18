@@ -221,16 +221,6 @@ document.body.appendChild(brakeTunerEl);
   mkRow('driftSimRearSlipFloor', () => CONFIG.driftSimRearSlipFloor, (v) => { CONFIG.driftSimRearSlipFloor = v; },
     0.5, 0.5, 8.0, (v) => v.toFixed(1));
 
-  // Stage iv — REAL-GRIP scale (sim-real ONLY). Drops the inflated grip to real μ (rear budget
-  // 8100 ≈ μ1.38, front 6500 < rear ≈ μ1.10 → fixes the over-bite). Lower = drifts deeper/longer.
-  subhead('SIM-REAL grip (real-μ: rearBudget 8100 / frontPeak 6500 < rear)');
-  mkRow('simRealGripBudgetRear', () => CONFIG.simRealGripBudgetRear, (v) => { CONFIG.simRealGripBudgetRear = v; },
-    250, 4000, 16200, (v) => String(Math.round(v)));
-  mkRow('simRealPeakLatGripFront', () => CONFIG.simRealPeakLatGripFront, (v) => { CONFIG.simRealPeakLatGripFront = v; },
-    250, 3000, 20250, (v) => String(Math.round(v)));
-  mkRow('simRealStiffnessScale', () => CONFIG.simRealStiffnessScale, (v) => { CONFIG.simRealStiffnessScale = v; },
-    0.05, 0.2, 1.0, (v) => v.toFixed(2));
-
   // p23 — DRIFT MODEL dev toggle (arcade ⇄ sim). 'sim' is the new front-carve model
   // (WORK IN PROGRESS — currently mirrors arcade). Dev-only; no player menu yet.
   {
