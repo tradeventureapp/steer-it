@@ -43,6 +43,7 @@ interface Particle {
   vx: number; vy: number;   // m/s
   age: number; life: number;
   size: number;
+  grow?: number;            // per-particle radius growth (m/s); smoke only, falls back to FX_CONFIG.smokeGrow
   tint: [number, number, number];  // smoke colour (sparks ignore it)
 }
 
@@ -57,6 +58,7 @@ export class Effects {
     x: number, y: number, carVx: number, carVy: number,
     intensity: number, dt: number, sizeScale = 1,
     tint: [number, number, number] = DEFAULT_SMOKE_RGB,
+    growScale = 1,   // sim-real-2 (real-size car) scales radius growth too, so the puff stays proportional
   ) {
     const C = FX_CONFIG;
     if (intensity <= 0) return;
@@ -77,6 +79,7 @@ export class Effects {
         // standing burnout never fully obscures it (p10).
         life: C.smokeLife + (Math.random() - 0.5) * 2 * C.smokeLifeVar,
         size: C.smokeSize * (0.8 + Math.random() * 0.4) * sizeScale,
+        grow: C.smokeGrow * growScale,   // growScale 1 (arcade) ⇒ exactly C.smokeGrow ⇒ byte-identical
         tint,   // per-map surface colour (white smoke / brown dust / …)
       });
     }
@@ -117,7 +120,7 @@ export class Effects {
       p.x += p.vx * dt;
       p.y += p.vy * dt;
       if (p.kind === 'smoke') {
-        p.size += FX_CONFIG.smokeGrow * dt;
+        p.size += (p.grow ?? FX_CONFIG.smokeGrow) * dt;
         p.vx *= 1 - 1.5 * dt;
         p.vy *= 1 - 1.5 * dt;
       } else {

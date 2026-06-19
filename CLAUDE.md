@@ -1478,3 +1478,27 @@ oval band is proportionally tighter). If the track should also be real-scale (a 
 car-to-track ratio is realistic), that's a follow-up the player can request. **NEXT: phone/desktop feel-test
 the real-size sim-real-2 (default) — drive, drift, handbrake; check the car size + track proportions feel
 right, decide whether to also scale the world.**
+
+---
+**sim-real-2 — VISUAL/TRIGGER SCALING COMPLETED (the last 3 bits joining render/collision/spawn from
+b4ba5bc):** with the real-size 2.565 m car (b4ba5bc), three remaining elements were still on the 1/3
+scale; all now ×`carScale()` (≈2.96, sim-real-2 only; arcade/sim/sim-real → carScale 1 → byte-identical).
+**RENDER SCALE RE-VERIFIED LIVE IN CODE** (not memory): `carScale()` returns 2.565/0.867≈2.96 for
+sim-real-2, `drawCar` applies `ctx.scale(vs,vs)`, default `driftMode='sim-real-2'`, nothing overrides it on
+load → the car DOES draw real-size (~98 px); a small car on screen = a STALE BUILD (hard-refresh / rebuild),
+not a code bug. **The 3 scaled (all measured):** (1) **SKID line width** 3 px → **8.9 px** (desktop.ts,
+`3*carScale()`) — matches the 3× tyres, not absurd; (2) **SMOKE** — initial `smokeSize` 0.42→**1.24 m** AND
+growth `smokeGrow` 1.5→**4.44 m/s** (via a new per-particle `grow` field in effects.ts + a `growScale` param,
+default 1 ⇒ arcade `grow=smokeGrow` byte-identical) → final puff 2.07→**6.13 m**, **smoke-to-car ratio
+1.38× UNCHANGED** (proportional, not a track-swallowing cloud; alpha 0.20 light); (3) **GATE radius**
+`RACE_CONFIG.gateRadius` 1.7→**5.03 m** (desktop.ts RaceManager construction + draw). **LAP COUNTING VERIFIED
+INTACT:** the OVAL startLine uses an EXPLICIT band-relative radius (`bandW/2`, maps.ts) so gateRadius scaling
+does NOT touch it (oval lap counting unchanged + correct); a full armed circuit counts a lap, a re-cross
+WITHOUT reaching the far point does NOT (anti-cheat holds — no premature lap); overlapping editor checkpoints
+(5 m radius) co-collect but do NOT break lap logic (laps count on the single start line only). **CHECKS:**
+(a) render scale live (code-confirmed); (b) arcade/sim/sim-real byte-identical (carScale 1 → skid 3 px /
+gate 1.7 m / smoke grow = smokeGrow); (c) the 3 values above; (d) lap counting intact (oval band-relative,
+anti-cheat, no overlap break); (e) physics 0.0e+0 (step() untouched — visual/trigger only); (f) tsc + build
+clean, no brand strings, multi-car safe. **The real-size scaling is now COMPLETE: render + physics +
+collision + spawn (b4ba5bc) + skid + smoke + gate. NEXT: hard-refresh to get the live build, then phone/
+desktop feel-test the real-size sim-real-2 (car ~98 px, proportional skids/smoke, lap counting on the oval).**

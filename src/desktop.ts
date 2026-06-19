@@ -848,7 +848,7 @@ let editorLaps = RACE_CONFIG.laps;
 // MULTI-CAR race: one RaceManager drives per-car lap counting + finishing order.
 // The lead car (lowest slot) still feeds the single lap/timer HUD; the manager
 // adds the live finish feed + podium for N players.
-let raceManager = new RaceManager(raceElements, { ...RACE_CONFIG, laps: editorLaps });
+let raceManager = new RaceManager(raceElements, { ...RACE_CONFIG, gateRadius: RACE_CONFIG.gateRadius * carScale(), laps: editorLaps });
 const isCircuitMap = () => currentMap.trackType === 'circuit';
 
 // Live finish feed (captured per finisher with the NAME/COLOUR at finish time, so
@@ -987,7 +987,7 @@ function rebuildRace() {
       raceElements.push(currentMap.startLine(world));
     }
   }
-  raceManager = new RaceManager(raceElements, { ...RACE_CONFIG, laps: Math.max(1, editorLaps) });
+  raceManager = new RaceManager(raceElements, { ...RACE_CONFIG, gateRadius: RACE_CONFIG.gateRadius * carScale(), laps: Math.max(1, editorLaps) });
   resetRaceFeed();
 }
 
@@ -1321,7 +1321,7 @@ function drawSkidSegment(
       const dx = px - trail.px, dy = py - trail.py;
       if (dx * dx + dy * dy < 10000) {
         skidCtx.strokeStyle = style;
-        skidCtx.lineWidth = 3;
+        skidCtx.lineWidth = 3 * carScale();   // real-size car (sim-real-2) → wider skid to match the 3× tyres
         skidCtx.lineCap = 'round';
         skidCtx.beginPath();
         skidCtx.moveTo(trail.px, trail.py);
@@ -1374,11 +1374,14 @@ function emitCarSmoke(car: Car, realDt: number) {
   const back = 0.45;
   const bx = -Math.cos(s.heading) * back;
   const by = -Math.sin(s.heading) * back;
-  const sizeScale = 0.55 + 0.45 * Math.min(1, s.speed / 6);
+  // sim-real-2 (real-size car): smoke scales with the car — initial size AND growth ×carScale, so the
+  // puff keeps the SAME smoke-to-car ratio (proportional, not a giant cloud). arcade: cs=1 → unchanged.
+  const cs = carScale();
+  const sizeScale = (0.55 + 0.45 * Math.min(1, s.speed / 6)) * cs;
   const tint = currentMap.smokeColor;   // undefined ⇒ default white smoke
   const { L, R } = rearWheelPositions(s);
-  fx.emitSmoke(L.x + bx, L.y + by, s.vx, s.vy, smokeIntensity, realDt, sizeScale, tint);
-  fx.emitSmoke(R.x + bx, R.y + by, s.vx, s.vy, smokeIntensity, realDt, sizeScale, tint);
+  fx.emitSmoke(L.x + bx, L.y + by, s.vx, s.vy, smokeIntensity, realDt, sizeScale, tint, cs);
+  fx.emitSmoke(R.x + bx, R.y + by, s.vx, s.vy, smokeIntensity, realDt, sizeScale, tint, cs);
 }
 
 // ---------- Main loop with fixed-timestep accumulator ----------
@@ -1664,7 +1667,7 @@ function drawRaceElements() {
   const circuit = isCircuitTrack(raceElements);
   raceElements.forEach((e, i) => {
     const sx = e.x * px, sy = e.y * px;
-    const rPx = (e.radius ?? RACE_CONFIG.gateRadius) * px;
+    const rPx = (e.radius ?? RACE_CONFIG.gateRadius * carScale()) * px;
     if (e.type === 'checkpoint') {
       drawCheckpoint(sx, sy, rPx, e.index ?? 0, !editorMode && collected.has(i));
     } else {
