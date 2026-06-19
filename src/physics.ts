@@ -1547,7 +1547,16 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   // TOTAL speed instead so the denominator stays large and the rear keeps spinning DURING
   // the slide. The slip NUMERATOR (wv − vg) keeps vg=forwardVel (the real rolling speed).
   // Arcade / launch / brake untouched (gate off) → byte-identical.
-  const slipRef = (c.driftMode === 'sim' && car.driftActive)
+  //
+  // sim-real-2 vg/forwardVel ROOT FIX: sim-real-2 inherits the SAME bug — at deep β |vg|=|forwardVel|
+  // collapses → sDenom floors → kSlip blows up + the slip ratio s=(wv−vg)/sDenom false-spikes →
+  // false zero-throttle burnout + oscillation on the handbrake EXIT (the wheel chases a collapsing /
+  // swinging reference). The cure is the SAME proven mechanism: feed sDenom + kSlip the β-robust
+  // TOTAL ground speed |v| (does NOT collapse with β). The slip NUMERATOR keeps vg=forwardVel (the
+  // real rolling speed). The ONLY bugged consumer is this denominator; the slip ANGLES (bodyBeta,
+  // rear/front slip) and the handbrake slipMag keep forwardVel (correct). At low β / straight,
+  // |v| ≈ |forwardVel| → byte-identical to before; the difference appears ONLY at deep β.
+  const slipRef = ((c.driftMode === 'sim' && car.driftActive) || isSimReal2)
     ? Math.sqrt(car.vx * car.vx + car.vy * car.vy)
     : Math.abs(vg);
   const sDenom = Math.max(c.slipDenomFloor, slipRef);
@@ -1641,26 +1650,13 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
     // force, so re-integrate the wheel explicitly against it (same
     // two stages: traction, then the zero-clamped brake). This is the
     // branch where the wheel actually SPINS UP under power.
-    //
-    // sim-real-2 FREE-ROLLING REAR (coast): the explicit re-integration's longitudinal recovery is
-    // fk·nLong/rho — DILUTED by the lateral rho (deep-β slide), so a just-released LOCKED rear can't
-    // re-sync to ground speed; it overshoots the β-collapsing forwardVel → false POSITIVE slip
-    // (burnout with no throttle) + oscillation. A real free-rolling wheel has ~zero longitudinal slip
-    // EVEN while the tyre slides laterally. So when COASTING — no positive drive (drive≤0 = throttle
-    // lifted, incl. engine braking), NO foot brake, NO handbrake — KEEP the fast implicit wv (line
-    // ~1606), which re-syncs toward vg AND still carries the engine-braking `drive` (wv settles just
-    // below vg → braking force). Under THROTTLE (drive>0 → wheelspin/drift), FOOT BRAKE or HANDBRAKE,
-    // the explicit re-integration runs unchanged (wheelspin / lock preserved). Other modes byte-identical.
-    const wheelCoast = isSimReal2 && drive <= 0 && !footActive && !input.handbrake;
-    if (!wheelCoast) {
-      wv = wv0 + (dt / mw) * (drive - rearLongForce);
-      // The ground reaction drags the wheel TOWARD ground speed and
-      // vanishes at zero slip — it can never push the wheel PAST it.
-      // Clamp the crossing, else the one-frame overshoot makes the wheel
-      // oscillate locked/overspun on alternate frames under hard braking.
-      if ((wv0 - vg) * (wv - vg) < 0) wv = vg;
-      wv = brakeClamp(wv);
-    }
+    wv = wv0 + (dt / mw) * (drive - rearLongForce);
+    // The ground reaction drags the wheel TOWARD ground speed and
+    // vanishes at zero slip — it can never push the wheel PAST it.
+    // Clamp the crossing, else the one-frame overshoot makes the wheel
+    // oscillate locked/overspun on alternate frames under hard braking.
+    if ((wv0 - vg) * (wv - vg) < 0) wv = vg;
+    wv = brakeClamp(wv);
   }
 
   // Handbrake kills rear lateral grip from the instant it's pulled — a

@@ -1355,3 +1355,49 @@ sDenom, footTargetWv, wheel update, bodyBeta, front geometry, handbrake scrub, t
 a global β-robust reference risks regressing the working handbrake-scrub / load-transfer fixes, so the
 targeted wheel-sync fix is shipped and the global vg root is left for a dedicated pass. **NEXT: phone
 re-test the handbrake EXIT (no burnout/throw on release) + the full drift loop.**
+
+---
+**sim-real-2 — vg/forwardVel ROOT FIX (β-robust slip-ratio denominator) + free-roll REVERTED (Step A+B+C
+in one pass, all isSimReal2-gated):** the diagnosis isolated the ROOT of the recurring deep-β handbrake
+pathologies to ONE bugged consumer — the slip-ratio DENOMINATOR. `slipRef` (feeding `sDenom` + `kSlip`
++ the overspeed clamp, physics.ts ~1556) used `|vg| = |forwardVel|`, which COLLAPSES toward 0 (and
+inverts negative) as β builds → `sDenom` floors → the slip ratio `s=(wv−vg)/sDenom` false-spikes
+POSITIVE (zero-throttle burnout) when a locked/creeping wheel overshoots the collapsing reference. FIX =
+the SAME proven **p28** mechanism, extended to sim-real-2: `slipRef = totalSpeed (|v|=hypot(vx,vy))`
+(β-robust — never collapses) via the gate `((driftMode==='sim' && driftActive) || isSimReal2)`. The slip
+NUMERATOR keeps `vg=forwardVel` (the real rolling speed); the slip ANGLES (bodyBeta, rear/front) and the
+Stage-3c handbrake `slipMag=hypot(forwardVel,rearLat)` correctly keep forwardVel (the slipMag is already
+β-robust — the rearLat term holds its magnitude in deep β). **Step A REVERTED the free-roll `wheelCoast`
+gate** (commit 9a0a52a) back to the explicit kinetic re-integration — it fought the collapsing reference
+(re-synced the wheel to the swinging forwardVel) and the player felt it WORSE (longer slide + oscillation).
+**MEASURED (esbuild-bundled real physics, 6 variants, Node):** (a/b/c) ARCADE / SIM / SIM-REAL vs HEAD all
+**0.0e+0** (MIX suite — gate is isSimReal2/sim-only); (d) **STEP A CLEAN BASE proven — curNoRoot(sim-real-2)
+== aeb86e7 base = 0.0e+0** across MIX/DEEPB/HBEXIT (the revert restores the exact pre-free-roll state); (e)
+**LOW-β SELF-CHECK — cur==base 0.0e+0 on a STRAIGHT run (max|β|=0°), diverges only at deep β** (DEEPB
+max|diff| 2.87 @ wv) → the fix acts ONLY at deep β, byte-identical otherwise; **(f) HANDBRAKE-EXIT
+KEYSTONE — HONEST RESULT: on the NORMAL handbrake exit the root is BODY-INERT** (cur vs base body motion
+1.74e-2 ≈ identical; no positive burnout in EITHER — the wheel LOCKS, negative slip), because at deep-β
+`rho>1` the kinetic branch overwrites `wv` independent of `sDenom`, and the hook-up happens at low β. The
+root DOES halve the REPORTED deep-β slip (cleaner wspin/smoke/HUD: frame-159 s 0.5→0.2). **(f2) DEEP-SPIN
+EXIT (forwardVel<0, the regime the root actually targets) — root CUTS the false burnout: positive slip /
+wspin BASE 0.90 → CUR 0.68**, WITHOUT the free-roll feel-regression (HEAD free-roll gets 0.04 but at the
+cost of the longer-slide/oscillation the player rejected). So the net body change to the normal exit is the
+free-roll REVERT (back to base); the root is the correct β-robust denominator that reduces the spin-regime
+burnout + cleans the reported slip. (g) NO REGRESSION — handbrake tightens+scrubs (ω 0.54→1.10, 18→8 km/h),
+trail-brake rotates (β 0.4→8.4°), brake 1.02 g + ABS (rear maxWspin 0.00), low-speed WSPIN 0.00, launch
+low-β identity cur vs base 0.0e+0, steady-corner ω spread 0.080. **(h) STEP C — Coriolis + scrub KEPT,
+proven by isolated revert:** (1) Coriolis reverted (dFzLong reads axLong) → handbrake provoke bleeds LESS
+(Δ13 vs Δ20 km/h = over-long slide returns) → **KEEP** (corrects ACCELERATION, a different quantity); (2)
+handbrake scrub reverted (Pacejka under HB) → rear steps out LESS (β −20° vs −72°) → **KEEP** (the locked-
+rear model; the root does NOT subsume it). **(i) CONTINGENCY NOT ADDED:** the root reduces but doesn't
+fully kill the SPIN-regime burnout (0.68 residual in a hard deliberate spin-out, forwardVel negative
+throughout); the NORMAL exit has no burnout, so the next lever (referencing the kinetic re-integration to
+the bounded sDenom) is NOT measured-necessary and was NOT added pre-emptively (avoids risking the proven-
+clean state). (j) determinism 0, multi-car, tsc + build clean, no brand strings. **NET:** free-roll
+REVERTED (feel-regression gone), root = correct β-robust slip-ratio denominator (spin-burnout cut
+0.90→0.68 + clean reported slip), Coriolis + scrub kept (proven real-physics). **HONEST SCOPE: the normal
+handbrake-exit body trajectory is the BASE behaviour — the root is a correctness/reporting fix + spin-burnout
+reduction, not a normal-exit body change.** D-tuner unchanged (no new knob). **NEXT: PHONE feel-test
+sim-real-2 — handbrake exit (release, no throttle → no burnout/throw, clean hook-up) + a deliberate spin
+(should bleed, no rocket) + the full drift loop (provoke → travel → countersteer → recover). If the exit
+still feels off, the deep-β wheel-recovery dynamics (the kinetic re-integration) is the next dedicated pass.**
