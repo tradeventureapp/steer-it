@@ -720,6 +720,10 @@ export interface CarState {
   // longitudinal acceleration, so accel/brake can trim each axle's lateral grip.
   prevForwardVel: number;
   axLong: number;
+  // sim-real-2: the TRUE fore-aft body-frame longitudinal accel (Coriolis-corrected), smoothed.
+  // Used for the load transfer so a slide's forwardVel-collapse (β rotation) isn't misread as a
+  // huge deceleration that unloads the rear. Per-car; only sim-real-2 reads it.
+  axLongBody: number;
 
   // Sim speed-hold (p27): the speed at the instant a sim drift latched. The
   // one-sided anti-boost ceiling for the deep-β retain correction. Written only
@@ -757,7 +761,7 @@ export function makeCar(x: number, y: number, heading: number = -Math.PI / 2): C
     driftActive: false,
     slideBlendSmooth: 0,
     spinTimer: 0,
-    prevForwardVel: 0, axLong: 0,
+    prevForwardVel: 0, axLong: 0, axLongBody: 0,
     driftEntrySpeed: 0,
     speed: 0, forwardSpeed: 0,
     frontSlip: 0, rearSlip: 0,
@@ -1220,6 +1224,14 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   // is untouched. Pure trim on the final rear lateral force; circle untouched.
   const axInstant = (forwardVel - car.prevForwardVel) / dt;
   car.axLong += (axInstant - car.axLong) * Math.min(1, c.loadTransferSmooth * dt);
+  // sim-real-2 load-transfer accel = the TRUE fore-aft body g, NOT d(forwardVel)/dt. In a slide,
+  // forwardVel collapses as β builds (the velocity vector rotating off the heading), which the raw
+  // axInstant misreads as a huge deceleration → unloads the rear → kills the handbrake scrub + grip →
+  // over-long slide. The Coriolis term ω·lateralVel strips that rotation: a_x_body = axInstant −
+  // ω·lateralVel (= bodyForceX/mass). Smoothed the same as axLong. (Computed for all modes; only
+  // sim-real-2 reads it → arcade/sim/sim-real byte-identical.)
+  const axInstantBody = axInstant - car.angularVel * lateralVel;
+  car.axLongBody += (axInstantBody - car.axLongBody) * Math.min(1, c.loadTransferSmooth * dt);
   car.prevForwardVel = forwardVel;
   const axNorm = clamp(car.axLong / c.loadTransferRefAccel, 0, 1);   // accel-only
   // p31 (A): SIM zeroes loadTransferGain so throttle never ADDS rear grip (no inversion);
@@ -1378,7 +1390,7 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   // than 100% — the unloaded axle floors at 0, the loaded at 2× static). This is physically correct AND
   // bounds any a_long transient (e.g. a cold-start prevForwardVel spike) to a sane transfer.
   const dFzLong = isSimReal2
-    ? clamp(c.mass * car.axLong * c.simRealCoGHeight2 / c.simRealWheelbase2, -staticAxle, staticAxle)
+    ? clamp(c.mass * car.axLongBody * c.simRealCoGHeight2 / c.simRealWheelbase2, -staticAxle, staticAxle)
     : 0;
   const aeroAxle = isSimReal2 ? c.simReal2DownforceCoeff * speed * speed / 2 : 0;
   const fzRear  = Math.max(0, staticAxle + dFzLong + aeroAxle);

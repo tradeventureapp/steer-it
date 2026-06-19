@@ -1304,3 +1304,24 @@ brake/lift) to drift, real-weighty, longer braking, looser at the limit — NOT 
 remain the frozen arcade modes. **NEXT: PHONE FEEL-TEST sim-real-2 end-to-end (D → SIM-REAL-2): drive,
 corner, trail-brake + handbrake to provoke a drift, countersteer to hold/catch, recover; top speed,
 shifting, braking. Then decide whether sim-real-2 becomes a selectable mode + feel-tuning.**
+
+---
+**sim-real-2 — HANDBRAKE OVER-LONG SLIDE FIX (load-transfer accel source: use the true fore-aft g, not
+d(forwardVel)/dt):** the phone test found the handbrake slide carried too long. DIAGNOSED (not the
+suspected relaxation length — release recovery was already ~0.5 s — and not a weak scrub — 0.5 g when
+loaded): the longitudinal load transfer read its accel from `car.axLong = d(forwardVel)/dt`, which in a
+slide MISREADS the **forwardVel collapse from the β rotation** (the velocity vector turning off the
+heading) as a HUGE phantom deceleration (−47 m/s² vs the true −7). That unloaded the rear to the ±static
+clamp → **rear grip budget collapsed 8800→~20** → the scrub force (budget·μ_kin) AND the rear lateral grip
+both died → the rear became a frictionless point → free, speed-not-bled, over-long slide. FIX (sim-real-2-
+gated): a new `CarState.axLongBody` = the **Coriolis-corrected** longitudinal accel `axInstant −
+ω·lateralVel` (= the real body-frame fore-aft g = `bodyForceX/mass`), smoothed like `axLong`; `dFzLong`
+reads `axLongBody` instead of `axLong`. The β-rotation term is stripped → the rear stays loaded in a slide
+→ the scrub PERSISTS. **MEASURED:** (a) ARCADE / (b) SIM / (c) SIM-REAL vs HEAD all **0.0e+0** (axLongBody
+computed for all modes but only sim-real-2 reads it); **HB slide now SCRUBS — speed 50→40 km/h in the
+0.5 s hold (was barely bleeding), β builds to ~59° (still steps out → tightens), hooks up (β<10°) 0.6 s
+after release** = the short scrub-heavy real handbrake slide; NO regression (brake 1.02 g, steady corner
+stable spread 0.022, low-speed WSPIN 0%, high-speed handbrake still provokes β46°, determinism 0). tsc +
+build clean; no brand strings. **Also a latent fix for every sim-real-2 slide** (the rear was over-
+unloading whenever β was high — the handbrake just made it blatant). sim-real-2 COMPLETE + this correction.
+**NEXT: phone re-test the handbrake (short scrub-heavy slide now) + the full drift loop.**
