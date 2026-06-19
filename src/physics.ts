@@ -53,6 +53,13 @@ export const CONFIG = {
   // PHYSICS-ONLY: render/collision/skid keep the small CONFIG.wheelbase (car looks identical).
   // Inertia in sim-real = mass·simRealWheelbase²/12 = 676 (no inertiaScale hack).
   simRealWheelbase: 2.6,            // m (vs the 1/3 visual wheelbase 0.867)
+  // sim-real-2 (full-realism branch, Stage 1) — PHYSICS-ONLY geometry/mass/inertia. Reference is a
+  // ~1200 kg, 2.565 m-wheelbase RWD coupe. Real yaw inertia = mass·k² (k = radius of gyration ≈ 1.25 m
+  // → ≈1875 kg·m²), NOT the rod model and NOT inertiaScale. trackWidth + CoG are added now but UNUSED
+  // until Stage 3 (lateral/longitudinal load transfer). Render/collision keep the small wheelbase.
+  simRealWheelbase2: 2.565,         // m (sim-real-2 physics wheelbase; halfWB 1.2825)
+  simRealTrackWidth2: 1.46,         // m (Stage-3 lateral load transfer — UNUSED in Stage 1)
+  simRealCoGHeight2: 0.5,           // m (Stage-3 load transfer — UNUSED in Stage 1)
 
   // ---------- Engine / brakes ----------
   // Honest two-region torque curve (function of throttle & WHEEL speed):
@@ -501,7 +508,7 @@ export const CONFIG = {
   // 'arcade' = the frozen governed-drift model (byte-identical to HEAD, the working
   // drift). 'sim' = the new front-carve physics drift (WORK IN PROGRESS — currently
   // mirrors arcade). Toggled live on the PC 'D' tuner. No player-facing menu yet.
-  driftMode: 'arcade' as 'arcade' | 'sim' | 'sim-real',
+  driftMode: 'arcade' as 'arcade' | 'sim' | 'sim-real' | 'sim-real-2',
 
   // ---------- p24 — SIM-BRANCH drift (RAW emergent front-carve) ----------
   // Only used when driftMode==='sim'. The sim drift is PURE PHYSICS (no assists):
@@ -1118,6 +1125,12 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   // and sim are untouched (the if is false for them) → byte-identical. The real-size geometry
   // swap (Stage ii) will gate on the ORIGINAL mode, captured before this line.
   const isSimReal = c.driftMode === 'sim-real';   // Stage ii: capture BEFORE normalising (gates real-size geometry)
+  // sim-real-2 (full-realism branch) is captured BEFORE the normalise too, but is DELIBERATELY NOT
+  // normalised to 'sim' — keeping driftMode==='sim-real-2' means every `=== 'sim'` band-aid gate
+  // (the wave, rear-slip floor, sim grip, front carve/catch/authority, sim engine) is FALSE for it,
+  // and the dispatch routes it to its OWN pure-core path. So it runs the raw friction-circle model
+  // with no governor and no sim band-aids. Real geometry/inertia gate on isSimReal2 below.
+  const isSimReal2 = c.driftMode === 'sim-real-2';
   if (c.driftMode === 'sim-real') c = { ...c, driftMode: 'sim' };
   // ---- 1. Body-frame velocity (forward = +x_body, lateral = +y_body) ----
   // (computed first — the steering auto-align needs the slip direction)
@@ -1149,7 +1162,7 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   // Stage ii: sim-real uses the REAL-SIZE yaw arm (1.3 m); arcade/sim keep 0.433 m → the else is
   // the exact current expression → byte-identical. This halfWB feeds the yaw torque, the axle
   // slip velocities (rearLat/frontLat = lateralVel ∓ ω·halfWB), frontVelAngle, and the pivot.
-  const halfWB = (isSimReal ? c.simRealWheelbase : c.wheelbase) / 2;
+  const halfWB = (isSimReal2 ? c.simRealWheelbase2 : isSimReal ? c.simRealWheelbase : c.wheelbase) / 2;
   // High-speed steering falloff (p13: superseded by the slip limiter below,
   // steerSpeedFalloff set to 1.0 = no-op; left in place as a fallback knob).
   const falloff = 1 - (1 - c.steerSpeedFalloff) *
@@ -1334,7 +1347,9 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   const simFade   = c.driftMode === 'sim' ? c.driftSimBoostFadeSpeed : c.torqueBoostFadeSpeed;
   const boostSteer = clamp(
     (Math.abs(input.steer) - c.boostSteerDead) / (c.boostSteerFull - c.boostSteerDead), 0, 1);
-  const driveBoost = 1 + c.lowSpeedTorqueBoost *
+  // sim-real-2: NO power-over launch boost (a feel band-aid) → driveBoost = 1 (the real engine
+  // through the real gearbox arrives in Stage 2). Other modes keep the steer-gated boost.
+  const driveBoost = isSimReal2 ? 1 : 1 + c.lowSpeedTorqueBoost *
     Math.max(0, 1 - speed / simFade) * boostSteer * input.throttle;
   const powerLimitedForce = Math.min(
     simEngine,
@@ -1548,7 +1563,11 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   // body x-axis (ry = 0) so torque = rx * Fy.
   // Stage ii: sim-real uses REAL inertia (mass·2.6²/12 = 676, no inertiaScale hack); arcade/sim
   // call inertia(c) unchanged → byte-identical.
-  const I = isSimReal ? c.mass * c.simRealWheelbase * c.simRealWheelbase / 12 : inertia(c);
+  // sim-real-2: REAL yaw inertia = mass·k² (k = radius of gyration ≈ 1.25 m → ≈1875 kg·m²); NOT the
+  // rod model, NOT inertiaScale. sim-real keeps mass·2.6²/12; arcade/sim call inertia() unchanged.
+  const I = isSimReal2
+    ? c.mass * 1.25 * 1.25
+    : isSimReal ? c.mass * c.simRealWheelbase * c.simRealWheelbase / 12 : inertia(c);
   const torque = halfWB * frontForceBodyY - halfWB * rearForceBodyY;
   const yawDamp = -c.angularDamping * I * car.angularVel;
   car.angularVel += (torque + yawDamp) / I * dt;
@@ -1631,7 +1650,12 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   // ω·halfWB·(sinH, −cosH). Blending the body velocity onto this keeps the
   // front ~put and net translation tiny. Mutually exclusive with the
   // governed drift mode. Straighten → assist off → the rear launches it.
-  if (pivotActive) {
+  if (isSimReal2) {
+    // sim-real-2 — OWN dispatch: PURE friction-circle core. NO governor (arcade), NO wave/spin-arm/
+    // catch (sim), NO standing pivot. Drift emerges (or not) from the raw tyre/inertia dynamics.
+    // Keep the spin state clean (the spin-arm never runs here). Real engine/grip/brakes = Stage 2/3.
+    car.spinTimer = 0;
+  } else if (pivotActive) {
     car.spinTimer = 0;
     const pvx =  car.angularVel * halfWB * sinH;
     const pvy = -car.angularVel * halfWB * cosH;

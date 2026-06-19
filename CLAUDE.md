@@ -1138,3 +1138,32 @@ determinism 0, multi-car. tsc + build clean; trademark clean. `driftSimSpeedHold
 countersteer catches/holds an angle → straighten to exit → turn in to re-enter; deliberate spin
 bleeds, no rocket; low speed = grip turn, no burnout). Dial `driftSimSpeedHold` on D if the travel
 feels too weak/strong.**
+
+---
+**sim-real-2 — STAGE 1 (new FULL-REALISM branch: geometry + mass + real inertia + own dispatch):** the
+approved real-car-sim rebuild (reference: a ~238 hp / 175 kW, ~1200 kg, 2.565 m-wheelbase RWD coupe;
+ONLY non-real concession = auto gearbox, arrives Stage 2). `CONFIG.driftMode` union += `'sim-real-2'`;
+D-toggle now cycles arcade ⇄ sim ⇄ sim-real ⇄ **sim-real-2** ("SIM-REAL-2 (real)"). Stage 1 = geometry
+skeleton only (engine/grip/brakes/steering/handbrake/load-transfer = Stage 2/3). Implementation, all
+`isSimReal2`-gated (ternary else = exact current expr → arcade/sim/sim-real BYTE-IDENTICAL):
+`const isSimReal2 = c.driftMode==='sim-real-2'` captured BEFORE the Stage-i normalise and **deliberately
+NOT normalised to 'sim'** — so every `=== 'sim'` band-aid gate (wave, rear-slip floor, sim grip, front
+carve/catch/authority, sim engine) is FALSE for it; **`halfWB`** = `simRealWheelbase2/2` = **1.2825 m**
+(real 2.565 wheelbase); **inertia** = `mass·1.25²` = **≈1875 kg·m²** (real radius-of-gyration k≈1.25 m —
+NOT the rod model, NOT `inertiaScale`); **driveBoost = 1** (the power-over launch boost band-aid OFF);
+**OWN dispatch** — a new first branch `if (isSimReal2){ car.spinTimer=0; }` runs the PURE friction-circle
+core (NOT arcadeDriftSustain/governor, NOT simDriftSustain/wave+spin-arm, NOT the standing pivot).
+`CONFIG.simRealWheelbase2` 2.565 / `simRealTrackWidth2` 1.46 / `simRealCoGHeight2` 0.5 added — the latter
+two UNUSED until Stage 3 (load transfer). **RENDER/COLLISION DECOUPLED:** `simRealWheelbase2` lives ONLY
+in physics.ts (CONFIG + the step() halfWB local) — desktop render reads `CONFIG.wheelbase` 0.867 + skid
+offsets, collision reads `carCollisionRadius` 0.85 → car looks + collides PIXEL-IDENTICAL, same on-screen
+speed. **MEASURED:** (a) ARCADE / (b) SIM / (c) SIM-REAL vs HEAD all **0.0e+0** (full suite: grip corner /
+launch / provoke+sustain / spin / foot brake / launch-then-turn); (e) sim-real-2 geometry ACTIVE (halfWB
+1.2825, inertia 1875 vs sim-real 676 / arcade 601; provoke ω/β 2.87/44° vs arcade 2.35/40° = real arm +
+inertia live); (f) dispatch clean — spinTimer stays 0 after provoke+hold (spin-arm/sustain never ran);
+(g) determinism 0, 4 modes independent. tsc + build clean; trademark clean (no brand strings). **sim-real-2
+is INTENTIONALLY RAW/WILD** (inflated arcade grip/engine/drag/brakes + real arm + no governor + no
+low-speed gate yet → will over-rotate / low-speed burnout — EXPECTED, fixed in Stage 2/3). **NEXT: STAGE 2
+— real engine (175 kW + torque curve + auto gearbox + rpm + wheel/gear inertia) + drag/aero + brakes
+(1 g front-biased + ABS) + engine braking + reverse gear; measure 0-100 (~6.5 s), top speed (~245, report
+gear/rpm), brake-g (~1 g). Arcade/sim/sim-real stay frozen.**

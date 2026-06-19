@@ -236,13 +236,14 @@ document.body.appendChild(brakeTunerEl);
       'pointer-events:auto;cursor:pointer;font:700 12px/1 ui-monospace,monospace;' +
       'padding:5px 12px;border-radius:5px;color:#ffd9b0;' +
       'background:rgba(255,138,61,.18);border:1px solid rgba(255,138,61,.55);';
-    const LABEL = { arcade: 'ARCADE', sim: 'SIM (wip)', 'sim-real': 'SIM-REAL (wip)' } as const;
+    const LABEL = { arcade: 'ARCADE', sim: 'SIM (wip)', 'sim-real': 'SIM-REAL (wip)', 'sim-real-2': 'SIM-REAL-2 (real)' } as const;
     const upd = () => { btn.textContent = LABEL[CONFIG.driftMode]; };
     btn.addEventListener('click', (e) => {
       e.preventDefault(); e.stopPropagation();
-      // cycle arcade ⇄ sim ⇄ sim-real (Verze 3 dev toggle)
+      // cycle arcade ⇄ sim ⇄ sim-real ⇄ sim-real-2 (Verze 3 / sim-real-2 dev toggle)
       CONFIG.driftMode = CONFIG.driftMode === 'arcade' ? 'sim'
-        : CONFIG.driftMode === 'sim' ? 'sim-real' : 'arcade';
+        : CONFIG.driftMode === 'sim' ? 'sim-real'
+        : CONFIG.driftMode === 'sim-real' ? 'sim-real-2' : 'arcade';
       upd();
     });
     upd();
