@@ -2,7 +2,7 @@ import QRCode from 'qrcode';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { channelName, createResilientChannel } from './supabase';
 import {
-  CONFIG, makeCar, step, bodyToWorld, collideWithRects,
+  CONFIG, carScale, makeCar, step, bodyToWorld, collideWithRects,
   type CarState, type Inputs,
 } from './physics';
 import { collideCars, applyInputs } from './cars';
@@ -1301,8 +1301,10 @@ renderLobbyUI();
 // (car.skidL/skidR) so a continuous line is drawn while that wheel slides, and
 // each car's marks are tinted with its colour (car.skidStyle).
 function rearWheelPositions(state: CarState) {
-  const halfTrack = CONFIG.trackWidth / 2;
-  const rearOffset = -CONFIG.wheelbase / 2;
+  // Real-size car (sim-real-2): skids emanate from the scaled-up rear wheels.
+  const vs = carScale();
+  const halfTrack = CONFIG.trackWidth / 2 * vs;
+  const rearOffset = -CONFIG.wheelbase / 2 * vs;
   const L = bodyToWorld(state, rearOffset, +halfTrack);
   const R = bodyToWorld(state, rearOffset, -halfTrack);
   return { L, R };
@@ -1797,6 +1799,11 @@ function drawCar(car: Car) {
   ctx.translate(s.x * PX(), s.y * PX());
   ctx.rotate(s.heading);
   ctx.scale(PX(), PX());
+  // sim-real-2 is a REAL-SIZE car: draw the (1/3-tuned) body uniformly scaled up to
+  // its real wheelbase (2.565 m) so the render matches the physics size. The car art
+  // and proportions are preserved exactly — only bigger. Other modes: scale 1.
+  const vs = carScale();
+  if (vs !== 1) ctx.scale(vs, vs);
 
   const L = 0.75, W = 0.309;                 // half-length / half-width (footprint)
   const hw = CONFIG.wheelbase / 2, ht = CONFIG.trackWidth / 2;

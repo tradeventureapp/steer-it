@@ -1453,3 +1453,28 @@ this: the recent fixes did NOT lengthen the handbrake slide — Coriolis SHORTEN
 added 1 recovery fishtail swing (baseline spins out cleanly, 0 swings); root + coast were INERT on the
 handbrake. The player chose to go back to the finished-build feel (longer, clean spin-out, no fishtail).**
 NEXT: phone-test the reverted sim-real-2 handbrake (finished-build feel restored).
+
+---
+**sim-real-2 — UNIFIED REAL-SIZE SCALE + made the DEFAULT (the 1/3 render/physics split removed for it):**
+sim-real-2's physics already ran at the REAL wheelbase (`simRealWheelbase2` 2.565 m) but the car was still
+DRAWN + collided at the 1/3 size (`CONFIG.wheelbase` 0.867 m) — render and physics in different scales, so
+"slide = N car-lengths" was meaningless. UNIFIED to one real-metre scale for sim-real-2: it now draws +
+collides at its real 2.565 m size, and is the **default `driftMode`**. ONE source of truth —
+`carScale(c)` (physics.ts) = `driftMode==='sim-real-2' ? simRealWheelbase2/wheelbase : 1` (**≈2.96**);
+the frozen arcade/sim/sim-real are genuine 1/3 cars → scale 1 → byte-identical. Applied to: the car body
+draw (`drawCar` adds `ctx.scale(vs,vs)` after the metre scale — the 1/3-tuned art uniformly scaled up, look
++ proportions preserved), the skid wheel offsets (`rearWheelPositions`), the obstacle/wall collision radius
+(`collideWithRects` `R *= carScale`), the car-car collision radius + the spawn grid (`cars.ts`
+`collidePairCars`/`collideCars`/`spawnOffset`). Default `CONFIG.driftMode` `'arcade'` → **`'sim-real-2'`**.
+**DRIVING PHYSICS UNTOUCHED — `step()` was NOT modified**, so forces/yaw/drift/handbrake are byte-identical
+in every mode (proven 0.0e+0 vs HEAD across arcade/sim/sim-real/sim-real-2 on the full MIX suite). The only
+behavioural change is the (intended) real-size COLLISION radius for sim-real-2. **MEASURED:** (1) on-screen
+car **33 px → 98 px** (footprint 1.5 m→4.44 m, wheelbase **2.565 m**) — the car is intentionally ~3× bigger
+(drawn at real size, the player's chosen "Option A"); (2) sim-real-2 driving physics byte-identical 0.0e+0;
+(3) collision radius 0.85 m → **2.52 m** (real), spawn grid ×2.96; (4) arcade/sim/sim-real unchanged
+(carScale 1, 0.0e+0); (5) tsc + build clean. **HONEST CONSEQUENCE (flagged):** the WORLD/track stayed at
+its current metre size, so the real-size car is now ~3× bigger RELATIVE to the track (more prominent / the
+oval band is proportionally tighter). If the track should also be real-scale (a bigger world so the
+car-to-track ratio is realistic), that's a follow-up the player can request. **NEXT: phone/desktop feel-test
+the real-size sim-real-2 (default) — drive, drift, handbrake; check the car size + track proportions feel
+right, decide whether to also scale the world.**
