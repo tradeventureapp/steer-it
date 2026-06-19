@@ -1167,3 +1167,36 @@ low-speed gate yet → will over-rotate / low-speed burnout — EXPECTED, fixed 
 — real engine (175 kW + torque curve + auto gearbox + rpm + wheel/gear inertia) + drag/aero + brakes
 (1 g front-biased + ABS) + engine braking + reverse gear; measure 0-100 (~6.5 s), top speed (~245, report
 gear/rpm), brake-g (~1 g). Arcade/sim/sim-real stay frozen.**
+
+---
+**sim-real-2 — STAGE 2 (real drivetrain + drag/aero + brakes + engine braking, all isSimReal2-gated):**
+the full longitudinal model. **Engine** = a real torque curve (`simReal2EngineTorque`: idle 160 → peak
+**240 Nm @ 4750**, ~flat to **redline 7000** → ~175 kW @ 7000 by construction; the P/v `enginePeakPowerW`
+path is NOT read in sim-real-2) through an **automatic gearbox** (`car.gear` per-car state; ratios 3.72/
+2.02/1.32/1.00/0.80, **final 3.15**, **reverse 3.50**; `simReal2RollingRadius` 0.30; rpm = wheelSpeed×
+gear×final/(2π·r); auto up-shift @6800 / down @3000 — **hysteresis gap → no hunting**). Wheel force =
+`(driveTorque·throttle − compressionTorque·(1−throttle))·gear·final·**drivetrainEff 0.88**/r`, fed into
+the EXISTING wheel/friction-circle (so wheelspin emerges when force > grip). **Engine braking** = the
+closed-throttle compression term (through the drivetrain, in `simReal2Drive` — the body `engineBrakeForce`
+stays off for sim-real-2 to avoid double-count). **Reverse** = the real reverse gear (brake pedal =
+reverse throttle at standstill; the arcade `reverseForce` body term gated off). **Drag** `Cd→0.35`;
+**rolling resistance → CONSTANT 200 N** (Crr·m·g, not ∝v; tapered to 0 near rest). **Aero downforce**
+`budget×(1+downforceCoeff 0.20·v²/mg)` — feeds the rear grip via LOAD (the correct mechanism), ~1.3% at
+oval speed = negligible (real grip magnitude + front-axle aero + full load transfer = Stage 3). **Brakes**
+`simReal2BrakeForce 11800` (≈1 g) at **40/60 rear/front** bias + **ABS** (rear-brake demand capped at the
+grip limit → never locks, modulates at max braking). `simReal2SlipRatioPeak 0.12`. **MEASURED:** (a) ARCADE
+/ (b) SIM / (c) SIM-REAL vs HEAD all **0.0e+0**; **(e) TOP SPEED 241 km/h** (5th, 5443 rpm, drag-limited,
+no clamp ✓ ~245 target); **(d) 0-100 6.3 s** (shifts 1→2 @63k/6841rpm, 2→3 @118k — ⚠ PRELIMINARY/grip-bound,
+but engine/gearing-limited so already ~real; real grip Stage 3 may add 1st-gear wheelspin); **(f) BRAKE
+1.04 g, rear NOT locked (ABS modulates)** ✓ (inflated grip may shift the limit at Stage 3); **(h) engine
+braking active** (coast-down 0.99 m/s²); (i) rolling constant 200 N; (j) aero ×1.013 @28m/s (load, not flat
+grip); (g) reverse works (−2.7 m/s); (k) determinism 0, multi-car (per-car gear). tsc + build clean; no
+brand strings. **HONEST DEVIATIONS/SIMPLIFICATIONS (reported):** added **drivetrain efficiency 0.88**
+(audit addition — without it top was ~259; 0.88 → 241, realistic); **ABS modulates the REAR only** (the
+sole modeled wheel — the front brake is a body force; a front friction-circle = audit H#4, Stage 3);
+**no kickdown** (downshift is rpm-based, not load — hysteresis still prevents hunting); idle-creep skipped
+(optional; no NaN at rest). **STILL STAGE 3:** real GRIP (real μ, front≤rear, LSD), correct low-speed slip
+(relaxation length — the current `slipDenomFloor` low-speed artifact is UNFIXED, sim-real-2 still has the
+low-speed blow-up), load transfer (long+lat), steering 40° + remove yaw clamps, real handbrake. **NEXT:
+phone-check sim-real-2 (top speed feel, shifting, braking, reverse) — but it's still RAW until Stage 3
+grip; arcade/sim/sim-real frozen.**

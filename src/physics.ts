@@ -60,6 +60,28 @@ export const CONFIG = {
   simRealWheelbase2: 2.565,         // m (sim-real-2 physics wheelbase; halfWB 1.2825)
   simRealTrackWidth2: 1.46,         // m (Stage-3 lateral load transfer — UNUSED in Stage 1)
   simRealCoGHeight2: 0.5,           // m (Stage-3 load transfer — UNUSED in Stage 1)
+  // sim-real-2 STAGE 2 — real longitudinal drivetrain (torque curve + automatic gearbox + wheel),
+  // drag/aero, brakes (1 g + ABS), engine braking. All PHYSICS-ONLY, isSimReal2-gated. The engine
+  // is a real torque curve through real gear ratios (NOT enginePeakPowerW P/v, NOT driftSimEnginePower).
+  simReal2PeakTorque: 240,          // Nm engine peak (~4750–7000 rpm)
+  simReal2IdleTorque: 160,          // Nm at idle (curve rises idle→peak by 4750 rpm)
+  simReal2TorquePeakRpm: 4750,      // rpm where peak torque is reached (flat to redline)
+  simReal2Idle: 800,                // rpm idle floor
+  simReal2Redline: 7000,            // rpm redline (peak power ~175 kW @ 7000 by construction)
+  simReal2CompressionTorque: 45,    // Nm engine-braking torque @ redline (∝ rpm), closed throttle
+  simReal2GearR1: 3.72, simReal2GearR2: 2.02, simReal2GearR3: 1.32, simReal2GearR4: 1.00, simReal2GearR5: 0.80,
+  simReal2FinalDrive: 3.15,         // : 1
+  simReal2ReverseRatio: 3.50,       // : 1 (real reverse gear, replaces the reverseForce band-aid)
+  simReal2RollingRadius: 0.30,      // m (tyre rolling radius — rpm↔speed + wheel force)
+  simReal2DrivetrainEff: 0.88,      // gearbox+diff efficiency (~12% loss — audit addition; tops at ~245)
+  simReal2UpshiftRpm: 6800,         // auto upshift
+  simReal2DownshiftRpm: 3000,       // auto downshift (hysteresis gap vs upshift → no hunting)
+  simReal2DragCoeff: 0.35,          // ½ρ·Cd·A (Cd~0.32, A~1.8) — real
+  simReal2RollingResistConst: 200,  // N CONSTANT rolling resistance (Crr·m·g) — not ∝v (audit H#5)
+  simReal2DownforceCoeff: 0.20,     // N per (m/s)² — modest splitter/spoiler; feeds axle LOAD (→grip)
+  simReal2BrakeForce: 11800,        // N → ~1.0 g on 1200 kg (4-wheel disc)
+  simReal2BrakeRearShare: 0.40,     // 40/60 rear/front bias (real front-biased)
+  simReal2SlipRatioPeak: 0.12,      // real peak-traction slip ratio (vs arcade 0.15)
 
   // ---------- Engine / brakes ----------
   // Honest two-region torque curve (function of throttle & WHEEL speed):
@@ -645,6 +667,9 @@ export interface CarState {
   // engine torque, dragged toward ground speed by the tire's friction
   // reaction, slowed by rear brake / handbrake. Clamped >= 0 (no reverse).
   rearWheelSpeed: number;
+  // sim-real-2 automatic-gearbox current gear (1..5; reverse handled separately). Per-car.
+  // Other modes never read/write it (gated) → init only, no effect on arcade/sim/sim-real.
+  gear: number;
 
   // Drift-transition latch (p14, seconds). A hard counter flick sets this;
   // while it counts down the angle governor drives the flip THROUGH center
@@ -702,6 +727,7 @@ export function makeCar(x: number, y: number, heading: number = -Math.PI / 2): C
     vx: 0, vy: 0, angularVel: 0,
     steerAngle: 0,
     rearWheelSpeed: 0,
+    gear: 1,
     flipTimer: 0,
     driftActive: false,
     slideBlendSmooth: 0,
@@ -718,6 +744,22 @@ export function makeCar(x: number, y: number, heading: number = -Math.PI / 2): C
 // Yaw inertia, precomputed once.
 function inertia(c: Config) {
   return c.inertiaScale * c.mass * c.wheelbase * c.wheelbase / 12;
+}
+
+// sim-real-2 engine torque curve (Nm) vs rpm: rises idle→peak by simReal2TorquePeakRpm, ~flat to
+// redline (so power rises with rpm to ~175 kW @ 7000). Returned per the GAS pedal elsewhere.
+function simReal2EngineTorque(rpm: number, c: Config): number {
+  const r = Math.min(c.simReal2Redline, Math.max(c.simReal2Idle, rpm));
+  if (r >= c.simReal2TorquePeakRpm) return c.simReal2PeakTorque;
+  const t = (r - c.simReal2Idle) / (c.simReal2TorquePeakRpm - c.simReal2Idle);
+  return c.simReal2IdleTorque + (c.simReal2PeakTorque - c.simReal2IdleTorque) * t;
+}
+// sim-real-2 gear ratio for the current (1-based) gear.
+function simReal2GearRatio(gear: number, c: Config): number {
+  switch (gear) {
+    case 1: return c.simReal2GearR1; case 2: return c.simReal2GearR2; case 3: return c.simReal2GearR3;
+    case 4: return c.simReal2GearR4; default: return c.simReal2GearR5;
+  }
 }
 
 function clamp(v: number, lo: number, hi: number): number {
@@ -1312,8 +1354,15 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   // spins → nLong grows → the force vector rotates longitudinal → lateral
   // grip collapses → the rear steps out. Lift → the wheel grips up
   // (nLong → 0) → the budget swings back lateral → the rear hooks up.
-  const budget = c.tireGripBudgetRear;
+  // sim-real-2 AERO: downforce (downforceCoeff·v²) adds axle vertical LOAD → scales rear grip via the
+  // load ratio (the correct load→grip mechanism, NOT a flat grip bonus). At oval speeds it is ~1-2%,
+  // negligible; the REAL grip magnitude + front-axle aero load + full load transfer arrive in Stage 3.
+  const budget = isSimReal2
+    ? c.tireGripBudgetRear * (1 + c.simReal2DownforceCoeff * speed * speed / (c.mass * 9.81))
+    : c.tireGripBudgetRear;
   const alphaPeakRear = budget / c.corneringStiffnessRear;
+  // sim-real-2 uses the real peak-traction slip ratio (else = current).
+  const slipPeak = isSimReal2 ? c.simReal2SlipRatioPeak : c.slipRatioPeak;
 
   // Engine drive force at the rear contact patch — an HONEST torque curve,
   // a function of THROTTLE and WHEEL SPEED ONLY (no slip-angle term; the
@@ -1361,9 +1410,38 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   // lock force and the wheel never locks, so the slide never initiates.
   // Cut the drive and the lock is decisive regardless of throttle;
   // release → full power resumes instantly into the drift.
-  const drive = input.handbrake
-    ? 0
-    : input.throttle * powerLimitedForce * driveBoost;
+  // sim-real-2 STAGE 2 — real engine through the AUTOMATIC GEARBOX (replaces the P/v force for this
+  // branch). Engine rpm = rear-wheel speed × gear × final / rolling-radius; the auto box up/down-shifts
+  // with hysteresis (no hunting); net wheel force = (drive torque ∝ throttle − compression braking ∝
+  // rpm at closed throttle) × gear × final × drivetrain-efficiency / rolling-radius. Reverse = a real
+  // gear (brake pedal = reverse throttle at standstill). The wheel/friction-circle then converts this
+  // to ground force exactly as for the other modes (so wheelspin emerges when force > grip).
+  let simReal2Drive = 0;
+  if (isSimReal2) {
+    const rr = c.simReal2RollingRadius;
+    const wheelRpm = Math.abs(car.rearWheelSpeed) / (2 * Math.PI * rr) * 60;   // wheel rpm
+    const reversing = input.brake > 0.1 && !input.handbrake && forwardVel < 0.2;
+    if (reversing) {
+      const ratioR = c.simReal2ReverseRatio * c.simReal2FinalDrive;
+      const rpmR = Math.max(c.simReal2Idle, wheelRpm * ratioR);
+      simReal2Drive = -simReal2EngineTorque(rpmR, c) * input.brake * ratioR * c.simReal2DrivetrainEff / rr;
+    } else {
+      // rpm in the CURRENT gear → auto-shift (hysteresis) → recompute in the (possibly new) gear.
+      const rpm0 = Math.max(c.simReal2Idle, wheelRpm * simReal2GearRatio(car.gear, c) * c.simReal2FinalDrive);
+      if (rpm0 > c.simReal2UpshiftRpm && car.gear < 5) car.gear += 1;
+      else if (rpm0 < c.simReal2DownshiftRpm && car.gear > 1) car.gear -= 1;
+      const gr = simReal2GearRatio(car.gear, c) * c.simReal2FinalDrive;
+      const rpm = Math.max(c.simReal2Idle, wheelRpm * gr);
+      const driveTq = simReal2EngineTorque(rpm, c) * input.throttle;                                  // ∝ gas
+      const compTq  = c.simReal2CompressionTorque * (rpm / c.simReal2Redline) * (1 - input.throttle); // engine braking
+      simReal2Drive = input.handbrake ? 0 : (driveTq - compTq) * gr * c.simReal2DrivetrainEff / rr;
+    }
+  }
+  const drive = isSimReal2
+    ? simReal2Drive
+    : input.handbrake
+      ? 0
+      : input.throttle * powerLimitedForce * driveBoost;
 
   // Arcade reverse mode (p6): brake held at/below walking pace with the
   // handbrake off — the pedal's meaning flips from "brake" to "reverse".
@@ -1405,11 +1483,19 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   // sustains via the same path the handbrake uses → the existing rho>1 kinetic-
   // scrub skid (no ABS). Because sTarget ∝ Fbrake (no 1/sDenom), the old low-speed
   // lockup artifact is gone — same slip at 5 and 50 km/h.
+  // sim-real-2: real brakes — ~1 g total, 40/60 rear/front bias, + ABS (modulate at the grip limit,
+  // never lock). brakeForce2/rearShare2 gate to the real values; the front share is a body force below.
+  const brakeForce2 = isSimReal2 ? c.simReal2BrakeForce : c.brakeForce;
+  const brakeRearShare2 = isSimReal2 ? c.simReal2BrakeRearShare : c.brakeRearShare;
   const footActive = input.brake > 0 && !input.handbrake && !reverseMode;
-  const footDemand = footActive ? input.brake * c.brakeForce * c.brakeRearShare : 0;
+  const footDemandRaw = footActive ? input.brake * brakeForce2 * brakeRearShare2 : 0;
   const longHeadroom = Math.sqrt(Math.max(0, 1 - Math.min(1, nLat * nLat)));
-  const footGrips = footActive && footDemand <= c.brakeGripFraction * budget * longHeadroom;
-  const footTargetWv = vg - (footDemand / budget) * c.slipRatioPeak * sDenom;
+  const gripLimit = c.brakeGripFraction * budget * longHeadroom;
+  // ABS (sim-real-2): cap the rear-brake demand at the grip limit → the rear can't break loose →
+  // it modulates at maximum braking instead of locking. Other modes keep the lock-and-skid behaviour.
+  const footDemand = isSimReal2 ? Math.min(footDemandRaw, gripLimit) : footDemandRaw;
+  const footGrips = isSimReal2 ? footActive : (footActive && footDemandRaw <= gripLimit);
+  const footTargetWv = vg - (footDemand / budget) * slipPeak * sDenom;
 
   // Wheel lock-force decrement: handbrake (unchanged) + a BROKEN-LOOSE foot brake.
   // Clamps at zero — a brake can stop the wheel but never spin it the other way
@@ -1426,7 +1512,7 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   // the target-slip clamp.
   //   wv' = (drive − k·(wv − vg)) / mw,   k = budget/(slipPeak·denom)
   //   wvNew = (wv + dt/mw·(drive + k·vg)) / (1 + dt·k/mw)
-  const kSlip = budget / (c.slipRatioPeak * sDenom);
+  const kSlip = budget / (slipPeak * sDenom);
   const wv0 = car.rearWheelSpeed;
   let wv = (wv0 + (dt / mw) * (drive + kSlip * vg)) / (1 + (dt * kSlip) / mw);
   wv = brakeClamp(wv);
@@ -1438,7 +1524,7 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   }
 
   let s = (wv - vg) / sDenom;
-  let nLong = s / c.slipRatioPeak;
+  let nLong = s / slipPeak;
   let rho = Math.hypot(nLong, nLat);
 
   let rearLongForce: number;
@@ -1521,21 +1607,33 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   // Rolling backwards with the pedal released → ease back to a stop.
   let pedalBodyForce = 0;
   if (reverseMode) {
-    if (forwardVel > -c.maxReverseSpeed) {
+    // sim-real-2 reverses through the real reverse gear (simReal2Drive, the rear wheel) → no body
+    // reverse force here. Other modes keep the arcade reverse body force.
+    if (!isSimReal2 && forwardVel > -c.maxReverseSpeed) {
       pedalBodyForce = -input.brake * c.reverseForce;
     }
   } else if (forwardVel > 0.1) {
-    pedalBodyForce = -input.brake * c.brakeForce * (1 - c.brakeRearShare);
-  } else if (forwardVel < -0.1) {
-    // Scale down near zero so the stop is smooth, not a jolt.
+    // FRONT brake share (body force; the rear share went through the wheel). sim-real-2 uses the real
+    // ~60% front-biased share at the real brakeForce.
+    pedalBodyForce = -input.brake * brakeForce2 * (1 - brakeRearShare2);
+  } else if (forwardVel < -0.1 && !isSimReal2) {
+    // Scale down near zero so the stop is smooth, not a jolt. (sim-real-2 lets the gearbox handle it.)
     pedalBodyForce = c.reverseForce * Math.min(1, -forwardVel);
   }
 
-  const dragForce = c.dragCoeff * forwardVel * Math.abs(forwardVel);
-  const rollingForce = c.rollingResistance * forwardVel;
+  // sim-real-2: real aero drag (Cd→0.35) + CONSTANT-force rolling resistance (Crr·m·g, not ∝v),
+  // tapered to 0 near rest to avoid sign jitter. Other modes byte-identical.
+  const dragForce = isSimReal2
+    ? c.simReal2DragCoeff * forwardVel * Math.abs(forwardVel)
+    : c.dragCoeff * forwardVel * Math.abs(forwardVel);
+  const rollingForce = isSimReal2
+    ? c.simReal2RollingResistConst * Math.sign(forwardVel) * clamp(Math.abs(forwardVel) / 0.5, 0, 1)
+    : c.rollingResistance * forwardVel;
   // p19: mild engine/compression braking on a TRUE coast (no throttle, no brake)
   // → a lift actually decelerates → feeds the load transfer → lift-off oversteer.
-  const engineBrakeForce =
+  // (sim-real-2 models engine braking through the gearbox via simReal2Drive's compression term, so
+  // the body engineBrakeForce stays off for it — avoid double counting.)
+  const engineBrakeForce = isSimReal2 ? 0 :
     (input.throttle < 0.02 && input.brake < 0.02 && !input.handbrake && forwardVel > 0.5)
       ? c.engineBraking : 0;
   const longitudinalForce = pedalBodyForce - dragForce - rollingForce - engineBrakeForce;
