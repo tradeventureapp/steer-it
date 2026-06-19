@@ -1235,3 +1235,35 @@ lets the engine break it loose (a feel choice). **NEXT: STAGE 3b — load transf
 brake→front, lateral cornering→outer) replacing the fake gain + a front longitudinal/friction-circle
 channel (so the front brakes through grip + front combined slip); then 3c steering 40° + remove yaw clamps
 + real handbrake. Arcade/sim/sim-real frozen.**
+
+---
+**sim-real-2 — STAGE 3b (real LOAD TRANSFER + front longitudinal channel + front friction circle, all
+isSimReal2-gated):** the provocation physics. **Longitudinal load transfer:** `ΔFz_long = m·a_long·
+CoG/wheelbase`, a_long = the PREV-frame smoothed accel (reuses `car.axLong`) → no algebraic loop. Accel
+→ rear loads; **brake/lift → front loads + REAR UNLOADS**. Composes additively on axle Fz = static (m·g/2)
+± ΔFz + aero (downforce/2 per axle); **Fz clamped ≥ 0**, and **ΔFz clamped to ±staticAxle** (the physical
+max transfer — can't shift >100%; also bounds the cold-start `prevForwardVel` spike). Grip scales with
+Fz/staticAxle → feeds BOTH the 3a Pacejka peak (D) and the friction-circle cap, front + rear. **Front
+longitudinal channel + friction circle (audit H#4):** the front brake (~60% share) now runs through the
+FRONT TYRE (not a body force) — ABS caps it at the front grip (no lock), the front lateral Pacejka is
+capped by √(frontPeakLoaded²−frontLong²) (same √ structure as the 3a rear), both rotated by the steer
+angle (a steered front brake also yaws); the pedal body-force front share is gated to 0 for sim-real-2.
+**⚠️ LATERAL load transfer = NO-OP** on the single-point-per-axle bicycle model (no L/R, constant μ) —
+reported, NOT faked (same honesty as the LSD). **MEASURED:** (a) ARCADE / (b) SIM / (c) SIM-REAL vs HEAD
+all **0.0e+0**; (f) ΔFz **2295 N at 1 g (39% of static)**, clamped ±static, Fz≥0, no blow-up; (g) front
+friction circle — lateral cap 100%→75%→0% as the front brake grows (combined slip ✓); **(h) BRAKE 1.03 g
+through the new front channel, rear NOT locked (ABS)** ✓ (the initial 0.44 g reading was a `prevForwardVel`
+cold-start artifact — fixed by the ΔFz clamp + natural spin-up); **(e) TRAIL-BRAKE WORKS — at a limit
+corner (40 km/h, steer 0.5) trail-braking ROTATES the car to β19°** (rear unloads → rear lat cap →37% of
+static → steps out) = real trail-brake oversteer entry; **(d) lift-off alone is GENTLE** (β +1°, no slide —
+HONEST: engine-brake decel ~1 m/s² → small ΔFz, exactly as predicted; trail-brake/1 g is the strong entry);
+(i) STABLE (prev-frame load transfer, ω spread 0.039 over 50 frames — no oscillation/divergence); (j)
+low-speed still clean (WSPIN 0%, no regression of the 3a relaxation fix); (k) determinism 0, multi-car.
+tsc + build clean; no brand strings. **HONEST SCOPE:** the load-transfer + front-circle MECHANISM is
+correct and validated (trail-brake rotates at a limit corner). **At HIGH speed the car is understeer/
+front-washout-limited** — front μ 1.29 ≤ rear 1.5 + the 50° steering lock put the front past its Pacejka
+peak before the rear loads → it pushes rather than oversteers; the full high-speed trail-brake drift
+emerges once **3c** lowers the steering to 40° + real ratio and removes the yaw clamps. **NEXT: STAGE 3c —
+steering 40° + real rack ratio, REMOVE angularDamping / spinYawRate / maxYawRate (yaw emerges from real
+tyre forces × the real arm + load), real handbrake (rear-grip kill → tightens + scrubs). Arcade/sim/
+sim-real frozen.**

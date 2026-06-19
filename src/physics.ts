@@ -1354,6 +1354,30 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
     rearSlipEff  = car.rearSlipState;
   }
 
+  // sim-real-2 STAGE 3b — LONGITUDINAL LOAD TRANSFER (the drift-provoke mechanism). ΔFz = m·a_long·
+  // CoG/wheelbase, a_long = the PREV-frame (smoothed) accel `car.axLong` → avoids the algebraic loop
+  // (a_long ← force ← grip ← load ← a_long; 1-frame lag, imperceptible). Accel (a_long>0) → REAR loads;
+  // brake/lift (a_long<0) → FRONT loads + REAR UNLOADS (→ lift-off / trail-brake oversteer). Composes
+  // ADDITIVELY on the axle Fz: static (m·g/2) ± ΔFz_long + aero (downforce/2 per axle, 50/50). Fz clamped
+  // ≥ 0 (no negative load). Grip then scales with Fz/staticAxle → loaded axle grips more, unloaded less
+  // → feeds BOTH the 3a Pacejka peak (D) AND the friction-circle cap, front and rear.
+  // ⚠️ LATERAL load transfer is a NO-OP on this single-point-per-axle BICYCLE model (no L/R split, μ
+  // constant in the Pacejka D) — a real effect needs a 4-wheel model or a tyre load-sensitivity curve
+  // (out of scope); NOT faked (same honesty as the LSD no-op).
+  const staticAxle = c.mass * 9.81 / 2;
+  // ΔFz clamped to ±staticAxle: the load TRANSFER can't exceed the static load (you can't shift more
+  // than 100% — the unloaded axle floors at 0, the loaded at 2× static). This is physically correct AND
+  // bounds any a_long transient (e.g. a cold-start prevForwardVel spike) to a sane transfer.
+  const dFzLong = isSimReal2
+    ? clamp(c.mass * car.axLong * c.simRealCoGHeight2 / c.simRealWheelbase2, -staticAxle, staticAxle)
+    : 0;
+  const aeroAxle = isSimReal2 ? c.simReal2DownforceCoeff * speed * speed / 2 : 0;
+  const fzRear  = Math.max(0, staticAxle + dFzLong + aeroAxle);
+  const fzFront = Math.max(0, staticAxle - dFzLong + aeroAxle);
+  const loadRear  = isSimReal2 ? fzRear  / staticAxle : 1;
+  const loadFront = isSimReal2 ? fzFront / staticAxle : 1;
+  const frontPeakLoaded = c.simReal2PeakFront * loadFront;   // load-dependent front grip (Pacejka D + circle)
+
   // ---- 5. Tire forces ----
   // FRONT (undriven): pure lateral, linear in slip angle, clamped at peak,
   // kinetic fraction once sliding — unchanged from earlier passes.
@@ -1379,8 +1403,10 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   // sim scaling are fully OVERWRITTEN here (not stacked) → countersteer no longer re-pins. Pure
   // lateral (front longitudinal/braking channel is Stage 3b). Front peak ≤ rear (un-inverted).
   if (isSimReal2) {
+    // Stage 3b: load-dependent front peak (frontPeakLoaded). Friction-circle cap by the front
+    // longitudinal (brake) demand is applied at the body-force assembly below (where the brake is known).
     frontLatForce = -Math.sign(frontSlipEff) *
-      simReal2Pacejka(frontSlipEff, c.simReal2PeakFront, c.simReal2AlphaPeakFront, c.simReal2PacejkaC);
+      simReal2Pacejka(frontSlipEff, frontPeakLoaded, c.simReal2AlphaPeakFront, c.simReal2PacejkaC);
   }
 
   // REAR (driven): combined-slip friction circle — PASS 4.
@@ -1401,12 +1427,7 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   // spins → nLong grows → the force vector rotates longitudinal → lateral
   // grip collapses → the rear steps out. Lift → the wheel grips up
   // (nLong → 0) → the budget swings back lateral → the rear hooks up.
-  // sim-real-2 AERO: downforce (downforceCoeff·v²) adds axle vertical LOAD → scales rear grip via the
-  // load ratio (the correct load→grip mechanism, NOT a flat grip bonus). At oval speeds it is ~1-2%,
-  // negligible; the REAL grip magnitude + front-axle aero load + full load transfer arrive in Stage 3.
-  const budget = isSimReal2
-    ? c.simReal2BudgetRear * (1 + c.simReal2DownforceCoeff * speed * speed / (c.mass * 9.81))   // Stage 3a: REAL μ
-    : c.tireGripBudgetRear;
+  const budget = isSimReal2 ? c.simReal2BudgetRear * loadRear : c.tireGripBudgetRear;  // Stage 3b: load-scaled
   const alphaPeakRear = budget / (isSimReal2 ? c.simReal2StiffRear : c.corneringStiffnessRear);
   // sim-real-2 uses the real peak-traction slip ratio (else = current).
   const slipPeak = isSimReal2 ? c.simReal2SlipRatioPeak : c.slipRatioPeak;
@@ -1671,9 +1692,10 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
       pedalBodyForce = -input.brake * c.reverseForce;
     }
   } else if (forwardVel > 0.1) {
-    // FRONT brake share (body force; the rear share went through the wheel). sim-real-2 uses the real
-    // ~60% front-biased share at the real brakeForce.
-    pedalBodyForce = -input.brake * brakeForce2 * (1 - brakeRearShare2);
+    // FRONT brake share. Stage-2 modes apply it as a body force here. sim-real-2 (Stage 3b) routes the
+    // front brake through the FRONT TYRE (front longitudinal channel + circle, in the front body-force
+    // assembly) → 0 here to avoid double-counting.
+    pedalBodyForce = isSimReal2 ? 0 : -input.brake * brakeForce2 * (1 - brakeRearShare2);
   } else if (forwardVel < -0.1 && !isSimReal2) {
     // Scale down near zero so the stop is smooth, not a jolt. (sim-real-2 lets the gearbox handle it.)
     pedalBodyForce = c.reverseForce * Math.min(1, -forwardVel);
@@ -1706,8 +1728,25 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   // yaw) is UNTOUCHED. Body-X is NOT in the yaw torque (axles on body-x) so the turn is unaffected.
   // Arcade / non-drift untouched (gate off); steer→0 → fs→0 → no effect (exit/straight unaffected).
   const frontLongDrag = (c.driftMode === 'sim' && car.driftActive) ? c.driftSimFrontLongDrag : 1;
-  const frontForceBodyX = -frontLatForce * fs * frontLongDrag;
-  const frontForceBodyY =  frontLatForce * fc;
+  let frontForceBodyX: number;
+  let frontForceBodyY: number;
+  if (isSimReal2) {
+    // Stage 3b — FRONT LONGITUDINAL CHANNEL + FRONT FRICTION CIRCLE (audit H#4). The front brake (the
+    // ~60% front share) runs through the FRONT TYRE (not a body force): ABS caps it at the front grip
+    // (no lock), and the front lateral Pacejka is capped by √(frontPeakLoaded² − frontLong²) — the
+    // SAME combined-slip √ structure as the 3a rear. Both components rotate by the steer angle into
+    // the body frame (so a steered front brake also yaws). Front grip is load-dependent (frontPeakLoaded).
+    const frontBrakeDemand = (input.brake > 0 && !input.handbrake && !reverseMode)
+      ? input.brake * brakeForce2 * (1 - brakeRearShare2) : 0;
+    const frontLong = -Math.min(frontBrakeDemand, frontPeakLoaded);          // ABS: capped at front grip, never locks
+    const frontLatCap = Math.sqrt(Math.max(0, frontPeakLoaded * frontPeakLoaded - frontLong * frontLong));
+    const frontLatCapped = Math.sign(frontLatForce) * Math.min(Math.abs(frontLatForce), frontLatCap);
+    frontForceBodyX = frontLong * fc - frontLatCapped * fs;
+    frontForceBodyY = frontLong * fs + frontLatCapped * fc;
+  } else {
+    frontForceBodyX = -frontLatForce * fs * frontLongDrag;
+    frontForceBodyY =  frontLatForce * fc;
+  }
   const rearForceBodyX  = rearLongForce;
   const rearForceBodyY  = rearLatForce;
 
