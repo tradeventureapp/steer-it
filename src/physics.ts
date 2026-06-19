@@ -540,15 +540,16 @@ export const CONFIG = {
   // DRIVE (16–17 km/h @ β10–14, the wave wasn't acting at β<20° anyway), and a spin BLEEDS
   // correctly without it. Drift speed is now honest throttle-vs-scrub: aligned drive carries
   // speed (shallow drift / straighten-throttle exit), misaligned deep drive bleeds (spin).
-  // SMART WAVE (re-enabled, plain-SIM only): the audit proved `spinRelease` is a CLEAN binary
-  // discriminator (0 in a held drift, 1 in a committed spin, no overlap), so the wave is now
-  // gated by ×(1−spinRelease) → it fires in a drift and goes to ZERO in a spin → algebraically
-  // CAN'T rocket (the p32 flaw is fixed). Plain-sim ONLY via the `isSimReal` param (arcade never
-  // reaches simDriftSustain; sim-real is the normalised 'sim' but isSimReal=true → excluded) →
-  // arcade + sim-real byte-identical. Gives a deep-fast entry (β70@50k) → traveling slide
-  // (~β9–15@22k) → clean exit, lifetime 2.4×. NOT a stable deep sustained drift (the catch is
-  // still dead — separate pass) but a punchy arcade drift that TRAVELS. Window ~0.4–0.7.
-  driftSimSpeedHold: 0.5,
+  // SMART WAVE — now gated to SIM-REAL (the player drift branch), GENTLE. `spinRelease` is a CLEAN
+  // binary discriminator (0 in a held drift, 1 in a committed spin), so the wave is gated by
+  // ×(1−spinRelease) → fires in a drift, ZERO in a spin → algebraically CAN'T rocket (the p32
+  // flaw). SIM-REAL ONLY via the `isSimReal` param (arcade never reaches simDriftSustain; plain
+  // sim has isSimReal=false → excluded → plain-sim back to pre-wave, arcade byte-identical). On
+  // sim-real's real-arm geometry the wave gives TRAVEL while the real arm gives the countersteer
+  // CATCH → a controllable traveling drift (provoke → travel → hold/adjust → exit → re-enter).
+  // Kept GENTLE: 0.20 (was 0.5 on plain sim, which rammed the drift to ~50 km/h). 0.20 lightly
+  // compensates the scrub so the drift travels at a moderate, controllable speed. Window ~0.10–0.40.
+  driftSimSpeedHold: 0.20,
   // SMART-WAVE betaFactor lower bound (deg). The wave fades in over [betaMin, 40°]. Relaxed
   // 20→10 so the traveling slide (settles ~β9°) stays in the wave's window longer; safe because
   // spinRelease now guards the spin. Revert to 20 if it destabilises. Live on the D tuner.
@@ -1048,9 +1049,11 @@ function simDriftSustain(car: CarState, input: Inputs, dt: number, c: Config, fo
   //     gains. Speed exceeds entry ONLY at low β via normal drive (nose aligned = not a donut).
   // Acts along velocity (orthogonal to yaw) → cannot pin β; radius stays v/ω from the carve.
   // SMART-WAVE gates (the two load-bearing additions over the p27 block):
-  //   - !isSimReal: fire ONLY in plain 'sim'. Arcade never reaches here (dispatch routes it to
-  //     arcadeDriftSustain); sim-real is the normalised 'sim' but isSimReal=true → excluded. So
-  //     arcade + sim-real are byte-identical (the wave term is never reached/applied there).
+  //   - isSimReal: fire ONLY in SIM-REAL (now the player drift branch). Arcade never reaches here
+  //     (dispatch routes it to arcadeDriftSustain); PLAIN sim is the non-sim-real 'sim' → excluded
+  //     → plain-sim is back to its NO-wave (pre-smart-wave) behaviour, and arcade is byte-identical.
+  //     The wave + sim-real's real-arm geometry = a controllable traveling drift (the wave gives
+  //     travel, the real arm gives the countersteer catch); kept GENTLE (driftSimSpeedHold 0.20).
   //   - ×(1−spinRelease): spinRelease (|spinTimer|/spinReleaseHold) is a clean binary
   //     discriminator — 0 in a held drift, 1 in a committed spin (the p30 spin-arm thresholds
   //     arm only on a committed near-full-lock). In a spin the factor → 0 → the wave is OFF →
@@ -1058,7 +1061,7 @@ function simDriftSustain(car: CarState, input: Inputs, dt: number, c: Config, fo
   //   (NB the spin-arm below updates car.spinTimer AFTER this block, so spinRelease here is the
   //    previous frame's value — a ≤1-frame lag, negligible vs the spinReleaseHold 0.15 s ramp.)
   const spinRelease = clamp(Math.abs(car.spinTimer) / c.spinReleaseHold, 0, 1);
-  if (!isSimReal && govMode > 0 && vNow > 0.3 && c.driftSimSpeedHold > 0 && !input.handbrake) {
+  if (isSimReal && govMode > 0 && vNow > 0.3 && c.driftSimSpeedHold > 0 && !input.handbrake) {
     const SPEEDHOLD_REF = 40;   // m/s² full-authority along-velocity retain (p29 26→40: holds ≥30 entries)
     const betaDeg = Math.abs(bodyBeta) * 180 / Math.PI;
     // Relaxed lower bound (driftSimWaveBetaMin, default 10° vs the old 20°) so the traveling

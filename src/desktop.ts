@@ -197,7 +197,7 @@ document.body.appendChild(brakeTunerEl);
   mkRow('driftSimCatch', () => CONFIG.driftSimCatch, (v) => { CONFIG.driftSimCatch = v; },
     0.05, 0, 1, (v) => v.toFixed(2));
   mkRow('driftSimSpeedHold', () => CONFIG.driftSimSpeedHold, (v) => { CONFIG.driftSimSpeedHold = v; },
-    0.05, 0, 1, (v) => v.toFixed(2));
+    0.02, 0.10, 0.40, (v) => v.toFixed(2));
   mkRow('driftSimWaveBetaMin', () => CONFIG.driftSimWaveBetaMin, (v) => { CONFIG.driftSimWaveBetaMin = v; },
     1, 5, 30, (v) => v.toFixed(0));
   mkRow('driftSimEnginePower', () => CONFIG.driftSimEnginePower, (v) => { CONFIG.driftSimEnginePower = v; },

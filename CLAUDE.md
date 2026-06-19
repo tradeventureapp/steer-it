@@ -1110,3 +1110,31 @@ DEFERRED):** the low-speed TURN-AMOUNT (~54° vs arcade 81°) is geometry + the 
 latch — the gate fixes the burnout/smoke/false-slide but not the turn amount (a separate pass: tame the
 low-speed sim engine/boost, or accept the real-geometry turn). **NEXT: phone test sim-real low speed
 (no burnout on light throttle, no smoke crawling, turns as a grip turn not a latched slide).**
+
+---
+**SIM-REAL IS NOW THE DRIFT BRANCH — gentle wave moved from plain-sim → sim-real (controllable
+traveling drift):** an instrumented re-measurement found the earlier "sim countersteer is DEAD /
+deepens the drift" conclusion was a **SIGN-ERROR test artifact** — the test controller (`cs()`)
+steered INTO the slide (`−sign(β)`) instead of toward velocity (the auto-countersteer direction
+`+sign(β)`). With the CORRECT countersteer sign, **sim-real's real arm (1.3 m) genuinely CATCHES**
+(β 40→0, bounded peak 54°) and HOLDS a target angle (commanded 20/30/40° → settled 25/37/49°),
+while plain-sim overshoots to 72° (the real arm is what makes it *hold*). So sim-real + the wave =
+the controllable traveling drift the player wanted: provoke → travel → hold/adjust with countersteer
+→ exit by straightening → re-enter. **CHANGE:** the smart wave was re-gated from plain-sim
+(`!isSimReal`) → **SIM-REAL** (`isSimReal`) at the wave block (physics.ts ~1061), and made much
+GENTLER — `CONFIG.driftSimSpeedHold` **0.5 → 0.20** (0.5 rammed the drift to ~50 km/h; 0.20 lightly
+compensates the scrub so it TRAVELS at a moderate, controllable speed). The proven safety structure
+carries over unchanged: **×(1−spinRelease)** spin gate (rocket-proof — spin bleeds 63→12k), the
+**entry-speed cap** (no pump), the **throttle fade**, and `driftSimWaveBetaMin` 10°. The **low-speed
+gate (fix #1, `driftSimLowSpeedGripSpeed` 5.0)** still applies in sim-real (complementary — grip
+below 5 m/s, wave above). **MEASURED:** (a) ARCADE vs HEAD **0.0e+0**; (b) **PLAIN-SIM back to
+pre-wave** (vs the pre-smart-wave baseline 38d1c61~1 = **0.0e+0** — the wave LEFT plain sim, which
+returns to its no-wave behaviour) + arcade byte-identical; (c) GENTLE wave on sim-real travels
+(lifetime 0.7→1.4s, β1→15°) at a gentler hold-speed (target-30° drift travels **36k vs the 0.5
+version's 50k**); (d) COUNTERSTEER **catches + holds** (β 40→0 bounded; holds ~36° under modulation);
+(e) SPIN BLEEDS 63→12k (no rocket); (f) low-speed gate intact (WSPIN 0%, no false burnout),
+determinism 0, multi-car. tsc + build clean; trademark clean. `driftSimSpeedHold` live on D
+(0.10–0.40). **Arcade + plain-sim FROZEN. NEXT: phone feel-test sim-real (provoke → travels gently →
+countersteer catches/holds an angle → straighten to exit → turn in to re-enter; deliberate spin
+bleeds, no rocket; low speed = grip turn, no burnout). Dial `driftSimSpeedHold` on D if the travel
+feels too weak/strong.**
