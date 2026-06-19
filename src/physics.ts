@@ -94,6 +94,12 @@ export const CONFIG = {
   simReal2StiffRear: 110000,        // N/rad rear cornering stiffness (the rho longitudinal coupling)
   simReal2RelaxLength: 0.5,         // m tyre relaxation length (slip ANGLE builds over this distance)
   simReal2RelaxVmin: 0.5,           // m/s floor for τ = relaxLength/max(v,vmin) (divide guard)
+  // sim-real-2 STAGE 3c (FINAL) — real steering lock + NO artificial yaw terms (yaw emerges from the
+  // real tyre torques × the real arm + load) + real handbrake. The handbrake's locked-rear kinetic
+  // grip reuses rearDriftFriction (0.65). angularDamping → 0, maxYawRate clamp removed, spinYawRate
+  // never runs (own dispatch) — all sim-real-2-gated.
+  simReal2MaxSteer: 0.698,          // rad (40°) factory lock (vs 50°): keeps the front inside its
+                                    // Pacejka peak at speed → fixes the 3b high-speed understeer.
 
   // ---------- Engine / brakes ----------
   // Honest two-region torque curve (function of throttle & WHEEL speed):
@@ -1222,7 +1228,10 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   const rearLoadFactor = 1 + ltGain * axNorm;   // throttle → rear grips → exit aid (arcade only now)
 
   // ---- 2. Steering: ease front wheel toward target lock ----
-  const targetSteer = clamp(input.steer, -1, 1) * c.maxSteerAngle;
+  // sim-real-2 (Stage 3c): 40° factory lock. The input→steer EXPO is the PHONE-tilt input curve (kept
+  // for controllability — it's not a physical rack term); only the max lock changes here.
+  const maxSteer = isSimReal2 ? c.simReal2MaxSteer : c.maxSteerAngle;
+  const targetSteer = clamp(input.steer, -1, 1) * maxSteer;
   const maxStep = c.steerSpeed * dt;
   car.steerAngle += clamp(targetSteer - car.steerAngle, -maxStep, maxStep);
 
@@ -1270,7 +1279,7 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   if (c.driftMode === 'sim' && car.driftActive) {
     alignGate *= (1 - c.driftFrontCarve * (1 - c.driftSimCatch));
   }
-  const alignAngle = clamp(bodyBeta, -c.maxSteerAngle, c.maxSteerAngle);
+  const alignAngle = clamp(bodyBeta, -maxSteer, maxSteer);
   let effectiveSteer =
     playerSteer * (1 - alignGate) +
     (alignAngle + playerSteer * c.autoCounterTrim) * alignGate;
@@ -1295,7 +1304,7 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
     const t = clamp(
       (forwardVel - c.frontSlipLimitSpeedLow) /
       (c.frontSlipLimitSpeedHigh - c.frontSlipLimitSpeedLow), 0, 1);
-    let slipCap = c.maxSteerAngle + (c.frontSlipLimitOptimal - c.maxSteerAngle) * t;
+    let slipCap = maxSteer + (c.frontSlipLimitOptimal - maxSteer) * t;
     // p24 SIM front-carve: relax the slip cap back toward full lock inside the drift
     // so the front keeps real carving authority at speed. The front force is still
     // bounded by peakLatGripFront (the physical p13 cap) so it can't anchor to zero.
@@ -1656,9 +1665,22 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   // the fake load-transfer / handbrake-kill modifiers above (those are arcade band-aids; real load
   // transfer = 3b, real handbrake = 3c). Pure-physics rear breakaway from real μ.
   if (isSimReal2) {
-    const latCap = Math.sqrt(Math.max(0, budget * budget - rearLongForce * rearLongForce));
-    const fyPac = simReal2Pacejka(rearSlipEff, budget, c.simReal2AlphaPeakRear, c.simReal2PacejkaC);
-    rearLatForce = -Math.sign(rearSlipEff) * Math.min(fyPac, latCap);
+    if (input.handbrake) {
+      // STAGE 3c — REAL HANDBRAKE: the rear is LOCKED → it slides, so its (kinetic) grip points along
+      // the SLIP-VELOCITY direction (mostly LONGITUDINAL scrub, tiny LATERAL when moving forward). The
+      // lateral grip ~vanishes → the rear steps out → TIGHTER rotation; the longitudinal scrubs speed.
+      // |F| = kinetic budget → inside the friction circle by construction. NOT the boost-donut (no
+      // power-over — driveBoost is already 1). On RELEASE the rear returns to Pacejka(rearSlipEff);
+      // since the relaxed slip angle has been tracking, grip recovers over the relaxation length (no snap).
+      const slipMag = Math.max(0.3, Math.hypot(forwardVel, rearLat));
+      const kF = budget * c.rearDriftFriction;     // kinetic grip of the locked rear (~0.65·μ_static)
+      rearLongForce = -kF * forwardVel / slipMag;   // scrub (opposes forward motion → decel)
+      rearLatForce  = -kF * rearLat   / slipMag;    // small lateral → rear loses grip → rotates
+    } else {
+      const latCap = Math.sqrt(Math.max(0, budget * budget - rearLongForce * rearLongForce));
+      const fyPac = simReal2Pacejka(rearSlipEff, budget, c.simReal2AlphaPeakRear, c.simReal2PacejkaC);
+      rearLatForce = -Math.sign(rearSlipEff) * Math.min(fyPac, latCap);
+    }
   }
 
   // Clamp wheel overspeed to ±maxSlipRatio (force saturates past rho = 1
@@ -1764,7 +1786,10 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
     ? c.mass * 1.25 * 1.25
     : isSimReal ? c.mass * c.simRealWheelbase * c.simRealWheelbase / 12 : inertia(c);
   const torque = halfWB * frontForceBodyY - halfWB * rearForceBodyY;
-  const yawDamp = -c.angularDamping * I * car.angularVel;
+  // sim-real-2 (Stage 3c): NO artificial yaw damping — yaw rate = ∫(real tyre torque)/inertia. The yaw
+  // DAMPING comes from the tyres themselves (a yawing car develops slip angles that resist). Other
+  // modes keep the angularDamping band-aid.
+  const yawDamp = isSimReal2 ? 0 : -c.angularDamping * I * car.angularVel;
   car.angularVel += (torque + yawDamp) / I * dt;
 
   // Soft yaw-rate limit (p7): yaw above maxYawRate is damped back hard
@@ -1776,7 +1801,9 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   const simRealDrift = isSimReal && spinRelease < 0.5;
   const yawCeiling = simRealDrift ? c.driftSimDriftYawCeiling : c.maxYawRate;
   const yawExcess = Math.abs(car.angularVel) - yawCeiling;
-  if (yawExcess > 0) {
+  // sim-real-2 (Stage 3c): NO maxYawRate clamp — yaw is bounded by real physics (the tyre forces
+  // balance at the spin rate), not a ceiling. A real car spins; recovery is via countersteer, not a cap.
+  if (yawExcess > 0 && !isSimReal2) {
     // sim-real HELD drift: HARD clip to the physical path-bound ceiling (a held drift's yaw can't
     // exceed a_lat/v — the soft decay let the real-moment impulse overshoot to ~4.8). arcade/sim
     // and the committed SPIN keep the SOFT decay (entry headroom for the hodiny). β is NOT clamped

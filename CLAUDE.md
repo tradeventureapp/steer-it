@@ -1267,3 +1267,40 @@ emerges once **3c** lowers the steering to 40° + real ratio and removes the yaw
 steering 40° + real rack ratio, REMOVE angularDamping / spinYawRate / maxYawRate (yaw emerges from real
 tyre forces × the real arm + load), real handbrake (rear-grip kill → tightens + scrubs). Arcade/sim/
 sim-real frozen.**
+
+---
+**sim-real-2 — STAGE 3c (FINAL): steering 40° + ALL artificial yaw terms removed + real handbrake →
+sim-real-2 COMPLETE as a full real-car sim.** All isSimReal2-gated (arcade/sim/sim-real byte-identical).
+**Steering:** `simReal2MaxSteer` 0.698 (40° factory lock vs 50°) at all four maxSteerAngle sites (target/
+align/slip-cap) → keeps the front inside its Pacejka peak at speed → **fixes the 3b high-speed understeer**.
+The input→steer EXPO is KEPT (it's the phone-tilt input curve for controllability, not a physical rack
+term — reported, decided to keep). **Yaw now EMERGES from real tyre forces — all 3 band-aids removed:**
+`angularDamping` 1.7→0 (yaw damping comes from the tyres — a yawing car develops resisting slip angles),
+the `maxYawRate` 3.2 soft-clamp REMOVED (`if (yawExcess>0 && !isSimReal2)`), and `spinYawRate` never runs
+(sim-real-2's own dispatch sets `spinTimer=0`, no spin-arm). Yaw rate = ∫(halfWB·(frontFy−rearFy))/I.
+**Real handbrake** (in the rear-force override): the rear LOCKS → kinetic grip points along the SLIP
+VELOCITY (mostly longitudinal scrub, tiny lateral) — `rearLong = −kF·fwd/|slip|`, `rearLat = −kF·rearLat/
+|slip|`, kF = budget·rearDriftFriction (0.65·μ), inside the friction circle by construction → rear lateral
+~vanishes → TIGHTER rotation + speed SCRUBS (NOT the boost-donut; no power-over — driveBoost is 1). On
+release the rear returns to Pacejka(rearSlipEff) and grip recovers over the relaxation length (no snap).
+**MEASURED:** (a) ARCADE / (b) SIM / (c) SIM-REAL vs HEAD all **0.0e+0**; **(d) STABILITY (critical, no
+clamps) — straight tracks (max|ω| 0.000), steady corner STABLE (ω spread 0.001 / 5 s), S-curves settle,
+NO slow divergence** (the tyre forces self-damp the yaw — removing the clamps did NOT destabilise); **(e)
+HIGH-SPEED DRIFT UNLOCKED — 70 km/h + handbrake → DRIFTS (β 50→88°), understeer fixed** (40° keeps the
+front in peak); **(f) REAL HANDBRAKE — mid-corner radius 18.8→3.0 m, ω 0.77→4.0, speed 52→43 km/h =
+TIGHTENS + SCRUBS** (real, not boost-donut); **(i) SPIN RECOVERY — spins from β 25/87/60° all RECOVER via
+countersteer** (bounded by real physics, recoverable, no clamp); (g) yaw emerges (a drift's ω is purely
+tyre-torque/inertia); (h) countersteer catches off-power (recovers; under power it oscillates with a crude
+fixed-gain controller — a human modulates); (j) low-speed clean (WSPIN 0%), brake 1 g, trail-brake, real
+grip/load-transfer all intact; (k) determinism 0, multi-car. tsc + build clean; no brand strings.
+**sim-real-2 IS COMPLETE — a full real-car sim:** real geometry (2.565 m, halfWB 1.2825, inertia 1875) +
+drivetrain (175 kW torque curve + 5-spd auto + real reverse, top 241, 0-100 6.3 s) + drag/aero + brakes
+(1 g + ABS, front-biased) + real grip (Pacejka μ front 1.29 ≤ rear 1.5, kinetic 0.76/0.88, relaxation-
+length slip) + load transfer (long, ΔFz clamped) + front friction circle + 40° steering + yaw from tyres +
+real handbrake. **HONEST SIMPLIFICATIONS (flagged):** bicycle model (S1 — 2 axles, no per-wheel; LSD +
+lateral load transfer are no-ops here), quasi-static load transfer (S2 — no suspension transient), no tyre
+thermal/wear (S3). It will feel like a real grippy sports car: grips, needs provocation (handbrake/trail-
+brake/lift) to drift, real-weighty, longer braking, looser at the limit — NOT arcade. arcade/sim/sim-real
+remain the frozen arcade modes. **NEXT: PHONE FEEL-TEST sim-real-2 end-to-end (D → SIM-REAL-2): drive,
+corner, trail-brake + handbrake to provoke a drift, countersteer to hold/catch, recover; top speed,
+shifting, braking. Then decide whether sim-real-2 becomes a selectable mode + feel-tuning.**
