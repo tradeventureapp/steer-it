@@ -1325,3 +1325,33 @@ stable spread 0.022, low-speed WSPIN 0%, high-speed handbrake still provokes β4
 build clean; no brand strings. **Also a latent fix for every sim-real-2 slide** (the rear was over-
 unloading whenever β was high — the handbrake just made it blatant). sim-real-2 COMPLETE + this correction.
 **NEXT: phone re-test the handbrake (short scrub-heavy slide now) + the full drift loop.**
+
+---
+**sim-real-2 — FREE-ROLLING REAR ON COAST (handbrake-exit false-burnout / "rear throw" fix):** the phone
+test found the handbrake EXIT (release, no throttle) threw the rear like a burnout with zero throttle.
+DIAGNOSED: the rear friction circle's kinetic branch (rho>1) re-integrates the wheel explicitly against
+`fk·nLong/rho` — a longitudinal recovery force DILUTED by the lateral `rho` (the deep-β slide). So a
+just-released LOCKED rear (wv≈0) couldn't re-sync to ground speed; it crept up slowly while `vg=forwardVel`
+COLLAPSED (the β-rotation), then OVERSHOT it → slip flipped from negative (lock) to **POSITIVE (+28% — a
+false burnout, no throttle)** → the rear stayed low-grip → β deepened (39→87°) → oscillation/throw. NOT a
+drift latch (`driftActive` stays false), NOT the relaxation. FIX (sim-real-2-gated, physical): a free-
+rolling wheel has ~zero longitudinal slip EVEN while sliding laterally, so when COASTING — `drive ≤ 0`
+(throttle lifted, incl. engine braking), NO foot brake, NO handbrake — **SKIP the slow explicit kinetic
+re-integration and KEEP the fast implicit `wv`** (the stage-1 update, which re-syncs toward `vg` AND
+carries the engine-braking `drive`). One gate `const wheelCoast = isSimReal2 && drive<=0 && !footActive &&
+!input.handbrake` wrapping the explicit re-integration. **MEASURED:** (a) ARCADE / (b) SIM / (c) SIM-REAL
+vs HEAD all **0.0e+0**; **(d) KEYSTONE — handbrake exit false burnout +28% → 0% positive-slip, wv re-syncs
+to vg with NO overshoot (slip −0.674→−0.003), β hooks up cleanly (no throw)**; **PROOF the fix is surgical
+— sim-real-2 NEW vs HEAD BYTE-IDENTICAL (0.0e+0) on launch / full-throttle+steer / partial-throttle corner
+/ high-speed-handbrake / trail-brake** (the fix only acts on `drive≤0` coast — under throttle the wheelspin
+path is untouched); (e) the throttle→WSPIN gradient is flat 0% — the PRE-EXISTING real-grip behaviour (3a:
+engine ~8250N < rear grip 8800N → grips, drift needs provocation), byte-identical to HEAD, NOT this fix;
+(f) ENGINE BRAKING intact (coast-down 0.92 m/s² — straight coast is the GRIP branch, untouched); (g) FOOT
+BRAKE 1.04 g + ABS intact; (h) PRIOR FIXES intact (handbrake tightens ω 0.78→3.58 + scrubs 52→42k, the
+Coriolis load-transfer fix, low-speed WSPIN 0%, stability spread 0.022); (j) determinism 0, multi-car.
+tsc + build clean; no brand strings. **vg-REFERENCE ROOT (the forwardVel-collapse at deep β behind this +
+the over-long-slide + load-transfer bugs): assessed, DEFERRED** — `vg=forwardVel` has ~9 consumers (slip,
+sDenom, footTargetWv, wheel update, bodyBeta, front geometry, handbrake scrub, the prior Coriolis fix);
+a global β-robust reference risks regressing the working handbrake-scrub / load-transfer fixes, so the
+targeted wheel-sync fix is shipped and the global vg root is left for a dedicated pass. **NEXT: phone
+re-test the handbrake EXIT (no burnout/throw on release) + the full drift loop.**

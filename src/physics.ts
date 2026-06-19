@@ -1641,13 +1641,26 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
     // force, so re-integrate the wheel explicitly against it (same
     // two stages: traction, then the zero-clamped brake). This is the
     // branch where the wheel actually SPINS UP under power.
-    wv = wv0 + (dt / mw) * (drive - rearLongForce);
-    // The ground reaction drags the wheel TOWARD ground speed and
-    // vanishes at zero slip — it can never push the wheel PAST it.
-    // Clamp the crossing, else the one-frame overshoot makes the wheel
-    // oscillate locked/overspun on alternate frames under hard braking.
-    if ((wv0 - vg) * (wv - vg) < 0) wv = vg;
-    wv = brakeClamp(wv);
+    //
+    // sim-real-2 FREE-ROLLING REAR (coast): the explicit re-integration's longitudinal recovery is
+    // fk·nLong/rho — DILUTED by the lateral rho (deep-β slide), so a just-released LOCKED rear can't
+    // re-sync to ground speed; it overshoots the β-collapsing forwardVel → false POSITIVE slip
+    // (burnout with no throttle) + oscillation. A real free-rolling wheel has ~zero longitudinal slip
+    // EVEN while the tyre slides laterally. So when COASTING — no positive drive (drive≤0 = throttle
+    // lifted, incl. engine braking), NO foot brake, NO handbrake — KEEP the fast implicit wv (line
+    // ~1606), which re-syncs toward vg AND still carries the engine-braking `drive` (wv settles just
+    // below vg → braking force). Under THROTTLE (drive>0 → wheelspin/drift), FOOT BRAKE or HANDBRAKE,
+    // the explicit re-integration runs unchanged (wheelspin / lock preserved). Other modes byte-identical.
+    const wheelCoast = isSimReal2 && drive <= 0 && !footActive && !input.handbrake;
+    if (!wheelCoast) {
+      wv = wv0 + (dt / mw) * (drive - rearLongForce);
+      // The ground reaction drags the wheel TOWARD ground speed and
+      // vanishes at zero slip — it can never push the wheel PAST it.
+      // Clamp the crossing, else the one-frame overshoot makes the wheel
+      // oscillate locked/overspun on alternate frames under hard braking.
+      if ((wv0 - vg) * (wv - vg) < 0) wv = vg;
+      wv = brakeClamp(wv);
+    }
   }
 
   // Handbrake kills rear lateral grip from the instant it's pulled — a
