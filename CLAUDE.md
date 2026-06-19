@@ -1200,3 +1200,38 @@ sole modeled wheel — the front brake is a body force; a front friction-circle 
 low-speed blow-up), load transfer (long+lat), steering 40° + remove yaw clamps, real handbrake. **NEXT:
 phone-check sim-real-2 (top speed feel, shifting, braking, reverse) — but it's still RAW until Stage 3
 grip; arcade/sim/sim-real frozen.**
+
+---
+**sim-real-2 — STAGE 3a (REAL GRIP + Pacejka-lite + relaxation-length slip, all isSimReal2-gated):** the
+tyre model goes real. **Real μ:** `simReal2BudgetRear` 8800 (μ_static_rear **1.50**), `simReal2PeakFront`
+7600 (μ_static_front **1.29, ≤ rear → the front>rear inversion is FIXED**); per-axle load ~5886 N.
+**Pacejka-lite** (`simReal2Pacejka`: Fy=D·sin(C·atan(B·|α|)), B=tan(π/2C)/αPeak, **C 1.6**, αPeak front 6°
+/ rear 7°) **REPLACES** the front linear-then-HARD-CLAMP (measured Fy 2°→5117, **6°→7600 peak**, 10°→7188,
+20°→6163 N = rises→peak→**falls**, not linear-clamp; the old clamp + sim front-scaling are OVERWRITTEN, so
+countersteer can't re-pin). The post-peak falloff IS the kinetic regime → **μ_kinetic front 0.76 / rear
+0.88** (no separate kinetic fraction). **Rear** Pacejka is kept INSIDE the friction circle: lateral cap =
+√(budget²−rearLong²) (measured 100%→89%→42% as drive/brake load the tyre = combined slip preserved); the
+rear wheel/traction loop is untouched (`rearLatForce` is a leaf). **Relaxation-length slip** (audit H#1,
+the PROPER low-speed fix, NO rearSlipFloor for sim-real-2): the slip ANGLE is low-passed toward the raw
+value with τ=relaxLength 0.5 m / max(v, 0.5) → lateral force builds over ~0.5 m of travel → the real-arm
+low-speed atan2 spike can't make a huge transient force (per-car `frontSlipState`/`rearSlipState`). The
+relaxed angle is then mapped through Pacejka. **MEASURED:** (a) ARCADE / (b) SIM / (c) SIM-REAL vs HEAD all
+**0.0e+0**; **(e) KEYSTONE — low-speed (12 km/h, steer 0.9, throttle 0.15): WSPIN 0%, NO false burnout, NO
+false drift-latch** (rearSliding false) via relaxation, not a floor ✓; **(g) high-speed CRISP** (relax α=1.0
+at 30/60 m/s = instant; smoothing only at crawl ✓); (j) friction circle preserved; (l) determinism 0,
+multi-car (per-car slip state). **(h) DRIFT — the honest result: at real μ the car GRIPS.** The engine
+(~8250 N at peak torque in 1st) sits just BELOW rear grip (8800 N) → **no launch wheelspin, no throttle
+power-over** — realistic for a grippy RWD on sport tyres. The inflated-grip OVER-ROTATION the plan
+anticipated is GONE (replaced by real grip); cornering is best at moderate steer and **washes out
+(understeers) at full lock** (Pacejka front falloff = real washout). **Drift now needs PROVOCATION** —
+handbrake (3c) or lift-off/trail-brake via load transfer (3b) — not yet present. **(i) LSD = NO-OP**
+(reported honestly, NOT implemented): the model is a single-rear-wheel bicycle (S1) — an LSD couples two
+rear wheels, which don't exist here; a real LSD effect needs a 4-wheel model (out of scope). No dead
+config added. tsc + build clean; no brand strings. **HONEST NOTES:** handbrake rear-grip-kill is BYPASSED
+for sim-real-2 (so the handbrake doesn't provoke a slide until 3c); the fake `loadTransferGain` + handbrake
+lat-kill modifiers are OVERWRITTEN by the Pacejka rear (real load transfer = 3b); at rear μ 1.5 the car
+won't power-oversteer on throttle alone — if easier power-over is wanted later, rear μ ~1.3 (budget ~7600)
+lets the engine break it loose (a feel choice). **NEXT: STAGE 3b — load transfer (longitudinal accel→rear/
+brake→front, lateral cornering→outer) replacing the fake gain + a front longitudinal/friction-circle
+channel (so the front brakes through grip + front combined slip); then 3c steering 40° + remove yaw clamps
++ real handbrake. Arcade/sim/sim-real frozen.**

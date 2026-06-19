@@ -82,6 +82,18 @@ export const CONFIG = {
   simReal2BrakeForce: 11800,        // N → ~1.0 g on 1200 kg (4-wheel disc)
   simReal2BrakeRearShare: 0.40,     // 40/60 rear/front bias (real front-biased)
   simReal2SlipRatioPeak: 0.12,      // real peak-traction slip ratio (vs arcade 0.15)
+  // sim-real-2 STAGE 3a — REAL GRIP (μ_static ~1.3-1.5, front ≤ rear) via a Pacejka-lite curve, +
+  // relaxation-length slip (proper low-speed fix). Axle load ~5886 N (50/50). The Pacejka peak D is
+  // the static budget; its post-peak falloff (sin floor at large α, set by C) is the kinetic μ — so
+  // NO separate kinetic fraction for the lateral force. C 1.6 → falloff floor 0.59·D → μ_kin ~0.59·μ.
+  simReal2BudgetRear: 8800,         // N rear peak lateral (μ_static_rear ~1.49)
+  simReal2PeakFront: 7600,          // N front peak lateral (μ_static_front ~1.29, < rear → un-inverted)
+  simReal2PacejkaC: 1.6,            // Pacejka shape (peak then falloff; floor 0.59·D → μ_kin ~0.7-0.9)
+  simReal2AlphaPeakFront: 0.105,    // rad (~6°) front slip angle at peak grip
+  simReal2AlphaPeakRear: 0.122,     // rad (~7°) rear slip angle at peak grip
+  simReal2StiffRear: 110000,        // N/rad rear cornering stiffness (the rho longitudinal coupling)
+  simReal2RelaxLength: 0.5,         // m tyre relaxation length (slip ANGLE builds over this distance)
+  simReal2RelaxVmin: 0.5,           // m/s floor for τ = relaxLength/max(v,vmin) (divide guard)
 
   // ---------- Engine / brakes ----------
   // Honest two-region torque curve (function of throttle & WHEEL speed):
@@ -670,6 +682,11 @@ export interface CarState {
   // sim-real-2 automatic-gearbox current gear (1..5; reverse handled separately). Per-car.
   // Other modes never read/write it (gated) → init only, no effect on arcade/sim/sim-real.
   gear: number;
+  // sim-real-2 relaxation-length slip ANGLES (rad). The raw slip angle is low-passed toward these
+  // over the tyre relaxation length → lateral force builds over ~0.5 m of travel (kills the low-speed
+  // atan2 spike WITHOUT a slip floor). Per-car; only sim-real-2 reads/writes them.
+  frontSlipState: number;
+  rearSlipState: number;
 
   // Drift-transition latch (p14, seconds). A hard counter flick sets this;
   // while it counts down the angle governor drives the flip THROUGH center
@@ -728,6 +745,8 @@ export function makeCar(x: number, y: number, heading: number = -Math.PI / 2): C
     steerAngle: 0,
     rearWheelSpeed: 0,
     gear: 1,
+    frontSlipState: 0,
+    rearSlipState: 0,
     flipTimer: 0,
     driftActive: false,
     slideBlendSmooth: 0,
@@ -760,6 +779,13 @@ function simReal2GearRatio(gear: number, c: Config): number {
     case 1: return c.simReal2GearR1; case 2: return c.simReal2GearR2; case 3: return c.simReal2GearR3;
     case 4: return c.simReal2GearR4; default: return c.simReal2GearR5;
   }
+}
+// sim-real-2 Pacejka-lite lateral force MAGNITUDE for a slip angle: Fy = D·sin(C·atan(B·|α|)), with
+// B = tan(π/2C)/αPeak placing the PEAK at αPeak. Rises to D at αPeak, then DECLINES (the post-peak
+// falloff IS the kinetic/sliding regime — no separate kinetic fraction). Caller applies the sign.
+function simReal2Pacejka(alpha: number, D: number, alphaPeak: number, C: number): number {
+  const B = Math.tan(Math.PI / (2 * C)) / alphaPeak;
+  return D * Math.sin(C * Math.atan(B * Math.abs(alpha)));
 }
 
 function clamp(v: number, lo: number, hi: number): number {
@@ -1314,6 +1340,19 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   // Acts only below ~floor m/s of |rearLong| (=|forwardVel|); above it |fwd| dominates → no-op.
   const rearSlipFloor = c.driftMode === 'sim' ? c.driftSimRearSlipFloor : MIN_LONG;
   const rearSlip  = Math.atan2(rearLat,       Math.max(rearSlipFloor, Math.abs(rearLong)));
+  // sim-real-2 STAGE 3a — RELAXATION LENGTH (proper low-speed fix, replaces any slip floor): low-pass
+  // the slip ANGLE toward the raw value over the tyre relaxation length. τ = relaxLength/max(v,vmin),
+  // so the lateral force builds over ~0.5 m of TRAVEL → at crawl the real-arm atan2 spike can't make a
+  // huge transient force (no false burnout/smoke) WITHOUT a floor; at speed τ is small → α tracks
+  // instantly → cornering/drift response stays CRISP. We then map the RELAXED angle through Pacejka.
+  let frontSlipEff = frontSlip, rearSlipEff = rearSlip;
+  if (isSimReal2) {
+    const a = Math.min(1, dt * Math.max(c.simReal2RelaxVmin, speed) / c.simReal2RelaxLength);
+    car.frontSlipState += (frontSlip - car.frontSlipState) * a;
+    car.rearSlipState  += (rearSlip  - car.rearSlipState)  * a;
+    frontSlipEff = car.frontSlipState;
+    rearSlipEff  = car.rearSlipState;
+  }
 
   // ---- 5. Tire forces ----
   // FRONT (undriven): pure lateral, linear in slip angle, clamped at peak,
@@ -1334,6 +1373,14 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
     const lowSpeedFade = clamp(1 - speed / 8, 0, 1);                 // 1 at rest → 0 by 8 m/s
     const authority = 1 + (c.driftSimFrontAuthority - 1) * lowSpeedFade;
     frontLatForce *= authority * c.driftSimFrontSlide;
+  }
+  // sim-real-2 STAGE 3a — REPLACE the linear-then-HARD-CLAMP front force above with a Pacejka curve
+  // of the RELAXED slip angle: rises to peak ~6° then DECLINES (real breakaway). The old clamp +
+  // sim scaling are fully OVERWRITTEN here (not stacked) → countersteer no longer re-pins. Pure
+  // lateral (front longitudinal/braking channel is Stage 3b). Front peak ≤ rear (un-inverted).
+  if (isSimReal2) {
+    frontLatForce = -Math.sign(frontSlipEff) *
+      simReal2Pacejka(frontSlipEff, c.simReal2PeakFront, c.simReal2AlphaPeakFront, c.simReal2PacejkaC);
   }
 
   // REAR (driven): combined-slip friction circle — PASS 4.
@@ -1358,9 +1405,9 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   // load ratio (the correct load→grip mechanism, NOT a flat grip bonus). At oval speeds it is ~1-2%,
   // negligible; the REAL grip magnitude + front-axle aero load + full load transfer arrive in Stage 3.
   const budget = isSimReal2
-    ? c.tireGripBudgetRear * (1 + c.simReal2DownforceCoeff * speed * speed / (c.mass * 9.81))
+    ? c.simReal2BudgetRear * (1 + c.simReal2DownforceCoeff * speed * speed / (c.mass * 9.81))   // Stage 3a: REAL μ
     : c.tireGripBudgetRear;
-  const alphaPeakRear = budget / c.corneringStiffnessRear;
+  const alphaPeakRear = budget / (isSimReal2 ? c.simReal2StiffRear : c.corneringStiffnessRear);
   // sim-real-2 uses the real peak-traction slip ratio (else = current).
   const slipPeak = isSimReal2 ? c.simReal2SlipRatioPeak : c.slipRatioPeak;
 
@@ -1463,7 +1510,7 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
     : Math.abs(vg);
   const sDenom = Math.max(c.slipDenomFloor, slipRef);
   const mw = c.wheelSpinInertia;
-  const nLat = rearSlip / alphaPeakRear;                 // rear lateral grip usage
+  const nLat = (isSimReal2 ? rearSlipEff : rearSlip) / alphaPeakRear;   // rear lateral grip usage (relaxed in sim-real-2)
 
   // ---- FOOT BRAKE (p21) — GRIP-RELATIVE TARGET-SLIP, inside the friction circle.
   // The HANDBRAKE keeps its own lock-force decrement (unchanged). The FOOT brake
@@ -1580,6 +1627,17 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
     const hbScrub = c.handbrakeLongScrubIdle +
       (c.handbrakeLongScrubFactor - c.handbrakeLongScrubIdle) * input.throttle;
     rearLongForce *= hbScrub;
+  }
+  // sim-real-2 STAGE 3a — REAR lateral via Pacejka of the RELAXED angle, kept INSIDE the friction
+  // circle: the remaining lateral grip after the longitudinal demand is sqrt(budget² − rearLong²),
+  // so cornering grip drops as drive/brake use the tyre (combined slip preserved). rearLongForce is
+  // unchanged (the wheel/traction loop is untouched). OVERWRITES the linear/kinetic rearLatForce +
+  // the fake load-transfer / handbrake-kill modifiers above (those are arcade band-aids; real load
+  // transfer = 3b, real handbrake = 3c). Pure-physics rear breakaway from real μ.
+  if (isSimReal2) {
+    const latCap = Math.sqrt(Math.max(0, budget * budget - rearLongForce * rearLongForce));
+    const fyPac = simReal2Pacejka(rearSlipEff, budget, c.simReal2AlphaPeakRear, c.simReal2PacejkaC);
+    rearLatForce = -Math.sign(rearSlipEff) * Math.min(fyPac, latCap);
   }
 
   // Clamp wheel overspeed to ±maxSlipRatio (force saturates past rho = 1
