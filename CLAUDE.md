@@ -1433,3 +1433,23 @@ correct from first principles (no kSlip, immune to the failure mode), engine bra
 throttle/brake/handbrake all intact, BUG #2 untouched.** **NEXT: PHONE feel-test sim-real-2 — coast/handbrake
 exit (no smoke or burnout at zero throttle, wheel rolls clean), then the BUG #2 yaw-wave damping pass if the
 deep-exit over-rotation/wave still feels off.**
+
+---
+**sim-real-2 — REVERTED to the finished 5-stage build (27af7f4); recent handbrake/coast fixes removed:**
+the phone feel-test of the post-fix handbrake felt worse, so sim-real-2 physics was reverted to exactly
+the FINISHED BUILD state — commit **27af7f4** "sim-real-2 Stage 3c (FINAL): 40deg steering + yaw from
+tyres + real handbrake" (the clean post-5-stage build: real geometry + real drivetrain + real grip/
+Pacejka/relaxation + load transfer + front channel + 40° lock + real handbrake), BEFORE the recent fix
+run. Removed (all sim-real-2-gated, so arcade/sim/sim-real were never affected): **Coriolis load-transfer**
+(axLongBody → axLong, aeb86e7), the **free-roll** attempt (9a0a52a, already reverted in e330808), the
+**root fix** (slipRef `|| isSimReal2` → back to the sim-only gate, e330808), and the **coast wheel
+free-roll** (`wv = vg` on coast, ea21fbf). Method: `git checkout 27af7f4 -- src/physics.ts` (the entire
+27af7f4..HEAD physics diff was proven 100% sim-real-2-specific — axLongBody field/compute, the dFzLong
+isSimReal2 ternary, the slipRef `|| isSimReal2`, the wheelCoast block — so restoring the file reverts
+sim-real-2 only). **VERIFIED:** (A) sim-real-2 (reverted) == 27af7f4 finished build **0.0e+0** (MIX +
+handbrake exit); (B) ARCADE/SIM/SIM-REAL == HEAD ea21fbf **0.0e+0** (untouched throughout); (C) sim-real-2
+vs HEAD handbrake exit max|diff| 6.73 (the revert is real). tsc + build clean. **The bisect that motivated
+this: the recent fixes did NOT lengthen the handbrake slide — Coriolis SHORTENED it (19.3→14.5 m) but
+added 1 recovery fishtail swing (baseline spins out cleanly, 0 swings); root + coast were INERT on the
+handbrake. The player chose to go back to the finished-build feel (longer, clean spin-out, no fishtail).**
+NEXT: phone-test the reverted sim-real-2 handbrake (finished-build feel restored).

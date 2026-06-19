@@ -720,10 +720,6 @@ export interface CarState {
   // longitudinal acceleration, so accel/brake can trim each axle's lateral grip.
   prevForwardVel: number;
   axLong: number;
-  // sim-real-2: the TRUE fore-aft body-frame longitudinal accel (Coriolis-corrected), smoothed.
-  // Used for the load transfer so a slide's forwardVel-collapse (β rotation) isn't misread as a
-  // huge deceleration that unloads the rear. Per-car; only sim-real-2 reads it.
-  axLongBody: number;
 
   // Sim speed-hold (p27): the speed at the instant a sim drift latched. The
   // one-sided anti-boost ceiling for the deep-β retain correction. Written only
@@ -761,7 +757,7 @@ export function makeCar(x: number, y: number, heading: number = -Math.PI / 2): C
     driftActive: false,
     slideBlendSmooth: 0,
     spinTimer: 0,
-    prevForwardVel: 0, axLong: 0, axLongBody: 0,
+    prevForwardVel: 0, axLong: 0,
     driftEntrySpeed: 0,
     speed: 0, forwardSpeed: 0,
     frontSlip: 0, rearSlip: 0,
@@ -1224,14 +1220,6 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   // is untouched. Pure trim on the final rear lateral force; circle untouched.
   const axInstant = (forwardVel - car.prevForwardVel) / dt;
   car.axLong += (axInstant - car.axLong) * Math.min(1, c.loadTransferSmooth * dt);
-  // sim-real-2 load-transfer accel = the TRUE fore-aft body g, NOT d(forwardVel)/dt. In a slide,
-  // forwardVel collapses as β builds (the velocity vector rotating off the heading), which the raw
-  // axInstant misreads as a huge deceleration → unloads the rear → kills the handbrake scrub + grip →
-  // over-long slide. The Coriolis term ω·lateralVel strips that rotation: a_x_body = axInstant −
-  // ω·lateralVel (= bodyForceX/mass). Smoothed the same as axLong. (Computed for all modes; only
-  // sim-real-2 reads it → arcade/sim/sim-real byte-identical.)
-  const axInstantBody = axInstant - car.angularVel * lateralVel;
-  car.axLongBody += (axInstantBody - car.axLongBody) * Math.min(1, c.loadTransferSmooth * dt);
   car.prevForwardVel = forwardVel;
   const axNorm = clamp(car.axLong / c.loadTransferRefAccel, 0, 1);   // accel-only
   // p31 (A): SIM zeroes loadTransferGain so throttle never ADDS rear grip (no inversion);
@@ -1390,7 +1378,7 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   // than 100% — the unloaded axle floors at 0, the loaded at 2× static). This is physically correct AND
   // bounds any a_long transient (e.g. a cold-start prevForwardVel spike) to a sane transfer.
   const dFzLong = isSimReal2
-    ? clamp(c.mass * car.axLongBody * c.simRealCoGHeight2 / c.simRealWheelbase2, -staticAxle, staticAxle)
+    ? clamp(c.mass * car.axLong * c.simRealCoGHeight2 / c.simRealWheelbase2, -staticAxle, staticAxle)
     : 0;
   const aeroAxle = isSimReal2 ? c.simReal2DownforceCoeff * speed * speed / 2 : 0;
   const fzRear  = Math.max(0, staticAxle + dFzLong + aeroAxle);
@@ -1547,16 +1535,7 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   // TOTAL speed instead so the denominator stays large and the rear keeps spinning DURING
   // the slide. The slip NUMERATOR (wv − vg) keeps vg=forwardVel (the real rolling speed).
   // Arcade / launch / brake untouched (gate off) → byte-identical.
-  //
-  // sim-real-2 vg/forwardVel ROOT FIX: sim-real-2 inherits the SAME bug — at deep β |vg|=|forwardVel|
-  // collapses → sDenom floors → kSlip blows up + the slip ratio s=(wv−vg)/sDenom false-spikes →
-  // false zero-throttle burnout + oscillation on the handbrake EXIT (the wheel chases a collapsing /
-  // swinging reference). The cure is the SAME proven mechanism: feed sDenom + kSlip the β-robust
-  // TOTAL ground speed |v| (does NOT collapse with β). The slip NUMERATOR keeps vg=forwardVel (the
-  // real rolling speed). The ONLY bugged consumer is this denominator; the slip ANGLES (bodyBeta,
-  // rear/front slip) and the handbrake slipMag keep forwardVel (correct). At low β / straight,
-  // |v| ≈ |forwardVel| → byte-identical to before; the difference appears ONLY at deep β.
-  const slipRef = ((c.driftMode === 'sim' && car.driftActive) || isSimReal2)
+  const slipRef = (c.driftMode === 'sim' && car.driftActive)
     ? Math.sqrt(car.vx * car.vx + car.vy * car.vy)
     : Math.abs(vg);
   const sDenom = Math.max(c.slipDenomFloor, slipRef);
@@ -1650,33 +1629,13 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
     // force, so re-integrate the wheel explicitly against it (same
     // two stages: traction, then the zero-clamped brake). This is the
     // branch where the wheel actually SPINS UP under power.
-    //
-    // sim-real-2 BUG #1 — COAST FREE-ROLL: with no drive (throttle off, incl. engine braking ≤ 0), no
-    // foot brake and no handbrake the rear wheel is FREE-ROLLING → zero longitudinal slip → wv = vg (the
-    // along-wheel ground rolling speed = rearLong = forwardVel). This REPLACES the explicit kinetic
-    // re-integration ONLY on coast: that re-integration + the overspeed clamp were what drove a sliding
-    // free wheel to the vg − maxSlipRatio·sDenom pin (≈ −10 m/s backward overspin) → a false coast-burnout
-    // + smoke at zero throttle. Setting wv = vg makes (wv − vg) = 0 EXACTLY → s = 0 by construction → NO
-    // kSlip in the coast path, so it CANNOT chase / glue / oscillate the way the earlier free-roll attempt
-    // did (that one kept the implicit wv chasing vg via kSlip, which blew up on the collapsing sDenom).
-    // For vg < 0 (β > 90°, heading past the velocity) wv = vg < 0 = the LEGITIMATE backward roll (s = 0,
-    // no force, no smoke) — NOT clamped ≥ 0 (would fake a forward slip), NOT the −10 artifact. Engine
-    // braking on a STRAIGHT coast is untouched: small β keeps the rear in the GRIP branch above, where wv
-    // stays the implicit value that carries `drive`. This is sim-real-2 only, kinetic-branch only, coast
-    // only → does NOT touch the yaw-wave (BUG #2). The overspeed clamp below is bypassed here (wv = vg is
-    // mid-band) and runs unchanged under throttle/brake/handbrake.
-    const wheelCoast = isSimReal2 && drive <= 0 && !footActive && !input.handbrake;
-    if (wheelCoast) {
-      wv = vg;
-    } else {
-      wv = wv0 + (dt / mw) * (drive - rearLongForce);
-      // The ground reaction drags the wheel TOWARD ground speed and
-      // vanishes at zero slip — it can never push the wheel PAST it.
-      // Clamp the crossing, else the one-frame overshoot makes the wheel
-      // oscillate locked/overspun on alternate frames under hard braking.
-      if ((wv0 - vg) * (wv - vg) < 0) wv = vg;
-      wv = brakeClamp(wv);
-    }
+    wv = wv0 + (dt / mw) * (drive - rearLongForce);
+    // The ground reaction drags the wheel TOWARD ground speed and
+    // vanishes at zero slip — it can never push the wheel PAST it.
+    // Clamp the crossing, else the one-frame overshoot makes the wheel
+    // oscillate locked/overspun on alternate frames under hard braking.
+    if ((wv0 - vg) * (wv - vg) < 0) wv = vg;
+    wv = brakeClamp(wv);
   }
 
   // Handbrake kills rear lateral grip from the instant it's pulled — a
