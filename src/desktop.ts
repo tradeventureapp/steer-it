@@ -245,6 +245,9 @@ document.body.appendChild(brakeTunerEl);
         : CONFIG.driftMode === 'sim' ? 'sim-real'
         : CONFIG.driftMode === 'sim-real' ? 'sim-real-2' : 'arcade';
       upd();
+      // carScale (→ RPM → world size) changed → rebuild the map at the new scale so the world
+      // geometry + layers + view + spawn stay consistent with the active mode.
+      switchMap(currentMap.id);
     });
     upd();
     row.append(name, btn);
@@ -593,9 +596,18 @@ let dpr = window.devicePixelRatio || 1;
 // desktop, so the game is map-driven. Default = the desktop map → behaviour is
 // byte-for-byte identical to before. switchMap(id) swaps it (see below).
 let currentMap: MapDefinition = getMap(DEFAULT_MAP_ID)!;
+
+// RENDER px-per-metre (mode-aware). sim-real-2 is a REAL-SIZE car (2.565 m): render at a LOWER
+// px/m (= pxPerMeter / carScale ≈ 7.43) so the real car draws at ~33 px (like the old 1/3 car) AND
+// the GAME WORLD grows to screen/RPM ≈ 258 m (so the oval FILLS the screen with bigger, real-radius
+// corners). The offscreen layers stay screen-sized (logicalPx = world_m·RPM = screen → ~25 MB, no
+// blowup). arcade/sim/sim-real: carScale 1 → RPM = pxPerMeter = 22 → world 87 m → byte-identical.
+// This is RENDER/world-size only — the car's force model (physics step) is untouched.
+function RPM(): number { return CONFIG.pxPerMeter / carScale(); }
+
 let world: MapWorld = currentMap.createWorld(
-  window.innerWidth / CONFIG.pxPerMeter,
-  window.innerHeight / CONFIG.pxPerMeter,
+  window.innerWidth / RPM(),
+  window.innerHeight / RPM(),
 );
 
 // ---------- View transform (logical world px → screen px) -------------------
@@ -616,11 +628,15 @@ let layerDpr = 0;               // dpr the offscreen layers were last built at
 
 // Logical world size in METRES: the map's fixed size, or the viewport.
 function logicalMeters(): { wM: number; hM: number } {
+  // World METRES = the map's fixed size (or viewport) × carScale → sim-real-2 grows the world to
+  // ~258 m so the real car fills the oval; arcade (carScale 1) keeps 87 m. Paired with logicalPx
+  // using RPM below, so the offscreen layers stay screen-sized (no memory blowup).
+  const s = carScale();
   const f = currentMap.fixedWorld;
-  if (f) return { wM: f.widthM, hM: f.heightM };
+  if (f) return { wM: f.widthM * s, hM: f.heightM * s };
   return {
-    wM: window.innerWidth / CONFIG.pxPerMeter,
-    hM: window.innerHeight / CONFIG.pxPerMeter,
+    wM: window.innerWidth / CONFIG.pxPerMeter * s,
+    hM: window.innerHeight / CONFIG.pxPerMeter * s,
   };
 }
 
@@ -628,8 +644,8 @@ function logicalMeters(): { wM: number; hM: number } {
 // the desktop (scale 1, offset 0 ⇒ clientX / pxPerMeter, as before).
 function screenToWorld(clientX: number, clientY: number): { x: number; y: number } {
   return {
-    x: (clientX - viewOffX) / viewScale / CONFIG.pxPerMeter,
-    y: (clientY - viewOffY) / viewScale / CONFIG.pxPerMeter,
+    x: (clientX - viewOffX) / viewScale / RPM(),
+    y: (clientY - viewOffY) / viewScale / RPM(),
   };
 }
 
@@ -649,8 +665,10 @@ function syncCanvasesAndView(): boolean {
   canvas.style.height = H + 'px';
 
   const { wM, hM } = logicalMeters();
-  const lpW = Math.max(1, Math.round(wM * CONFIG.pxPerMeter));
-  const lpH = Math.max(1, Math.round(hM * CONFIG.pxPerMeter));
+  // Render at RPM (not pxPerMeter): wM is ×carScale and RPM is ÷carScale, so lpW = wM·RPM =
+  // screen px — the offscreen layers stay ~1920 px (~25 MB) however big the world grows. No blowup.
+  const lpW = Math.max(1, Math.round(wM * RPM()));
+  const lpH = Math.max(1, Math.round(hM * RPM()));
 
   // Uniform scale-to-fit + centre. Desktop: lpW=W, lpH=H ⇒ scale 1, offset 0.
   viewScale = Math.min(W / lpW, H / lpH);
@@ -691,7 +709,7 @@ let draggedObstacle: MapObstacle | null = null;
 
 function redrawOverlay() {
   overlayCtx.clearRect(0, 0, logicalPxW, logicalPxH);
-  currentMap.drawObstacles(overlayCtx, world, CONFIG.pxPerMeter, draggedObstacle);
+  currentMap.drawObstacles(overlayCtx, world, RPM(), draggedObstacle);
 }
 
 canvas.addEventListener('pointerdown', (e) => {
@@ -742,7 +760,7 @@ resize();
 window.addEventListener('resize', resize);
 
 // ---------- Cars — one per connected lobby slot (built for N) ----------
-const PX = () => CONFIG.pxPerMeter;
+const PX = () => RPM();   // render scale = mode-aware px/m (sim-real-2: 7.43; others: 22)
 
 // A skid trail remembers a rear wheel's last pixel position so we can draw a
 // continuous line while it slides. One pair per car.
@@ -1321,7 +1339,7 @@ function drawSkidSegment(
       const dx = px - trail.px, dy = py - trail.py;
       if (dx * dx + dy * dy < 10000) {
         skidCtx.strokeStyle = style;
-        skidCtx.lineWidth = 3 * carScale();   // real-size car (sim-real-2) → wider skid to match the 3× tyres
+        skidCtx.lineWidth = 3;   // logical px; the lower RPM render already sizes it to the real tyre
         skidCtx.lineCap = 'round';
         skidCtx.beginPath();
         skidCtx.moveTo(trail.px, trail.py);
@@ -1566,10 +1584,10 @@ function render() {
   ctx.save();
   ctx.translate(viewOffX, viewOffY);
   ctx.scale(viewScale, viewScale);
-  currentMap.drawForeground?.(ctx, world, CONFIG.pxPerMeter);
+  currentMap.drawForeground?.(ctx, world, PX());
   drawRaceElements();
   for (const car of cars.values()) drawCar(car);  // paint every connected car
-  fx.draw(ctx, CONFIG.pxPerMeter);
+  fx.draw(ctx, PX());
   ctx.restore();
 
   ctx.restore();

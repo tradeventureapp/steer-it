@@ -1502,3 +1502,31 @@ anti-cheat, no overlap break); (e) physics 0.0e+0 (step() untouched — visual/t
 clean, no brand strings, multi-car safe. **The real-size scaling is now COMPLETE: render + physics +
 collision + spawn (b4ba5bc) + skid + smoke + gate. NEXT: hard-refresh to get the live build, then phone/
 desktop feel-test the real-size sim-real-2 (car ~98 px, proportional skids/smoke, lap counting on the oval).**
+
+---
+**sim-real-2 — REAL-SCALE via mode-aware RPM (car 33px, oval fills, world 258m, ~25MB):** the real-size
+2.565 m car looked absurd at 98 px (pxPerMeter 22). FIX = a mode-aware **render px-per-metre `RPM() =
+CONFIG.pxPerMeter / carScale()`** (sim-real-2: 22/2.96 = **7.43**; arcade/sim/sim-real: carScale 1 → **22**,
+unchanged). Decouples the RENDER scale from the WORLD-SIZE so the world can grow without a layer-memory
+blowup. Wired in desktop.ts: `logicalMeters()` ×carScale (world → ~258 m), `logicalPx = wM·RPM()`
+(= screen px → layers stay ~1920 px / **~25 MB**, no blowup — carScale ×, RPM ÷ cancel), `PX() = RPM()`
+(car/fx/skid/gate render), `screenToWorld` ÷RPM (editor mouse → 258 m world), `drawObstacles`/
+`drawForeground`/`fx.draw` pass RPM, initial world uses RPM. **Skid lineWidth reverted to 3 px** (the lower
+RPM already sizes it). KEPT (world-metre / real-size, scale correctly): car-draw / smoke / gate / collision
+/ spawn carScale (carScale·RPM = 22 → original pixel sizes, real-metric in the 258 m world). World rebuilt
+on the D-toggle (`switchMap`) for the right RPM per mode. maps.ts `drawStadiumSurface` was already
+px-cancel-safe (computeStadium(wPx/px)·px) → background aligns with the world·RPM collision at any RPM.
+**RESULT (1080p): car ~33 px (like the original 1/3 look), oval FILLS the screen (258 m·7.43 = 1920 px),
+layers ~25 MB.** **The world/track grew 87 m→258 m → corners 21 m→62 m (~1.72× faster, more room) — this is
+the fix for the real-car-on-a-tiny-87m-oval understeer; the car's FORCE MODEL (`step()`) is BYTE-IDENTICAL
+(0.0e+0) — only the world/track size changed, NOT the physics.** **VERIFIED:** (a) only desktop.ts changed
+→ physics/effects/race/cars byte-identical (step 0.0e+0); (b) arcade/sim/sim-real RPM=22/world 87 m/car 33 px
+→ unchanged; (c) layers logicalPx=1920 px ~25 MB (no blowup); (d) world 258 m, corner 62 m, car 33 px, oval
+fills; (e) collision/screenToWorld at RPM (math-aligned; **render unverified headless**); (f) UI = HTML
+screen-space → untouched; (g) car px CONSTANT (33) on every resolution + oval fills every screen + uniform
+scale (no squash) — the track's METRE size scales with screen (existing FLAT_LOGICAL: one host = one world
+= internally fair; **NOT** a strictly-constant car-to-track ratio across DIFFERENT monitors — a bigger
+monitor shows a bigger track, pre-existing, unchanged in character); (h) tsc + build clean, no brand strings,
+multi-car. **⚠️ RENDER UNVERIFIABLE HEADLESS (no Supabase) — phone-test watch: car ~33 px not off-screen,
+oval fills + aligns with collision, editor mouse mapping correct, skids/smoke/gates aligned, corners feel
+faster/roomier.** NEXT: hard-refresh + phone/desktop test.
