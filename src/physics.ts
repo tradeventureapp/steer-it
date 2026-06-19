@@ -1650,13 +1650,33 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
     // force, so re-integrate the wheel explicitly against it (same
     // two stages: traction, then the zero-clamped brake). This is the
     // branch where the wheel actually SPINS UP under power.
-    wv = wv0 + (dt / mw) * (drive - rearLongForce);
-    // The ground reaction drags the wheel TOWARD ground speed and
-    // vanishes at zero slip — it can never push the wheel PAST it.
-    // Clamp the crossing, else the one-frame overshoot makes the wheel
-    // oscillate locked/overspun on alternate frames under hard braking.
-    if ((wv0 - vg) * (wv - vg) < 0) wv = vg;
-    wv = brakeClamp(wv);
+    //
+    // sim-real-2 BUG #1 — COAST FREE-ROLL: with no drive (throttle off, incl. engine braking ≤ 0), no
+    // foot brake and no handbrake the rear wheel is FREE-ROLLING → zero longitudinal slip → wv = vg (the
+    // along-wheel ground rolling speed = rearLong = forwardVel). This REPLACES the explicit kinetic
+    // re-integration ONLY on coast: that re-integration + the overspeed clamp were what drove a sliding
+    // free wheel to the vg − maxSlipRatio·sDenom pin (≈ −10 m/s backward overspin) → a false coast-burnout
+    // + smoke at zero throttle. Setting wv = vg makes (wv − vg) = 0 EXACTLY → s = 0 by construction → NO
+    // kSlip in the coast path, so it CANNOT chase / glue / oscillate the way the earlier free-roll attempt
+    // did (that one kept the implicit wv chasing vg via kSlip, which blew up on the collapsing sDenom).
+    // For vg < 0 (β > 90°, heading past the velocity) wv = vg < 0 = the LEGITIMATE backward roll (s = 0,
+    // no force, no smoke) — NOT clamped ≥ 0 (would fake a forward slip), NOT the −10 artifact. Engine
+    // braking on a STRAIGHT coast is untouched: small β keeps the rear in the GRIP branch above, where wv
+    // stays the implicit value that carries `drive`. This is sim-real-2 only, kinetic-branch only, coast
+    // only → does NOT touch the yaw-wave (BUG #2). The overspeed clamp below is bypassed here (wv = vg is
+    // mid-band) and runs unchanged under throttle/brake/handbrake.
+    const wheelCoast = isSimReal2 && drive <= 0 && !footActive && !input.handbrake;
+    if (wheelCoast) {
+      wv = vg;
+    } else {
+      wv = wv0 + (dt / mw) * (drive - rearLongForce);
+      // The ground reaction drags the wheel TOWARD ground speed and
+      // vanishes at zero slip — it can never push the wheel PAST it.
+      // Clamp the crossing, else the one-frame overshoot makes the wheel
+      // oscillate locked/overspun on alternate frames under hard braking.
+      if ((wv0 - vg) * (wv - vg) < 0) wv = vg;
+      wv = brakeClamp(wv);
+    }
   }
 
   // Handbrake kills rear lateral grip from the instant it's pulled — a

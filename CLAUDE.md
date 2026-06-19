@@ -1401,3 +1401,35 @@ reduction, not a normal-exit body change.** D-tuner unchanged (no new knob). **N
 sim-real-2 — handbrake exit (release, no throttle → no burnout/throw, clean hook-up) + a deliberate spin
 (should bleed, no rocket) + the full drift loop (provoke → travel → countersteer → recover). If the exit
 still feels off, the deep-β wheel-recovery dynamics (the kinetic re-integration) is the next dedicated pass.**
+
+---
+**sim-real-2 — BUG #1 FIX (coast free-roll wheel — kills the false coast-burnout/smoke):** the player's
+wheel-rolling model was verified physically CORRECT and the root reconciled: the rear wheel re-spins to the
+ALONG-WHEEL ground speed `vg = rearLong = forwardVel = |v|·cosβ` (small when sideways) — so `forwardVel` is
+the RIGHT re-spin target + slip-angle longitudinal; it was only ever WRONG as the slip-ratio DENOMINATOR
+(sDenom, already fixed). BUG #1 (separate from the BUG #2 yaw-wave): on COAST during a deep slide the
+explicit kinetic re-integration `wv = wv0 + dt/mw·(drive − rearLongForce)` + the overspeed clamp drove the
+free wheel PAST `vg` to the `vg − maxSlipRatio·sDenom` pin (≈ **−10 m/s backward overspin**) as `forwardVel`
+went negative in the spin → false POSITIVE-then-pinned slip → **`wspin` 1.0 = coast-burnout SMOKE at zero
+throttle**. FIX (sim-real-2-gated, kinetic-branch + COAST only): `wheelCoast = isSimReal2 && drive ≤ 0 &&
+!footActive && !input.handbrake`; on coast set **`wv = vg` directly** (free-rolling = zero longitudinal slip)
+instead of the explicit re-integration. `(wv−vg)=0` EXACTLY → `s=0` by construction → **NO kSlip in the coast
+path** → it CANNOT chase/glue/oscillate. **This is fundamentally DIFFERENT from the reverted free-roll**
+(which KEPT the implicit `wv` CHASING `vg` via `kSlip`, which blew up on the collapsing sDenom — and which a
+3-way measurement proved was ALREADY clean on the deep exit, i.e. root did NOT rescue it, so it was a true
+recycle — rejected). For `vg < 0` (β>90°) `wv = vg < 0` = the LEGITIMATE backward roll (s=0, no force, no
+smoke) — NOT clamped ≥0 (would fake a forward slip), NOT the −10 artifact. **MEASURED (cur vs HEAD e330808):**
+(a/b/c) ARCADE/SIM/SIM-REAL identity **0.0e+0**; **(d) KEYSTONE matches the plan — coast handbrake exit:
+wvMin −10.4→−3.0, max|s| 2.50→0.00, maxWspin 1.00→0.00, smoke 30→0 frames** (vg<0 settle: wv≈vg, s=0.00, no
+backward overspin); **(e) ENGINE BRAKING INTACT — straight coast decel 0.83 m/s² = HEAD identical** (the
+`drive≤0` gate does NOT kill it: small-β coast stays in the GRIP branch where wv keeps the implicit value
+carrying `drive`; the fix is kinetic-branch only); **(f) ANGLE-DEPENDENCE PRESERVED — light β−10° self-hooks
+0f, med 32f, heavy 42f → grips small / stays sideways large = unchanged** (fix runs only in the rho>1 kinetic
+branch); **(g) BUG #2 yaw-wave essentially unchanged** (ω-waves 3 vs 3; over-rotation 17°→19°, a 2° nudge from
+removing the artifact — the yaw-wave is the next SEPARATE pass); (h) PRESERVE byte-identical 0.0e+0 —
+launch/wheelspin, throttle corner, handbrake DOWN, foot brake, trail-brake; determinism 0; tsc + build clean;
+no brand strings. **NET: false coast-burnout/smoke GONE at the root (wv settles onto vg, s=0 by construction),
+correct from first principles (no kSlip, immune to the failure mode), engine braking + angle-dependence +
+throttle/brake/handbrake all intact, BUG #2 untouched.** **NEXT: PHONE feel-test sim-real-2 — coast/handbrake
+exit (no smoke or burnout at zero throttle, wheel rolls clean), then the BUG #2 yaw-wave damping pass if the
+deep-exit over-rotation/wave still feels off.**
