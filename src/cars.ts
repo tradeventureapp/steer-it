@@ -17,7 +17,9 @@ function clamp(v: number, lo: number, hi: number): number {
 
 // Spacing between spawn cells (metres). Must exceed 2× the car collision radius
 // so freshly-spawned cars never overlap — the unit test asserts exactly this.
-export const SPAWN_GAP = 2.4;
+// Stage C1: real metres on the one ruler (was 2.4 for the 1/3 car; ×2.96 for the
+// 2.565 m car ⇒ 7.1 m > 2× carCollisionRadius 2.52).
+export const SPAWN_GAP = 7.1;
 const SPAWN_PER_ROW = 4;
 
 // Deterministic spawn offset (metres, relative to the map centre) as a pure

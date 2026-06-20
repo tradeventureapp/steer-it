@@ -35,30 +35,25 @@
 //  setting and an arrow indicating the direction of the change, so the
 //  next tuning pass can revert / nudge individual numbers without hunting.
 // =============================================================================
+// =============================================================================
+//  THE ONE RULER (Stage C1) — a single real-metre scale for the WHOLE game.
+//  ONE wheelbase (2.565 m) + ONE px-per-metre (CONFIG.pxPerMeter) define the
+//  metre-value of EVERYTHING: car, world, corners, collision, spawn, gate.
+//  The old render-vs-physics SPLIT (a small 1/3-scale "render wheelbase" beside
+//  the 2.565 m "physics wheelbase") is DELETED — there is physically ONE number
+//  now, so the two can never drift apart again. Car dimensions are bound to WB
+//  as multiples so they can't drift either. A new car just changes WB and the
+//  ruler scales it; physics reads the SAME wheelbase the render/collision do.
+// =============================================================================
+const WB = 2.565;                   // m — THE wheelbase. The single source of car scale.
+
 export const CONFIG = {
-  // ---------- Mass / geometry (size-pass output; unchanged here) ----------
+  // ---------- Mass / geometry (ALL real metres on the one ruler, bound to WB) ----------
   mass: 1200,                       // kg
-  wheelbase: 2.6 / 3,               // m, distance between front and rear axles
-  trackWidth: 1.6 / 3,              // m, distance between left and right wheels
-  // PASS 3: yaw inertia = inertiaScale * m * L^2 / 12. The 1/3 wheelbase
-  // made L^2 tiny (~1/9), so yaw inertia collapsed and the car spun the
-  // instant the rear stepped out — too fast to catch. Raise inertiaScale
-  // ~5.3× to give the rotation WEIGHT so a slide builds progressively
-  // into a holdable angle instead of snapping around. (At 8.0 the yaw
-  // inertia is ~600 kg·m², about 60% of the original full-size car.)
-  // Verze 3 Stage ii — REAL-SIZE yaw/slip wheelbase, used ONLY in driftMode==='sim-real' (the
-  // physics yaw torque arm + axle slip velocities + inertia). Restores the yaw↔slide coupling
-  // the 1/3 arm (0.867) broke → lateral velocity scrubs ~6× slower → a deep drift can hold.
-  // PHYSICS-ONLY: render/collision/skid keep the small CONFIG.wheelbase (car looks identical).
-  // Inertia in sim-real = mass·simRealWheelbase²/12 = 676 (no inertiaScale hack).
-  simRealWheelbase: 2.6,            // m (vs the 1/3 visual wheelbase 0.867)
-  // sim-real-2 (full-realism branch, Stage 1) — PHYSICS-ONLY geometry/mass/inertia. Reference is a
-  // ~1200 kg, 2.565 m-wheelbase RWD coupe. Real yaw inertia = mass·k² (k = radius of gyration ≈ 1.25 m
-  // → ≈1875 kg·m²), NOT the rod model and NOT inertiaScale. trackWidth + CoG are added now but UNUSED
-  // until Stage 3 (lateral/longitudinal load transfer). Render/collision keep the small wheelbase.
-  simRealWheelbase2: 2.565,         // m (sim-real-2 physics wheelbase; halfWB 1.2825)
-  simRealTrackWidth2: 1.46,         // m (Stage-3 lateral load transfer — UNUSED in Stage 1)
-  simRealCoGHeight2: 0.5,           // m (Stage-3 load transfer — UNUSED in Stage 1)
+  wheelbase: WB,                    // m, axle-to-axle — the ONE wheelbase (render = physics)
+  trackWidth: WB * 0.569,           // m ≈ 1.46, left↔right wheels (bound to WB)
+  // Real yaw inertia = mass·k² (k = radius of gyration ≈ 1.25 m → ≈1875 kg·m²), set in step().
+  simRealCoGHeight2: 0.5,           // m — CoG height for longitudinal load transfer (Stage 3b)
   // sim-real-2 STAGE 2 — real longitudinal drivetrain (torque curve + automatic gearbox + wheel),
   // drag/aero, brakes (1 g + ABS), engine braking. All PHYSICS-ONLY, isSimReal2-gated. The engine
   // is a real torque curve through real gear ratios (NOT enginePeakPowerW P/v, NOT driftSimEnginePower).
@@ -516,7 +511,7 @@ export const CONFIG = {
   // restitution, keep most of the tangential component, push the car out
   // so it never sinks in. Yaw is damped in proportion to impact strength
   // so a mid-drift wall thump doesn't explode the spin.
-  carCollisionRadius: 0.85,         // NEW (p10)  m
+  carCollisionRadius: WB * 0.98,    // m ≈ 2.515 — real collision radius (bound to WB)
   collisionRestitution: 0.35,       // NEW (p10)  normal bounce kept (0..1)
   collisionTangentFriction: 0.12,   // NEW (p10)  tangential speed lost on hit
   collisionPushOut: 0.02,           // NEW (p10)  m extra separation after push-out
@@ -527,8 +522,13 @@ export const CONFIG = {
   tiltDeadzone: 3,                  // unchanged
   inputLerp: 0.18,                  // unchanged
 
-  // ---------- Render scaling ----------
-  pxPerMeter: 22,                   // unchanged
+  // ---------- The one ruler: px per real metre (Stage C1) ----------
+  // Calibrated so the car (drawn at WB = 2.565 m) keeps its current on-screen
+  // axle size: the old 1/3-scale car's axle was 19.07 px ⇒ 19.07/2.565 = 7.43,
+  // rounded to a clean 7.5 (car = 2.565 × 7.5 = 19.24 px, +0.9 % — invisible). Lowering
+  // this from 22 makes the world bigger in metres (screen/pxm), giving the real
+  // car room → fixes the understeer. ONE ruler — render, world, collision read it.
+  pxPerMeter: 7.5,
 
   // ---------- DRIFT MODEL ----------
   // The ONLY physics model now: sim-real-2 (the real-car sim). The arcade / sim / sim-real
@@ -848,7 +848,7 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   const speed = Math.hypot(car.vx, car.vy);
   // REAL-SIZE yaw arm (1.2825 m). Feeds the yaw torque + axle slip velocities (rearLat/frontLat
   // = lateralVel ∓ ω·halfWB) + frontVelAngle.
-  const halfWB = c.simRealWheelbase2 / 2;
+  const halfWB = c.wheelbase / 2;
   // High-speed steering falloff (p13: superseded by the slip limiter below,
   // steerSpeedFalloff set to 1.0 = no-op; left in place as a fallback knob).
   const falloff = 1 - (1 - c.steerSpeedFalloff) *
@@ -972,7 +972,7 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   // than 100% — the unloaded axle floors at 0, the loaded at 2× static). This is physically correct AND
   // bounds any a_long transient (e.g. a cold-start prevForwardVel spike) to a sane transfer.
   const dFzLong = isSimReal2
-    ? clamp(c.mass * car.axLong * c.simRealCoGHeight2 / c.simRealWheelbase2, -staticAxle, staticAxle)
+    ? clamp(c.mass * car.axLong * c.simRealCoGHeight2 / c.wheelbase, -staticAxle, staticAxle)
     : 0;
   const aeroAxle = isSimReal2 ? c.simReal2DownforceCoeff * speed * speed / 2 : 0;
   const fzRear  = Math.max(0, staticAxle + dFzLong + aeroAxle);

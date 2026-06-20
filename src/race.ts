@@ -56,7 +56,7 @@ export interface RaceConfig {
 export const RACE_CONFIG: RaceConfig = {
   laps: 1,
   maxCheckpoints: 5,
-  gateRadius: 1.7,
+  gateRadius: 5.03,   // m — real metres on the Stage-C1 ruler (was 1.7 for the 1/3 car; ×2.96)
 };
 
 export type RacePhase = 'pre' | 'racing' | 'finished';

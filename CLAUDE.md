@@ -1588,3 +1588,36 @@ executes were deleted. tsc clean, `npm run build` clean. **HONEST NOTE:** ~20 no
 paragraphs (describing the deleted knobs/gates) were left in place — cosmetic, harmless; polish in Stage C.
 **NEXT: keyboard-test sim-real-2 (drives identically to the finished build). Then Stage C — micro-staged
 scale rebuild (world/track size + render scale), phone-test each step; then Stage D — desktop map/icons.**
+
+---
+**CLEANUP Stage C1 — THE ONE RULER: ONE wheelbase (2.565 m) + ONE pxPerMeter (7.5), render-vs-physics
+split DELETED and grep-proven structurally impossible:** the whole game now measures by a SINGLE
+real-metre scale anchored on the car = 2.565 m. **The split is gone because there is physically ONE
+number:** a module const `WB = 2.565` (physics.ts) is the single source — `CONFIG.wheelbase = WB`,
+and car dims are BOUND to it as multiples (`trackWidth = WB*0.569 ≈ 1.46`, `carCollisionRadius =
+WB*0.98 ≈ 2.515`, drawCar `L/W = CONFIG.wheelbase*0.865/0.356`) so they can't drift either. **DELETED:**
+the old `wheelbase: 2.6/3` (0.867), `trackWidth: 1.6/3` (0.533), the dead `simRealWheelbase` (2.6), and
+`simRealWheelbase2`/`simRealTrackWidth2` (renamed/folded into the one wheelbase/trackWidth). The two
+physics reads (`halfWB`, load-transfer) now read `c.wheelbase`. **GREP PROOF (in src/):** `0.867`,
+`2.6/3`, `1.6/3`, `simRealWheelbase2`, `simRealWheelbase`, `simRealTrackWidth2`, `carScale`, `RPM(`
+appear **NOWHERE**; exactly ONE `wheelbase:` (= WB 2.565) and ONE `pxPerMeter:` (7.5) exist → the
+split can never return (no second number to drift). **CALIBRATION:** the 1/3 car's axle drew at
+0.867×22 = 19.07 px; 19.07/2.565 = 7.43 → rounded to a clean **pxPerMeter 7.5** (car = 2.565×7.5 =
+19.24 px, **+0.9 % = sub-pixel/invisible**). **THE RULER (1920×1080):** world (oval, screen/pxm) =
+**256 × 144 m** (was 87×49); corner radius outer **61.9 m** / inner 20.6 m / band 41.3 m (was 21/7/14)
+→ ~3× the room → fixes the real car's understeer. **Everything on the one ruler (real metres):**
+wheelbase 2.565, car length 4.44 / width 1.83, trackWidth 1.46, car-car + wall collision 2.515, world
+256×144, corner 61.9, band 41.3, spawn gap 7.1 (cars.ts ×2.96), gate 5.03 (race.ts ×2.96), smoke
+1.24/4.44 (effects.ts ×2.96). **MEASURED:** (a) **`step()` force model BYTE-IDENTICAL to HEAD 0.0e+0**
+across launch/corner/drift/handbrake/brake/mix (esbuild bundle + Node diff — the rename is just a name,
+same 2.565 value/sites; `step()` never reads pxPerMeter/trackWidth/collision); cornering changes ONLY
+via world size, NOT a retune. (b) tsc + build clean. (c) **layers ~25 MB at any pxPerMeter** (`world_m ×
+pxm = (screen/pxm)×pxm = screen_px` ≈ 1920 px always — no blowup). (d) visual ≈ as now (car +0.9 %,
+oval fills screen); keyboard driving + UI untouched (UI is screen-space HTML). Physics power/grip left
+AS-IS per the plan. **HONEST — FLOATY RISK (expected, to iterate):** at pxm 7.5 a 60 km/h car moves
+16.7×7.5 = 125 px/s on screen (vs 367 at pxm 22) → 3× slower screen-pace → likely feels floaty/slow.
+The two iteration levers (next): raise `pxPerMeter` toward ~11–14 (smaller world, faster pace, tighter
+corners) and/or raise car power/grip (punchier real car). Tyre stance is ~7 % narrower (real
+track/wheelbase ratio 0.569 vs the old art's 0.615 — minor, more correct). **NEXT: keyboard-test the
+unified-ruler car (expect floaty); then iterate pxPerMeter + power/grip to the sweet spot. Then Stage C2
+feel-tune, Stage D desktop map/icons.**

@@ -1773,7 +1773,10 @@ function drawCar(car: Car) {
   ctx.rotate(s.heading);
   ctx.scale(PX(), PX());
 
-  const L = 0.75, W = 0.309;                 // half-length / half-width (footprint)
+  // Footprint half-extents BOUND to the one wheelbase (Stage C1 ruler) so the body
+  // can't drift from the 2.565 m scale: L/W = WB × the original art half-extent
+  // ratios (0.865, 0.356). At WB 2.565 ⇒ 2.22 m × 0.91 m, drawn at pxPerMeter.
+  const L = CONFIG.wheelbase * 0.865, W = CONFIG.wheelbase * 0.356;
   const hw = CONFIG.wheelbase / 2, ht = CONFIG.trackWidth / 2;
 
   // 1. Ground drop shadow (screen-space offset so light stays fixed as it turns).

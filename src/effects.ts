@@ -13,8 +13,8 @@ export const FX_CONFIG = {
   smokeRatePerWheel: 55,   // particles/s per wheel at full drift intensity
   smokeLife: 1.1,          // s (± var)
   smokeLifeVar: 0.35,
-  smokeSize: 0.42,         // m initial radius
-  smokeGrow: 1.5,          // m/s radius growth
+  smokeSize: 1.24,         // m initial radius (Stage C1: real metres, ×2.96 for the 2.565 m car)
+  smokeGrow: 4.44,         // m/s radius growth (Stage C1: ×2.96)
   smokeAlpha: 0.20,        // initial opacity — light & see-through (was 0.38);
                            //   real rubber smoke is airy, never hides the car
   smokeDrift: 0.8,         // m/s random drift velocity
