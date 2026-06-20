@@ -1546,3 +1546,19 @@ art at pxPerMeter 22, NO carScale/RPM), world 87 m, layers ~25 MB, all 4 modes s
 Stage B). tsc + build clean. **NEXT (after phone-test): Stage B — delete arcade/sim/sim-real (modes/gates/
 band-aids/rod-inertia/driftSim knobs/D-toggle/SIM-DRIFT tuner), KEEP sim-real-2, prove sim-real-2 step()
 0.0e+0; then Stage C (micro-staged scale rebuild) + Stage D (desktop icons).**
+
+---
+**KEYBOARD driving for LOCAL TESTING (no phone / no Supabase) — desktop.ts only:** the Supabase quota is
+maxed (pairing blocked), so to test the cleanup (feel/cornering/scale) on the desktop alone, arrow keys +
+Space now drive a LOCAL car through the IDENTICAL physics path as the phone tilt. `keyDrive` state (↑
+throttle / ↓ brake-reverse / ←→ steer / Space handbrake) is set by keydown/keyup (preventDefault so
+arrows/space don't scroll; ignored while typing in an `<input>`). `driveKeyboard()` (called once per frame
+at the top of the `!isPaused` block) lazy-spawns a `local:true` car at slot 0 on the first key press in
+gameplay and sets its **`target` Inputs exactly like the phone's `applyInputs`** → the loop smooths
+`target→current` (inputLerp) and `step()`s it identically, so keyboard tests the REAL driving. `lastInputAt`
+is refreshed each frame so the connection-lifecycle ramp-to-neutral never triggers. The local car is exempt
+from `syncCars` removal (`!cars.get(slot)?.local`) so it survives with an empty lobby. **Phone control is
+UNTOUCHED:** a paired phone owns slot 0 (not `local`) → keyboard goes inert; the `EV.control` router /
+physics / cars / effects are byte-identical (only desktop.ts changed). Works with NO phone/QR/Supabase:
+load desktop → START RACE → press an arrow → car spawns + drives. tsc + build clean. (Render of the live
+drive is unverifiable headless — phone/desktop test.)

@@ -307,6 +307,27 @@ window.addEventListener('keydown', (e) => {
   }
 });
 
+// ---------- Keyboard driving (LOCAL TESTING — no phone / no Supabase needed) -----
+// Arrow keys + Space feed the SAME Inputs the phone tilt produces (steer / throttle /
+// brake / handbrake) into a LOCAL car at slot 0, via the IDENTICAL physics path — so
+// you can drive + test the real feel on the desktop without pairing. A paired phone
+// owns slot 0 and the keyboard goes inert; with no phone the keyboard spawns + drives
+// the local car. ↑ throttle · ↓ brake/reverse · ←/→ steer · Space handbrake.
+const keyDrive = { up: false, down: false, left: false, right: false, hb: false };
+const KEY_TO_DRIVE: Record<string, keyof typeof keyDrive> = {
+  ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right', ' ': 'hb',
+};
+function onDriveKey(e: KeyboardEvent, down: boolean) {
+  // Don't hijack typing (e.g. the editor's LAPS number input).
+  if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+  const k = KEY_TO_DRIVE[e.key];
+  if (!k) return;
+  e.preventDefault();   // arrows / space would otherwise scroll the page
+  keyDrive[k] = down;
+}
+window.addEventListener('keydown', (e) => onDriveKey(e, true));
+window.addEventListener('keyup', (e) => onDriveKey(e, false));
+
 codeText.textContent = code;
 QRCode.toCanvas(qrCanvas, playUrl, { width: 160, margin: 1 }).catch(console.error);
 
@@ -763,6 +784,8 @@ interface Car {
   inputStale: boolean;   // currently RECONNECTING (ramping/neutral)? (for D-debug)
   coastInput: Inputs | null;  // snapshot of the last live input, taken at ramp
                               //   start so the ramp eases from it to neutral
+  local?: boolean;       // keyboard-driven LOCAL test car (no phone) — exempt from
+                         //   the lobby sweep / syncCars removal; fed by driveKeyboard()
 }
 
 // Keyed by slot so routing/lookup is O(1) and nothing is hardcoded to 2 cars.
@@ -798,6 +821,28 @@ function primaryCar(): Car | null {
   return best;
 }
 
+// LOCAL keyboard driving: set the slot-0 LOCAL car's target inputs from the keys,
+// the SAME Inputs a phone would send (smoothed to `current` + stepped identically).
+// Lazy-spawns the local car on the first key press in gameplay (so phone mode is
+// untouched when unused); a paired phone owning slot 0 (not local) makes it inert.
+function driveKeyboard() {
+  if (menuOpen || userPaused || editorMode) return;   // gameplay only
+  const active = keyDrive.up || keyDrive.down || keyDrive.left || keyDrive.right || keyDrive.hb;
+  let kc = cars.get(0);
+  if (!kc) {
+    if (!active) return;                          // no car + no key → don't spawn a stray
+    kc = makeManagedCar(0, DEFAULT_CAR_COLOR);
+    kc.local = true;
+    cars.set(0, kc);
+  }
+  if (!kc.local) return;                          // a phone owns slot 0 → keyboard inert
+  kc.target.steer    = (keyDrive.right ? 1 : 0) - (keyDrive.left ? 1 : 0);
+  kc.target.throttle = keyDrive.up ? 1 : 0;
+  kc.target.brake    = keyDrive.down ? 1 : 0;
+  kc.target.handbrake = keyDrive.hb;
+  kc.lastInputAt = performance.now();             // local input is never "stale" → no ramp-to-neutral
+}
+
 // Reconcile the car set with the lobby: spawn a car when a slot connects,
 // remove it when the slot frees (disconnect / timeout), and keep colours live.
 // Never resets an existing car, so periodic lobby re-syncs don't teleport
@@ -816,7 +861,7 @@ function syncCars() {
     }
   }
   for (const slot of [...cars.keys()]) {
-    if (!live.has(slot)) {
+    if (!live.has(slot) && !cars.get(slot)?.local) {   // keep the local keyboard test car
       cars.delete(slot);
       raceManager.remove(slot);   // a gone car never blocks the race end
     }
@@ -1403,6 +1448,7 @@ function frame(now: number) {
   // skids, smoke, particles, engine sound) — but never the render below.
   const lead = primaryCar();  // drives the single HUD / sound / race timer
   if (!isPaused) {
+    driveKeyboard();   // LOCAL TESTING: feed keyboard → slot-0 local car (no phone needed)
     // UNIFIED CONNECTION LIFECYCLE (input half) — single source of truth in
     // RESILIENCE. Per car, age = time since its last control packet:
     //   ≤ INPUT_COAST_MS      → CONNECTED: hold last input (bridge jitter/blip).
