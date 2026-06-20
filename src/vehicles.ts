@@ -113,3 +113,51 @@ export function getVehicle(id: string): VehicleIdentity | undefined {
 export function listVehicles(): VehicleIdentity[] {
   return Object.values(VEHICLES);
 }
+
+// =============================================================================
+//  VEHICLE SPEC — the per-car PHYSICS profile (the `physicsProfile` hook above
+//  made concrete). A spec is a NAME + an optional livery colour + a PARTIAL
+//  override of the physics `CONFIG`. The car's effective config is
+//  `{ ...CONFIG, ...spec.overrides }`, so every car shares the ONE sim-real-2
+//  model and differs only by its numbers — no forked physics.
+//
+//  ⚠️ Overrides MUST NOT touch the SCALE (`wheelbase` / `pxPerMeter`): every car
+//  stays on the one real-metre ruler and draws the same size. A new car only
+//  changes feel parameters (mass, torque, grip, gearing) + livery.
+//
+//  Type-only import of `Config` → no runtime dependency on physics (no cycle).
+// =============================================================================
+import type { Config } from './physics';
+
+export interface VehicleSpec {
+  name: string;                    // internal codename (NO real brand strings)
+  liveryColor?: string;            // fixed body hex; falls back to the slot colour
+  overrides: Partial<Config>;      // partial CONFIG override (feel only, NOT scale)
+}
+
+// ROAD — the base Blitz RS (grippy asphalt Sport-class coupe). NO overrides →
+// its effective config IS CONFIG → byte-identical to the untouched car.
+export const ROAD_SPEC: VehicleSpec = {
+  name: 'Blitz RS',
+  overrides: {},
+};
+
+// RALLY — the Group-A gravel build of the SAME car: lighter, more power, much
+// LOWER grip (gravel µ) → loose / slidey / rotation-happy, short rally gearing.
+// All real units on the one ruler; wheelbase/pxPerMeter inherited (same size).
+// Starting values — tune on the keyboard/phone (drop the grip budgets for more
+// slide, lengthen finalDrive for a higher top, etc.).
+export const RALLY_SPEC: VehicleSpec = {
+  name: 'Blitz RS Rally',
+  liveryColor: '#eaf0f5',          // rally white — distinct from the muted road palette
+  overrides: {
+    mass: 1100,                    // kg — rally-lightened (1200 → 1100; inertia 1875 → 1719)
+    simReal2PeakTorque: 287,       // Nm — +20% → ~285 hp (road 240 Nm / 238 hp)
+    simReal2IdleTorque: 191,       // Nm — keeps the idle/peak ratio
+    simReal2BudgetRear: 4600,      // N — gravel µ_rear ~0.85 @1100kg (road 8800 / µ1.49)
+    simReal2PeakFront: 3900,       // N — gravel µ_front ~0.72 (front < rear → oversteer-happy)
+    simReal2FinalDrive: 4.4,       // short rally gearing → punch + rev-limited 5th ~225 km/h
+  },
+};
+
+export const VEHICLE_SPECS: VehicleSpec[] = [ROAD_SPEC, RALLY_SPEC];

@@ -1665,3 +1665,27 @@ pxm fixes the *on-screen* floaty — bigger car, faster pace, tighter corners (l
 It does NOT change how the car *responds* (grip, throttle, weight = the car's physics, unchanged) — if the
 RESPONSE/feel is also off, that's the SECOND lever (power/grip), separate from pxPerMeter. **NEXT:
 keyboard-test BOTH maps — still floaty → raise pxm higher; too zoomed-in → lower. Iterate this ONE number.**
+
+---
+**RALLY VARIANT via VehicleSpec (parameterized per-car physics, NOT forked) — road byte-identical 0.0e+0:**
+the car is now a switchable PARAMETER SET on the ONE sim-real-2 model. `vehicles.ts` gains `VehicleSpec`
+(`{ name, liveryColor?, overrides: Partial<Config> }`) + `ROAD_SPEC` (name 'Blitz RS', `overrides:{}` → cfg
+= CONFIG) + `RALLY_SPEC` (name 'Blitz RS Rally'). The Car holds `spec` + a cached `cfg` (= CONFIG for road,
+`{...CONFIG, ...overrides}` for rally) + `liveryColor`; `step(car.state, current, FIXED_DT, car.cfg)` reads
+it. `applyVariant(car, spec)` rebuilds cfg/livery in place. **RALLY overrides (gravel Group-A build, all
+real units on the one ruler — starting values, tune on phone):** `mass 1100` (−100, inertia 1875→1719),
+`simReal2PeakTorque 287`/`IdleTorque 191` (+20% → ~285 hp), `simReal2BudgetRear 4600` (gravel µ_rear ~0.85
+vs road 8800/µ1.49), `simReal2PeakFront 3900` (µ_front ~0.72, front<rear → oversteer-happy), `simReal2FinalDrive
+4.4` (short rally gearing). Livery = rally white `#eaf0f5` (drawCar uses `liveryColor ?? color`). **⚠️ Overrides
+do NOT touch `wheelbase`/`pxPerMeter`** → rally inherits 2.565 m, draws the SAME size, one ruler intact, no
+second scale. **D-key UX:** D stays the debug HUD; **C cycles the variant** (road↔rally) live, re-spec'ing
+every car in place; the debug HUD shows `CAR: <name>`. New cars spawn in `currentVariant`. **MEASURED:** (a)
+**ROAD step() BYTE-IDENTICAL to HEAD 0.0e+0** (launch/corner/drift/handbrake/brake — road cfg = CONFIG, no
+overrides; physics.ts UNTOUCHED, empty diff); (b) RALLY runs (a NEW cfg path, never touches road); tsc +
+build clean; no brand strings (Blitz RS / Blitz RS Rally only). **HONEST NOTE (tuning):** at µ0.85 + short
+gearing + +20% power the rally is **wheelspin-happy** → currently it accelerates SLOWER in a straight line
+than road (rear lights up; ~100 vs 131 km/h over a fixed test) and the loose/slidey feel shows under PROVOKE
+(handbrake/aggressive), not gentle cornering. That's the gravel character; for more straight-line punch raise
+the grip budget toward µ1.0–1.1, for more slide drop it toward µ0.5 — the lever the player tunes next.
+**NEXT: keyboard-test both (C to switch) — road = grippy asphalt, rally = loose gravel; tune the rally grip/
+gearing to taste.**

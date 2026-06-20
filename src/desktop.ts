@@ -3,7 +3,7 @@ import type { RealtimeChannel } from '@supabase/supabase-js';
 import { channelName, createResilientChannel } from './supabase';
 import {
   CONFIG, makeCar, step, bodyToWorld, collideWithRects,
-  type CarState, type Inputs,
+  type CarState, type Inputs, type Config,
 } from './physics';
 import { collideCars, applyInputs } from './cars';
 import {
@@ -15,6 +15,7 @@ import { Effects } from './effects';
 import {
   PLAYER_CAP, LOBBY_SYNC_MS, RESILIENCE, EV, colorName, LobbyState,
 } from './lobby';
+import { ROAD_SPEC, RALLY_SPEC, type VehicleSpec } from './vehicles';
 import {
   RaceManager, RACE_CONFIG, formatRaceTime,
   placeElement, removeElementAt, clearElements, findElementIndexAt,
@@ -222,6 +223,12 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'q' || e.key === 'Q') {
     qrOn = !qrOn;
     updateQrVisibility();
+  }
+  if (e.key === 'c' || e.key === 'C') {
+    // Cycle the car variant (road ↔ rally) live — re-spec every car in place.
+    const i = (CAR_VARIANTS.indexOf(currentVariant) + 1) % CAR_VARIANTS.length;
+    currentVariant = CAR_VARIANTS[i];
+    for (const car of cars.values()) applyVariant(car, currentVariant);
   }
   if (e.key === 'p' || e.key === 'P' || e.key === 'Escape') {
     if (e.key === 'Escape') e.preventDefault();   // just toggle the menu, nothing else
@@ -715,11 +722,30 @@ interface Car {
                               //   start so the ramp eases from it to neutral
   local?: boolean;       // keyboard-driven LOCAL test car (no phone) — exempt from
                          //   the lobby sweep / syncCars removal; fed by driveKeyboard()
+  spec: VehicleSpec;     // the car's variant (road / rally) — its physics profile
+  cfg: Config;           // effective config = { ...CONFIG, ...spec.overrides }; step() reads this
+  liveryColor?: string;  // fixed body hex from the spec; drawCar uses it over the slot colour
+}
+
+// Resolve a spec to a car's effective config + livery. ROAD (no overrides) →
+// cfg = CONFIG (the global ref) → step() is byte-identical to the untouched car.
+// RALLY → a merged copy. Mutates the car in place; called at spawn + on C-switch.
+function applyVariant(car: Car, spec: VehicleSpec) {
+  car.spec = spec;
+  car.cfg = Object.keys(spec.overrides).length === 0
+    ? CONFIG
+    : { ...CONFIG, ...spec.overrides };
+  car.liveryColor = spec.liveryColor;
 }
 
 // Keyed by slot so routing/lookup is O(1) and nothing is hardcoded to 2 cars.
 const cars = new Map<number, Car>();
 const DEFAULT_CAR_COLOR = '#1d3fa0';
+// The active car variant (cycled live by the C key). New cars spawn in it; the
+// C handler also re-applies it to every existing car. ROAD by default → the
+// untouched, byte-identical car.
+const CAR_VARIANTS: VehicleSpec[] = [ROAD_SPEC, RALLY_SPEC];
+let currentVariant: VehicleSpec = ROAD_SPEC;
 // Input behaviour through a packet gap is governed by the UNIFIED lifecycle —
 // hold (coast) → ramp to neutral → parked-in-place — all keyed off RESILIENCE
 // (lobby.ts), the single source of truth. See the per-frame block in the loop.
@@ -727,7 +753,7 @@ const DEFAULT_CAR_COLOR = '#1d3fa0';
 
 function makeManagedCar(slot: number, color: string): Car {
   const pose = currentMap.spawn(slot, world);   // per-map spawn layout
-  return {
+  const car: Car = {
     slot,
     state: makeCar(pose.x, pose.y, pose.heading),
     color,
@@ -739,7 +765,11 @@ function makeManagedCar(slot: number, color: string): Car {
     lastInputAt: performance.now(),
     inputStale: false,
     coastInput: null,
+    spec: ROAD_SPEC,   // overwritten by applyVariant below
+    cfg: CONFIG,
   };
+  applyVariant(car, currentVariant);   // spawn in the active variant
+  return car;
 }
 
 // The "primary" car drives the single HUD / engine sound / race timer — the
@@ -1433,7 +1463,7 @@ function frame(now: number) {
         current.brake    += (target.brake    - current.brake)    * 0.3;
         current.handbrake = target.handbrake;
 
-        step(car.state, current, FIXED_DT);
+        step(car.state, current, FIXED_DT, car.cfg);   // car.cfg = CONFIG (road) or merged (rally)
         const impact = collideWithRects(car.state, world.rects);
         if (impact > 0.8) {
           sound.impact(impact);
@@ -1610,6 +1640,7 @@ function updateHud() {
     const parked = cur.throttle < 0.02 && cur.brake < 0.02 && !cur.handbrake
       && s.speed < CONFIG.restSpeed;
     debugEl.textContent =
+      `CAR: ${lead!.spec.name}   (C = switch road/rally)\n` +
       `slot ${lead!.slot}   steer ${cur.steer.toFixed(2)}   (spin-arm ≥ ${armT.toFixed(2)}${cur.handbrake ? ' HB' : ''})\n` +
       `throttle ${cur.throttle.toFixed(2)}  brake ${cur.brake.toFixed(2)}  hb ${cur.handbrake ? 'ON' : 'off'}\n` +
       `|v| ${s.speed.toFixed(3)} m/s   yaw ${s.angularVel.toFixed(3)} rad/s   rest=${parked ? 'Y' : 'n'} (≤${CONFIG.restSpeed})\n` +
@@ -1761,7 +1792,7 @@ function updateXpHud() {
 // it evokes the era and copies no real car.
 function drawCar(car: Car) {
   const s = car.state;
-  const base = car.color;
+  const base = car.liveryColor ?? car.color;   // rally livery overrides the slot colour
   const crown   = shadeHex(base, 1.28);   // lit spine
   const edge    = shadeHex(base, 0.52);   // dark flanks / AO
   const outline = shadeHex(base, 0.34);   // crisp body outline
