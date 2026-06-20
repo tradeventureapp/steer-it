@@ -522,13 +522,15 @@ export const CONFIG = {
   tiltDeadzone: 3,                  // unchanged
   inputLerp: 0.18,                  // unchanged
 
-  // ---------- The one ruler: px per real metre (Stage C1) ----------
-  // Calibrated so the car (drawn at WB = 2.565 m) keeps its current on-screen
-  // axle size: the old 1/3-scale car's axle was 19.07 px ⇒ 19.07/2.565 = 7.43,
-  // rounded to a clean 7.5 (car = 2.565 × 7.5 = 19.24 px, +0.9 % — invisible). Lowering
-  // this from 22 makes the world bigger in metres (screen/pxm), giving the real
-  // car room → fixes the understeer. ONE ruler — render, world, collision read it.
-  pxPerMeter: 7.5,
+  // ---------- The one ruler: px per real metre — THE tunable (Stage C/floaty) ----------
+  // THIS ONE NUMBER scales the whole game (car draw, world metre-size, corners,
+  // collision, spawn, gates — track AND desktop). HIGHER = car bigger on screen,
+  // world fewer metres (screen/pxm), corners tighter, screen-pace faster (less
+  // floaty). LOWER = smaller car, bigger world, more room. The car stays 2.565 m
+  // physically and the speedometer stays honest at any value (step() never reads
+  // this). Reference points (1920-px screen): 7.5 → world 256 m (floaty); 15 →
+  // world 128 m; 22 → world 87 m. Iterate by changing JUST this number.
+  pxPerMeter: 15,
 
   // ---------- DRIFT MODEL ----------
   // The ONLY physics model now: sim-real-2 (the real-car sim). The arcade / sim / sim-real

@@ -1650,3 +1650,18 @@ no `carScale`/`RPM(`/second px-scale anywhere; exactly ONE `wheelbase:` (WB 2.56
 screen_px` ≈ 1920, scaling icon metres doesn't change layer size); (d) keyboard driving + UI (menu/QR/HUD)
 untouched. **NEXT: keyboard-test — car drifts among the 6.5 m icons + the oval, all in correct real-metre
 proportion (car-to-icon = shipped look). Then the floaty-iteration (pxPerMeter + power/grip) remains open.**
+
+---
+**FLOATY ITERATION #1 — pxPerMeter 7.5 → 15 (the one ruler knob; STARTING value, iterate):** the floaty
+feel (car too small/slow, track too big) is tuned by raising the single ruler number. **One line**
+(`CONFIG.pxPerMeter`). At 15 (1920-px screen): **world 256 → 128 m** (track AND desktop), **car axle 19.2
+→ 38.5 px (2× bigger on screen)**, corners tighter, screen-pace ~2× faster. The car stays **2.565 m
+physically**; only its on-screen size + the world's metre-count change. Both maps update from the one
+pxPerMeter; desktop icons (bound to `CONFIG.wheelbase`) scale WITH it → **car-to-icon ratio UNCHANGED**
+(icons bigger too) — the car is bigger vs the WORLD, same vs the icons. **MEASURED:** step() BYTE-IDENTICAL
+0.0e+0 (step never reads pxPerMeter); layers ~25 MB at any pxm (`world_m × pxm = screen_px ≈ 1920`);
+speedometer honest (km/h from real m/s, unaffected); tsc + build clean. **WHAT IT FIXES vs NOT:** raising
+pxm fixes the *on-screen* floaty — bigger car, faster pace, tighter corners (looks slow/small/track-too-big).
+It does NOT change how the car *responds* (grip, throttle, weight = the car's physics, unchanged) — if the
+RESPONSE/feel is also off, that's the SECOND lever (power/grip), separate from pxPerMeter. **NEXT:
+keyboard-test BOTH maps — still floaty → raise pxm higher; too zoomed-in → lower. Iterate this ONE number.**
