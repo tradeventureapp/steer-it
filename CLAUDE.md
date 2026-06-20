@@ -1562,3 +1562,29 @@ UNTOUCHED:** a paired phone owns slot 0 (not `local`) → keyboard goes inert; t
 physics / cars / effects are byte-identical (only desktop.ts changed). Works with NO phone/QR/Supabase:
 load desktop → START RACE → press an arrow → car spawns + drives. tsc + build clean. (Render of the live
 drive is unverifiable headless — phone/desktop test.)
+
+---
+**CLEANUP Stage B — DELETED arcade / sim / sim-real entirely; sim-real-2 is the ONLY physics model
+(proven byte-identical 0.0e+0):** the three legacy drift modes + all their band-aids are gone.
+**physics.ts 2008 → 1522 lines (−486); desktop.ts −82; 594 deletions total.** Removed: the 3 drift
+functions (`inertia()` rod model + `inertiaScale`, `arcadeDriftSustain()` governor, `simDriftSustain()`
+wave/spin-arm — ~320 lines), the standing-pivot block (`standingPivot 0` → always dead), the whole
+3-way dispatch (now just `car.spinTimer = 0` before the sim-real-2 friction-circle core), ALL ~29
+mode-gates collapsed to the sim-real-2 branch (each was `isSimReal2 ? real : …` → kept the real branch;
+`isSimReal`/`=== 'sim'` → the never-taken else, deleted), and **29 dead CONFIG knobs** (every `driftSim*`,
+`inertiaScale`, `standingPivot`, `driftAssist`, `driftFrontCarve`, `driftScrubRate`, `angularDamping`,
+`maxYawRate`, `softYawClampRate`, all `burnoutPivot*`). `driftMode` union narrowed to `'sim-real-2' as
+const`. **desktop.ts:** the SIM-DRIFT tuner block + the arcade⇄sim⇄sim-real⇄sim-real-2 mode-cycle button
++ the dead `brakeForce`/`brakeGripFraction` rows deleted; the D-debug-HUD tuner panel now holds a clean
+sim-real-2 set (`simReal2BrakeForce` / `simReal2BudgetRear` / `simReal2PeakFront`) for Stage-C feel-tuning.
+**KEPT (sim-real-2 reads them):** every `simReal2*` + `simRealWheelbase2`/`TrackWidth2`/`CoGHeight2`,
+`rearDriftFriction`, `enginePower`/`torqueBoostFadeSpeed`, `loadTransferGain`, `spinReleaseThreshold(HB)`,
+`lowSpeedTorqueBoost`, `carCollisionRadius`/`slipDenomFloor`/`maxSlipRatio`/`restSpeed`/`pxPerMeter`/
+`wheelbase` (render), AND the keyboard-driving code (verified intact). **THE D KEY** investigated first =
+debug-HUD toggle ONLY (KEPT); the mode-cycle was a separate tuner button (deleted). **BYTE-IDENTITY PROOF
+(esbuild-bundled real physics, Node diff vs HEAD 1ac04ea, after EVERY sub-step): sim-real-2 step()
+0.0e+0 across launch / corner / drift / handbrake / brake / mix — all 0.** Only branches sim-real-2 never
+executes were deleted. tsc clean, `npm run build` clean. **HONEST NOTE:** ~20 now-stale CONFIG comment
+paragraphs (describing the deleted knobs/gates) were left in place — cosmetic, harmless; polish in Stage C.
+**NEXT: keyboard-test sim-real-2 (drives identically to the finished build). Then Stage C — micro-staged
+scale rebuild (world/track size + render scale), phone-test each step; then Stage D — desktop map/icons.**

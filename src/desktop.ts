@@ -137,15 +137,9 @@ brakeTunerEl.style.cssText =
 document.body.appendChild(brakeTunerEl);
 {
   const title = document.createElement('div');
-  title.textContent = 'BRAKE TUNE — live (start 30000 / 0.85)';
+  title.textContent = 'SIM-REAL-2 TUNE — live (resets on reload)';
   title.style.cssText = 'font-weight:700;letter-spacing:.5px;margin-bottom:6px;color:#ff8a3d;';
   brakeTunerEl.appendChild(title);
-  const subhead = (txt: string) => {
-    const d = document.createElement('div');
-    d.textContent = txt;
-    d.style.cssText = 'font-weight:700;letter-spacing:.5px;margin:9px 0 2px;color:#ff8a3d;';
-    brakeTunerEl.appendChild(d);
-  };
 
   const mkRow = (
     label: string, get: () => number, set: (v: number) => void,
@@ -177,79 +171,14 @@ document.body.appendChild(brakeTunerEl);
     brakeTunerEl.appendChild(row);
   };
 
-  mkRow('brakeForce', () => CONFIG.brakeForce, (v) => { CONFIG.brakeForce = v; },
-    2000, 6000, 60000, (v) => String(Math.round(v)));
-  mkRow('brakeGripFraction', () => CONFIG.brakeGripFraction,
-    (v) => { CONFIG.brakeGripFraction = v; },
-    0.05, 0.4, 1.2, (v) => v.toFixed(2));
-
-  // p24..p31 — SIM-branch drift knobs (only affect driftMode==='sim').
-  // p28 power; p29 frontAuth/frontSlide/speedHold; p30 spinArm .95/.97; p31 loadTransferGain 0
-  // (no throttle→grip inversion) + rearSlipFloor 4.0 (kills false low-speed burnout, full-lock
-  // low-speed drift survives by magnitude).
-  subhead('SIM DRIFT — spinArm ltGain0 slipFloor4 waveOff + frontLongDrag(1=off)');
-  mkRow('driftFrontCarve', () => CONFIG.driftFrontCarve, (v) => { CONFIG.driftFrontCarve = v; },
-    0.1, 0, 1, (v) => v.toFixed(2));
-  mkRow('driftScrubRate', () => CONFIG.driftScrubRate, (v) => { CONFIG.driftScrubRate = v; },
-    0.2, 0, 4, (v) => v.toFixed(2));
-  mkRow('driftSimRearGrip', () => CONFIG.driftSimRearGrip, (v) => { CONFIG.driftSimRearGrip = v; },
-    0.025, 0.30, 0.65, (v) => v.toFixed(3));
-  mkRow('driftSimCatch', () => CONFIG.driftSimCatch, (v) => { CONFIG.driftSimCatch = v; },
-    0.05, 0, 1, (v) => v.toFixed(2));
-  mkRow('driftSimSpeedHold', () => CONFIG.driftSimSpeedHold, (v) => { CONFIG.driftSimSpeedHold = v; },
-    0.02, 0.10, 0.40, (v) => v.toFixed(2));
-  mkRow('driftSimWaveBetaMin', () => CONFIG.driftSimWaveBetaMin, (v) => { CONFIG.driftSimWaveBetaMin = v; },
-    1, 5, 30, (v) => v.toFixed(0));
-  mkRow('driftSimEnginePower', () => CONFIG.driftSimEnginePower, (v) => { CONFIG.driftSimEnginePower = v; },
-    500, 9000, 18000, (v) => String(Math.round(v)));
-  mkRow('driftSimBoostFadeSpeed', () => CONFIG.driftSimBoostFadeSpeed, (v) => { CONFIG.driftSimBoostFadeSpeed = v; },
-    2, 14, 60, (v) => v.toFixed(0));
-  mkRow('driftSimFrontAuthority', () => CONFIG.driftSimFrontAuthority, (v) => { CONFIG.driftSimFrontAuthority = v; },
-    0.1, 1.0, 3.0, (v) => v.toFixed(2));
-  mkRow('driftSimFrontSlide', () => CONFIG.driftSimFrontSlide, (v) => { CONFIG.driftSimFrontSlide = v; },
-    0.025, 0.70, 1.0, (v) => v.toFixed(3));
-  mkRow('driftSimSpinArm', () => CONFIG.driftSimSpinArm, (v) => { CONFIG.driftSimSpinArm = v; },
-    0.025, 0.50, 1.0, (v) => v.toFixed(3));
-  mkRow('driftSimSpinArmHB', () => CONFIG.driftSimSpinArmHB, (v) => { CONFIG.driftSimSpinArmHB = v; },
-    0.025, 0.50, 1.0, (v) => v.toFixed(3));
-  mkRow('driftSimFrontLongDrag', () => CONFIG.driftSimFrontLongDrag, (v) => { CONFIG.driftSimFrontLongDrag = v; },
-    0.05, 0, 1.0, (v) => v.toFixed(2));
-  mkRow('driftSimDriftYawCeiling', () => CONFIG.driftSimDriftYawCeiling, (v) => { CONFIG.driftSimDriftYawCeiling = v; },
-    0.1, 2.0, 3.6, (v) => v.toFixed(2));
-  mkRow('driftSimLowSpeedGripSpeed', () => CONFIG.driftSimLowSpeedGripSpeed, (v) => { CONFIG.driftSimLowSpeedGripSpeed = v; },
-    0.5, 2.0, 10.0, (v) => v.toFixed(1));
-  mkRow('driftSimLoadTransferGain', () => CONFIG.driftSimLoadTransferGain, (v) => { CONFIG.driftSimLoadTransferGain = v; },
-    0.05, 0, 0.35, (v) => v.toFixed(2));
-  mkRow('driftSimRearSlipFloor', () => CONFIG.driftSimRearSlipFloor, (v) => { CONFIG.driftSimRearSlipFloor = v; },
-    0.5, 0.5, 8.0, (v) => v.toFixed(1));
-
-  // p23 — DRIFT MODEL dev toggle (arcade ⇄ sim). 'sim' is the new front-carve model
-  // (WORK IN PROGRESS — currently mirrors arcade). Dev-only; no player menu yet.
-  {
-    const row = document.createElement('div');
-    row.style.cssText = 'display:flex;align-items:center;gap:6px;margin-top:9px;';
-    const name = document.createElement('span');
-    name.textContent = 'driftMode'; name.style.cssText = 'flex:1;font-weight:700;color:#ff8a3d;';
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.style.cssText =
-      'pointer-events:auto;cursor:pointer;font:700 12px/1 ui-monospace,monospace;' +
-      'padding:5px 12px;border-radius:5px;color:#ffd9b0;' +
-      'background:rgba(255,138,61,.18);border:1px solid rgba(255,138,61,.55);';
-    const LABEL = { arcade: 'ARCADE', sim: 'SIM (wip)', 'sim-real': 'SIM-REAL (wip)', 'sim-real-2': 'SIM-REAL-2 (real)' } as const;
-    const upd = () => { btn.textContent = LABEL[CONFIG.driftMode]; };
-    btn.addEventListener('click', (e) => {
-      e.preventDefault(); e.stopPropagation();
-      // cycle arcade ⇄ sim ⇄ sim-real ⇄ sim-real-2 (Verze 3 / sim-real-2 dev toggle)
-      CONFIG.driftMode = CONFIG.driftMode === 'arcade' ? 'sim'
-        : CONFIG.driftMode === 'sim' ? 'sim-real'
-        : CONFIG.driftMode === 'sim-real' ? 'sim-real-2' : 'arcade';
-      upd();
-    });
-    upd();
-    row.append(name, btn);
-    brakeTunerEl.appendChild(row);
-  }
+  // sim-real-2 live feel-tune knobs (resets on reload → bake into physics.ts). Add rows here
+  // for Stage-C scale/feel tuning; arcade/sim/sim-real are gone, so there is only one model.
+  mkRow('simReal2BrakeForce', () => CONFIG.simReal2BrakeForce, (v) => { CONFIG.simReal2BrakeForce = v; },
+    500, 6000, 20000, (v) => String(Math.round(v)));
+  mkRow('simReal2BudgetRear', () => CONFIG.simReal2BudgetRear, (v) => { CONFIG.simReal2BudgetRear = v; },
+    200, 6000, 12000, (v) => String(Math.round(v)));
+  mkRow('simReal2PeakFront', () => CONFIG.simReal2PeakFront, (v) => { CONFIG.simReal2PeakFront = v; },
+    200, 5000, 11000, (v) => String(Math.round(v)));
 }
 
 // ---------- Sound + visual effects ----------
