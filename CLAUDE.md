@@ -1621,3 +1621,32 @@ corners) and/or raise car power/grip (punchier real car). Tyre stance is ~7 % na
 track/wheelbase ratio 0.569 vs the old art's 0.615 — minor, more correct). **NEXT: keyboard-test the
 unified-ruler car (expect floaty); then iterate pxPerMeter + power/grip to the sweet spot. Then Stage C2
 feel-tune, Stage D desktop map/icons.**
+
+---
+**CLEANUP Stage D — DESKTOP + TRACK on the ONE ruler (desktop bound to wheelbase, drift-proof; track
+audited consistent):** the desktop map and the oval are now both real-metre on the single C1 ruler
+(pxPerMeter 7.5), so the 2.565 m car drifts among them in correct proportion. **DESKTOP (world.ts) —
+BOUND TO `CONFIG.wheelbase` (one source, can't drift):** `const WB = CONFIG.wheelbase`; every desktop
+length is a WB-multiple = the original 1/3-era metre re-expressed in wheelbases (restores the SHIPPED
+look, icon ≈ 1.45× the car, now real): ICON_SIZE `WB*2.53` ≈ 6.5 m, BIN_SIZE `WB*3.35` ≈ 8.6 m,
+COL/ROW_SPACING `WB*8.65/6.46` ≈ 22.2/16.6 m, MARGIN_X/Y `WB*2.31/1.85` ≈ 5.9/4.7 m, TASKBAR_M
+`WB*2.08` ≈ 5.3 m, spawnClear `WB*5.19` ≈ 13.3 m; the inline fit/bin/grab/clamp offsets bound to WB too;
+jitter baked ×2.96 (real m); glyph `u=s/24` + hitbox-inset fraction auto-scale (untouched). **VERIFIED
+(layoutDesktop(256×144)):** 12/12 icons placed, icon 6.49 m, bin 8.59 m bottom-right, all in-bounds,
+spawn-clear respected, **car-to-icon ratio 1.46 = the shipped look.** **TRACK AUDIT (maps.ts) — each
+constant + verdict:** band width / corners / barriers / startLine are FRACTION-driven from
+`computeStadium(world)` → already on the ruler (auto-scale; fullscreen oval byte-unchanged). The
+old-scale fixed metres found + fixed: **spawn grid** `cx - 1.5 - row*2.6` (cars would OVERLAP at real
+size) → **bound to WB** (`back WB*1.73`, `rowPitch WB*3.0`); `computeStadium` floors (sx `2→5.9`, band
+`3.2→9.5`/`1.0→3.0`/`0.6→1.8`) + barrier thickness floor (`1.0→3.0`) + desktop wrap margin (`2→WB*2.31`,
+`0.2→WB*0.23`) + oval wrap (`0.5→1.5`) → real metres (the band floors are INERT at the real world size,
+so the oval is unchanged; they only bind on tiny windows, now proportionally). Grandstand/floodlight/
+clock offsets are PIXEL-based (drawn off the px track outline) → screen-consistent, untouched. **ONE
+RULER EVERYWHERE confirmed:** desktop AND track = real-metre constants × the single `pxPerMeter` (7.5);
+no `carScale`/`RPM(`/second px-scale anywhere; exactly ONE `wheelbase:` (WB 2.565) + ONE `pxPerMeter:`
+(grep-proven, incl. comments) → the split can't return for desktop OR track. **MEASURED:** (a)
+**physics.ts UNTOUCHED** (empty diff) → `step()` BYTE-IDENTICAL to HEAD **0.0e+0** (launch/drift/handbrake)
+— only world.ts + maps.ts changed; (b) tsc + build clean; (c) **layers ~25 MB** (`world_m × pxm =
+screen_px` ≈ 1920, scaling icon metres doesn't change layer size); (d) keyboard driving + UI (menu/QR/HUD)
+untouched. **NEXT: keyboard-test — car drifts among the 6.5 m icons + the oval, all in correct real-metre
+proportion (car-to-icon = shipped look). Then the floaty-iteration (pxPerMeter + power/grip) remains open.**

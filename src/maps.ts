@@ -168,13 +168,13 @@ export const desktopMap: MapDefinition = {
   // Wrap on left/right/top; the bottom edge is the taskbar wall (a collision
   // rect), so re-enter from just above it. Identical to the old desktop wrap.
   wrap(car, world) {
-    const W = world.width, H = world.height, M = 2;
+    const W = world.width, H = world.height, M = CONFIG.wheelbase * 2.31;  // ≈ 5.9 m
     let wrapped = false;
     if (car.x < -M) { car.x = W + M; wrapped = true; }
     else if (car.x > W + M) { car.x = -M; wrapped = true; }
     if (car.y < -M) {
       const taskbar = (world as DesktopWorld).taskbarHeight;
-      car.y = H - taskbar - CONFIG.carCollisionRadius - 0.2;
+      car.y = H - taskbar - CONFIG.carCollisionRadius - CONFIG.wheelbase * 0.23;
       wrapped = true;
     }
     return wrapped;
@@ -238,12 +238,12 @@ function computeStadium(wM: number, hM: number): StadiumGeom {
   const cx = wM / 2, cy = hM / 2;
   const OXw = wM / 2 - wM * 0.05;        // outer half-width
   const OYh = hM / 2 - hM * 0.07;        // outer half-height = turn radius
-  const sx = Math.max(2, OXw - OYh);     // straight half-length (landscape ⇒ > 0)
+  const sx = Math.max(5.9, OXw - OYh);   // straight half-length (landscape ⇒ > 0); floor in real m
   // Generous, car-friendly band, ~33% WIDER than before — the OUTER edge (OYh)
   // stays put (grandstands have no room outside) and the band grows INWARD, so
   // the inner edge moves toward the centre and the green infield shrinks.
   // (×4/3 widening; capped so a sliver of infield always remains.)
-  const bandW = Math.min(Math.max(OYh * 0.5, 3.2) * (4 / 3), Math.max(1.0, OYh - 0.6));
+  const bandW = Math.min(Math.max(OYh * 0.5, 9.5) * (4 / 3), Math.max(3.0, OYh - 1.8));
   return { cx, cy, sx, OYh, IYh: OYh - bandW, bandW };
 }
 
@@ -267,7 +267,7 @@ function stadiumPath(
 // radius / INSIDE the inner radius (so they never intrude onto the band).
 function stadiumBarriers(g: StadiumGeom): ObstacleRect[] {
   const { cx, cy, sx, OYh, IYh } = g;
-  const sq = Math.max(1.0, g.bandW * 0.16);   // wall thickness
+  const sq = Math.max(3.0, g.bandW * 0.16);   // wall thickness (floor in real m)
   const ext = sq;                              // straight↔turn overlap
   const rects: ObstacleRect[] = [
     { x: cx - sx - ext, y: cy - OYh - sq, w: 2 * sx + 2 * ext, h: sq }, // outer top
@@ -591,13 +591,16 @@ function makeStadiumMap(opts: {
       const lane0 = inner + (outer - inner) * 0.34;
       const lane1 = inner + (outer - inner) * 0.66;
       const col = slot % 2, row = Math.floor(slot / 2);
-      return { x: g.cx - 1.5 - row * 2.6, y: col === 0 ? lane0 : lane1, heading: 0 };
+      // Grid spacing BOUND to the wheelbase (Stage D) so cars never overlap as
+      // the car scales: behind-line offset ≈ 1.73 WB, row pitch ≈ 3.0 WB.
+      const back = CONFIG.wheelbase * 1.73, rowPitch = CONFIG.wheelbase * 3.0;
+      return { x: g.cx - back - row * rowPitch, y: col === 0 ? lane0 : lane1, heading: 0 };
     },
 
     // Closed track: the barriers do the real containment. wrap() just clamps a
     // car that somehow escaped the world rect (no torus wrap). true = teleported.
     wrap(car, world) {
-      const m = 0.5;
+      const m = 1.5;   // edge clamp margin, real m on the ruler
       let clamped = false;
       if (car.x < m) { car.x = m; car.vx = 0; clamped = true; }
       else if (car.x > world.width - m) { car.x = world.width - m; car.vx = 0; clamped = true; }

@@ -15,7 +15,7 @@
 //    →  clock (dynamic)  →  car
 // =============================================================================
 
-import type { ObstacleRect } from './physics';
+import { CONFIG, type ObstacleRect } from './physics';
 
 export type IconType = 'folder' | 'file' | 'image' | 'zip' | 'bin';
 
@@ -35,16 +35,22 @@ export interface DesktopWorld {
   rects: ObstacleRect[];  // collision: shrunk icon boxes + the taskbar wall
 }
 
-// ---------- Layout tuning (meters) ----------
-const ICON_SIZE = 2.2;
-const BIN_SIZE = 2.9;
-const COL_SPACING = 7.5;
-const ROW_SPACING = 5.6;
-const MARGIN_X = 2.0;
-const MARGIN_Y = 1.6;
-export const TASKBAR_M = 1.8;
+// ---------- Layout (REAL metres on the ONE ruler, BOUND to the wheelbase) ----------
+// Stage D: every desktop length is a multiple of CONFIG.wheelbase (the single
+// scale source, 2.565 m), so the desktop scales WITH the car automatically and
+// the car-to-icon ratio can NEVER drift. The multiples are the original 1/3-era
+// metres re-expressed in wheelbases (the old icon size was ≈ 2.53 wheelbases),
+// which restores the SHIPPED look (icon ≈ 1.45× the car) now in real metres.
+const WB = CONFIG.wheelbase;        // 2.565 m — the one ruler's car anchor
+const ICON_SIZE = WB * 2.53;        // ≈ 6.5 m  (icon glyph + hitbox)
+const BIN_SIZE = WB * 3.35;         // ≈ 8.6 m
+const COL_SPACING = WB * 8.65;      // ≈ 22.2 m
+const ROW_SPACING = WB * 6.46;      // ≈ 16.6 m
+const MARGIN_X = WB * 2.31;         // ≈ 5.9 m
+const MARGIN_Y = WB * 1.85;         // ≈ 4.7 m
+export const TASKBAR_M = WB * 2.08; // ≈ 5.3 m  (taskbar height + collision wall)
 // Hitboxes are inset ~10% of the glyph for forgiveness.
-const HITBOX_INSET_FRAC = 0.05; // per side
+const HITBOX_INSET_FRAC = 0.05; // per side (fraction → auto-scales with the glyph)
 
 // ---------- The desktop's contents ----------
 // Roughly grid-aligned columns from the top-left like a real (slightly
@@ -53,34 +59,35 @@ const ICON_SPECS: Array<{
   col: number; row: number; jx?: number; jy?: number;
   type: Exclude<IconType, 'bin'>; label: string;
 }> = [
+  // jx/jy are real-metre jitter on the one ruler (the original 1/3-era mess ×2.96).
   { col: 0, row: 0,                    type: 'folder', label: 'Documents' },
-  { col: 0, row: 1, jx: 0.3,           type: 'folder', label: 'vacation pics' },
-  { col: 0, row: 2, jx: -0.2,          type: 'folder', label: 'DO NOT DELETE!!!' },
-  { col: 0, row: 3, jy: 0.4,           type: 'file',   label: 'passwords.txt' },
-  { col: 1, row: 0, jx: 0.5,           type: 'file',   label: 'taxes_2024_final_v3' },
+  { col: 0, row: 1, jx: 0.9,           type: 'folder', label: 'vacation pics' },
+  { col: 0, row: 2, jx: -0.6,          type: 'folder', label: 'DO NOT DELETE!!!' },
+  { col: 0, row: 3, jy: 1.2,           type: 'file',   label: 'passwords.txt' },
+  { col: 1, row: 0, jx: 1.5,           type: 'file',   label: 'taxes_2024_final_v3' },
   { col: 1, row: 1,                    type: 'folder', label: 'New folder (2)' },
-  { col: 1, row: 2, jx: 0.8, jy: 0.3,  type: 'zip',    label: 'backup_FINAL.zip' },
-  { col: 2, row: 0, jy: 0.2,           type: 'image',  label: 'lunch_photo.jpg' },
-  { col: 2, row: 1, jx: -0.4,          type: 'folder', label: 'old stuff' },
-  { col: 3, row: 0, jx: 0.2,           type: 'file',   label: 'essay_v8_FINAL.doc' },
+  { col: 1, row: 2, jx: 2.4, jy: 0.9,  type: 'zip',    label: 'backup_FINAL.zip' },
+  { col: 2, row: 0, jy: 0.6,           type: 'image',  label: 'lunch_photo.jpg' },
+  { col: 2, row: 1, jx: -1.2,          type: 'folder', label: 'old stuff' },
+  { col: 3, row: 0, jx: 0.6,           type: 'file',   label: 'essay_v8_FINAL.doc' },
   // A couple of strays mid-desktop so the open field has something to orbit.
-  { col: 6, row: 2, jx: 1.2, jy: 0.8,  type: 'folder', label: 'definitely not games' },
-  { col: 8, row: 1, jx: 0.4, jy: -0.3, type: 'file',   label: 'todo_URGENT.txt' },
+  { col: 6, row: 2, jx: 3.6, jy: 2.4,  type: 'folder', label: 'definitely not games' },
+  { col: 8, row: 1, jx: 1.2, jy: -0.9, type: 'file',   label: 'todo_URGENT.txt' },
 ];
 
 export function layoutDesktop(width: number, height: number): DesktopWorld {
   const icons: DesktopIcon[] = [];
-  const usableBottom = height - TASKBAR_M - 1.2;
+  const usableBottom = height - TASKBAR_M - WB * 1.38;   // ≈ 3.6 m
 
   // The car spawns at the world center — keep a clear circle around it so
   // it never materializes inside (or pressed against) an icon.
-  const spawnX = width / 2, spawnY = height / 2, spawnClear = 4.5;
+  const spawnX = width / 2, spawnY = height / 2, spawnClear = WB * 5.19;  // ≈ 13.3 m
 
   for (const s of ICON_SPECS) {
     const x = MARGIN_X + s.col * COL_SPACING + (s.jx ?? 0);
     const y = MARGIN_Y + s.row * ROW_SPACING + (s.jy ?? 0);
     // Skip icons that don't fit the current window (small screens).
-    if (x + ICON_SIZE > width - 2 || y + ICON_SIZE + 0.8 > usableBottom) continue;
+    if (x + ICON_SIZE > width - WB * 2.31 || y + ICON_SIZE + WB * 0.92 > usableBottom) continue;
     if (Math.hypot(x + ICON_SIZE / 2 - spawnX, y + ICON_SIZE / 2 - spawnY) < spawnClear) continue;
     icons.push({ type: s.type, label: s.label, x, y, size: ICON_SIZE });
   }
@@ -88,8 +95,8 @@ export function layoutDesktop(width: number, height: number): DesktopWorld {
   // Recycle bin in the classic corner — bottom-right, above the taskbar.
   icons.push({
     type: 'bin', label: 'Recycle Bin',
-    x: width - BIN_SIZE - 2.2,
-    y: height - TASKBAR_M - BIN_SIZE - 2.4,
+    x: width - BIN_SIZE - WB * 2.53,
+    y: height - TASKBAR_M - BIN_SIZE - WB * 2.77,
     size: BIN_SIZE,
   });
 
@@ -121,7 +128,7 @@ export function rebuildRects(world: DesktopWorld) {
 
 // Topmost icon under a point (meters), with a small grab margin.
 export function iconAt(world: DesktopWorld, x: number, y: number): DesktopIcon | null {
-  const m = 0.2;
+  const m = WB * 0.23;   // grab margin ≈ 0.6 m
   for (let i = world.icons.length - 1; i >= 0; i--) {
     const ic = world.icons[i];
     if (x >= ic.x - m && x <= ic.x + ic.size + m &&
@@ -134,9 +141,9 @@ export function iconAt(world: DesktopWorld, x: number, y: number): DesktopIcon |
 
 // Keep an icon inside the desktop: off the taskbar, label row visible.
 export function clampIconToBounds(world: DesktopWorld, ic: DesktopIcon) {
-  ic.x = Math.min(Math.max(ic.x, 0.3), world.width - ic.size - 0.3);
-  ic.y = Math.min(Math.max(ic.y, 0.3),
-    world.height - world.taskbarHeight - ic.size - 1.0);
+  ic.x = Math.min(Math.max(ic.x, WB * 0.35), world.width - ic.size - WB * 0.35);
+  ic.y = Math.min(Math.max(ic.y, WB * 0.35),
+    world.height - world.taskbarHeight - ic.size - WB * 1.15);
 }
 
 // On drop: nudge out of (most) overlaps with other icons, forgivingly —
