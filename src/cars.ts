@@ -9,7 +9,7 @@
 //      explode),
 //    • input clamping/merge shared by the control router and its test.
 // =============================================================================
-import { CONFIG, carScale, type CarState, type Inputs } from './physics';
+import { CONFIG, type CarState, type Inputs } from './physics';
 
 function clamp(v: number, lo: number, hi: number): number {
   return v < lo ? lo : v > hi ? hi : v;
@@ -28,9 +28,8 @@ export function spawnOffset(slot: number): { dx: number; dy: number } {
   const i = slot - 1;
   const col = i % SPAWN_PER_ROW;
   const row = Math.floor(i / SPAWN_PER_ROW);
-  const gap = SPAWN_GAP * carScale();   // real-size car (sim-real-2) needs a proportionally wider grid
-  const dx = (col - (SPAWN_PER_ROW - 1) / 2) * gap; // centred row
-  const dy = (row + 1) * gap;                       // first extra row below centre
+  const dx = (col - (SPAWN_PER_ROW - 1) / 2) * SPAWN_GAP; // centred row
+  const dy = (row + 1) * SPAWN_GAP;                       // first extra row below centre
   return { dx, dy };
 }
 
@@ -66,7 +65,7 @@ export function applyInputs(
 // returns the closing speed (0 = not colliding / separating) for feedback.
 export function collidePairCars(
   a: CarState, b: CarState,
-  R: number = CONFIG.carCollisionRadius * carScale(),
+  R: number = CONFIG.carCollisionRadius,
   restitution = 0.35,
   maxImpulse = 6,
 ): number {
@@ -106,7 +105,7 @@ export function collidePairCars(
 // the cost of a real solver. Returns the strongest closing speed seen.
 export function collideCars(
   states: CarState[],
-  R: number = CONFIG.carCollisionRadius * carScale(),
+  R: number = CONFIG.carCollisionRadius,
   iterations = 2,
 ): number {
   let strongest = 0;

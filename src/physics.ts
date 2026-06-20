@@ -667,17 +667,6 @@ export const CONFIG = {
 
 export type Config = typeof CONFIG;
 
-// Visual + collision scale for the car. sim-real-2 is a REAL-SIZE car: its physics
-// already runs at the real wheelbase (simRealWheelbase2 = 2.565 m), so its RENDER
-// and COLLISION must match that size too (the 1/3 render/physics split is removed
-// for it). One source of truth: the ratio of the real wheelbase to the 1/3 render
-// wheelbase (≈2.96). The frozen arcade/sim/sim-real modes are genuine 1/3-scale
-// cars (wheelbase 0.867 m) → scale 1 → unchanged. Driving FORCES are untouched in
-// every mode (this only scales the drawn body, skid offsets, and collision radius).
-export function carScale(c: Config = CONFIG): number {
-  return c.driftMode === 'sim-real-2' ? c.simRealWheelbase2 / c.wheelbase : 1;
-}
-
 export interface CarState {
   // World position (meters) and heading (rad, 0 = +x, +pi/2 = +y).
   x: number;
@@ -1965,7 +1954,7 @@ export interface ObstacleRect { x: number; y: number; w: number; h: number; }
 export function collideWithRects(
   car: CarState, rects: ObstacleRect[], c: Config = CONFIG,
 ): number {
-  const R = c.carCollisionRadius * carScale(c);   // real-size car (sim-real-2) collides at real radius
+  const R = c.carCollisionRadius;
   let strongest = 0;
   for (const r of rects) {
     // Closest point on the rect to the car center.

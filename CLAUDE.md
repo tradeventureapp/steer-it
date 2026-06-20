@@ -1530,3 +1530,19 @@ monitor shows a bigger track, pre-existing, unchanged in character); (h) tsc + b
 multi-car. **⚠️ RENDER UNVERIFIABLE HEADLESS (no Supabase) — phone-test watch: car ~33 px not off-screen,
 oval fills + aligns with collision, editor mouse mapping correct, skids/smoke/gates aligned, corners feel
 faster/roomier.** NEXT: hard-refresh + phone/desktop test.
+
+---
+**CLEANUP Stage A — REVERTED src/ to the finished 5-stage build (27af7f4) + default = sim-real-2:** the
+RPM real-scale (72c0d31) drove like a "shopping cart" (the 258 m world made the real car feel slow/floaty),
+so the approved cleanup begins by reverting to the clean baseline. `git checkout 27af7f4 -- src/` — AUDITED
+first: the ENTIRE 27af7f4..HEAD src/ diff is **100% scale/handbrake cruft** (carScale, RPM, smoke-grow,
+collision/spawn scaling, default-mode) across only 4 files (physics/desktop/cars/effects); the handbrake
+fixes (Coriolis/root/free-roll/coast) were already reverted at 7c6023c (physics.ts == 27af7f4); NO
+unrelated UI/bug/feature work exists in the range → nothing good lost. CLAUDE.md (this history) is NOT in
+src/ → preserved. The ONE addition on top of the pure revert: `CONFIG.driftMode` default `'arcade'` →
+**`'sim-real-2'`** (so it boots into the kept mode for the phone-test; the only diff vs 27af7f4). RESULT:
+sim-real-2 force model = the finished-build feel (untouched), car renders ~33 px (CONFIG.wheelbase 0.867
+art at pxPerMeter 22, NO carScale/RPM), world 87 m, layers ~25 MB, all 4 modes still present (deleted in
+Stage B). tsc + build clean. **NEXT (after phone-test): Stage B — delete arcade/sim/sim-real (modes/gates/
+band-aids/rod-inertia/driftSim knobs/D-toggle/SIM-DRIFT tuner), KEEP sim-real-2, prove sim-real-2 step()
+0.0e+0; then Stage C (micro-staged scale rebuild) + Stage D (desktop icons).**
