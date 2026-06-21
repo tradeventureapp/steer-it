@@ -425,6 +425,12 @@ export const CONFIG = {
   handbrakeLongScrubFactor: 0.35,   // p16 — scrub at FULL throttle (carries speed)
   handbrakeLongScrubIdle: 1.0,      // NEW (p17 Fix1b) — scrub at ZERO throttle (washes out)
   handbrakeYawKick: 6.0,            // NEW (p17 Fix1) rad/s^2 — handbrake+steer rotates into the slide
+  // Locked-rear STABILISER (sim-real-2): under the handbrake the rear lateral grip → 0, so the
+  // front-dominated yaw torque amplifies ANY perturbation (a 0.01 steer spins a straight handbrake;
+  // releasing steer mid-corner lets the leftover yaw run away). A yaw damping, FADED OUT by steering
+  // input, kills the self-spin at/near steer 0 while leaving handbrake-drift-WITH-steering untouched.
+  handbrakeYawDamp: 12.0,           // 1/s — yaw damping rate under handbrake at steer 0
+  handbrakeYawDampSteer: 0.15,      // |steer| at which the damping fully fades (≥ → drift preserved)
 
   // ---------- Reverse (p6) ----------
   // Arcade reverse: holding BRAKE at (near) standstill backs the car up.
@@ -1377,6 +1383,19 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   if (input.handbrake && speed > 1 && Math.abs(input.steer) > 0.05) {
     car.angularVel += Math.sign(input.steer) * c.handbrakeYawKick * Math.abs(input.steer) * dt;
   }
+  // Locked-rear STABILISER (sim-real-2): damp the yaw under handbrake, FADED OUT by steering so a
+  // straight handbrake (steer ≈ 0) slides straight + a corner-release big yaw decays back to control,
+  // while handbrake-WITH-steer (≥ handbrakeYawDampSteer) keeps full drift rotation. The damping also
+  // STRENGTHENS as speed → 0 (× lowSpeedBoost) so a nearly-stopped car settles instead of rocking.
+  if (input.handbrake) {
+    const steerFade = Math.max(0, 1 - Math.abs(input.steer) / c.handbrakeYawDampSteer);
+    if (steerFade > 0) {
+      // ramp the damping up to ~3× as speed falls under restSpeed → kills the low-speed wobble
+      const lowSpeedBoost = 1 + 2 * Math.max(0, 1 - speed / c.restSpeed);
+      const decay = Math.min(1, c.handbrakeYawDamp * steerFade * lowSpeedBoost * dt);
+      car.angularVel -= car.angularVel * decay;
+    }
+  }
   car.heading    += car.angularVel * dt;
 
   // ---- 9. Integrate translation (body force -> world force -> velocity) ----
@@ -1418,6 +1437,17 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
     car.vx = 0;
     car.vy = 0;
     car.angularVel = 0;   // hard park: kill ALL residual so it can't creep / rotate
+  }
+  // Handbrake REST (sim-real-2): a near-stopped car held on the handbrake with NO throttle must
+  // SETTLE — without this the locked rear leaves a tiny residual yaw that rocks side-to-side forever
+  // at ~0 speed (the wobble). The handbrake holds a stopped car still, so kill the residual here too.
+  // (Non-handbrake idle is the block above, byte-identical; throttle skips this → power out as normal.)
+  const hbRest = input.handbrake && input.throttle < 0.02
+    && car.vx * car.vx + car.vy * car.vy < c.restSpeed * c.restSpeed;
+  if (hbRest) {
+    car.vx = 0;
+    car.vy = 0;
+    car.angularVel = 0;
   }
   // Tiny-snap safety (also covers the last sliver while braking/steering input).
   if (Math.abs(car.vx) < 0.01) car.vx = 0;

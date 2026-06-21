@@ -1702,3 +1702,26 @@ ART); tsc + build clean. **EXPECTED SIDE EFFECT:** smaller car + bigger world �
 (calmer/quieter look) — that's inherent to lowering pxm; **SPEED is the NEXT, SEPARATE step (engine
 power/grip), not this one.** **NEXT: keyboard-test BOTH maps for SIZE — too big → lower pxm; too
 small/zoomed-out → raise; then do speed (power/grip) separately.**
+
+---
+**HANDBRAKE LOCKED-REAR STABILISER (3 spin/wobble bugs fixed — gated-on-steer yaw damping + handbrake
+rest):** the diagnosis found straight handbrake (steer≈0) was an UNSTABLE equilibrium — the locked rear
+kills rear lateral grip, so the front-dominated yaw torque `halfWB·(frontFy−rearFy)` (NO damping since
+Stage 3c) AMPLIFIES any tiny perturbation (a 0.01 steer / a 0.05 yaw → full spin; corner-release leftover
+yaw runs away; a near-stopped car rocks ±forever). Root = locked-rear oversteer instability with no
+stabilising term (NOT spin-arm/yaw-kick/asymmetry — sign follows the perturbation; foot brake is stable).
+**FIX (sim-real-2, handbrake-gated so non-HB is byte-identical):** (A) a yaw damping
+`angularVel -= angularVel · clamp(handbrakeYawDamp·steerFade·lowSpeedBoost·dt)` under handbrake, where
+`steerFade = max(0, 1 − |steer|/handbrakeYawDampSteer)` FADES the damping OUT as you steer (steer 0 = full
+damping → straight HB slides straight + big yaw decays to control; |steer| ≥ `handbrakeYawDampSteer` 0.15 →
+ZERO damping → handbrake-drift-WITH-steering untouched), and `lowSpeedBoost = 1 + 2·max(0,1−speed/restSpeed)`
+ramps it ~3× as speed→0; (B) a **handbrake REST** (`hbRest`: handbrake + throttle<0.02 + |v|<restSpeed →
+zero vx/vy/yaw) so a near-stopped held-handbrake car SETTLES instead of wobbling (the non-HB `idle` rest is
+unchanged → byte-identical). New CONFIG: `handbrakeYawDamp 12.0`, `handbrakeYawDampSteer 0.15`. **MEASURED:**
+(a) straight HB steer −0.01: HEAD ω −3.60 SPINS → FIX ω 0.00 straight; (b) corner-release ω −2.0: HEAD runs
+to −4.28 → FIX damps to 0.00; **(c) HB+steer 0.7: ω 9.20 / rearSlip −68° IDENTICAL HEAD=FIX → drift fully
+preserved** (fade=0 above thresh); (d) low-speed: HEAD 15 sign-flips WOBBLES → FIX 0 flips, ω/|v| 0 RESTS
+CLEAN; (e) **non-HB launch/corner/drift/footbrake BYTE-IDENTICAL 0.0e+0**; rally works with the SAME
+k/thresh (straight HB straight, HB+steer drifts rearSlip −42°). tsc + build clean; physics-only (render
+untouched). **NEXT: keyboard-test — straight HB slides straight + slows, corner-release catches, HB+steer
+still drifts, car rests cleanly at low speed (no wobble); both cars.**
