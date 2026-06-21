@@ -1804,11 +1804,22 @@ function drawCar(car: Car) {
   ctx.rotate(s.heading);
   ctx.scale(PX(), PX());
 
-  // Footprint half-extents BOUND to the one wheelbase (Stage C1 ruler) so the body
-  // can't drift from the 2.565 m scale: L/W = WB × the original art half-extent
-  // ratios (0.865, 0.356). At WB 2.565 ⇒ 2.22 m × 0.91 m, drawn at pxPerMeter.
-  const L = CONFIG.wheelbase * 0.865, W = CONFIG.wheelbase * 0.356;
-  const hw = CONFIG.wheelbase / 2, ht = CONFIG.trackWidth / 2;
+  // ONE uniform car-art scale (Stage-D fix) BOUND to the wheelbase, so the whole
+  // car stays on the one ruler and can't drift. The art (blitzBody outline, every
+  // interior detail, the tyre size) is authored at its NATIVE 1/3 footprint
+  // (L = 0.75 m); ART maps that native art to the real CONFIG.wheelbase in ONE
+  // transform — outline, shape, details and tyres all scale together (not 80
+  // individual numbers). ART = real footprint (wheelbase × 0.865) ÷ native L (0.75);
+  // no forbidden literal (0.865 is the existing art length-ratio).
+  const ART = CONFIG.wheelbase * 0.865 / 0.75;   // ≈ 2.96
+  ctx.scale(ART, ART);
+
+  const L = 0.75, W = 0.309;   // native footprint half-extents (the shipped art)
+  // Tyre positions = the REAL wheel corners (matching rearWheelPositions / the
+  // skids / the physics), pulled back into native-art space (÷ ART) so under the
+  // ART scale they land EXACTLY on the real corners. (Wheelbase cancels → a native
+  // constant, but the form documents the intent + stays bound to the ruler.)
+  const hw = CONFIG.wheelbase / 2 / ART, ht = CONFIG.trackWidth / 2 / ART;
 
   // 1. Ground drop shadow (screen-space offset so light stays fixed as it turns).
   ctx.save();
