@@ -1768,3 +1768,29 @@ different decel) via a VehicleSpec override — left at the shared default for n
 realistic-target set; a future ARCADE pass can dial them per-car behind an arcade/sim toggle. **NEXT:
 keyboard-test both cars — handbrake scrubs + stops sensibly, controllable slide, bounded rotation (no
 propeller), no ice-glide, drift-with-steer works.**
+
+---
+**ARCADE BRANCH (X toggle — faster/oversteer/catchable, ZERO new step() code, SIM byte-identical):** a
+second physics "mode" built as a PURE parameter transform on the realistic sim-real-2 model — NO governor/
+sustain/wave/band-aids, and **NO new force term in step()** (so SIM is byte-identical trivially). `physics.ts`
+gains `applyArcade(base: Config): Config` + 5 live CONFIG knobs; `desktop.ts` adds `arcadeMode` + the **X**
+key (D = debug HUD, C = car road/rally, **X = arcade⇄sim**; HUD shows `MODE: ARCADE/SIM`). **Mechanism:**
+`car.cfg = arcadeMode ? applyArcade(base) : base` where base = CONFIG (road) or {...CONFIG,...rally} →
+ARCADE multiplies the base's params + boosts the EXISTING auto-countersteer; SIM uses base untouched →
+step() runs the realistic config → **0.0e+0**. **applyArcade =** `simReal2PeakTorque/IdleTorque ×arcadePowerScale`
+(1.4 → faster/punch), `simReal2DragCoeff ×arcadeDragScale` (0.8 → higher top), `simReal2PeakFront ×arcadeFrontGripScale`
+(1.25 → SHARP turn-in), `simReal2BudgetRear ×arcadeRearGripScale` (0.7 → OVERSTEER/drift/donut), and the
+**catch** = `arcadeCatchAssist` (0.6) interpolating the existing `autoCounterStart/Strength/Trim` +
+`frontSlipLimitOptimal` toward a stronger arcade auto-countersteer (engages sooner, more front authority,
+more player trim) — **amplifies the player's countersteer, NO β-target governor**. Composes per-car
+(rally-arcade = rally × arcade). **MEASURED:** (a) **SIM byte-identical vs HEAD 0.0e+0** (launch/corner/
+drift/handbrake/brake — step() untouched, sim cfg = CONFIG); ROAD-arcade: **top 277 km/h** (vs sim 239),
+**corner yaw 1.20** (vs 0.83 = sharper), **DONUT yaw 2.4 / sd 0.50 = CONTROLLED, exits −0.23** (catchable);
+RALLY-arcade: top 225, slidier (rally's low grip × arcade), controlled donut yaw 1.3. tsc + build clean.
+**Targets met:** faster + punch, sharp cornering, oversteer drift, controllable donuts (full-lock+throttle →
+steady spin that exits on straighten/lift), catchable (boosted auto-countersteer), drift around icons
+(controllable slides), both cars. **HONEST TRADEOFF (tunable):** `arcadeRearGripScale 0.7` (oversteer for
+drift/donut) makes the LAUNCH wheelspin-happy → 0-50 slower than SIM; raise it toward ~0.85 for a punchier
+launch at the cost of easy throttle-drift, or lower it for slidier. All 5 knobs live on the D-tuner
+(re-spec every car on change). **NEXT: keyboard-test arcade (X) — faster, sharp corners, whole-corner
+power-slide drift, controllable donuts, drift around icons, catchable; both cars; then dial the 5 knobs.**

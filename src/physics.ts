@@ -651,9 +651,44 @@ export const CONFIG = {
   // (corners but doesn't brake along heading) → the rear's drive sustains a full-throttle DEEP
   // drift. frontForceBodyY (lateral/cornering = radius/turn-in/yaw) is UNTOUCHED. A spin still
   // bleeds (rear propulsion misaligned at deep β, cosβ→0). 1 = off (no cut); value measured.
+
+  // ---------- ARCADE branch knobs (live-tunable; read ONLY by applyArcade) ----------
+  // ARCADE is the realistic sim-real-2 model with a tuned PARAMETER set — NO governor / sustain /
+  // wave / new step() term. SIM (arcade off) never calls applyArcade, so step() runs the untouched
+  // realistic config → byte-identical 0.0e+0. These scales MULTIPLY the car's base cfg (so road and
+  // rally compose: rally-arcade = rally params × these), and the catch term interpolates the EXISTING
+  // auto-countersteer (autoCounter*) toward a stronger arcade catch (no new assist code).
+  arcadePowerScale: 1.4,            // × engine torque → faster + punchier (top ~290, but lower rear = wheelspin launch)
+  arcadeDragScale: 0.8,             // × aero drag → higher top speed
+  arcadeFrontGripScale: 1.25,       // × front peak grip → SHARP turn-in
+  arcadeRearGripScale: 0.7,         // × rear grip → OVERSTEER (drift/donut). ↓ = slidier (but worse launch)
+  arcadeCatchAssist: 0.6,           // 0..1 — interpolates the auto-countersteer to a stronger arcade catch
 };
 
 export type Config = typeof CONFIG;
+
+// ARCADE config transform: takes a car's base cfg (road = CONFIG, or rally = {...CONFIG,...rally}) and
+// returns the arcade-tuned cfg. PURE parameter composition on the sim-real-2 model — no new physics, no
+// governor. The catch reuses the EXISTING auto-countersteer (autoCounter*/frontSlipLimit), interpolated
+// toward a stronger arcade catch by arcadeCatchAssist. Reads the live CONFIG scales (D-tuner mutable).
+export function applyArcade(base: Config): Config {
+  const k = clamp(CONFIG.arcadeCatchAssist, 0, 1);
+  const lerp = (a: number, b: number) => a + (b - a) * k;
+  return {
+    ...base,
+    simReal2PeakTorque: base.simReal2PeakTorque * CONFIG.arcadePowerScale,
+    simReal2IdleTorque: base.simReal2IdleTorque * CONFIG.arcadePowerScale,
+    simReal2DragCoeff:  base.simReal2DragCoeff  * CONFIG.arcadeDragScale,
+    simReal2PeakFront:  base.simReal2PeakFront  * CONFIG.arcadeFrontGripScale,
+    simReal2BudgetRear: base.simReal2BudgetRear * CONFIG.arcadeRearGripScale,
+    // catch assist = boost the EXISTING auto-countersteer (engages earlier, stronger, more front
+    // authority + more player trim for committed donuts) — amplifies the player, no β-target governor.
+    autoCounterStart:      lerp(base.autoCounterStart, 0.12),       // 20° → ~7° (catches sooner)
+    autoCounterStrength:   lerp(base.autoCounterStrength, 1.0),     // 0.85 → 1.0
+    frontSlipLimitOptimal: lerp(base.frontSlipLimitOptimal, 0.5),   // more front authority at speed
+    autoCounterTrim:       lerp(base.autoCounterTrim, 0.6),         // more player authority (donut commit)
+  };
+}
 
 export interface CarState {
   // World position (meters) and heading (rad, 0 = +x, +pi/2 = +y).

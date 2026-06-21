@@ -2,7 +2,7 @@ import QRCode from 'qrcode';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { channelName, createResilientChannel } from './supabase';
 import {
-  CONFIG, makeCar, step, bodyToWorld, collideWithRects,
+  CONFIG, makeCar, step, bodyToWorld, collideWithRects, applyArcade,
   type CarState, type Inputs, type Config,
 } from './physics';
 import { collideCars, applyInputs } from './cars';
@@ -180,6 +180,17 @@ document.body.appendChild(brakeTunerEl);
     200, 6000, 12000, (v) => String(Math.round(v)));
   mkRow('simReal2PeakFront', () => CONFIG.simReal2PeakFront, (v) => { CONFIG.simReal2PeakFront = v; },
     200, 5000, 11000, (v) => String(Math.round(v)));
+
+  // ARCADE knobs (only bite when MODE = ARCADE; re-spec every car so the change is live).
+  const reArcade = () => { if (arcadeMode) for (const c of cars.values()) applyVariant(c, c.spec); };
+  const aRow = (label: string, get: () => number, set: (v: number) => void,
+                stp: number, lo: number, hi: number) =>
+    mkRow(label, get, (v) => { set(v); reArcade(); }, stp, lo, hi, (v) => v.toFixed(2));
+  aRow('arcadePowerScale',     () => CONFIG.arcadePowerScale,     (v) => { CONFIG.arcadePowerScale = v; },     0.05, 1.0, 2.5);
+  aRow('arcadeDragScale',      () => CONFIG.arcadeDragScale,      (v) => { CONFIG.arcadeDragScale = v; },      0.05, 0.5, 1.0);
+  aRow('arcadeFrontGripScale', () => CONFIG.arcadeFrontGripScale, (v) => { CONFIG.arcadeFrontGripScale = v; }, 0.05, 0.8, 1.6);
+  aRow('arcadeRearGripScale',  () => CONFIG.arcadeRearGripScale,  (v) => { CONFIG.arcadeRearGripScale = v; },  0.05, 0.4, 1.2);
+  aRow('arcadeCatchAssist',    () => CONFIG.arcadeCatchAssist,    (v) => { CONFIG.arcadeCatchAssist = v; },    0.05, 0.0, 1.0);
 }
 
 // ---------- Sound + visual effects ----------
@@ -229,6 +240,11 @@ window.addEventListener('keydown', (e) => {
     const i = (CAR_VARIANTS.indexOf(currentVariant) + 1) % CAR_VARIANTS.length;
     currentVariant = CAR_VARIANTS[i];
     for (const car of cars.values()) applyVariant(car, currentVariant);
+  }
+  if (e.key === 'x' || e.key === 'X') {
+    // Toggle ARCADE ⇄ SIM — re-spec every car (re-applies applyArcade or the base cfg).
+    arcadeMode = !arcadeMode;
+    for (const car of cars.values()) applyVariant(car, car.spec);
   }
   if (e.key === 'p' || e.key === 'P' || e.key === 'Escape') {
     if (e.key === 'Escape') e.preventDefault();   // just toggle the menu, nothing else
@@ -727,14 +743,19 @@ interface Car {
   liveryColor?: string;  // fixed body hex from the spec; drawCar uses it over the slot colour
 }
 
+// ARCADE/SIM mode (toggled by X). SIM = the realistic layer (car.cfg = the base, untouched →
+// byte-identical). ARCADE = the base run through applyArcade() (faster + oversteer + catch).
+let arcadeMode = false;
+
 // Resolve a spec to a car's effective config + livery. ROAD (no overrides) →
-// cfg = CONFIG (the global ref) → step() is byte-identical to the untouched car.
-// RALLY → a merged copy. Mutates the car in place; called at spawn + on C-switch.
+// base = CONFIG (the global ref) → in SIM, step() is byte-identical to the untouched car.
+// RALLY → a merged copy. ARCADE wraps the base through applyArcade(). Called at spawn / C / X.
 function applyVariant(car: Car, spec: VehicleSpec) {
   car.spec = spec;
-  car.cfg = Object.keys(spec.overrides).length === 0
+  const base = Object.keys(spec.overrides).length === 0
     ? CONFIG
     : { ...CONFIG, ...spec.overrides };
+  car.cfg = arcadeMode ? applyArcade(base) : base;
   car.liveryColor = spec.liveryColor;
 }
 
@@ -1640,7 +1661,7 @@ function updateHud() {
     const parked = cur.throttle < 0.02 && cur.brake < 0.02 && !cur.handbrake
       && s.speed < CONFIG.restSpeed;
     debugEl.textContent =
-      `CAR: ${lead!.spec.name}   (C = switch road/rally)\n` +
+      `CAR: ${lead!.spec.name}   MODE: ${arcadeMode ? 'ARCADE' : 'SIM'}   (C = car · X = arcade/sim)\n` +
       `slot ${lead!.slot}   steer ${cur.steer.toFixed(2)}   (spin-arm ≥ ${armT.toFixed(2)}${cur.handbrake ? ' HB' : ''})\n` +
       `throttle ${cur.throttle.toFixed(2)}  brake ${cur.brake.toFixed(2)}  hb ${cur.handbrake ? 'ON' : 'off'}\n` +
       `|v| ${s.speed.toFixed(3)} m/s   yaw ${s.angularVel.toFixed(3)} rad/s   rest=${parked ? 'Y' : 'n'} (≤${CONFIG.restSpeed})\n` +
