@@ -658,11 +658,18 @@ export const CONFIG = {
   // realistic config → byte-identical 0.0e+0. These scales MULTIPLY the car's base cfg (so road and
   // rally compose: rally-arcade = rally params × these), and the catch term interpolates the EXISTING
   // auto-countersteer (autoCounter*) toward a stronger arcade catch (no new assist code).
-  arcadePowerScale: 1.4,            // × engine torque → faster + punchier (top ~290, but lower rear = wheelspin launch)
-  arcadeDragScale: 0.8,             // × aero drag → higher top speed
-  arcadeFrontGripScale: 1.25,       // × front peak grip → SHARP turn-in
-  arcadeRearGripScale: 0.7,         // × rear grip → OVERSTEER (drift/donut). ↓ = slidier (but worse launch)
-  arcadeCatchAssist: 0.6,           // 0..1 — interpolates the auto-countersteer to a stronger arcade catch
+  // ⚠️ FUNDAMENTAL TRADEOFF (measured): the satisfying BIG drift + donut + smoke needs the rear to
+  // break loose easily (LOW arcadeRearGripScale ≤ ~0.85), which inherently WHEELSPINS the launch;
+  // a clean no-wheelspin launch needs HIGH grip (≥ ~1.1), which then GRIPS and won't power-slide.
+  // No single grip/power value gives both — that needs a launch traction-control assist (offered,
+  // not built). These defaults LEAN to the satisfying drift; raise arcadeRearGripScale for a cleaner
+  // launch at the cost of drift-ease. DIAL: rear = hold/launch↔drift, power = speed + break-loose,
+  // front = turn-in sharpness, catch = how strongly it auto-catches (↑ = more stable/smaller slide).
+  arcadePowerScale: 1.55,           // × engine torque → faster + punch
+  arcadeDragScale: 0.8,             // × aero drag → higher top speed (~290)
+  arcadeFrontGripScale: 1.3,        // × front peak grip → SHARP turn-in
+  arcadeRearGripScale: 0.8,         // × rear grip → OVERSTEER big drift/donut. ↑ cleaner launch, ↓ slidier
+  arcadeCatchAssist: 0.45,          // 0..1 → auto-countersteer boost (catch/hold). ↑ smaller+stabler, ↓ bigger+looser
 };
 
 export type Config = typeof CONFIG;

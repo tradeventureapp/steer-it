@@ -1794,3 +1794,27 @@ drift/donut) makes the LAUNCH wheelspin-happy → 0-50 slower than SIM; raise it
 launch at the cost of easy throttle-drift, or lower it for slidier. All 5 knobs live on the D-tuner
 (re-spec every car on change). **NEXT: keyboard-test arcade (X) — faster, sharp corners, whole-corner
 power-slide drift, controllable donuts, drift around icons, catchable; both cars; then dial the 5 knobs.**
+
+---
+**ARCADE RETUNE (satisfying drift dialed in — + an HONEST measured tradeoff flagged):** retuned the 5
+arcade defaults toward a TOP drift: `arcadePowerScale 1.4→1.55`, `arcadeFrontGripScale 1.25→1.3`,
+`arcadeRearGripScale 0.7→0.8`, `arcadeCatchAssist 0.6→0.45` (drag 0.8 kept). **MEASURED (ROAD-arcade):**
+top 295 km/h, **power-drift 45° with SMOKE**, **controllable DONUT yaw 2.2 / sd 0.45 / 84° slip / SMOKE /
+exits clean** (catchable), sharp corner. RALLY-arcade = extra-slidy (rally's low grip × arcade — may want
+its OWN higher arcadeRearGripScale). **SIM byte-identical 0.0e+0** (defaults only touch applyArcade; step()
+untouched). tsc + build clean. **⚠️ THE HONEST TRADEOFF (measured, NOT solved — flagged for the player):**
+the satisfying BIG drift + donut + smoke needs the rear to break loose easily (LOW `arcadeRearGripScale`
+≤ ~0.85) → which INHERENTLY WHEELSPINS the launch (0-50 with wheelspin); a clean no-wheelspin launch needs
+HIGH grip (≥ ~1.1) → which then GRIPS and won't power-slide at all (measured: rr1.1 = 0% wheelspin launch
+but drift dies to ~2°). **No single grip/power value gives BOTH** — at cornering speed the gearing drops
+wheel torque below high grip, and the friction-circle break-loose either snaps (low grip) or never
+happens (high grip). The current defaults LEAN to the drift (the "TOP arcade experience" + 40-60°+smoke
+the player asked for), accepting the wheelspin launch. **Breaking the tradeoff needs a LAUNCH
+TRACTION-CONTROL assist** (arcade-only, low-speed + straight-gated: cap rear wheelspin on a straight
+launch so it hooks up, while a STEERED/provoked slide still breaks loose) — a clean real assist, NOT a
+governor; OFFERED, not built (awaiting the go-ahead). **KNOBS to dial (live on the D-tuner, MODE=ARCADE):**
+`arcadeRearGripScale` = the master feel dial (↑ cleaner launch + grippier / ↓ slidier + easier drift+donut);
+`arcadePowerScale` = speed + how hard it breaks loose; `arcadeFrontGripScale` = turn-in sharpness;
+`arcadeCatchAssist` = catch/hold (↑ smaller+stabler slide / ↓ bigger+looser). **NEXT: keyboard-test arcade
+(X) — feel the 45° smoky drift + donut; dial arcadeRearGripScale for your launch-vs-drift balance; tell me
+if you want the launch traction-control assist to get clean launch AND easy drift together.**
