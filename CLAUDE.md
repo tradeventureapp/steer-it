@@ -1725,3 +1725,21 @@ CLEAN; (e) **non-HB launch/corner/drift/footbrake BYTE-IDENTICAL 0.0e+0**; rally
 k/thresh (straight HB straight, HB+steer drifts rearSlip −42°). tsc + build clean; physics-only (render
 untouched). **NEXT: keyboard-test — straight HB slides straight + slows, corner-release catches, HB+steer
 still drifts, car rests cleanly at low speed (no wobble); both cars.**
+
+---
+**HANDBRAKE STABILISER REVERTED (9bdb997 fully undone — realistic layer back to pure finished build):**
+the gated yaw-damping + hbRest added in 9bdb997 were an ARCADE assist, not realism — in reality a
+locked-rear car on the handbrake going straight IS directionally unstable (it spins if you don't hold the
+wheel exactly straight), so suppressing that doesn't belong in the realistic layer. **Reverted via
+`git checkout da1b717 -- src/physics.ts`** (da1b717 = the pre-stabiliser parent): a PURE removal of the 3
+added blocks (30 lines, 0 additions) — the gated yaw-damping block, the hbRest low-speed snap, and the 2
+CONFIG knobs (`handbrakeYawDamp`/`handbrakeYawDampSteer`) + comments. **hbRest reverted too (measured
+call):** the finished-build physics ALREADY settles a clean straight handbrake to rest (|v|=0, yaw=0, 0
+wobble) — hbRest was only acting on the perturbed/spin-tail case, and keeping it would break byte-identity
+with the finished build; a genuine low-speed numerical wobble (if it ever surfaces) is a separate
+numerical-hygiene pass. **MEASURED — sim-real-2 step() BYTE-IDENTICAL to finished build 27af7f4 0.0e+0**
+across launch / corner / drift / brake / straight_hb / hb_drift / hb_lowspeed; tsc + build clean.
+**REALISTIC LAYER CONFIRMED (all REAL, kept):** straight handbrake = UNSTABLE (spins from a perturbation);
+scrub = real ~4.15 m/s² rear-only (weak, long slide); handbrake-drift-with-steering = real finished-build
+drift. **The ARCADE layer (yaw-stability assist + a tunable scrub multiplier) is a SEPARATE deliberate
+pass LATER, behind an arcade/sim toggle — NOT in the realistic physics.**
