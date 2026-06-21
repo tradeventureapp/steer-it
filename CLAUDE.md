@@ -1689,3 +1689,16 @@ than road (rear lights up; ~100 vs 131 km/h over a fixed test) and the loose/sli
 the grip budget toward µ1.0–1.1, for more slide drop it toward µ0.5 — the lever the player tunes next.
 **NEXT: keyboard-test both (C to switch) — road = grippy asphalt, rally = loose gravel; tune the rally grip/
 gearing to taste.**
+
+---
+**SIZE ITERATION — pxPerMeter 15 → 10 (smaller car, step ONE = size only):** lowered the one ruler knob
+to make the car SMALLER (reverses the floaty-iteration's 7.5→15). At 10 (1920-px screen): **world 128 →
+192 m** (track AND desktop), **car footprint 67 → 44 px (smaller)**, tyre 13.3 → 8.9 px (still visible +
+proportional via the wheelbase-bound `ctx.scale(ART)`), maps still FILL the screen (oval/desktop), more
+metres on screen, car-to-icon ratio preserved (icons shrink with the ruler). Car stays **2.565 m
+physically**. **MEASURED:** step() BYTE-IDENTICAL 0.0e+0 (never reads pxPerMeter); layers ~25 MB
+(`world_m × pxm = screen_px ≈ 1920`); speedometer honest (km/h from real m/s); both cars draw right (same
+ART); tsc + build clean. **EXPECTED SIDE EFFECT:** smaller car + bigger world ⇒ on-screen pace SLOWER
+(calmer/quieter look) — that's inherent to lowering pxm; **SPEED is the NEXT, SEPARATE step (engine
+power/grip), not this one.** **NEXT: keyboard-test BOTH maps for SIZE — too big → lower pxm; too
+small/zoomed-out → raise; then do speed (power/grip) separately.**
