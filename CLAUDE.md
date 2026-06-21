@@ -1743,3 +1743,28 @@ across launch / corner / drift / brake / straight_hb / hb_drift / hb_lowspeed; t
 scrub = real ~4.15 m/s² rear-only (weak, long slide); handbrake-drift-with-steering = real finished-build
 drift. **The ARCADE layer (yaw-stability assist + a tunable scrub multiplier) is a SEPARATE deliberate
 pass LATER, behind an arcade/sim toggle — NOT in the realistic physics.**
+
+---
+**REAL-HANDBRAKE REBUILD (two-term model — kills the "ice + propeller", realistic-target handbrake):**
+the finished-build handbrake was wrong (rear-only scrub ~4.15 m/s² → 37 m ice-slide; front-dominated yaw
+torque with NO energy dissipation → propeller to yaw 5.9–9.2 that never bled). REBUILT with TWO physical
+terms, both handbrake-gated (non-HB byte-identical): **(1) LONGITUDINAL SCRUB BOOST** — the locked rear
+drags harder: `rearLongForce = -kF · hbScrubBoost · forwardVel/slipMag` (longitudinal only; slightly
+exceeds the friction circle BY DESIGN so stop distance tunes independently of rotation) → realistic decel
+~8 m/s² → stop ~22 m from 70 km/h. **(2) YAW ENERGY DISSIPATION ∝ slide** — the sliding tyres scrub
+rotational energy (real dissipation, power ∝ ω², NOT a clamp): `slideSp = hypot(forwardVel, lateralVel);
+dampC = hbYawDampLin + hbYawDampSlide·min(1, slideSp/6); angularVel -= angularVel·min(1, dampC·dt)` —
+removes ONLY rotational energy (front grip / steering untouched), so the propeller is BOUNDED + BLEEDS
+OUT while a controlled drift still rotates. **3 CONFIG knobs (per-car overridable via VehicleSpec):**
+`hbScrubBoost 2.0` (stop distance), `hbYawDampLin 1.0` (catchability), `hbYawDampSlide 3.0` (bounds the
+spin). **MEASURED:** (a) **non-HB launch/corner/drift/brake BYTE-IDENTICAL 0.0e+0** (all gated on
+`input.handbrake`); ROAD (from 64 km/h): **stop 22 m** (was 37), **straight HB max yaw 0.9** (was 5.9
+propeller — slides ~straight, bounded), **HB+steer drift −66° / yaw 2.3** (deep + controllable, was yaw
+9.2), **spin 2.7 → countersteer → 1.18** (bleeds + catchable); RALLY: stop 9 m (from 34 km/h — rally's
+weak straight-line started lower), straight HB 0.1, drift −82°/yaw 1.9, **spin caught 0.00**. tsc + build
+clean. **HONEST:** NOT byte-identical to the finished build on handbrake — intentional (the finished
+build was ice+propeller). Rally may want its OWN `hbScrubBoost` (its grip budget 4600 → lower kF → a
+different decel) via a VehicleSpec override — left at the shared default for now. The 3 knobs are the
+realistic-target set; a future ARCADE pass can dial them per-car behind an arcade/sim toggle. **NEXT:
+keyboard-test both cars — handbrake scrubs + stops sensibly, controllable slide, bounded rotation (no
+propeller), no ice-glide, drift-with-steer works.**

@@ -425,6 +425,21 @@ export const CONFIG = {
   handbrakeLongScrubFactor: 0.35,   // p16 — scrub at FULL throttle (carries speed)
   handbrakeLongScrubIdle: 1.0,      // NEW (p17 Fix1b) — scrub at ZERO throttle (washes out)
   handbrakeYawKick: 6.0,            // NEW (p17 Fix1) rad/s^2 — handbrake+steer rotates into the slide
+  // ---------- Real-handbrake REBUILD (the REALISTIC-target handbrake; sim-real-2) ----------
+  // Replaces the finished-build "ice + propeller" handbrake. TWO physical terms, both handbrake-gated
+  // (so non-handbrake physics is byte-identical):
+  //   (1) hbScrubBoost — the locked rear drags HARDER longitudinally → realistic decel → sensible stop
+  //       (~22 m from 70 km/h vs the old 37 m ice-slide). Longitudinal-only (slightly exceeds the
+  //       friction circle — accepted so stop distance tunes INDEPENDENTLY of rotation).
+  //   (2) hbYawDamp* — the sliding tyres SCRUB rotational energy (real dissipation, NOT a clamp): a yaw
+  //       resistance that SCALES with the slide speed, so a runaway spin (propeller) is bounded + BLEEDS
+  //       OUT while a controlled drift still rotates. Removes rotational energy only → front grip /
+  //       steering untouched. dampC = hbYawDampLin + hbYawDampSlide·min(1, slideSpeed/6).
+  // ARCADE/SIM: these are the realistic-target values; a future arcade pass can override per-car (they
+  // are plain CONFIG, so a VehicleSpec — e.g. rally — can dial its own stop distance / rotation).
+  hbScrubBoost: 2.0,                // × on the locked-rear longitudinal scrub (stop distance)
+  hbYawDampLin: 1.0,                // 1/s baseline yaw energy dissipation under handbrake (catchability)
+  hbYawDampSlide: 3.0,              // 1/s extra dissipation scaled by slide speed (bounds the spin)
 
   // ---------- Reverse (p6) ----------
   // Arcade reverse: holding BRAKE at (near) standstill backs the car up.
@@ -1259,7 +1274,10 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
       // since the relaxed slip angle has been tracking, grip recovers over the relaxation length (no snap).
       const slipMag = Math.max(0.3, Math.hypot(forwardVel, rearLat));
       const kF = budget * c.rearDriftFriction;     // kinetic grip of the locked rear (~0.65·μ_static)
-      rearLongForce = -kF * forwardVel / slipMag;   // scrub (opposes forward motion → decel)
+      // REBUILD (1): the locked rear drags HARDER longitudinally (× hbScrubBoost) → sensible stop
+      // distance. Longitudinal-only (lateral unchanged → rotation dynamics intact); slightly exceeds the
+      // friction circle by design so stop distance tunes independently of how much it rotates.
+      rearLongForce = -kF * c.hbScrubBoost * forwardVel / slipMag;   // scrub (opposes forward → decel)
       rearLatForce  = -kF * rearLat   / slipMag;    // small lateral → rear loses grip → rotates
     } else {
       const latCap = Math.sqrt(Math.max(0, budget * budget - rearLongForce * rearLongForce));
@@ -1376,6 +1394,15 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
   // p17 Fix1: handbrake yaw kick — pull the lever while steering → ROTATE into the slide.
   if (input.handbrake && speed > 1 && Math.abs(input.steer) > 0.05) {
     car.angularVel += Math.sign(input.steer) * c.handbrakeYawKick * Math.abs(input.steer) * dt;
+  }
+  // REBUILD (2): YAW ENERGY DISSIPATION — the sliding tyres scrub rotational energy (real dissipation,
+  // power ∝ ω²), SCALED by how hard the rear is sliding. Bounds the front-dominated runaway (the
+  // "propeller") and makes a spin BLEED OUT, while a controlled drift still rotates. Touches only the
+  // yaw rate (rotational energy) — front grip / steering are untouched.
+  if (input.handbrake) {
+    const slideSp = Math.hypot(forwardVel, lateralVel);
+    const dampC = c.hbYawDampLin + c.hbYawDampSlide * Math.min(1, slideSp / 6);
+    car.angularVel -= car.angularVel * Math.min(1, dampC * dt);
   }
   car.heading    += car.angularVel * dt;
 
