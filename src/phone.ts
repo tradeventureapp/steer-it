@@ -2,7 +2,8 @@ import type { RealtimeChannel } from '@supabase/supabase-js';
 import { channelName, createResilientChannel } from './supabase';
 import {
   getClientId, CAR_COLORS, EV, PHONE_HEARTBEAT_MS, sanitizeName,
-  type LobbyPlayer,
+  quantizeControl, shouldSendControl,
+  type LobbyPlayer, type ControlSample,
 } from './lobby';
 import { inject } from '@vercel/analytics';
 
@@ -702,23 +703,51 @@ function bindHandbrake(el: HTMLElement) {
 // ----------------------------------------------------------------------
 let broadcastStarted = false;
 
-function sendControlNow() {
-  if (!broadcastStarted) return;
-  const payload = {
-    id:        clientId,
-    slot:      mySlot ?? 0,
-    steer:     steerFromTilt(),
-    throttle:  pedalValue('throttle'),
-    brake:     pedalValue('brake'),
+// DEADBAND state (quota quick-win): the last SENT sample + when. The 30 Hz tick
+// only sends when the quantized input changed, with a 5 Hz keepalive floor
+// (shouldSendControl in lobby.ts — pure + unit-tested). Edge events (pedal
+// press/release, watchdog resets) still FORCE a send via sendControlNow().
+let lastSentSample: ControlSample | null = null;
+let lastSentAt = 0;
+
+function buildControlSample(): ControlSample {
+  return {
+    steer:     quantizeControl(steerFromTilt()),
+    throttle:  quantizeControl(pedalValue('throttle')),
+    brake:     quantizeControl(pedalValue('brake')),
     handbrake: handbrakeOn(),
   };
-  rc.send({ type: 'broadcast', event: EV.control, payload });
+}
+
+function sendSample(s: ControlSample) {
+  lastSentSample = s;
+  lastSentAt = performance.now();
+  rc.send({
+    type: 'broadcast', event: EV.control,
+    payload: { id: clientId, slot: mySlot ?? 0, ...s },
+  });
+}
+
+// FORCE send — pedal/handbrake edges + watchdog/reset paths call this so a
+// state change is on the wire immediately (never waits for the next tick).
+function sendControlNow() {
+  if (!broadcastStarted) return;
+  sendSample(buildControlSample());
+}
+
+// 30 Hz tick — deadband + keepalive: sends at full rate while the input is
+// CHANGING (active tilting), drops to the 5 Hz keepalive when idle.
+function sendControlTick() {
+  if (!broadcastStarted) return;
+  const s = buildControlSample();
+  if (!shouldSendControl(lastSentSample, s, performance.now() - lastSentAt)) return;
+  sendSample(s);
 }
 
 function startBroadcast() {
   broadcastStarted = true;
   const INTERVAL_MS = 1000 / SEND_HZ;
-  setInterval(sendControlNow, INTERVAL_MS);
+  setInterval(sendControlTick, INTERVAL_MS);
 }
 
 // ----------------------------------------------------------------------

@@ -50,7 +50,41 @@ export const RESILIENCE = {
 // often the desktop re-broadcasts the full lobby for late/again-syncing phones.
 // The heartbeat is the liveness emit; its cadence lives in RESILIENCE.
 export const PHONE_HEARTBEAT_MS = RESILIENCE.HEARTBEAT_MS;
-export const LOBBY_SYNC_MS = 2000;
+// Periodic roster re-broadcast (fan-out to every phone). On-change broadcasts carry the
+// real-time updates; this is only the late-joiner/again-sync safety net → 5 s is plenty
+// (was 2 s — quota quick-win, −60% of the periodic fan-out).
+export const LOBBY_SYNC_MS = 5000;
+
+// ---------------------------------------------------------------------------
+//  Control send DEADBAND (quota quick-win) — pure + unit-testable.
+//  The phone ticks at SEND_HZ (30) but only SENDS when the (quantized) input
+//  actually changed, with a keepalive floor so an idle-but-connected phone
+//  still emits ≥5 Hz — CONTROL_KEEPALIVE_MS (200) is well inside
+//  RESILIENCE.INPUT_COAST_MS (400), so the desktop NEVER mistakes an idle
+//  phone for a dropped one (no coast/neutral ramp on a quiet controller).
+//  Quantization (0.01 steps) kills gyro micro-jitter that would otherwise
+//  defeat the deadband; 0.01 of full lock is imperceptible (desktop lerps).
+// ---------------------------------------------------------------------------
+export const CONTROL_KEEPALIVE_MS = 200;   // 5 Hz idle floor (< INPUT_COAST_MS 400)
+
+export interface ControlSample {
+  steer: number; throttle: number; brake: number; handbrake: boolean;
+}
+
+export function quantizeControl(v: number): number {
+  return Math.round(v * 100) / 100;
+}
+
+export function shouldSendControl(
+  prev: ControlSample | null, next: ControlSample, msSinceLastSend: number,
+): boolean {
+  if (!prev) return true;                                  // first packet
+  if (msSinceLastSend >= CONTROL_KEEPALIVE_MS) return true; // keepalive floor
+  return next.steer !== prev.steer
+    || next.throttle !== prev.throttle
+    || next.brake !== prev.brake
+    || next.handbrake !== prev.handbrake;
+}
 
 // The car's colour set is the Blitz RS identity's palette (ONE unified muted
 // retro/90s palette). Re-exported here as CAR_COLORS so every existing consumer

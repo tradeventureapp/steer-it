@@ -1818,3 +1818,23 @@ governor; OFFERED, not built (awaiting the go-ahead). **KNOBS to dial (live on t
 `arcadeCatchAssist` = catch/hold (↑ smaller+stabler slide / ↓ bigger+looser). **NEXT: keyboard-test arcade
 (X) — feel the 45° smoky drift + donut; dial arcadeRearGripScale for your launch-vs-drift balance; tell me
 if you want the launch traction-control assist to get clean launch AND easy drift together.**
+
+---
+**WEBRTC STEP 1 — CONTROL DEADBAND quick win (quota: idle 30→5 msg/s, measured on the real code):**
+the phone's 30 Hz control loop now only SENDS when the input changed. Pure, unit-testable logic in
+`lobby.ts`: `quantizeControl` (0.01 steps — kills gyro micro-jitter that would defeat the deadband) +
+`shouldSendControl(prev, next, msSinceLastSend)` (send iff first packet | ≥`CONTROL_KEEPALIVE_MS` 200 ms
+keepalive floor | any field changed) + `ControlSample`. `phone.ts`: the 30 Hz `setInterval` now calls
+`sendControlTick()` (deadband path); pedal/handbrake EDGE events + watchdog/reset keep calling
+`sendControlNow()` = FORCE send (a state change is on the wire immediately). Payload shape unchanged
+(`{id, slot, steer, throttle, brake, handbrake}`) → desktop untouched on the receive side. Also
+`LOBBY_SYNC_MS` 2000→**5000** (the periodic roster fan-out was the safety net; on-change broadcasts carry
+the real-time updates). **MEASURED (real `shouldSendControl` driven at 30 Hz, gyro noise ±0.004 riding
+the signal):** IDLE **5.0 msg/s** (was 30), ACTIVE tilting **28.4 msg/s** (full rate preserved), slow
+drift 16.7; **max send gap 233 ms < INPUT_COAST_MS 400 → the desktop NEVER mistakes an idle phone for a
+drop (no coast/neutral ramp regression, guaranteed by the 200 ms keepalive floor)**. tsc + build clean.
+⚠️ LIVE Supabase verification pending — no Docker/supabase CLI on this machine (local stack unavailable);
+the decision logic is measured on the real bundled code, and the wire-level check (idle ~5 msg/s in the
+Realtime inspector) should be done when the local stack or the prod quota is available. **NEXT: STEP 2 —
+WebRTC V1 (phone-initiated PC per player, signaling over steer:<code>, control DataChannel
+{ordered:false, maxRetransmits:0} + reliable state channel, 8 s fallback to Realtime, reconnect by id).**
