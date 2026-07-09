@@ -1893,3 +1893,31 @@ touch applyArcade); ruler/pxPerMeter/transport untouched; D-tuner rows rescaled 
 (+arcadeBrakeScale row). tsc + build clean. **NEXT: STAGE B — `arcadeDriftHold` (the clean arcade-gated
 β-target governor) for the old held-drift 33°±0 + travel + catch + donut; drift/donut are NOT expected to
 work well in Stage A alone (high grip = grips).**
+
+---
+**OLD FEEL / NEW SCALE — STAGE B (`arcadeDriftHold` — the clean ARCADE drift governor; old held-drift
+feel restored, SIM 0.0e+0):** ONE stateless relaxation law in step(), gated `if (c.arcadeDriftHold > 0)`
+where the gate is set ONLY by applyArcade (from `arcadeDriftHoldGain`, the D-tuner knob) — base CONFIG
+keeps 0 → SIM never runs it (byte-identical by construction, proven). **The law:** in a PROVOKED
+(|β| > `arcadeDriftEnter` 8°) throttle-on slide, relax ω toward `ω_des = dφ/dt + k·(β − β_target(steer))`
+(dφ/dt computed statelessly from this step's body force: κ = (v×a)/v²) — steer SETS the drift angle
+(`β_target = −steer·arcadeDriftAngle`, 0.94 rad ≈ 54° at full lock → steer 0.6 ≈ 32°), straightening →
+β_target 0 → clean exit; + a held-speed push along velocity (`arcadeDriftSpeed` 22 × throttle, cap 30
+m/s², from below only, off during the handbrake flick) so the drift TRAVELS; near full lock a `lockFade`
+(floor 0.45) fades the held speed so the β-target-as-donut stays a TIGHT fast circle (ω≈µg/v). Smooth
+engagement ramps (β 8→14°, throttle 0.2→0.5, speed 2→4) — no latches. Internal rates `ARCADE_DRIFT_KBETA
+6 / RELAX 20 / ACCEL 30` (module consts; KBETA/RELAX had to be this fast or the µ4 rear re-gripped before
+the governor caught the slide — measured: enter 12° or KBETA 4 → the steer-0.6 drift DIED to β 1°).
+**ENTRY (reported):** deliberate but not hard — a HANDBRAKE FLICK at speed (reaches β ~10° > the 8° gate;
+pure throttle grips at µ4 — Stage A's clean launch is untouched); the standstill donut engages from
+full-lock + full-throttle once rolling. **HIT TABLE (target = old-arcade):** held drift steer 0.6 **β
+−32° ± 0.1** (old 33 ± 0 ✓), travel **171 px/s** (old 178 ✓), steer 1.0 → β −52° (deep, full lock = the
+donut command, travel fades by design); **CATCH: steer→0 → β 0°, yaw 0.00** (old 0.00 ✓ clean exit);
+**DONUT: yaw 3.0 ± 0.00 rock-steady** @ β 51°, exits to 0.00 on straighten (old 2.5 ± 1.97 wobbly —
+ours slightly snappier and perfectly steady; the yaw-ceiling split was NOT needed — the donut doesn't
+run away, lockFade bounds it); **Stage-A regression: cross 5.3 s ✓, full-lock @100 βmax 3° CARVES ✓**
+(the governor's 8° gate never engages in grip cornering). D-tuner rows added: `arcadeDriftHold`(Gain) /
+`arcadeDriftAngle` / `arcadeDriftSpeed`. SIM byte-identical 0.0e+0 (full suite); ruler + transport
+untouched; tsc + build clean. **NEXT: keyboard-test the complete arcade (X): pace, corner, drift
+(flick → hold → steer sets angle → straighten exits), donut (lock + throttle), launch — then feel-iterate
+the knobs.**

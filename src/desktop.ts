@@ -193,6 +193,9 @@ document.body.appendChild(brakeTunerEl);
   aRow('arcadeRearGripScale',  () => CONFIG.arcadeRearGripScale,  (v) => { CONFIG.arcadeRearGripScale = v; },  0.2,  0.4, 5.0);
   aRow('arcadeBrakeScale',     () => CONFIG.arcadeBrakeScale,     (v) => { CONFIG.arcadeBrakeScale = v; },     0.25, 1.0, 4.0);
   aRow('arcadeCatchAssist',    () => CONFIG.arcadeCatchAssist,    (v) => { CONFIG.arcadeCatchAssist = v; },    0.05, 0.0, 1.0);
+  aRow('arcadeDriftHold',      () => CONFIG.arcadeDriftHoldGain,  (v) => { CONFIG.arcadeDriftHoldGain = v; },  0.1,  0.0, 1.5);
+  aRow('arcadeDriftAngle',     () => CONFIG.arcadeDriftAngle,     (v) => { CONFIG.arcadeDriftAngle = v; },     0.05, 0.3, 1.4);
+  aRow('arcadeDriftSpeed',     () => CONFIG.arcadeDriftSpeed,     (v) => { CONFIG.arcadeDriftSpeed = v; },     1,    8,   30);
 }
 
 // ---------- Sound + visual effects ----------

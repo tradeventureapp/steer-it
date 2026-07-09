@@ -47,6 +47,14 @@
 // =============================================================================
 const WB = 2.565;                   // m — THE wheelbase. The single source of car scale.
 
+// arcadeDriftHold internal rates (Stage B) — the governor's response shape.
+// Not on the D-tuner (the feel knobs are arcadeDriftAngle/Speed/HoldGain);
+// bump these only if the hold is too lazy (KBETA/RELAX ↑) or the drift can't
+// keep speed against the arcade grip's scrub (ACCEL ↑).
+const ARCADE_DRIFT_KBETA = 6;    // 1/s — how hard ω_des chases the β error
+const ARCADE_DRIFT_RELAX = 20;   // 1/s — how fast ω relaxes toward ω_des
+const ARCADE_DRIFT_ACCEL = 30;   // m/s² cap on the held-speed push (arcade energy, declared)
+
 export const CONFIG = {
   // ---------- Mass / geometry (ALL real metres on the one ruler, bound to WB) ----------
   mass: 1200,                       // kg
@@ -673,6 +681,20 @@ export const CONFIG = {
   arcadeRearGripScale: 3.4,         // × rear grip → clean launch + full-lock carves (f/r 0.76)
   arcadeBrakeScale: 2.0,            // × brake force → braking keeps pace with the 4× power
   arcadeCatchAssist: 0.45,          // 0..1 → auto-countersteer boost (catch). ↑ more stable
+  // ---- arcadeDriftHold (Stage B) — the clean ARCADE drift governor ----
+  // ONE relaxation law (the old-arcade held-drift feel): in a PROVOKED throttle-on
+  // slide, relax ω toward ω_des = dφ/dt + k·(β − β_target(steer)) — steer SETS the
+  // drift angle, straightening commands β→0 (clean exit); a held-speed component
+  // makes the drift TRAVEL; full lock = big β_target = the controlled donut.
+  // GATING: `arcadeDriftHold` is the RUNTIME gate inside step() and is set ONLY by
+  // applyArcade (from arcadeDriftHoldGain, the D-tuner knob) — base CONFIG keeps 0,
+  // so SIM never runs the law (byte-identical by construction).
+  arcadeDriftHoldGain: 1.0,         // KNOB (D-tuner) — governor strength applied in arcade
+  arcadeDriftHold: 0,               // runtime gate — set ONLY by applyArcade; sim = 0
+  arcadeDriftAngle: 0.94,           // rad (~54°) full-steer β target (old: steer 0.6 → ~33°)
+  arcadeDriftSpeed: 22,             // m/s held drift speed at full throttle (holds ~178 px/s vs the µ4 scrub)
+  arcadeDriftEnter: 0.14,           // rad (~8°) — β past this = DELIBERATE provoke (flick reaches ~10°)
+  arcadeDriftFull: 0.24,            // rad (~14°) — governor fully engaged by here
 };
 
 export type Config = typeof CONFIG;
@@ -692,6 +714,8 @@ export function applyArcade(base: Config): Config {
     simReal2PeakFront:  base.simReal2PeakFront  * CONFIG.arcadeFrontGripScale,
     simReal2BudgetRear: base.simReal2BudgetRear * CONFIG.arcadeRearGripScale,
     simReal2BrakeForce: base.simReal2BrakeForce * CONFIG.arcadeBrakeScale,
+    // the drift-hold governor gate — ONLY set here (sim keeps the base 0 → byte-identical)
+    arcadeDriftHold: CONFIG.arcadeDriftHoldGain,
     // catch assist = boost the EXISTING auto-countersteer (engages earlier, stronger, more front
     // authority + more player trim for committed donuts) — amplifies the player, no β-target governor.
     autoCounterStart:      lerp(base.autoCounterStart, 0.12),       // 20° → ~7° (catches sooner)
@@ -1449,6 +1473,48 @@ export function step(car: CarState, input: Inputs, dt: number, c: Config = CONFI
     const slideSp = Math.hypot(forwardVel, lateralVel);
     const dampC = c.hbYawDampLin + c.hbYawDampSlide * Math.min(1, slideSp / 6);
     car.angularVel -= car.angularVel * Math.min(1, dampC * dt);
+  }
+  // ---- arcadeDriftHold (Stage B) — ONE relaxation law, ARCADE-gated ----
+  // Runs ONLY when c.arcadeDriftHold > 0, which ONLY applyArcade sets (sim = 0 →
+  // byte-identical). In a PROVOKED (|β| past arcadeDriftEnter) throttle-on slide,
+  // relax ω toward ω_des = dφ/dt + k·(β − β_target(steer)): since dβ/dt = dφ/dt − ω,
+  // this drives β toward the target the steering sets — straighten → β_target 0 →
+  // clean exit; full lock → big target → the controlled donut. A held-speed force
+  // along velocity makes the drift TRAVEL (the declared assist — like the old
+  // vTarget governor, it adds energy the throttle commands, capped). Stateless
+  // (no latches): smooth engagement ramps on β, throttle, and speed.
+  if (c.arcadeDriftHold > 0) {
+    const betaFull = Math.atan2(lateralVel, forwardVel);   // full-range body slip
+    const engage = c.arcadeDriftHold
+      * clamp((Math.abs(betaFull) - c.arcadeDriftEnter) / (c.arcadeDriftFull - c.arcadeDriftEnter), 0, 1)
+      * clamp((input.throttle - 0.2) / 0.3, 0, 1)
+      * clamp((speed - 2) / 2, 0, 1);
+    if (engage > 0) {
+      // dφ/dt (velocity-direction turn rate) from this step's body force: κ·v.
+      const ax = (bodyForceX * cosH - bodyForceY * sinH) / c.mass;
+      const ay = (bodyForceX * sinH + bodyForceY * cosH) / c.mass;
+      const v2 = Math.max(4, car.vx * car.vx + car.vy * car.vy);
+      const dphi = (car.vx * ay - car.vy * ax) / v2;
+      // steer SETS the drift angle (measured sign: +steer drift ⇒ −β in this model)
+      const betaTarget = -clamp(input.steer, -1, 1) * c.arcadeDriftAngle;
+      const omegaDes = dphi + ARCADE_DRIFT_KBETA * (betaFull - betaTarget);
+      car.angularVel += (omegaDes - car.angularVel) * Math.min(1, ARCADE_DRIFT_RELAX * dt) * engage;
+      // held speed — the drift TRAVELS (~arcadeDriftSpeed at full throttle); pushes
+      // only from BELOW (never brakes), off during the handbrake flick (no rocket).
+      if (!input.handbrake) {
+        const v = Math.sqrt(v2);
+        // Near full lock the β target IS the donut command — fade the held speed
+        // so the circle stays TIGHT and fast (steady ω ≈ µg/v: less v = more
+        // rotation). Inert below βt ~0.6 rad → the traveling drift keeps its speed.
+        const lockFade = clamp(1 - (Math.abs(betaTarget) - 0.6) / 0.6, 0.45, 1);
+        const vHold = c.arcadeDriftSpeed * input.throttle * lockFade;
+        if (v < vHold && v > 0.5) {
+          const a = Math.min(ARCADE_DRIFT_ACCEL, (vHold - v) * 4) * engage * dt;
+          car.vx += (car.vx / v) * a;
+          car.vy += (car.vy / v) * a;
+        }
+      }
+    }
   }
   car.heading    += car.angularVel * dt;
 
