@@ -187,10 +187,11 @@ document.body.appendChild(brakeTunerEl);
   const aRow = (label: string, get: () => number, set: (v: number) => void,
                 stp: number, lo: number, hi: number) =>
     mkRow(label, get, (v) => { set(v); reArcade(); }, stp, lo, hi, (v) => v.toFixed(2));
-  aRow('arcadePowerScale',     () => CONFIG.arcadePowerScale,     (v) => { CONFIG.arcadePowerScale = v; },     0.05, 1.0, 2.5);
-  aRow('arcadeDragScale',      () => CONFIG.arcadeDragScale,      (v) => { CONFIG.arcadeDragScale = v; },      0.05, 0.5, 1.0);
-  aRow('arcadeFrontGripScale', () => CONFIG.arcadeFrontGripScale, (v) => { CONFIG.arcadeFrontGripScale = v; }, 0.05, 0.8, 1.6);
-  aRow('arcadeRearGripScale',  () => CONFIG.arcadeRearGripScale,  (v) => { CONFIG.arcadeRearGripScale = v; },  0.05, 0.4, 1.2);
+  aRow('arcadePowerScale',     () => CONFIG.arcadePowerScale,     (v) => { CONFIG.arcadePowerScale = v; },     0.25, 1.0, 6.0);
+  aRow('arcadeDragScale',      () => CONFIG.arcadeDragScale,      (v) => { CONFIG.arcadeDragScale = v; },      0.2,  0.5, 5.0);
+  aRow('arcadeFrontGripScale', () => CONFIG.arcadeFrontGripScale, (v) => { CONFIG.arcadeFrontGripScale = v; }, 0.2,  0.8, 5.0);
+  aRow('arcadeRearGripScale',  () => CONFIG.arcadeRearGripScale,  (v) => { CONFIG.arcadeRearGripScale = v; },  0.2,  0.4, 5.0);
+  aRow('arcadeBrakeScale',     () => CONFIG.arcadeBrakeScale,     (v) => { CONFIG.arcadeBrakeScale = v; },     0.25, 1.0, 4.0);
   aRow('arcadeCatchAssist',    () => CONFIG.arcadeCatchAssist,    (v) => { CONFIG.arcadeCatchAssist = v; },    0.05, 0.0, 1.0);
 }
 

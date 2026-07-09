@@ -1872,3 +1872,24 @@ here — no Docker/local Supabase, no real NAT/sensors):** real pairing over Sup
 quota drop, iOS screen-lock/return behavior, NAT fallback share, 2-phone multiplayer over mixed
 transports. **NEXT: live 2-phone test after the quota reset (or local stack); TURN (V3) before the scale
 push — config-only in RTC_ICE_SERVERS.**
+
+---
+**OLD FEEL / NEW SCALE — STAGE A (arcade pace + cornering retuned to the measured old-arcade
+screen-space targets; parameters only):** the boss verdict was "drives weak" — measured root: the old car
+(27af7f4 era) looked 2.2× quicker purely from pxPerMeter 22 vs today's 10, plus today's arcade broke into
+a spin at full lock. Stage A rebakes the arcade override set so the car is GENUINELY ~2× faster in m/s
+(the ruler stays untouched): `arcadePowerScale 1.55→4.0`, `arcadeRearGripScale 0.8→3.4`,
+`arcadeFrontGripScale 1.3→3.0` (front/rear 0.76 — front BELOW rear is what makes full-lock at speed
+CARVE instead of spin; f/r≈1.0 measured to swap ends at 100+ km/h), `arcadeDragScale 0.8→2.8` (caps top
+at ~840 px/s ≈ the old 762), + NEW `arcadeBrakeScale 2.0` (`simReal2BrakeForce ×` in applyArcade; brakes
+keep pace with 4× power: 100→0 in 21 m). Grip is deliberately arcade-fantasy (µ~4): the old 1/3 model was
+already 2–2.6× real AND on the 2.2× ruler. **HIT TABLE (target=old-arcade, screen-space):** screen-cross
+**5.3 s = 5.3 ✓**, launch **0.20 scr/2s ≥ 0.16 ✓** (0-50 **0.63 s, 0% wheelspin** — the wheelspin-launch
+tradeoff is GONE at high grip), top **839 px/s** ≈ old 762 ✓, corner radius **144 px ≈ 150 ✓**,
+**full-lock @100+140 km/h βmax 3° CARVES ✓** (was 179° spin), brake 21 m ✓. **HONEST MISSES:** corner yaw
+1.36 vs old 1.81 and corner speed 196 vs 270 px/s — the price of the high-speed carve (raising front grip
+to match yaw makes it spin); the RADIUS (the visual) matches. **SIM byte-identical 0.0e+0** (knobs only
+touch applyArcade); ruler/pxPerMeter/transport untouched; D-tuner rows rescaled for the new ranges
+(+arcadeBrakeScale row). tsc + build clean. **NEXT: STAGE B — `arcadeDriftHold` (the clean arcade-gated
+β-target governor) for the old held-drift 33°±0 + travel + catch + donut; drift/donut are NOT expected to
+work well in Stage A alone (high grip = grips).**

@@ -658,18 +658,21 @@ export const CONFIG = {
   // realistic config → byte-identical 0.0e+0. These scales MULTIPLY the car's base cfg (so road and
   // rally compose: rally-arcade = rally params × these), and the catch term interpolates the EXISTING
   // auto-countersteer (autoCounter*) toward a stronger arcade catch (no new assist code).
-  // ⚠️ FUNDAMENTAL TRADEOFF (measured): the satisfying BIG drift + donut + smoke needs the rear to
-  // break loose easily (LOW arcadeRearGripScale ≤ ~0.85), which inherently WHEELSPINS the launch;
-  // a clean no-wheelspin launch needs HIGH grip (≥ ~1.1), which then GRIPS and won't power-slide.
-  // No single grip/power value gives both — that needs a launch traction-control assist (offered,
-  // not built). These defaults LEAN to the satisfying drift; raise arcadeRearGripScale for a cleaner
-  // launch at the cost of drift-ease. DIAL: rear = hold/launch↔drift, power = speed + break-loose,
-  // front = turn-in sharpness, catch = how strongly it auto-catches (↑ = more stable/smaller slide).
-  arcadePowerScale: 1.55,           // × engine torque → faster + punch
-  arcadeDragScale: 0.8,             // × aero drag → higher top speed (~290)
-  arcadeFrontGripScale: 1.3,        // × front peak grip → SHARP turn-in
-  arcadeRearGripScale: 0.8,         // × rear grip → OVERSTEER big drift/donut. ↑ cleaner launch, ↓ slidier
-  arcadeCatchAssist: 0.45,          // 0..1 → auto-countersteer boost (catch/hold). ↑ smaller+stabler, ↓ bigger+looser
+  // OLD FEEL / NEW SCALE (Stage A, measured against the 27af7f4 old-arcade targets in
+  // SCREEN-SPACE): the old car looked 2.2× quicker purely from pxPerMeter 22 vs 10, so the
+  // arcade car is now GENUINELY ~2× faster in m/s to restore the old on-screen pace. The
+  // grips are deliberately arcade-fantasy (µ ~4 — the old 1/3 model was already 2–2.6× real
+  // AND on the bigger ruler): high rear grip = clean launch (no wheelspin) + full-lock CARVES
+  // at speed; front < rear (ratio ~0.76) so the limit is understeer-safe, not a spin.
+  // Hit table (target=old-arcade): screen-cross 5.3 s ✓, launch 0.20 scr/2s (≥0.16 ✓),
+  // 0-50 0.63 s ✓, top ~840 px/s (~old 762), corner R ~144 px (~old 149 ✓) at 196 px/s.
+  // Drift/donut = Stage B (arcadeDriftHold governor), NOT these grip numbers.
+  arcadePowerScale: 4.0,            // × engine torque → the old on-screen pace at pxm 10
+  arcadeDragScale: 2.8,             // × aero drag → caps top at ~840 px/s (≈ the old 762)
+  arcadeFrontGripScale: 3.0,        // × front peak grip → sharp turn-in (kept BELOW rear)
+  arcadeRearGripScale: 3.4,         // × rear grip → clean launch + full-lock carves (f/r 0.76)
+  arcadeBrakeScale: 2.0,            // × brake force → braking keeps pace with the 4× power
+  arcadeCatchAssist: 0.45,          // 0..1 → auto-countersteer boost (catch). ↑ more stable
 };
 
 export type Config = typeof CONFIG;
@@ -688,6 +691,7 @@ export function applyArcade(base: Config): Config {
     simReal2DragCoeff:  base.simReal2DragCoeff  * CONFIG.arcadeDragScale,
     simReal2PeakFront:  base.simReal2PeakFront  * CONFIG.arcadeFrontGripScale,
     simReal2BudgetRear: base.simReal2BudgetRear * CONFIG.arcadeRearGripScale,
+    simReal2BrakeForce: base.simReal2BrakeForce * CONFIG.arcadeBrakeScale,
     // catch assist = boost the EXISTING auto-countersteer (engages earlier, stronger, more front
     // authority + more player trim for committed donuts) — amplifies the player, no β-target governor.
     autoCounterStart:      lerp(base.autoCounterStart, 0.12),       // 20° → ~7° (catches sooner)
