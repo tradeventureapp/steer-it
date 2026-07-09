@@ -64,6 +64,14 @@ export interface ResilientChannel {
   send(msg: BroadcastMsg): void;
   isReady(): boolean;
   current(): RealtimeChannel;
+  // WebRTC migration (V1): once the P2P DataChannel is open the PHONE leaves
+  // the Realtime channel DELIBERATELY — stop() unsubscribes AND suppresses the
+  // auto-reconnect (otherwise the wrapper would treat the leave as a drop and
+  // rejoin). resume() re-subscribes for re-signaling (reconnect / return from
+  // background). The desktop never calls these (its channel stays up to serve
+  // new joiners' signaling).
+  stop(): void;
+  resume(): void;
 }
 
 const isoNow = () => new Date().toISOString();
@@ -78,12 +86,13 @@ export function createResilientChannel(
   let ch: RealtimeChannel;
   let ready = false;
   let attempts = 0;
+  let stopped = false;   // deliberate leave (WebRTC up) — suppress auto-reconnect
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
   const log = (msg: string) => console.info(`[${label}] ${isoNow()} ${msg}`);
 
   function scheduleReconnect(reason: string) {
-    if (reconnectTimer) return;
+    if (stopped || reconnectTimer) return;
     // Fast, short backoff (the socket itself reconnects fast via reconnectAfterMs;
     // this just re-creates the channel on top). 250ms→3s cap.
     const delay = Math.min(250 * 2 ** attempts, 3000); // 250,500,1000,2000,3000…
@@ -123,5 +132,20 @@ export function createResilientChannel(
     },
     isReady: () => ready,
     current: () => ch,
+    stop() {
+      if (stopped) return;
+      stopped = true;
+      ready = false;
+      if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+      try { supabase.removeChannel(ch); } catch { /* ignore */ }
+      log('stopped (deliberate leave — P2P transport up)');
+    },
+    resume() {
+      if (!stopped) return;
+      stopped = false;
+      attempts = 0;
+      log('resuming (re-signaling)');
+      connect();
+    },
   };
 }

@@ -1,6 +1,7 @@
 import QRCode from 'qrcode';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { channelName, createResilientChannel } from './supabase';
+import { createRtcHost, RTC_EV } from './rtc';
 import {
   CONFIG, makeCar, step, bodyToWorld, collideWithRects, applyArcade,
   type CarState, type Inputs, type Config,
@@ -1174,10 +1175,11 @@ let sweepGraceUntil = 0;
 const nowIso = () => new Date().toISOString();
 
 function broadcastLobby() {
-  rc.send({
-    type: 'broadcast', event: EV.lobby,
-    payload: { players: lobby.snapshot(), cap: PLAYER_CAP },
-  });
+  const payload = { players: lobby.snapshot(), cap: PLAYER_CAP };
+  // BOTH transports: Realtime for fallback/mid-pairing phones, the reliable
+  // "state" DataChannel for P2P phones (they LEFT the Realtime channel).
+  rc.send({ type: 'broadcast', event: EV.lobby, payload });
+  rtcHost.broadcastState(EV.lobby, payload);
   renderLobbyUI();
 }
 
@@ -1218,63 +1220,100 @@ function renderLobbyUI() {
   }).join('');
 }
 
-// ---- phone → desktop handlers (re-attached to every (re)created channel) ----
+// ---- phone → desktop handlers — TRANSPORT-AGNOSTIC (the seam) ----
+// One function per event, called from BOTH transports: the Realtime channel
+// (wireDesktop below) and the WebRTC DataChannels (rtcHost callbacks). The
+// input pipeline, lobby, and RESILIENCE liveness behave identically either way.
+function handleJoin(payload: unknown) {
+  const p = payload as { id?: unknown; color?: string; name?: string };
+  const id = String(p?.id ?? '');
+  if (!id) return;
+  const r = lobby.join(id, p?.color, Date.now(), p?.name);
+  if (r.slot === null) {
+    // lobby full — tell the phone on whichever transport reaches it
+    rc.send({ type: 'broadcast', event: EV.full, payload: { id } });
+    rtcHost.sendStateTo(id, EV.full, { id });
+  } else if (r.changed) {
+    broadcastLobby();
+  }
+}
+
+function handleColor(payload: unknown) {
+  const id = String((payload as { id?: unknown })?.id ?? '');
+  const color = (payload as { color?: string })?.color;
+  if (!id || !color) return;
+  if (lobby.setColor(id, color, Date.now()).changed) broadcastLobby();
+}
+
+function handleName(payload: unknown) {
+  const id = String((payload as { id?: unknown })?.id ?? '');
+  const name = (payload as { name?: string })?.name;
+  if (!id || name === undefined) return;
+  if (lobby.setName(id, name, Date.now()).changed) broadcastLobby();
+}
+
+function handleLeave(payload: unknown) {
+  const id = String((payload as { id?: unknown })?.id ?? '');
+  if (id && lobby.leave(id).changed) broadcastLobby();
+}
+
+function handleControl(payload: unknown) {
+  const id = String((payload as { id?: unknown })?.id ?? '');
+  // STEP 2: every connected slot drives its OWN car. Route by the desktop's
+  // authoritative id→slot map (never trust the phone's self-reported slot).
+  if (!id) {                                       // legacy id-less → drive slot 0
+    const c0 = cars.get(0);
+    if (c0) { applyInputs(c0.target, payload as Inputs); c0.lastInputAt = performance.now(); }
+    return;
+  }
+  const r = lobby.join(id, undefined, Date.now()); // lazy-join if join was missed
+  if (r.changed) broadcastLobby();                 // → syncCars spawns the car
+  if (r.slot === null) return;                     // lobby full
+  const car = cars.get(r.slot);
+  if (car) {
+    const t = performance.now();
+    // D-debug: surface real network gaps (jitter spikes) between packets.
+    if (debugOn) {
+      const gap = t - car.lastInputAt;
+      if (gap > 120) console.info(`[ctrl] ${nowIso()} slot ${car.slot} packet gap ${Math.round(gap)}ms`);
+    }
+    applyInputs(car.target, payload as Inputs);
+    car.lastInputAt = t;
+  }
+}
+
+// Route a phone→desktop one-shot arriving on the reliable "state" DataChannel
+// (the phone leaves the Realtime channel once P2P is up, so join heartbeats,
+// color, name, and leave arrive HERE for P2P phones).
+function handleStateMessage(_id: string, msg: { ev: string; payload: unknown }) {
+  switch (msg.ev) {
+    case EV.join: handleJoin(msg.payload); break;
+    case EV.color: handleColor(msg.payload); break;
+    case EV.name: handleName(msg.payload); break;
+    case EV.leave: handleLeave(msg.payload); break;
+  }
+}
+
+// WebRTC host — one peer per phone (phone-initiated offers over the Realtime
+// channel; the desktop's channel stays subscribed forever to serve signaling
+// for new/reconnecting players). Control packets route through the SAME
+// handleControl as Realtime ones.
+const rtcHost = createRtcHost({
+  signal: (event, payload) => rc.send({ type: 'broadcast', event, payload }),
+  onControl: (_id, payload) => handleControl(payload),
+  onStateMessage: handleStateMessage,
+});
+
+// ---- Realtime wiring (re-attached to every (re)created channel) ----
 function wireDesktop(ch: RealtimeChannel) {
-  ch.on('broadcast', { event: EV.join }, ({ payload }) => {
-    const p = payload as { id?: unknown; color?: string; name?: string };
-    const id = String(p?.id ?? '');
-    if (!id) return;
-    const r = lobby.join(id, p?.color, Date.now(), p?.name);
-    if (r.slot === null) {
-      rc.send({ type: 'broadcast', event: EV.full, payload: { id } }); // lobby full
-    } else if (r.changed) {
-      broadcastLobby();
-    }
-  });
-
-  ch.on('broadcast', { event: EV.color }, ({ payload }) => {
-    const id = String((payload as { id?: unknown })?.id ?? '');
-    const color = (payload as { color?: string })?.color;
-    if (!id || !color) return;
-    if (lobby.setColor(id, color, Date.now()).changed) broadcastLobby();
-  });
-
-  ch.on('broadcast', { event: EV.name }, ({ payload }) => {
-    const id = String((payload as { id?: unknown })?.id ?? '');
-    const name = (payload as { name?: string })?.name;
-    if (!id || name === undefined) return;
-    if (lobby.setName(id, name, Date.now()).changed) broadcastLobby();
-  });
-
-  ch.on('broadcast', { event: EV.leave }, ({ payload }) => {
-    const id = String((payload as { id?: unknown })?.id ?? '');
-    if (id && lobby.leave(id).changed) broadcastLobby();
-  });
-
-  ch.on('broadcast', { event: EV.control }, ({ payload }) => {
-    const id = String((payload as { id?: unknown })?.id ?? '');
-    // STEP 2: every connected slot drives its OWN car. Route by the desktop's
-    // authoritative id→slot map (never trust the phone's self-reported slot).
-    if (!id) {                                       // legacy id-less → drive slot 0
-      const c0 = cars.get(0);
-      if (c0) { applyInputs(c0.target, payload as Inputs); c0.lastInputAt = performance.now(); }
-      return;
-    }
-    const r = lobby.join(id, undefined, Date.now()); // lazy-join if join was missed
-    if (r.changed) broadcastLobby();                 // → syncCars spawns the car
-    if (r.slot === null) return;                     // lobby full
-    const car = cars.get(r.slot);
-    if (car) {
-      const t = performance.now();
-      // D-debug: surface real network gaps (jitter spikes) between packets.
-      if (debugOn) {
-        const gap = t - car.lastInputAt;
-        if (gap > 120) console.info(`[ctrl] ${nowIso()} slot ${car.slot} packet gap ${Math.round(gap)}ms`);
-      }
-      applyInputs(car.target, payload as Inputs);
-      car.lastInputAt = t;
-    }
-  });
+  ch.on('broadcast', { event: EV.join }, ({ payload }) => handleJoin(payload));
+  ch.on('broadcast', { event: EV.color }, ({ payload }) => handleColor(payload));
+  ch.on('broadcast', { event: EV.name }, ({ payload }) => handleName(payload));
+  ch.on('broadcast', { event: EV.leave }, ({ payload }) => handleLeave(payload));
+  ch.on('broadcast', { event: EV.control }, ({ payload }) => handleControl(payload));
+  // WebRTC signaling (phone → desktop): offers + trickle ICE.
+  ch.on('broadcast', { event: RTC_EV.offer }, ({ payload }) => rtcHost.handleSignal(RTC_EV.offer, payload));
+  ch.on('broadcast', { event: RTC_EV.ice }, ({ payload }) => rtcHost.handleSignal(RTC_EV.ice, payload));
 }
 
 // Resilient channel: auto-reconnects on a dropped socket (the ~60s idle/timeout)

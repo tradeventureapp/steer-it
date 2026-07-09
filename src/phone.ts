@@ -1,5 +1,6 @@
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { channelName, createResilientChannel } from './supabase';
+import { connectPhoneRtc, RTC_EV, type PhoneRtc, type StateMsg } from './rtc';
 import {
   getClientId, CAR_COLORS, EV, PHONE_HEARTBEAT_MS, sanitizeName,
   quantizeControl, shouldSendControl,
@@ -133,22 +134,27 @@ if (!code) {
 // All sends go through the resilient channel `rc` (no-op while reconnecting,
 // resumes automatically — the heartbeat re-announces us by id so the desktop
 // reclaims our slot WITHOUT a QR rescan).
+// TRANSPORT SEAM (WebRTC V1): one-shots + the join heartbeat ride the reliable
+// "state" DataChannel once P2P is up (the phone LEAVES the Realtime channel
+// then — nothing may depend on it being subscribed); otherwise Realtime.
+function sendLobbyMsg(event: string, payload: unknown) {
+  if (rtcUp && rtc?.sendState(event, payload)) return;
+  rc.send({ type: 'broadcast', event, payload });
+}
+
 function sendJoin() {
-  rc.send({
-    type: 'broadcast', event: EV.join,
-    payload: {
-      id: clientId,
-      color: selectedColor || undefined,
-      name: selectedName || undefined,
-    },
+  sendLobbyMsg(EV.join, {
+    id: clientId,
+    color: selectedColor || undefined,
+    name: selectedName || undefined,
   });
 }
 function sendName() {
-  rc.send({ type: 'broadcast', event: EV.name, payload: { id: clientId, name: selectedName } });
+  sendLobbyMsg(EV.name, { id: clientId, name: selectedName });
 }
 function sendLeave() {
   try {
-    rc.send({ type: 'broadcast', event: EV.leave, payload: { id: clientId } });
+    sendLobbyMsg(EV.leave, { id: clientId });
   } catch { /* best-effort */ }
 }
 
@@ -160,28 +166,78 @@ function startLobby() {
   setInterval(sendJoin, PHONE_HEARTBEAT_MS);
 }
 
-// Desktop → phone handlers (re-attached to every (re)created channel).
-function wirePhone(ch: RealtimeChannel) {
-  ch.on('broadcast', { event: EV.lobby }, ({ payload }) => {
-    const list = ((payload as { players?: LobbyPlayer[] })?.players ?? []) as LobbyPlayer[];
-    const me = list.find((p) => p.id === clientId);
-    if (me) {
-      lobbyFull = false;
-      mySlot = me.slot;
-      if (!selectedColor) { selectedColor = me.color; highlightSwatch(); }
-      // Adopt a server-side name we haven't locally typed (restores on reclaim).
-      if (!selectedName && me.name) {
-        selectedName = me.name;
-        if (lobbyNameEl && document.activeElement !== lobbyNameEl) lobbyNameEl.value = me.name;
-      }
+// Desktop → phone handlers — TRANSPORT-AGNOSTIC (called from the Realtime
+// channel AND the reliable "state" DataChannel).
+function handleLobby(payload: unknown) {
+  const list = ((payload as { players?: LobbyPlayer[] })?.players ?? []) as LobbyPlayer[];
+  const me = list.find((p) => p.id === clientId);
+  if (me) {
+    lobbyFull = false;
+    mySlot = me.slot;
+    if (!selectedColor) { selectedColor = me.color; highlightSwatch(); }
+    // Adopt a server-side name we haven't locally typed (restores on reclaim).
+    if (!selectedName && me.name) {
+      selectedName = me.name;
+      if (lobbyNameEl && document.activeElement !== lobbyNameEl) lobbyNameEl.value = me.name;
     }
+  }
+  renderLobby();
+}
+function handleFull(payload: unknown) {
+  if ((payload as { id?: string })?.id === clientId && mySlot === null) {
+    lobbyFull = true;
     renderLobby();
-  });
-  ch.on('broadcast', { event: EV.full }, ({ payload }) => {
-    if ((payload as { id?: string })?.id === clientId && mySlot === null) {
-      lobbyFull = true;
-      renderLobby();
-    }
+  }
+}
+
+// Realtime wiring (re-attached to every (re)created channel).
+function wirePhone(ch: RealtimeChannel) {
+  ch.on('broadcast', { event: EV.lobby }, ({ payload }) => handleLobby(payload));
+  ch.on('broadcast', { event: EV.full }, ({ payload }) => handleFull(payload));
+  // WebRTC signaling (desktop → phone): the answer + trickle ICE.
+  ch.on('broadcast', { event: RTC_EV.answer }, ({ payload }) => rtc?.handleSignal(RTC_EV.answer, payload));
+  ch.on('broadcast', { event: RTC_EV.ice }, ({ payload }) => rtc?.handleSignal(RTC_EV.ice, payload));
+}
+
+// ---------- WebRTC transport (V1) ----------
+// The phone initiates the P2P pairing over the Realtime channel. Once the
+// control DataChannel is OPEN, tilt + one-shots migrate to P2P and the phone
+// LEAVES the Realtime channel (rc.stop() — signaling is done, stop consuming
+// quota). Fallback: not open within RTC_FALLBACK_MS → stay on Realtime
+// (today's behavior, playable for everyone). Reconnect (P2P died / return
+// from background): rc.resume() re-subscribes → onReady fires → startRtc()
+// sends a FRESH offer; the desktop replaces the peer for this clientId and the
+// same-car reclaim-by-id (RESILIENCE grace window) keeps the car.
+let rtc: PhoneRtc | null = null;
+let rtcUp = false;
+
+function routeStateMsg(m: StateMsg) {
+  if (m.ev === EV.lobby) handleLobby(m.payload);
+  else if (m.ev === EV.full) handleFull(m.payload);
+}
+
+function startRtc() {
+  if (!code || rtc) return;   // one attempt per (re)connect — no retry storm
+  rtc = connectPhoneRtc({
+    clientId,
+    signal: (event, payload) => rc.send({ type: 'broadcast', event, payload }),
+    onControlOpen: () => {
+      rtcUp = true;
+      sendJoin();     // announce over the DataChannel FIRST (proves the path)
+      rc.stop();      // then leave Realtime — signaling done, quota stops here
+    },
+    onStateMessage: routeStateMsg,
+    onFallback: () => {
+      // P2P didn't come up (NAT/firewall) — stay on Realtime. rtc stays null
+      // so a later reconnect event can retry with a fresh attempt.
+      rtc = null;
+    },
+    onDead: () => {
+      // P2P WAS up and died (network change, backgrounded, host gone).
+      rtcUp = false;
+      rtc = null;
+      rc.resume();    // re-subscribe → onReady → sendJoin + startRtc (fresh offer)
+    },
   });
 }
 
@@ -190,10 +246,25 @@ const rc = createResilientChannel(
   channelName(code), { broadcast: { self: false } }, wirePhone,
   {
     label: 'phone',
-    onReady: () => { startLobby(); sendJoin(); },  // re-announce on every (re)connect
+    // Re-announce on every (re)connect + kick off the P2P pairing (fresh offer;
+    // covers first load AND the resume() path after a dead P2P transport).
+    onReady: () => { startLobby(); sendJoin(); startRtc(); },
   },
 );
 window.addEventListener('pagehide', sendLeave);
+
+// Screen-lock / backgrounding (iOS Safari kills WebRTC + sensors): best-effort
+// NEUTRAL packet so the car parks instead of holding the last tilt — the
+// desktop's RESILIENCE ramp covers the loss either way (grace window, car
+// preserved in place). On return, retry P2P if it died while backgrounded.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') {
+    sendNeutralNow();
+  } else if (!rtcUp) {
+    rc.resume();   // no-op unless we had deliberately left (P2P was up)
+    startRtc();    // no-op if an attempt is already in flight
+  }
+});
 
 // ---------- Colour picker (on the TAP TO STEER screen) ----------
 function buildColorPicker() {
@@ -213,7 +284,7 @@ function pickColor(hex: string) {
   selectedColor = hex;
   highlightSwatch();
   // Immediate colour message + refresh the join payload so it sticks.
-  rc.send({ type: 'broadcast', event: EV.color, payload: { id: clientId, color: hex } });
+  sendLobbyMsg(EV.color, { id: clientId, color: hex });
   sendJoin();
 }
 function highlightSwatch() {
@@ -722,10 +793,18 @@ function buildControlSample(): ControlSample {
 function sendSample(s: ControlSample) {
   lastSentSample = s;
   lastSentAt = performance.now();
-  rc.send({
-    type: 'broadcast', event: EV.control,
-    payload: { id: clientId, slot: mySlot ?? 0, ...s },
-  });
+  const payload = { id: clientId, slot: mySlot ?? 0, ...s };
+  // TRANSPORT SEAM: P2P control DataChannel when up (same payload shape —
+  // the desktop routes both transports through the same applyInputs path),
+  // otherwise the Realtime channel (fallback / pre-pairing).
+  if (rtcUp && rtc?.sendControl(payload)) return;
+  rc.send({ type: 'broadcast', event: EV.control, payload });
+}
+
+// Best-effort neutral (screen-lock/backgrounding) — park the car cleanly.
+function sendNeutralNow() {
+  if (!broadcastStarted) return;
+  sendSample({ steer: 0, throttle: 0, brake: 0, handbrake: false });
 }
 
 // FORCE send — pedal/handbrake edges + watchdog/reset paths call this so a

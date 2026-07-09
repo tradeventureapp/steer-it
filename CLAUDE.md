@@ -1838,3 +1838,37 @@ the decision logic is measured on the real bundled code, and the wire-level chec
 Realtime inspector) should be done when the local stack or the prod quota is available. **NEXT: STEP 2 —
 WebRTC V1 (phone-initiated PC per player, signaling over steer:<code>, control DataChannel
 {ordered:false, maxRetransmits:0} + reliable state channel, 8 s fallback to Realtime, reconnect by id).**
+
+---
+**WEBRTC STEP 2 — V1 P2P TRANSPORT (tilt phone↔desktop over a DataChannel; Supabase = signaling only,
+measured 10 msgs/pairing):** new `src/rtc.ts` — the WebRTC layer with an INJECTABLE PeerFactory (the
+RTCPeerConnection surface is a minimal structural interface), so the whole signaling/pairing flow is
+unit-tested HEADLESS on the real bundled code. **Topology:** N phones → 1 desktop; the PHONE initiates
+(creates the PC + BOTH DataChannels + sends the offer); the desktop runs `createRtcHost` with a
+`Map<clientId, peer>` (join/leave mid-game; a FRESH offer for a known id REPLACES the old peer =
+reconnect). **Signaling** rides the existing `steer:<code>` channel as `rtc-offer`/`rtc-answer`/`rtc-ice`
+(trickle). **Channels (one SDP):** `"control"` `{ordered:false, maxRetransmits:0}` — the tilt stream,
+EXACTLY the EV.control payload shape (Step-1 deadband/keepalive applies unchanged — the seam is inside
+`sendSample`); `"state"` reliable — BOTH directions: desktop→phone `lobby`/`full`, phone→desktop `join`
+heartbeat/`color`/`name`/`leave` (framed `{ev, payload}` with the SAME EV names → same handlers).
+**Channel-leave:** on control-open the phone calls `rc.stop()` (new `stop()`/`resume()` on
+ResilientChannel in supabase.ts — deliberate leave that SUPPRESSES the auto-reconnect) → zero Realtime
+traffic from P2P phones; the DESKTOP channel stays subscribed forever (serves new joiners' signaling).
+**Fallback:** control DC not open in `RTC_FALLBACK_MS` 8 s → phone stays on Realtime (today's path,
+playable for everyone). **Reconnect:** ICE failed/DC closed → `onDead` → `rc.resume()` → onReady →
+`startRtc()` fresh offer → host replaces the peer → same-car reclaim by id (RESILIENCE grace).
+Screen-lock: `visibilitychange hidden` → best-effort NEUTRAL packet (car parks, grace window preserves
+it); `visible` → resume + retry P2P. **STUN** google ×2; NO TURN in V1 (`RTC_ICE_SERVERS` extensible —
+config-only later). **Transport-agnostic seam:** desktop EV handler bodies extracted to
+`handleJoin/Color/Name/Leave/Control` — called from BOTH the Realtime wire and the rtcHost callbacks
+(DC control → the same `applyInputs`+`lastInputAt` path); phone `handleLobby/handleFull` ditto.
+**MEASURED (headless, fake linked PC pair driving the real bundled rtc.ts — 15/15):** pairing opens;
+**signaling = 10 msgs/pairing (1 offer + 1 answer + 8 ICE)** within the 6–15 target; control payload
+arrives byte-equal through the DC seam; join/color one-shots + full/lobby downlink over the state DC
+both directions; reconnect replaces (peerCount stays 1, old PC closed, control flows on the new peer);
+onDead fires when the open DC dies; fallback timer fires when P2P never opens. physics/cars/race/render/
+RESILIENCE constants untouched (empty diff). tsc + build clean. **⚠️ AWAITING LIVE TEST (can't verify
+here — no Docker/local Supabase, no real NAT/sensors):** real pairing over Supabase signaling, wire-level
+quota drop, iOS screen-lock/return behavior, NAT fallback share, 2-phone multiplayer over mixed
+transports. **NEXT: live 2-phone test after the quota reset (or local stack); TURN (V3) before the scale
+push — config-only in RTC_ICE_SERVERS.**
