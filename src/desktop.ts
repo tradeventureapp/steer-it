@@ -1,7 +1,7 @@
 import QRCode from 'qrcode';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { channelName, createResilientChannel } from './supabase';
-import { createRtcHost, RTC_EV } from './rtc';
+import { createRtcHost, connectionPathOf, createFallbackTracker, RTC_EV } from './rtc';
 import {
   CONFIG, makeCar, step, bodyToWorld, collideWithRects, applyArcade,
   type CarState, type Inputs, type Config,
@@ -1306,7 +1306,20 @@ const rtcHost = createRtcHost({
   signal: (event, payload) => rc.send({ type: 'broadcast', event, payload }),
   onControl: (_id, payload) => handleControl(payload),
   onStateMessage: handleStateMessage,
+  // STEP 3: per-pairing connection-path log — the boss-visible split. 'relay'
+  // = the TURN relay carried it; 'direct' = pure P2P; 'unknown' = stats absent.
+  onPeerConnected: (id, pc) => {
+    connectionPathOf(pc).then((path) => {
+      const label = path === 'relay' ? 'relay (TURN)' : path;
+      console.info(`[rtc] ${nowIso()} player ${id} connected via ${label}`);
+    });
+  },
 });
+
+// STEP 3: phones still driving over Realtime with no RTC peer after 12 s are
+// on the FALLBACK path — log once per id so the split is visible at a glance.
+const rtcFallbackLog = createFallbackTracker(12000, (id) =>
+  console.info(`[rtc] ${nowIso()} player ${id} connected via fallback (Realtime)`));
 
 // ---- Realtime wiring (re-attached to every (re)created channel) ----
 function wireDesktop(ch: RealtimeChannel) {
@@ -1314,7 +1327,13 @@ function wireDesktop(ch: RealtimeChannel) {
   ch.on('broadcast', { event: EV.color }, ({ payload }) => handleColor(payload));
   ch.on('broadcast', { event: EV.name }, ({ payload }) => handleName(payload));
   ch.on('broadcast', { event: EV.leave }, ({ payload }) => handleLeave(payload));
-  ch.on('broadcast', { event: EV.control }, ({ payload }) => handleControl(payload));
+  ch.on('broadcast', { event: EV.control }, ({ payload }) => {
+    // Realtime-wire only (DC control never reaches here): feed the fallback
+    // detector so a phone stuck on Realtime gets its one-line path log.
+    const fid = String((payload as { id?: unknown })?.id ?? '');
+    if (fid) rtcFallbackLog.note(fid, rtcHost.hasPeer(fid), performance.now());
+    handleControl(payload);
+  });
   // WebRTC signaling (phone → desktop): offers + trickle ICE.
   ch.on('broadcast', { event: RTC_EV.offer }, ({ payload }) => rtcHost.handleSignal(RTC_EV.offer, payload));
   ch.on('broadcast', { event: RTC_EV.ice }, ({ payload }) => rtcHost.handleSignal(RTC_EV.ice, payload));

@@ -1,6 +1,9 @@
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { channelName, createResilientChannel } from './supabase';
-import { connectPhoneRtc, RTC_EV, type PhoneRtc, type StateMsg } from './rtc';
+import {
+  connectPhoneRtc, fetchTurnServers, makePeerFactory, RTC_EV, RTC_ICE_SERVERS,
+  type PhoneRtc, type StateMsg,
+} from './rtc';
 import {
   getClientId, CAR_COLORS, EV, PHONE_HEARTBEAT_MS, sanitizeName,
   quantizeControl, shouldSendControl,
@@ -210,6 +213,10 @@ function wirePhone(ch: RealtimeChannel) {
 // same-car reclaim-by-id (RESILIENCE grace window) keeps the car.
 let rtc: PhoneRtc | null = null;
 let rtcUp = false;
+let rtcStarting = false;   // creds fetch in flight — guard double-entry
+// ?rtc=relay → ICE may use ONLY relay candidates = the forced-TURN test switch
+// (any network then MUST pair via the TURN relay or fall back).
+const rtcRelayOnly = params.get('rtc') === 'relay';
 
 function routeStateMsg(m: StateMsg) {
   if (m.ev === EV.lobby) handleLobby(m.payload);
@@ -217,27 +224,35 @@ function routeStateMsg(m: StateMsg) {
 }
 
 function startRtc() {
-  if (!code || rtc) return;   // one attempt per (re)connect — no retry storm
-  rtc = connectPhoneRtc({
-    clientId,
-    signal: (event, payload) => rc.send({ type: 'broadcast', event, payload }),
-    onControlOpen: () => {
-      rtcUp = true;
-      sendJoin();     // announce over the DataChannel FIRST (proves the path)
-      rc.stop();      // then leave Realtime — signaling done, quota stops here
-    },
-    onStateMessage: routeStateMsg,
-    onFallback: () => {
-      // P2P didn't come up (NAT/firewall) — stay on Realtime. rtc stays null
-      // so a later reconnect event can retry with a fresh attempt.
-      rtc = null;
-    },
-    onDead: () => {
-      // P2P WAS up and died (network change, backgrounded, host gone).
-      rtcUp = false;
-      rtc = null;
-      rc.resume();    // re-subscribe → onReady → sendJoin + startRtc (fresh offer)
-    },
+  if (!code || rtc || rtcStarting) return;   // one attempt per (re)connect — no retry storm
+  rtcStarting = true;
+  // STEP 3: fetch short-lived TURN creds (2 s timeout). null on ANY failure →
+  // STUN-only (the V1 behavior) — TURN being down never blocks pairing.
+  fetchTurnServers().then((turn) => {
+    rtcStarting = false;
+    if (rtc) return;
+    rtc = connectPhoneRtc({
+      clientId,
+      signal: (event, payload) => rc.send({ type: 'broadcast', event, payload }),
+      pcFactory: makePeerFactory([...RTC_ICE_SERVERS, ...(turn ?? [])], rtcRelayOnly),
+      onControlOpen: () => {
+        rtcUp = true;
+        sendJoin();     // announce over the DataChannel FIRST (proves the path)
+        rc.stop();      // then leave Realtime — signaling done, quota stops here
+      },
+      onStateMessage: routeStateMsg,
+      onFallback: () => {
+        // P2P didn't come up (NAT/firewall) — stay on Realtime. rtc stays null
+        // so a later reconnect event can retry with a fresh attempt.
+        rtc = null;
+      },
+      onDead: () => {
+        // P2P WAS up and died (network change, backgrounded, host gone).
+        rtcUp = false;
+        rtc = null;
+        rc.resume();    // re-subscribe → onReady → sendJoin + startRtc (fresh offer)
+      },
+    });
   });
 }
 

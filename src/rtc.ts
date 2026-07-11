@@ -64,11 +64,95 @@ export interface PeerLike {
   setRemoteDescription(d: unknown): Promise<void>;
   addIceCandidate(c: unknown): Promise<void>;
   close(): void;
+  // Optional (real RTCPeerConnection has it; fakes may omit) — used for the
+  // per-pairing connection-path log (direct vs TURN relay).
+  getStats?(): Promise<{ forEach(cb: (report: Record<string, unknown>) => void): void }>;
 }
 export type PeerFactory = () => PeerLike;
 
 const defaultPeerFactory: PeerFactory = () =>
   new RTCPeerConnection({ iceServers: RTC_ICE_SERVERS }) as unknown as PeerLike;
+
+// Build a PeerFactory with extra ICE servers (STEP 3: the short-lived TURN
+// creds fetched at pairing time) and an optional forced-relay policy
+// (?rtc=relay — ICE may then use ONLY relay candidates: the TURN test switch).
+export function makePeerFactory(iceServers: RTCIceServer[], relayOnly = false): PeerFactory {
+  return () => new RTCPeerConnection({
+    iceServers,
+    iceTransportPolicy: relayOnly ? 'relay' : 'all',
+  }) as unknown as PeerLike;
+}
+
+// Fetch short-lived TURN iceServers from /api/turn (Vercel function). Returns
+// the extra servers or null on ANY failure (timeout, 4xx/5xx, bad shape) —
+// the caller then proceeds STUN-only, so TURN being down never blocks pairing.
+// fetchFn injectable for headless tests.
+export async function fetchTurnServers(
+  fetchFn: typeof fetch = fetch, timeoutMs = 2000, url = '/api/turn',
+): Promise<RTCIceServer[] | null> {
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    const r = await fetchFn(url, { signal: ctrl.signal });
+    clearTimeout(timer);
+    if (!r.ok) return null;
+    const data = await r.json() as { iceServers?: unknown };
+    const s = data?.iceServers;
+    if (!s) return null;
+    const arr = Array.isArray(s) ? s : [s];
+    return arr.every((e) => e && typeof e === 'object' && 'urls' in (e as object))
+      ? arr as RTCIceServer[] : null;
+  } catch {
+    return null;
+  }
+}
+
+// Which path did an open connection take? Reads the nominated candidate pair
+// from getStats: local candidate type 'relay' = TURN, anything else = direct.
+export async function connectionPathOf(pc: PeerLike): Promise<'direct' | 'relay' | 'unknown'> {
+  if (!pc.getStats) return 'unknown';
+  try {
+    const stats = await pc.getStats();
+    const byId = new Map<string, Record<string, unknown>>();
+    let pairId: string | null = null;
+    const pairs: Record<string, unknown>[] = [];
+    stats.forEach((rep) => {
+      byId.set(String(rep.id), rep);
+      if (rep.type === 'transport' && rep.selectedCandidatePairId) {
+        pairId = String(rep.selectedCandidatePairId);
+      }
+      if (rep.type === 'candidate-pair' && (rep.nominated || rep.selected) && rep.state === 'succeeded') {
+        pairs.push(rep);
+      }
+    });
+    const pair = (pairId ? byId.get(pairId) : undefined) ?? pairs[0];
+    if (!pair) return 'unknown';
+    const local = byId.get(String(pair.localCandidateId));
+    if (!local) return 'unknown';
+    return local.candidateType === 'relay' ? 'relay' : 'direct';
+  } catch {
+    return 'unknown';
+  }
+}
+
+// Fallback detector (desktop): a phone still driving over Realtime with no RTC
+// peer after graceMs is on the fallback path — log it ONCE per id. Pure +
+// injectable clock for headless tests.
+export function createFallbackTracker(graceMs: number, log: (id: string) => void) {
+  const firstSeen = new Map<string, number>();
+  const logged = new Set<string>();
+  return {
+    note(id: string, hasRtcPeer: boolean, now: number) {
+      if (hasRtcPeer) { firstSeen.delete(id); return; }
+      const t0 = firstSeen.get(id);
+      if (t0 === undefined) { firstSeen.set(id, now); return; }
+      if (now - t0 >= graceMs && !logged.has(id)) {
+        logged.add(id);
+        log(id);
+      }
+    },
+  };
+}
 
 export type StateMsg = { ev: string; payload: unknown };
 
@@ -177,6 +261,9 @@ export interface RtcHostOpts {
   signal: (event: string, payload: unknown) => void;      // → Supabase channel
   onControl: (id: string, payload: unknown) => void;      // same shape as EV.control
   onStateMessage: (id: string, msg: StateMsg) => void;    // join/color/name/leave
+  // Fired when a phone's control channel OPENS on the host — the desktop logs
+  // the connection path here (connectionPathOf(pc): direct vs relay/TURN).
+  onPeerConnected?: (id: string, pc: PeerLike) => void;
   pcFactory?: PeerFactory;
 }
 export interface RtcHost {
@@ -211,6 +298,8 @@ export function createRtcHost(o: RtcHostOpts): RtcHost {
       const ch = ev.channel;
       if (ch.label === 'control') {
         peer.control = ch;
+        if (ch.readyState === 'open') o.onPeerConnected?.(id, pc);
+        else ch.onopen = () => o.onPeerConnected?.(id, pc);
         ch.onmessage = (m) => {
           const p = parseJson(m.data);
           if (p) o.onControl(id, p);

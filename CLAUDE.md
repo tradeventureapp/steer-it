@@ -1921,3 +1921,33 @@ run away, lockFade bounds it); **Stage-A regression: cross 5.3 s ✓, full-lock 
 untouched; tsc + build clean. **NEXT: keyboard-test the complete arcade (X): pace, corner, drift
 (flick → hold → steer sets angle → straighten exits), donut (lock + throttle), launch — then feel-iterate
 the knobs.**
+
+---
+**WEBRTC STEP 3 — TURN relay (Cloudflare, three-tier transport complete; 16/16 headless):** the ~10–20%
+of players whose NAT blocks P2P now get a TURN relay instead of falling back to Supabase Realtime →
+Realtime carries ONLY signaling for everyone. **Pieces:** `api/turn.js` — a Vercel serverless function
+(plain JS, OUTSIDE tsc/Vite — tsconfig includes src/ only; vercel.json's /play rewrite doesn't shadow
+/api) that POSTs Cloudflare `credentials/generate` and returns short-lived (TTL 600 s) TURN iceServers;
+Origin allow-list (steerit.app + steer-it.vercel.app) as the light abuse guard; **env vars NOT set →
+503 → the phone silently proceeds STUN-only** (nothing breaks before the Cloudflare/Vercel setup is
+done — needs `CF_TURN_KEY_ID` + `CF_TURN_API_TOKEN` in Vercel). `rtc.ts` — `makePeerFactory(iceServers,
+relayOnly)` (the V1 config extension point realised), optional `getStats` on PeerLike +
+`connectionPathOf(pc)` (nominated candidate-pair → 'direct'|'relay'|'unknown'), `fetchTurnServers`
+(injectable fetch, 2 s abort → null on ANY failure), `createFallbackTracker` (pure), host
+`onPeerConnected(id, pc)` hook (fires on control-DC open, handles already-open). `phone.ts` — startRtc
+now fetches TURN creds first (guarded by `rtcStarting`, still one attempt per (re)connect); **`?rtc=relay`
+query param → `iceTransportPolicy: 'relay'`** = the forced-TURN test switch. `desktop.ts` — per-pairing
+console log: `[rtc] <iso> player <id> connected via direct | relay (TURN)` (via getStats after DC open)
+and `via fallback (Realtime)` (Realtime control packets for an id with no RTC peer after 12 s, once per
+id; fed ONLY from the Realtime wire so DC control can't false-trigger). **Order: P2P direct → TURN relay
+→ Realtime fallback** (direct-first is inherent to ICE candidate priority; TURN in iceServers never slows
+a direct pairing). **MEASURED (headless, 16/16 on the bundled rtc.ts):** factory passes STUN+TURN + relay
+policy; fetchTurnServers valid/array shapes → servers, 503 (unconfigured)/bad shape/network error/timeout
+→ null (STUN-only); connectionPathOf relay/direct/unknown; onPeerConnected fires with (id, pc) through
+the fake-PC pairing; fallback tracker logs once after grace, never twice, resets on peer presence. tsc +
+build clean; physics/transport-V1 flows untouched. **COST (est.):** ~13 MB/player-h relayed, 10–20 %
+share → ~$0.01/h @100 concurrent, ~$0.10/h @1000 (Cloudflare ~$0.05/GB). **⚠️ AWAITING (user setup +
+live):** Cloudflare TURN key + Vercel env vars; then the forced-relay check (`steerit.app/play?s=CODE&rtc=relay`
+→ desktop console must log `via relay (TURN)`) and an LTE (WiFi-off) real-phone test; fallback line
+appears if a phone stays on Realtime ≥12 s. **Realtime is now signaling-only for every tier → the quota
+problem is closed.**
