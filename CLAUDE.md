@@ -2147,3 +2147,37 @@ cgHeight/loadTransferLatGain); Fase 0 has no forward thrust so the car only COAS
 physics4 the only model, no toggle. **NEXT: boss tests PHYSICS4 on phone (X) — throw speed, corner, feel
 the WEIGHT / load transfer / understeer-at-limit / break-loose at speed. Then Fase 1 (throttle + handbrake
 + brake + longitudinal friction-circle).**
+
+---
+**FASE 1 — DRIVE TOOLS on physics4 (throttle / brake / handbrake, all through the per-wheel friction
+circle; 17/17):** the per-wheel car now DRIVES. Built on the Fase-0 foundation (physics.ts still
+UNTOUCHED — everything in physics4.ts + the WeakMap state). **THROTTLE → rear wheelspin:** each rear wheel
+has an angular velocity `rearOmega` (WeakMap); drive torque `= engineForce(faded)·r/2` spins it → slip
+ratio `κ=(ω·r−vlong)/max(|vlong|,3)` → longitudinal Magic-Formula `Fx=D·sin(Cx·atan(Bx·κ))`. **FRICTION
+ELLIPSE (the one principle):** the tyre budget D is shared — `demand=hypot(Fx/(D·ellipseLong), Fy/D)`,
+over 1 scales BOTH down → throttle's Fx eats the circle → rear lateral drops → **power-oversteer**; the
+GENEROUS longitudinal axis (`tireEllipseLong` 1.0) keeps forward bite → **drift CARRIES speed** (measured
+80→58 km/h held, NOT the sim-real bleed-to-zero). **BRAKE:** front-biased (0.6) brake force opposes motion
+through the circle + forward load transfer (Fase-0 a_x) → front bites, rear lightens (measured front 4025
+vs rear 1861 N) = trail-brake rotation. **HANDBRAKE = LOCKED rear** (`ω` pinned 0 → the lock OVERRIDES
+drive torque; κ=−vlong/… → kinetic scrub ALWAYS opposing motion + eats the circle → rear lateral→0 =
+drift entry). **⚠️ HANDBRAKE INVARIANT PROVEN** (failed 3× before as "boost"): dv/dt<0 EVERY frame
+straight AND with FULL throttle (worst −3.82 m/s² — the lock beats drive by construction). **LAUNCH
+traction control:** below `tractionSpeed` 4 m/s a SOFT TC cuts drive torque once the wheel reaches
+`tractionSlipCap` 0.12 (holds the slip, delivers grip) + `wheelInertia` **22** (big = engine/drivetrain
+reflected inertia → no spin-up oscillation) → **clean, deterministic, fair launch** (wspin ≤12%, 0→50
+km/h ~3 s, two launches byte-identical). **DRIFT EXIT:** lift+straighten → κ→0 → rear regains the full
+lateral budget → regrips (measured rearSlip 43°→0.8°, ω→−0.02 in 2 s — always terminates). CarState:
+`wheelSpin`=rear κ (smoke), `rearWheelSpeed`=|ω·r| (sound RPM), `isRearSliding`=rear circle saturated.
+**VERIFIED 17/17 headless:** clean+deterministic launch, throttle power-oversteer (rear breaks loose),
+drift carries speed (no bleed collapse), drift exits (always terminates), **HB always brakes (dv/dt<0
+straight + full throttle)** + enters drift, brake load-shifts forward, low-speed still stable (parking
+still, donut/burnout bounded no NaN), determinism (drive+brake+hb), **ARCADE byte-identical 0.0e+0**. New
+D-tuner knobs (physics4): engineForce/engineFadeSpeed/rollRadius/wheelInertia/brakeForce/brakeBiasFront/
+tractionSpeed/tractionSlipCap/tireBx/tireCx. tsc + build clean; multi-car; one ruler; heading still an
+independent state (no collision end-swap). **⚠️ THE TUNING KNOB (boss's phone job):** `tireEllipseLong`
+is the ROCKET-vs-BLEED window — higher = drift carries more speed (toward rocket), lower = bleeds (toward
+sim-real collapse); 1.0 is the start. **NEXT: boss tests PHYSICS4 (X) on phone — launch (clean, no
+lottery), throttle-drift (power-over, carries speed), handbrake (locks + always brakes + entry), brake
+(front bite/trail rotation), counter-steer to catch, exit on release. Tune tireEllipseLong for the
+carry-vs-bleed feel. Then Fase 2 (reverse, engine curve/gears if wanted) + Fase 3 gameplay.**

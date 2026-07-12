@@ -246,6 +246,17 @@ document.body.appendChild(brakeTunerEl);
   pRow('relaxLength',       'relaxLength',          0.05, 0.1, 1.5, 2);
   pRow('lowSpeedBlend',     'lowSpeedBlend',        0.25, 1,   6, 2);
   pRow('maxSteer',          'maxSteer',             0.02, 0.3, 0.8, 2);
+  // Fase 1 drive tools
+  pRow('engineForce',       'engineForce',          500,  3000, 20000, 0);
+  pRow('engineFadeSpeed',   'engineFadeSpeed',      2,    30,  90, 0);
+  pRow('rollRadius',        'rollRadius',           0.01, 0.2, 0.45, 2);
+  pRow('wheelInertia',      'wheelInertia',         0.1,  0.4, 4, 1);
+  pRow('brakeForce',        'brakeForce',           500,  5000, 30000, 0);
+  pRow('brakeBiasFront',    'brakeBiasFront',       0.05, 0.3, 0.85, 2);
+  pRow('tractionSpeed',     'tractionSpeed',        0.5,  0,   10, 1);
+  pRow('tractionSlipCap',   'tractionSlipCap',      0.02, 0.02, 0.5, 2);
+  pRow('tireBx (long stiff)','tireBx',              1,    6,   30, 0);
+  pRow('tireCx (long shape)','tireCx',              0.05, 1.1, 2.2, 2);
 
   // Show only the active model's rows (+ set the panel title).
   showTunerFor = (mode: DriveMode) => {

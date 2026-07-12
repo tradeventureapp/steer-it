@@ -41,6 +41,17 @@ export interface Physics4Params {
   relaxLength: number;        // m — tire relaxation length (slip builds over this distance) (0.5)
   lowSpeedBlend: number;      // m/s — below this, blend toward a kinematic model (2.5)
   maxSteer: number;           // rad — physical front steer lock (0.52 ≈ 30°)
+  // ---- FASE 1 drive tools (all through the per-wheel friction circle) ----
+  engineForce: number;        // N — peak drive force at the rear AXLE (torque×gear/r) (9000)
+  engineFadeSpeed: number;    // m/s — drive force fades to 0 by here (caps top speed) (62)
+  rollRadius: number;         // m — wheel rolling radius (0.30)
+  wheelInertia: number;       // kg·m² — rear wheel + engine/drivetrain reflected inertia (22 — big = stable, no launch spin-up oscillation)
+  brakeForce: number;         // N — peak brake force (both axles combined) (14000)
+  brakeBiasFront: number;     // 0..1 — front share of braking (0.6)
+  tractionSpeed: number;      // m/s — below this, launch traction-control caps rear wheelspin (4)
+  tractionSlipCap: number;    // slip-ratio cap under traction control (0.12 — clean launch)
+  tireBx: number;             // Magic-Formula LONGITUDINAL stiffness (18)
+  tireCx: number;             // Magic-Formula longitudinal shape (1.6)
 }
 
 // D-tunable defaults (the boss tunes these live; mutated in place like CONFIG).
@@ -59,6 +70,17 @@ export const PHYS4: Physics4Params = {
   relaxLength: 0.5,
   lowSpeedBlend: 2.5,
   maxSteer: 0.52,
+  // FASE 1 drive tools
+  engineForce: 9000,
+  engineFadeSpeed: 62,
+  rollRadius: 0.30,
+  wheelInertia: 22,
+  brakeForce: 14000,
+  brakeBiasFront: 0.6,
+  tractionSpeed: 4,
+  tractionSlipCap: 0.12,
+  tireBx: 18,
+  tireCx: 1.6,
 };
 
 const MU_FLOOR = 0.3;         // μ never collapses to ≤0 under huge load
@@ -70,14 +92,22 @@ interface P4State {
   slip: [number, number, number, number];
   prevAx: number;   // prev-frame body-frame longitudinal accel (load transfer)
   prevAy: number;   // prev-frame body-frame lateral accel
+  // rear wheel angular velocity (rad/s): RL, RR — drive/brake/handbrake act here
+  rearOmega: [number, number];
+  initd: boolean;   // rear omega seeded to free-rolling on the first step
   // last-frame debug for HUD / verification (per wheel)
   load: [number, number, number, number];
+  slipRatio: [number, number];   // rear longitudinal slip ratio (wheelspin/lock)
 }
 const states = new WeakMap<CarState, P4State>();
 function stateOf(car: CarState): P4State {
   let s = states.get(car);
   if (!s) {
-    s = { slip: [0, 0, 0, 0], prevAx: 0, prevAy: 0, load: [0, 0, 0, 0] };
+    s = {
+      slip: [0, 0, 0, 0], prevAx: 0, prevAy: 0,
+      rearOmega: [0, 0], initd: false,
+      load: [0, 0, 0, 0], slipRatio: [0, 0],
+    };
     states.set(car, s);
   }
   return s;
@@ -126,10 +156,26 @@ export function step4(car: CarState, input: Inputs, dt: number, p: Physics4Param
     -(FzF + FzR), (FzF + FzR));
   const dLat = m * st.prevAy * p.cgHeight / T * p.loadTransferLatGain;
 
+  const throttle = clamp(input.throttle, 0, 1);
+  const brake = clamp(input.brake, 0, 1);
+  const hb = input.handbrake;
+  const rr = p.rollRadius;
+
+  // seed rear wheel speed to free-rolling on the first step (a thrown/reclaimed
+  // car isn't braking its own rear); afterwards the dynamics own it.
+  if (!st.initd) { st.rearOmega = [vbx / rr, vbx / rr]; st.initd = true; }
+
+  // drive force at the rear axle, faded with speed (caps top). Split per wheel;
+  // becomes a wheel drive torque = force·r.
+  const driveForceAxle = throttle * p.engineForce * clamp(1 - v / p.engineFadeSpeed, 0, 1);
+  const driveTorquePerRear = (driveForceAxle / 2) * rr;
+
   // ---- per-wheel forces (body frame) + accumulate net force & yaw torque ----
   let Fbx = 0, Fby = 0, Tz = 0;
   const slipOut: number[] = [0, 0, 0, 0];
   const loadOut: number[] = [0, 0, 0, 0];
+  const rearFx: [number, number] = [0, 0];   // delivered longitudinal (for ω integration)
+  const rearVlong: [number, number] = [0, 0];
   let rearSaturated = false;
 
   for (let i = 0; i < 4; i++) {
@@ -165,20 +211,73 @@ export function step4(car: CarState, input: Inputs, dt: number, p: Physics4Param
 
     // Magic-Formula lateral (peak-then-falloff = the kinetic/drift regime)
     let Fy = -D * Math.sin(p.tireC * Math.atan(p.tireB * alpha));
-    let Fx = 0;   // FASE 0: no drive/brake
 
-    // friction ellipse (ready for Fase 1: generous longitudinal axis so a deep
-    // drift keeps forward bite → carries speed). Fase 0: Fx=0 → no scaling.
+    // ---- longitudinal force (FASE 1) — per-wheel friction circle ----
+    let Fx = 0;
+    if (front) {
+      // fronts: brake only (not driven). Brake force opposes motion, capped by
+      // grip via the ellipse below → ABS-like (front locks only at full pedal).
+      const fBrake = brake * p.brakeForce * p.brakeBiasFront / 2;
+      Fx = -Math.sign(vlong) * fBrake;
+    } else {
+      const ri = i - 2;   // 0=RL, 1=RR
+      let omega = st.rearOmega[ri];
+      if (hb) {
+        // HANDBRAKE = LOCKED rear wheel: ωw pinned to 0 → the lock OVERRIDES
+        // drive torque (a stopped wheel can't be driven). κ = −vlong/… → full
+        // longitudinal slip → kinetic scrub ALWAYS opposing motion (brakes),
+        // and it eats the friction circle → rear lateral collapses (drift).
+        omega = 0;
+      }
+      // longitudinal slip ratio (bounded denominator → no low-speed blow-up)
+      const kappa = (omega * rr - vlong) / Math.max(Math.abs(vlong), 3);
+      st.slipRatio[ri] = kappa;
+      Fx = D * Math.sin(p.tireCx * Math.atan(p.tireBx * kappa));
+      // rear brake force adds into the longitudinal demand (also via the circle)
+      if (!hb) Fx += -Math.sign(vlong) * brake * p.brakeForce * (1 - p.brakeBiasFront) / 2;
+    }
+
+    // ---- FRICTION ELLIPSE (the one principle): the tire's grip budget D is
+    // shared between Fx and Fy. Generous longitudinal axis (tireEllipseLong) so
+    // a deep drift keeps FORWARD BITE → the drift CARRIES speed (the sim-real
+    // speed-bleed failure mode designed out). Over budget → both scale down:
+    // throttle's Fx eats the circle → rear lateral drops → power-oversteer.
     const demand = Math.hypot(Fx / (D * p.tireEllipseLong || 1), Fy / (D || 1));
     if (demand > 1) { Fx /= demand; Fy /= demand; }
 
-    if (!front && Math.abs(Fy) >= 0.95 * D) rearSaturated = true;
+    if (!front) {
+      rearFx[i - 2] = Fx; rearVlong[i - 2] = vlong;
+      if (demand > 0.98 || Math.abs(alpha) > 0.15) rearSaturated = true;
+    }
 
     // rotate wheel force back to body frame (+δ) and accumulate
     const fbx = Fx * cd - Fy * sd;
     const fby = Fx * sd + Fy * cd;
     Fbx += fbx; Fby += fby;
     Tz += rx[i] * fby - ry[i] * fbx;   // yaw torque about CoM
+  }
+
+  // ---- rear wheel dynamics: Iw·dω/dt = T_drive − Fx·r − T_brake ----
+  // (handbrake keeps ω pinned to 0 → the lock owns the wheel; drive can't spin
+  // it → the handbrake ALWAYS brakes.) A launch traction limit caps ω below
+  // tractionSpeed so a standing-start can't spin up into a wheelspin lottery.
+  for (let ri = 0; ri < 2; ri++) {
+    if (hb) { st.rearOmega[ri] = 0; continue; }
+    let omega = st.rearOmega[ri];
+    const Tbrake = brake * p.brakeForce * (1 - p.brakeBiasFront) / 2 * rr;
+    // SOFT launch traction control: below tractionSpeed, once the wheel reaches
+    // the target slip, cut the drive torque to just BALANCE the tyre force (hold
+    // the slip, don't spin more) → the tyre delivers its grip smoothly = strong,
+    // clean, non-oscillating launch (a hard ω cap oscillated). Above the speed,
+    // full drive torque → wheelspin is free (donuts / power-over).
+    let Tdrive = driveTorquePerRear;
+    if (v < p.tractionSpeed) {
+      const targetSlipOmega = (rearVlong[ri] + p.tractionSlipCap * Math.max(Math.abs(rearVlong[ri]), 3)) / rr;
+      if (omega >= targetSlipOmega) Tdrive = Math.min(Tdrive, rearFx[ri] * rr);
+    }
+    omega += (Tdrive - rearFx[ri] * rr - Math.sign(omega) * Tbrake) / p.wheelInertia * dt;
+    if (omega < 0) omega = 0;   // brake can't drive the wheel backward (no reverse yet)
+    st.rearOmega[ri] = omega;
   }
 
   // ---- integrate: net force → translation, net torque → yaw ----
@@ -213,8 +312,10 @@ export function step4(car: CarState, input: Inputs, dt: number, p: Physics4Param
     }
   }
 
-  // rest snap — fully parked below walking pace
-  if (v < 0.15) { vx = 0; vy = 0; omega = 0; }
+  // rest snap — fully parked below walking pace with no drive input
+  if (v < 0.15 && throttle < 0.02) {
+    vx = 0; vy = 0; omega = 0; st.rearOmega = [0, 0];
+  }
 
   // ---- integrate pose ----
   car.vx = vx; car.vy = vy;
@@ -234,9 +335,12 @@ export function step4(car: CarState, input: Inputs, dt: number, p: Physics4Param
   car.rearSlip = rearSlipMax;               // skids / smoke / XP read this
   car.frontSlip = frontSlipMax;
   car.isRearSliding = rearSaturated || rearSlipMax > 0.15;
-  car.wheelSpin = 0;                        // FASE 0: no drive
-  car.rearWheelSpeed = car.speed;           // sound proxy (Fase 1: wheel rotation)
+  // wheelSpin = rear longitudinal slip magnitude (0 grip … 1 full spin/lock) →
+  // smoke intensity; rearWheelSpeed = |ω·r| → sound RPM proxy.
+  const kappaMax = Math.max(Math.abs(st.slipRatio[0]), Math.abs(st.slipRatio[1]));
+  car.wheelSpin = clamp(kappaMax, 0, 1);
+  car.rearWheelSpeed = Math.abs((st.rearOmega[0] + st.rearOmega[1]) / 2 * p.rollRadius);
   car.driftActive = car.isRearSliding;
   car.spinTimer = 0;
-  car.slipRatio = 0;
+  car.slipRatio = kappaMax;
 }
