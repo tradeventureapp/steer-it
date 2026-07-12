@@ -71,13 +71,14 @@ export interface ArcadeParams {
   vMinDrift: number;     // m/s — below this the drift force-exits
   kExit: number;         // 1/s — δ→0 rate on exit (quick clean straighten)
   tauBody: number;       // s — heading lag toward φ+δ (collision snap softener)
-  driftEnterSteer: number;// |steer| needed (with the e-brake) to enter
-  driftExitSteer: number; // |steer| below which the drift exits
-  vMinEnter: number;     // m/s — minimum speed to enter a drift
-  // handbrake = the DRIFT TOOL (causes the drift, TIGHTENS it, and BRAKES)
-  hbDecel: number;       // m/s² — real braking while the e-brake is HELD (locked wheels)
-  hbTightenRate: number; // rad/s — held e-brake CLOSES the drift angle (deeper)
-  hbTightenMax: number;  // rad — max extra angle the hold can add (past deltaMax → risk)
+  driftExitSteer: number; // |steer| below which a ROLLING slide exits (regrips)
+  // handbrake = LOCKED REAR WHEELS (the mechanism — everything follows from it):
+  // held ⇒ strong friction braking ALWAYS (straight+slow+lever = the car brakes,
+  // THE test) + the rear loses lateral hold ⇒ moving with any turn, the rear
+  // SWINGS OUT (the angle closes/tightens) — drift is a CONSEQUENCE, not a state
+  // you "enter". Throttle can't spin stopped wheels: the lock DOMINATES throttle.
+  hbDecel: number;       // m/s² — locked-wheel friction braking (always while held)
+  hbSwingRate: number;   // rad/s — how fast the locked rear swings the angle out
   // SPINOUT — overrotation exists: tighten past deltaSpin and the car spins out
   deltaSpin: number;     // rad — past this the drift breaks into a spin-out
   spinYaw: number;       // rad/s — spin-out initial rotation rate
@@ -98,8 +99,8 @@ export const ARCADE: ArcadeParams = {
   omegaDriftBase: 0.9, omegaDriftGain: 1.3,
   driftBleed: 3.5, driftFeedCap: 0.7,          // full throttle still bleeds ≥30%
   vMinDrift: 6, kExit: 8, tauBody: 0.10,
-  driftEnterSteer: 0.25, driftExitSteer: 0.15, vMinEnter: 8,
-  hbDecel: 6, hbTightenRate: 0.35, hbTightenMax: 0.4,   // hold ≈0.5 s → +11°, max +23°
+  driftExitSteer: 0.15,
+  hbDecel: 6, hbSwingRate: 0.9,                // lock brakes at 6 m/s²; rear swings ~0.9 rad/s
   deltaSpin: 1.05, spinYaw: 4.5, spinDecay: 0.8, spinBleed: 6,  // 60°; spin ≈ 4.5/0.8 ≈ 320°+
   vRevMax: 7,
 };
@@ -114,7 +115,6 @@ interface ArcState {
   mode: Mode;
   delta: number;   // current drift body offset (rad, signed)
   dir: number;     // drift direction (+1/−1)
-  tight: number;   // rad — extra angle the HELD e-brake has closed (the risk meter)
   phi: number;     // last motion direction (kept through standstill)
   rev: boolean;    // reversing
 }
@@ -122,7 +122,7 @@ const states = new WeakMap<CarState, ArcState>();
 function stateOf(car: CarState): ArcState {
   let s = states.get(car);
   if (!s) {
-    s = { mode: 'grip', delta: 0, dir: 1, tight: 0, phi: car.heading, rev: false };
+    s = { mode: 'grip', delta: 0, dir: 1, phi: car.heading, rev: false };
     states.set(car, s);
   }
   return s;
@@ -160,7 +160,7 @@ export function stepArcade(car: CarState, input: Inputs, dt: number, p: ArcadePa
     st.rev = v > 0.3 ? Math.cos(angDiff(phi, theta)) < 0 : st.rev && brake > 0.05;
   }
   const rev = st.rev;
-  if (rev && st.mode !== 'grip') { st.mode = 'grip'; st.delta = 0; st.tight = 0; }  // no drift in reverse
+  if (rev && st.mode !== 'grip') { st.mode = 'grip'; st.delta = 0; }  // no drift in reverse
 
   // ---- L6 REVERSE entry: brake held at ~standstill → back out ----
   if (!rev && v < 0.4 && brake > 0.1 && throttle < 0.05) {
@@ -178,10 +178,13 @@ export function stepArcade(car: CarState, input: Inputs, dt: number, p: ArcadePa
     // a spin scrubs speed hard; throttle does nothing while spinning
     v = clamp(v - p.spinBleed * dt, 0, p.vTop);
   } else if (st.mode === 'drift') {
-    // L4 speed INVARIANT: dv/dt < 0 in a drift ALWAYS. Throttle offsets at most
-    // driftFeedCap (<1) of the bleed, and the HELD e-brake adds REAL braking —
-    // the handbrake is a brake, never a boost.
-    const feed = throttle * clamp(p.driftFeedCap, 0, 0.95) * p.driftBleed;
+    // L4 speed INVARIANT: dv/dt < 0 in a slide ALWAYS. REGIME decides the terms:
+    // LOCKED (lever held) DOMINATES throttle — stopped wheels can't be driven →
+    // feed = 0 + locked-wheel braking. SPINNING (throttle, no lever): the drive
+    // FEEDS the slide, capped at driftFeedCap (<1) of the bleed — a slide is
+    // sustained, never accelerated.
+    const feed = input.handbrake ? 0
+      : throttle * clamp(p.driftFeedCap, 0, 0.95) * p.driftBleed;
     const hb = input.handbrake ? p.hbDecel : 0;
     v = clamp(v + (-p.driftBleed + feed - hb) * dt, 0, p.vTop);
   } else {
@@ -191,29 +194,32 @@ export function stepArcade(car: CarState, input: Inputs, dt: number, p: ArcadePa
     v = clamp(v + (accel - decel) * dt, 0, p.vTop);
   }
 
-  // ---- state machine: drift enter / tighten / spin-out / exit ----
-  if (st.mode === 'grip' && !st.rev
-      && input.handbrake && Math.abs(steer) >= p.driftEnterSteer && v >= p.vMinEnter) {
-    st.mode = 'drift';                 // e-brake CAUSES the drift (tap = enter, immediate)
-    st.dir = steer >= 0 ? 1 : -1;
-    st.delta = st.dir * p.deltaMin;
-    st.tight = 0;
+  // ---- REAR-WHEEL REGIME → thin state machine (drift = a CONSEQUENCE) ----
+  // LOCKED (lever held): the rear has no lateral hold. Moving with ANY turn
+  // intent (steer OR existing yaw), the rear SWINGS OUT → the slide begins as
+  // a consequence — no steer threshold, no speed gate. STRAIGHT + lever = the
+  // car just BRAKES (the boss's test): no turn direction → nothing to swing.
+  if (st.mode === 'grip' && !st.rev && input.handbrake && v > 1.5) {
+    const dir = Math.abs(steer) > 0.05 ? Math.sign(steer)
+      : Math.abs(car.angularVel) > 0.25 ? Math.sign(car.angularVel) : 0;
+    if (dir !== 0) {
+      st.mode = 'drift';
+      st.dir = dir;
+      st.delta = st.dir * 0.06;   // the swing STARTS small and GROWS (mechanism, not a jump)
+    }
   }
   if (st.mode === 'drift') {
-    // HELD e-brake CLOSES the angle (the boss's core mechanic): tight grows while
-    // held (pushing δ_target past deltaMax = the RISK), decays fast on release.
-    st.tight = clamp(
-      st.tight + (input.handbrake ? p.hbTightenRate : -2 * p.hbTightenRate) * dt,
-      0, p.hbTightenMax);
-    // OVERROTATION: tightened past the drift envelope → the drift breaks into a
-    // SPIN-OUT (finite by construction: ω decays exponentially → total rotation
-    // = spinYaw/spinDecay rad; speed scrubs at spinBleed → it always terminates).
+    // OVERROTATION: swung past the envelope → SPIN-OUT (finite by construction:
+    // ω decays exponentially → total rotation = spinYaw/spinDecay rad; speed
+    // scrubs at spinBleed → the spin always terminates).
     if (Math.abs(st.delta) >= p.deltaSpin) {
       st.mode = 'spinout';
       const w0 = st.dir * p.spinYaw;
       car.angularVel = Math.abs(car.angularVel) > Math.abs(w0) ? car.angularVel : w0;
-    } else if (Math.abs(steer) < p.driftExitSteer || v < p.vMinDrift) {
-      st.mode = 'exit';                // steer to centre / slide spent → clean exit
+    } else if (!input.handbrake && (Math.abs(steer) < p.driftExitSteer || v < p.vMinDrift)) {
+      st.mode = 'exit';   // rolling rear + steer to centre / slide spent → regrips
+    } else if (input.handbrake && v < 1.0) {
+      st.mode = 'exit';   // locked down to a crawl → parked, not sliding
     }
   }
 
@@ -258,17 +264,22 @@ export function stepArcade(car: CarState, input: Inputs, dt: number, p: ArcadePa
       // grip projection snap the body by the difference = a rotation teleport);
       // kExit relaxes it to zero smoothly, the projection bound follows |δ|.
       st.delta = angDiff(theta, phi);
-      st.tight = 0;
       st.mode = 'exit';
     }
   } else {
-    // ---- L4 DRIFT ----
+    // ---- L4 SLIDE — the body angle is driven by the rear-wheel REGIME ----
     const into = clamp(steer * st.dir, 0, 1);          // steer INTO the drift 0..1
-    // steer SETS the angle; the HELD e-brake's tight ADDS to it (deeper — and
-    // past deltaSpin it breaks into the spin-out; the envelope clamp allows the
-    // overshoot band deltaMax..deltaSpin, so risk exists but is still bounded).
-    const target = st.dir * (p.deltaMin + into * (p.deltaMax - p.deltaMin) + st.tight);
-    st.delta += (target - st.delta) * Math.min(1, p.kDelta * dt);
+    if (input.handbrake) {
+      // LOCKED: no lateral hold at the rear — it keeps SWINGING OUT (the angle
+      // closes/tightens) while the lever brakes (L1). The unbounded growth IS
+      // the risk: crossing deltaSpin breaks into the spin-out.
+      st.delta += st.dir * p.hbSwingRate * Math.min(1, v / 8) * dt;
+    } else {
+      // ROLLING/SPINNING: steering AIMS the angle (throttle feeds the slide in
+      // L1); the target is hard-bounded by the drift envelope.
+      const target = st.dir * (p.deltaMin + into * (p.deltaMax - p.deltaMin));
+      st.delta += (target - st.delta) * Math.min(1, p.kDelta * dt);
+    }
     st.delta = clamp(st.delta, -p.deltaSpin - 0.05, p.deltaSpin + 0.05);
 
     // the PATH carves in the drift direction; steering-into tightens the arc

@@ -2014,3 +2014,30 @@ launch determinism, **sim-real-2 0.0e+0**. New D-tuner knobs: `driftFeedCap · h
 hbTightenMax · deltaSpin · spinYaw · spinDecay · spinBleed` (rally: deltaSpin 1.2). tsc + build clean.
 **NEXT: boss tests the handbrake loop on TILT — tap→drift, hold→tighten+scrub, hold too long→spin-out,
 release→steer the drift; donut lifetime + the vMinDrift/vMinEnter gap are the first feel knobs to dial.**
+
+---
+**ARCADE L4 FUNDAMENTAL REDESIGN — the handbrake is the MECHANISM (locked rear wheels), drift is a
+CONSEQUENCE, not a gated state:** the boss's failing test ("straight, slow, pull the lever — nothing
+happens") exposed the root error: the e-brake was an abstract drift button gated on steer+speed. Rebuilt
+around the REAR-WHEEL REGIME (still kinematic — a simple 3-way condition, NOT tyre simulation):
+**ROLLING** (default) = the grip/slide laws as built; **LOCKED** (lever held) = strong friction braking
+ALWAYS (`hbDecel 6` in every mode — straight+slow+lever now simply BRAKES: 20 km/h → stop in 0.6 s/1.8 m,
+heading unchanged) + the rear loses lateral hold: moving with ANY turn intent (|steer|>0.05 OR |ω|>0.25 —
+no steer threshold, no speed gate, entry seed δ=0.06 that GROWS at `hbSwingRate 0.9·min(1,v/8)` — the
+swing is progressive, a mechanism not a jump) → the angle CLOSES/tightens while speed scrubs; growth is
+unbounded = crossing `deltaSpin` breaks into the SPIN-OUT (hold too long = the risk, unchanged);
+**SPINNING** (throttle in a slide, lever released) = the drive FEEDS the slide (`driftFeedCap 0.7 < 1` —
+sustained, never accelerating), steering AIMS the angle. **Lock DOMINATES throttle** (design call:
+stopped wheels can't be driven — lever+full gas = feed 0 + hbDecel, measured dv −9.5 → −6 m/s², never ≥0).
+Removed: `driftEnterSteer`/`vMinEnter` gates + the `tight` accumulator (`hbTightenRate/Max` → ONE
+`hbSwingRate` knob). Locked slide exits only near-stop (v<1) or via spin — releasing mid-slide hands to
+SPINNING/exit as before. **VERIFIED 21/21 (the boss's 6 tests as invariants + regressions):** B1 THE test
+✓ (brakes, no phantom rotation); B2 straight fast: 100→0 in 5 s/45 m, stays straight (bounded-wiggle
+flavor SKIPPED — knob later if wanted); B3 mid-corner lever: angle 5→43° over 1 s of hold + 69→35 km/h
+scrub; B4 spinning: drift lives on throttle, steer aims (0.35→21° vs 0.95→38°), dv<0 without AND with
+full throttle; B5 lock dominates; B6 release-all regrips (0.3°); regressions: slip invariant 9°, T-bone
+decay, donut R 5.1 m for 5.0 s, spin-out exists/ends 1.8 s/recovers, held-forever ends 2.0 s, launch
+determinism, **sim-real-2 0.0e+0**. (3 interim FAILs were test bugs: a worst-accumulator init, an
+over-tight 0.33 s threshold vs the τ_body onset, and a too-slow donut entry speed — the model was right.)
+D-tuner: `hbSwingRate` replaces the tighten pair. tsc + build clean. **NEXT: the boss's tilt test — the
+lever now brakes ALWAYS, swings the rear in any turn, tightens while held, spins if held too deep.**
