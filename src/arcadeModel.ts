@@ -123,12 +123,21 @@ interface ArcState {
   dir: number;     // drift direction (+1/−1)
   phi: number;     // last motion direction (kept through standstill)
   rev: boolean;    // reversing
+  // COLLISION heading-lock: the model writes its OWN end-of-step velocity here;
+  // if the next step reads a DIFFERENT car.vx/vy, an external impulse (a
+  // collision) changed it → hitTimer arms a short window during which the
+  // reverse-flip is suppressed and the grip projection is rate-capped, so a
+  // frontal/reverse bounce SHOVES the car without swapping the nose to follow
+  // the bounced velocity (the OLD sim-real-2 bounce/slide feel).
+  ownVx: number; ownVy: number;   // velocity the model wrote last step
+  hitTimer: number;               // s remaining in the collision heading-lock
 }
 const states = new WeakMap<CarState, ArcState>();
 function stateOf(car: CarState): ArcState {
   let s = states.get(car);
   if (!s) {
-    s = { mode: 'grip', delta: 0, dir: 1, phi: car.heading, rev: false };
+    s = { mode: 'grip', delta: 0, dir: 1, phi: car.heading, rev: false,
+          ownVx: car.vx, ownVy: car.vy, hitTimer: 0 };
     states.set(car, s);
   }
   return s;
@@ -136,6 +145,10 @@ function stateOf(car: CarState): ArcState {
 
 const TAU = Math.PI * 2;
 const EXIT_RATE_CAP = 3.5;   // rad/s — max δ unwind rate on exit (spin-like, no snap)
+const HIT_EPS = 1e-4;        // m/s — velocity divergence that means an external impulse
+const HIT_LOCK_S = 0.3;      // s — collision heading-lock window
+const HIT_PROJ_CAP = 0.3;    // rad/s — capped heading→path re-aim during the lock (θ ~frozen)
+const HIT_REALIGN = 8;       // rad/s — path→heading realign during the lock (velocity returns fwd)
 function norm(a: number): number {
   a = a % TAU;
   if (a > Math.PI) a -= TAU;
@@ -153,6 +166,17 @@ export function stepArcade(car: CarState, input: Inputs, dt: number, p: ArcadePa
   const throttle = input.handbrake ? clamp(input.throttle, 0, 1) : clamp(input.throttle, 0, 1);
   const brake = clamp(input.brake, 0, 1);
 
+  // ---- COLLISION detect: did an external impulse change the velocity? ----
+  // Compare the actual velocity to the one the model wrote last step. Any real
+  // divergence (a wall/car bounce mutated vx/vy) arms the heading-lock window.
+  // With NO collision the model reads back exactly what it wrote → never fires
+  // → normal driving is byte-identical.
+  const hit = Math.abs(car.vx - st.ownVx) > HIT_EPS
+    || Math.abs(car.vy - st.ownVy) > HIT_EPS;
+  if (hit) st.hitTimer = HIT_LOCK_S;
+  else st.hitTimer = Math.max(0, st.hitTimer - dt);
+  const locked = st.hitTimer > 0;   // suppress reverse-flip + cap the projection
+
   // ---- absorb the velocity vector (collisions may have changed it) ----
   let v = Math.hypot(car.vx, car.vy);
   if (v > 0.4) st.phi = Math.atan2(car.vy, car.vx);   // low-speed gates × F (pxm-7.5 world)
@@ -162,7 +186,10 @@ export function stepArcade(car: CarState, input: Inputs, dt: number, p: ArcadePa
   // reversing = actually moving against the heading — evaluated ONLY in grip/exit
   // (a drift/spin-out body legitimately points >90° off the path; that's the
   // slide, not reverse — detecting it as reverse would kill the spin mid-way).
-  if (st.mode === 'grip') {
+  // SUPPRESSED during the collision heading-lock: a frontal bounce flips φ >90°
+  // off θ, which would falsely read as reverse and swap the nose — hold the
+  // pre-hit rev state instead so the car just shoves + slides.
+  if (st.mode === 'grip' && !locked) {
     st.rev = v > 0.4 ? Math.cos(angDiff(phi, theta)) < 0 : st.rev && brake > 0.05;
   }
   const rev = st.rev;
@@ -251,14 +278,25 @@ export function stepArcade(car: CarState, input: Inputs, dt: number, p: ArcadePa
     const dphi = clamp(p.kGrip * Math.sin(angDiff(align, phi)),
       -p.aLatMax / Math.max(v, 1.33), p.aLatMax / Math.max(v, 1.33));   // speed floor × F
     phi = norm(phi + dphi * dt);
+    // COLLISION heading-lock: actively rotate the (bounced) path back toward the
+    // KEPT heading at a fixed rate — the grip sin() above stalls near 180° (an
+    // exact head-on), so a floor realign guarantees the velocity returns to
+    // forward WITHOUT the heading moving (the OLD "shove + slide straight" feel).
+    if (locked) {
+      phi = norm(phi + clamp(angDiff(align, phi), -HIT_REALIGN * dt, HIT_REALIGN * dt));
+    }
 
     // FIX 1 — THE PROJECTION (slip invariant): |heading − path| ≤ sMax + |δ_exit|.
     // In pure grip the bound is sMax; during exit it shrinks with δ so the
-    // handover is seamless (no snap).
+    // handover is seamless (no snap). During the collision lock the correction
+    // is rate-capped to ~0 → the heading is FROZEN against the bounce (no nose
+    // end-swap); φ is realigned to θ above instead.
     const bound = p.sMax + Math.abs(st.delta);
     const slip = angDiff(st.rev ? norm(theta + Math.PI) : theta, phi);
     const clipped = clamp(slip, -bound, bound);
-    if (clipped !== slip) theta = norm(theta - (slip - clipped));
+    let corr = slip - clipped;
+    if (locked) corr = clamp(corr, -HIT_PROJ_CAP * dt, HIT_PROJ_CAP * dt);
+    if (corr !== 0) theta = norm(theta - corr);
   } else if (st.mode === 'spinout') {
     // ---- SPIN-OUT: the body spins free of the path; ω decays exponentially
     // (total rotation FINITE = spinYaw/spinDecay), speed scrubs hard (L1), the
@@ -314,6 +352,11 @@ export function stepArcade(car: CarState, input: Inputs, dt: number, p: ArcadePa
   if (v < 0.2 && throttle < 0.05 && brake < 0.05 && !input.handbrake) {
     v = 0; car.vx = 0; car.vy = 0; car.angularVel = 0; st.rev = false;
   }
+
+  // Record the model's OWN velocity so the NEXT step can detect an external
+  // impulse (collision) as a divergence from it. With no collision the read-back
+  // is exact → the hit detector never fires → normal driving byte-identical.
+  st.ownVx = car.vx; st.ownVy = car.vy;
 
   // ---- synthesize the consumer fields (render / effects / HUD / sound / XP) ----
   const sliding = st.mode === 'drift' || st.mode === 'spinout';

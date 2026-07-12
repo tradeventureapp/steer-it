@@ -2081,3 +2081,29 @@ tightest 57 px gap; donut R 35 px < icon 49 px; drift path R 55 px threads the t
 that TIGHTEST gap is 7.5 m so the drift margin there is only 1.04× (barely; most gaps wider; grip threads
 ≤11 m/s) = the old-video tight-gap-threading feel. tsc + build clean. **NEXT: look at the desktop (video
 proportions) + keyboard/tilt test.**
+
+---
+**COLLISION REVERT — cooldown heading-lock (frontal-bounce end-swap 171° → 5°, OLD feel restored;
+normal driving byte-identical):** the boss saw the car SWAP ENDS on a frontal/reverse hit. DIAGNOSED
+(harness, read-only): the collision code (`collideWithRects` physics.ts + `collidePairCars` cars.ts) is
+UNCHANGED since pre-today (`d466cef`) — both mutate only vx/vy (car-car also damps ω ×0.92), never the
+heading. The NEW arcade model was re-deriving φ (motion dir) from the BOUNCED velocity every frame
+(arcadeModel.ts:167) and re-aiming θ to it via (a) the reverse-flip (:175, `cos(φ,θ)<0` → treats a
+>90° bounce as reverse) + (b) the grip projection (θ := φ+clamp), so a frontal bounce (φ jumps ~180°)
+swung the nose **171°** (OLD sim-real-2 = **0°**, heading is an independent integrated state). Lateral/
+glancing hits were ~identical in both (not the issue); the scale change was NOT the cause. **FIX
+(arcadeModel.ts only):** a per-car collision detector — the model records its OWN end-of-step velocity
+(`st.ownVx/ownVy`); if the next step reads a divergent `car.vx/vy` (`|Δ|>HIT_EPS 1e-4`), an external
+impulse hit → arm `st.hitTimer = HIT_LOCK_S 0.3 s`. While locked: (1) the reverse-flip (:175) is
+SUPPRESSED (a bounce can't false-trigger reverse), (2) the grip projection correction is rate-capped to
+`HIT_PROJ_CAP 0.3 rad/s` → **θ FROZEN** against the bounce (no nose swap), (3) the path φ is actively
+realigned to θ at `HIT_REALIGN 8 rad/s` (the grip sin() stalls at an exact 180°, so a floor realign
+returns the velocity to forward without moving the heading) — the OLD "shove + slide straight" feel.
+**VERIFIED 6/6:** frontal bounce pre-fix 171° → **fixed 5°** (≈ OLD 0°); lateral/glancing mild + unchanged;
+**normal driving byte-identical (0.0e+0 vs pre-fix)** — the detector never fires without a collision (the
+model reads back exactly what it wrote); car-car ω impulse still decays (peak 1.9 → 0.00, no pirouette).
+KEPT untouched: the new arcade model normal physics/feel, scale (pxm 7.5), desktop restore, sim-real-2,
+transport, the collision code itself. **HONEST NOTE:** a LATERAL shove now yields 0° heading change (vs
+OLD's 8°) because the lock also freezes θ on a sideways hit — negligible/cleaner (the car is shoved
+sideways keeping its facing), not the end-swap. tsc + build clean. **NEXT: boss tests collisions (hit a
+wall/icon/car head-on → shove + slide, no end-swap; lateral bump → nudge).**
