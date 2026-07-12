@@ -1951,3 +1951,36 @@ live):** Cloudflare TURN key + Vercel env vars; then the forced-relay check (`st
 → desktop console must log `via relay (TURN)`) and an LTE (WiFi-off) real-phone test; fallback line
 appears if a phone stays on Realtime ≥12 s. **Realtime is now signaling-only for every tier → the quota
 problem is closed.**
+
+---
+**NEW ARCADE DRIVING MODEL (`arcadeModel.ts`) — kinematic arcade controller, DEFAULT mode; sim-real-2 =
+hidden SIM (X toggles), physics.ts UNTOUCHED (0.0e+0):** the boss-approved quality spec built as SIX
+simple laws where the feel is the equation — NO Pacejka/load-transfer/emergent tyres. The model owns
+(v, φ, θ) = speed, motion direction, heading; CarState.vx/vy stay the source of truth so the EXISTING
+collision systems (cars.ts pair bounce, collideWithRects walls) keep mutating them and the next step
+absorbs the impulse. Per-car model state lives in a WeakMap keyed by the CarState object (respawn = new
+object = fresh state) → NO physics.ts change at all. **LAWS:** L1 thrust `dv=th·aMax·(1−(v/vTop)²)` (hard
+[0,vTop], punchy→flattening = aspirational top); L2 steering `ω_cmd=steer·ωMax·min(1,v/vRef)`, `dω=(ω_cmd−ω)/τ_steer`
+(τ_steer = rotation WEIGHT; first-order → no overshoot, collision ω decays); L3 grip `dφ=clamp(kGrip·sin(θ−φ),
+±aLatMax/v)` + **the PROJECTION `θ := φ+clamp(θ−φ,±sMax)`** (FIX 1 — grip slip invariant ≤9° by construction,
+excess steer just widens the arc); L4 drift = EXPLICIT state (enter: e-brake + |steer|≥0.25 + v≥8; steer SETS
+δ_target ∈ [δMin 15°, δMax 50°] hard-clamped; path `ω_path=dir·(0.9+|steer|·1.3)`; `dv=−bleed+th·feed ≤ 0` →
+every slide bleeds; exit: steer→centre OR v<6, δ→0 @ kExit; **heading CHASES φ+δ through τ_body 0.10 s**
+(FIX 3 — collision hits turn the body smoothly, no teleport)); L5 collisions = impulses into vx/vy/ω only →
+all decay to clamped targets; L6 reverse = brake at standstill (existing convention), mirrored steer, no
+drift in reverse. **VERIFIED (headless, 18/18 with the corrected speed-pinned fit tests):** slip invariant
+9.0° ≤ 9° at ALL speeds full-lock; T-bone in grip decays (slip 0.3°, ω 0.01, no spin); drift hit = smooth
+(max Δθ 0.089 rad/frame, bounded 34°≤50°); drift ALWAYS exits (release → grip 1.5°; off-throttle bleeds out
+5.4 s); donut R 4.9 m + exits; **fit table EXACT: grip R@15 = 18.8 m (theory 18.75 — does NOT thread the
+10 m gap), @11 = 10.1 (threads it), DRIFT R@12 = 5.5 (3× tighter = THE GAMEPLAY LOOP), R@19.3 = 31.2 = oval
+band centre**; launch deterministic + spam ≤ hold; reverse + re-hook; **sim-real-2 vs HEAD 0.0e+0**. Pace:
+top 162 km/h (45 m/s, oval straight ends at 124 = mid-band, top never reached on-map ✓), 0-50 1.68 s,
+launch 0.86 g, cruise cross 5.5 s, brake 100→0 32 m. **CarState synthesis:** rearSlip=δ (drift) / θ−φ ≤9°
+(grip) → skids/smoke/XP work; isRearSliding=DRIFT; wheelSpin=drift·throttle·0.8 (launch 0 → no lottery);
+rearWheelSpeed=sound proxy; driftActive/spinTimer set; no consumer breaks. **Wiring:** desktop
+`arcadeMode=true` default, X→SIM; `applyVariant` builds BOTH car.cfg (sim) + car.arcadeParams
+(ARCADE defaults × spec.arcade — rally: vTop 38, aLatMax 9, kGrip 4.5, δMax 57°, bleed/feed 4.5);
+**D-tuner = all 20 law knobs** (mutate live ARCADE + re-apply variants). Old `applyArcade` +
+`arcadeDriftHold` governor left in physics.ts but OFF the active path (gate 0 in sim; nothing calls
+applyArcade) — in git. **NEXT: keyboard smoke-test (X=SIM check, drive/drift/donut/reverse), then the
+boss feel-tunes on TILT (the 20 knobs).**

@@ -128,11 +128,13 @@ export function listVehicles(): VehicleIdentity[] {
 //  Type-only import of `Config` → no runtime dependency on physics (no cycle).
 // =============================================================================
 import type { Config } from './physics';
+import type { ArcadeParams } from './arcadeModel';
 
 export interface VehicleSpec {
   name: string;                    // internal codename (NO real brand strings)
   liveryColor?: string;            // fixed body hex; falls back to the slot colour
-  overrides: Partial<Config>;      // partial CONFIG override (feel only, NOT scale)
+  overrides: Partial<Config>;      // partial CONFIG override (SIM mode feel, NOT scale)
+  arcade?: Partial<ArcadeParams>;  // NEW arcade-model param overrides (per-car feel)
 }
 
 // ROAD — the base Blitz RS (grippy asphalt Sport-class coupe). NO overrides →
@@ -157,6 +159,16 @@ export const RALLY_SPEC: VehicleSpec = {
     simReal2BudgetRear: 4600,      // N — gravel µ_rear ~0.85 @1100kg (road 8800 / µ1.49)
     simReal2PeakFront: 3900,       // N — gravel µ_front ~0.72 (front < rear → oversteer-happy)
     simReal2FinalDrive: 4.4,       // short rally gearing → punch + rev-limited 5th ~225 km/h
+  },
+  // NEW arcade model: gravel character = less cornering grip, deeper drift,
+  // faster slide bleed, softer path re-align, slightly lower top.
+  arcade: {
+    vTop: 38,
+    aLatMax: 9,
+    kGrip: 4.5,
+    deltaMax: 1.0,       // ~57° — rally hangs it out deeper
+    driftBleed: 4.5,
+    driftFeed: 4.5,
   },
 };
 

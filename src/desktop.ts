@@ -3,7 +3,7 @@ import type { RealtimeChannel } from '@supabase/supabase-js';
 import { channelName, createResilientChannel } from './supabase';
 import { createRtcHost, connectionPathOf, createFallbackTracker, RTC_EV } from './rtc';
 import {
-  CONFIG, makeCar, step, bodyToWorld, collideWithRects, applyArcade,
+  CONFIG, makeCar, step, bodyToWorld, collideWithRects,
   type CarState, type Inputs, type Config,
 } from './physics';
 import { collideCars, applyInputs } from './cars';
@@ -17,6 +17,7 @@ import {
   PLAYER_CAP, LOBBY_SYNC_MS, RESILIENCE, EV, colorName, LobbyState,
 } from './lobby';
 import { ROAD_SPEC, RALLY_SPEC, type VehicleSpec } from './vehicles';
+import { stepArcade, makeArcadeParams, ARCADE, type ArcadeParams } from './arcadeModel';
 import {
   RaceManager, RACE_CONFIG, formatRaceTime,
   placeElement, removeElementAt, clearElements, findElementIndexAt,
@@ -183,19 +184,34 @@ document.body.appendChild(brakeTunerEl);
     200, 5000, 11000, (v) => String(Math.round(v)));
 
   // ARCADE knobs (only bite when MODE = ARCADE; re-spec every car so the change is live).
-  const reArcade = () => { if (arcadeMode) for (const c of cars.values()) applyVariant(c, c.spec); };
-  const aRow = (label: string, get: () => number, set: (v: number) => void,
-                stp: number, lo: number, hi: number) =>
-    mkRow(label, get, (v) => { set(v); reArcade(); }, stp, lo, hi, (v) => v.toFixed(2));
-  aRow('arcadePowerScale',     () => CONFIG.arcadePowerScale,     (v) => { CONFIG.arcadePowerScale = v; },     0.25, 1.0, 6.0);
-  aRow('arcadeDragScale',      () => CONFIG.arcadeDragScale,      (v) => { CONFIG.arcadeDragScale = v; },      0.2,  0.5, 5.0);
-  aRow('arcadeFrontGripScale', () => CONFIG.arcadeFrontGripScale, (v) => { CONFIG.arcadeFrontGripScale = v; }, 0.2,  0.8, 5.0);
-  aRow('arcadeRearGripScale',  () => CONFIG.arcadeRearGripScale,  (v) => { CONFIG.arcadeRearGripScale = v; },  0.2,  0.4, 5.0);
-  aRow('arcadeBrakeScale',     () => CONFIG.arcadeBrakeScale,     (v) => { CONFIG.arcadeBrakeScale = v; },     0.25, 1.0, 4.0);
-  aRow('arcadeCatchAssist',    () => CONFIG.arcadeCatchAssist,    (v) => { CONFIG.arcadeCatchAssist = v; },    0.05, 0.0, 1.0);
-  aRow('arcadeDriftHold',      () => CONFIG.arcadeDriftHoldGain,  (v) => { CONFIG.arcadeDriftHoldGain = v; },  0.1,  0.0, 1.5);
-  aRow('arcadeDriftAngle',     () => CONFIG.arcadeDriftAngle,     (v) => { CONFIG.arcadeDriftAngle = v; },     0.05, 0.3, 1.4);
-  aRow('arcadeDriftSpeed',     () => CONFIG.arcadeDriftSpeed,     (v) => { CONFIG.arcadeDriftSpeed = v; },     1,    8,   30);
+  // NEW ARCADE model — every law parameter is a knob. The rows mutate the live
+  // ARCADE defaults and re-apply variants so the change hits every car
+  // immediately (rally keeps its per-car overrides on top of the base).
+  const reArcade = () => { for (const c of cars.values()) applyVariant(c, c.spec); };
+  const aRow = (label: string, key: keyof ArcadeParams,
+                stp: number, lo: number, hi: number, d = 2) =>
+    mkRow(label, () => ARCADE[key],
+      (v) => { ARCADE[key] = v; reArcade(); }, stp, lo, hi, (v) => v.toFixed(d));
+  aRow('vTop (m/s)',        'vTop',           1,    20, 70, 0);
+  aRow('aMax (launch)',     'aMax',           0.5,  4,  16, 1);
+  aRow('aBrake',            'aBrake',         1,    6,  24, 0);
+  aRow('coastDecel',        'coastDecel',     0.25, 0.5, 6, 2);
+  aRow('omegaMax (agility)','omegaMax',       0.1,  0.8, 3, 2);
+  aRow('tauSteer (weight)', 'tauSteer',       0.02, 0.08, 0.6, 2);
+  aRow('kGrip',             'kGrip',          0.5,  2,  12, 1);
+  aRow('aLatMax (corner g)','aLatMax',        0.5,  6,  20, 1);
+  aRow('sMax (grip slip)',  'sMax',           0.01, 0.05, 0.35, 2);
+  aRow('deltaMin',          'deltaMin',       0.02, 0.1, 0.5, 2);
+  aRow('deltaMax',          'deltaMax',       0.05, 0.4, 1.2, 2);
+  aRow('kDelta',            'kDelta',         0.5,  2,  12, 1);
+  aRow('omegaDriftBase',    'omegaDriftBase', 0.1,  0.3, 2, 2);
+  aRow('omegaDriftGain',    'omegaDriftGain', 0.1,  0.4, 3, 2);
+  aRow('driftBleed',        'driftBleed',     0.25, 1,  8, 2);
+  aRow('driftFeed',         'driftFeed',      0.25, 0,  8, 2);
+  aRow('vMinDrift',         'vMinDrift',      0.5,  3,  12, 1);
+  aRow('kExit',             'kExit',          0.5,  3,  16, 1);
+  aRow('tauBody',           'tauBody',        0.01, 0.05, 0.3, 2);
+  aRow('vRevMax',           'vRevMax',        0.5,  3,  12, 1);
 }
 
 // ---------- Sound + visual effects ----------
@@ -247,9 +263,9 @@ window.addEventListener('keydown', (e) => {
     for (const car of cars.values()) applyVariant(car, currentVariant);
   }
   if (e.key === 'x' || e.key === 'X') {
-    // Toggle ARCADE ⇄ SIM — re-spec every car (re-applies applyArcade or the base cfg).
+    // Toggle NEW ARCADE ⇄ SIM (sim-real-2). Both param sets live on the car, so
+    // the flip is instant; the step call picks the model.
     arcadeMode = !arcadeMode;
-    for (const car of cars.values()) applyVariant(car, car.spec);
   }
   if (e.key === 'p' || e.key === 'P' || e.key === 'Escape') {
     if (e.key === 'Escape') e.preventDefault();   // just toggle the menu, nothing else
@@ -744,23 +760,25 @@ interface Car {
   local?: boolean;       // keyboard-driven LOCAL test car (no phone) — exempt from
                          //   the lobby sweep / syncCars removal; fed by driveKeyboard()
   spec: VehicleSpec;     // the car's variant (road / rally) — its physics profile
-  cfg: Config;           // effective config = { ...CONFIG, ...spec.overrides }; step() reads this
+  cfg: Config;           // SIM config = { ...CONFIG, ...spec.overrides }; sim-real-2 step() reads this
+  arcadeParams: ArcadeParams;  // NEW arcade model params (ARCADE defaults × spec.arcade)
   liveryColor?: string;  // fixed body hex from the spec; drawCar uses it over the slot colour
 }
 
-// ARCADE/SIM mode (toggled by X). SIM = the realistic layer (car.cfg = the base, untouched →
-// byte-identical). ARCADE = the base run through applyArcade() (faster + oversteer + catch).
-let arcadeMode = false;
+// ARCADE/SIM mode (toggled by X). NEW ARCADE (arcadeModel.ts stepArcade) is the
+// DEFAULT; SIM = sim-real-2 (car.cfg, physics.ts untouched → byte-identical).
+let arcadeMode = true;
 
-// Resolve a spec to a car's effective config + livery. ROAD (no overrides) →
-// base = CONFIG (the global ref) → in SIM, step() is byte-identical to the untouched car.
-// RALLY → a merged copy. ARCADE wraps the base through applyArcade(). Called at spawn / C / X.
+// Resolve a spec to a car's SIM config + arcade params + livery. ROAD (no
+// overrides) → cfg = CONFIG (the global ref) → SIM step() byte-identical.
+// Arcade params = live ARCADE defaults merged with the spec's per-car overrides
+// (rebuilt here so D-tuner changes apply live). Called at spawn / C / tuner.
 function applyVariant(car: Car, spec: VehicleSpec) {
   car.spec = spec;
-  const base = Object.keys(spec.overrides).length === 0
+  car.cfg = Object.keys(spec.overrides).length === 0
     ? CONFIG
     : { ...CONFIG, ...spec.overrides };
-  car.cfg = arcadeMode ? applyArcade(base) : base;
+  car.arcadeParams = makeArcadeParams(spec.arcade);
   car.liveryColor = spec.liveryColor;
 }
 
@@ -793,6 +811,7 @@ function makeManagedCar(slot: number, color: string): Car {
     coastInput: null,
     spec: ROAD_SPEC,   // overwritten by applyVariant below
     cfg: CONFIG,
+    arcadeParams: makeArcadeParams(),
   };
   applyVariant(car, currentVariant);   // spawn in the active variant
   return car;
@@ -1546,7 +1565,9 @@ function frame(now: number) {
         current.brake    += (target.brake    - current.brake)    * 0.3;
         current.handbrake = target.handbrake;
 
-        step(car.state, current, FIXED_DT, car.cfg);   // car.cfg = CONFIG (road) or merged (rally)
+        // NEW ARCADE model (default) or the hidden realistic sim-real-2 (X toggles).
+        if (arcadeMode) stepArcade(car.state, current, FIXED_DT, car.arcadeParams);
+        else step(car.state, current, FIXED_DT, car.cfg);
         const impact = collideWithRects(car.state, world.rects);
         if (impact > 0.8) {
           sound.impact(impact);
