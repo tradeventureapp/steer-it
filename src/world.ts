@@ -42,20 +42,20 @@ export interface DesktopWorld {
 // metres re-expressed in wheelbases (the old icon size was ≈ 2.53 wheelbases),
 // which restores the SHIPPED look (icon ≈ 1.45× the car) now in real metres.
 const WB = CONFIG.wheelbase;        // 2.565 m — the one ruler's car anchor
-// Desktop-feature unit: the icons/taskbar are scaled × 4/3 in METRES for the
-// pxm-7.5 world (F, the car-shrink factor) so they keep the SAME on-screen size
-// (metres × 7.5 = the old metres × 10) while the fixed-size 4.44 m car gets
-// proportionally MORE ROOM among them — the "small car, spacious map" look.
-// The oval is screen-derived and scales on its own; only the desktop features
-// carry this factor. Still one ruler: U is WB × a documented constant.
-const U = WB * (4 / 3);             // ≈ 3.42 m — the scaled desktop unit
-const ICON_SIZE = U * 2.53;         // ≈ 8.7 m  (icon glyph + hitbox)
-const BIN_SIZE = U * 3.35;          // ≈ 11.5 m
-const COL_SPACING = U * 8.65;       // ≈ 29.6 m
-const ROW_SPACING = U * 6.46;       // ≈ 22.1 m
-const MARGIN_X = U * 2.31;          // ≈ 7.9 m
-const MARGIN_Y = U * 1.85;          // ≈ 6.3 m
-export const TASKBAR_M = U * 2.08;  // ≈ 7.1 m  (taskbar height + collision wall)
+// Desktop-feature unit = the wheelbase (the WB-multipliers already encode the
+// SHIPPED / old-mode car-to-icon ratio ≈ 1.46). With the car now at 33 px
+// (pxm 7.5, the reference-video size), WB-bound icons render at the OLD-mode /
+// video px (icon 48.7, bin 64.5, col-spacing 166, taskbar 40 — all within ~1%
+// of the old pxm-22 look). The car-shrink ×4/3 was undone to restore that look;
+// the oval is screen-derived and unaffected. Still one ruler: U = WB.
+const U = WB;                       // 2.565 m — the desktop unit (= the wheelbase)
+const ICON_SIZE = U * 2.53;         // ≈ 6.5 m  → 48.7 px  (icon glyph + hitbox)
+const BIN_SIZE = U * 3.35;          // ≈ 8.6 m  → 64.5 px
+const COL_SPACING = U * 8.65;       // ≈ 22.2 m → 166 px
+const ROW_SPACING = U * 6.46;       // ≈ 16.6 m → 124 px
+const MARGIN_X = U * 2.31;          // ≈ 5.9 m
+const MARGIN_Y = U * 1.85;          // ≈ 4.7 m
+export const TASKBAR_M = U * 2.08;  // ≈ 5.3 m  → 40 px  (taskbar + collision wall)
 // Hitboxes are inset ~10% of the glyph for forgiveness.
 const HITBOX_INSET_FRAC = 0.05; // per side (fraction → auto-scales with the glyph)
 
