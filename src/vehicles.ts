@@ -163,12 +163,12 @@ export const RALLY_SPEC: VehicleSpec = {
   // NEW arcade model: gravel character = less cornering grip, deeper drift,
   // faster slide bleed, softer path re-align, slightly lower top.
   arcade: {
-    vTop: 38,
-    aLatMax: 9,
-    kGrip: 4.5,
-    deltaMax: 1.0,       // ~57° — rally hangs it out deeper
-    deltaSpin: 1.2,      // matching wider spin threshold (~69°)
-    driftBleed: 4.5,
+    vTop: 50.7,          // × F (pxm-7.5 world) — linear knob
+    aLatMax: 12,         // × F — linear knob
+    kGrip: 4.5,          // rate — unchanged
+    deltaMax: 1.0,       // ~57° — rally hangs it out deeper (angle, unchanged)
+    deltaSpin: 1.2,      // ~69° spin threshold (angle, unchanged)
+    driftBleed: 6.0,     // × F — linear knob
   },
 };
 

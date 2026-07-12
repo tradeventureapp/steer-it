@@ -553,7 +553,7 @@ export const CONFIG = {
   // physically and the speedometer stays honest at any value (step() never reads
   // this). Reference points (1920-px screen): 7.5 → world 256 m (floaty); 10 →
   // world 192 m; 15 → world 128 m; 22 → world 87 m. Iterate by changing JUST this number.
-  pxPerMeter: 10,
+  pxPerMeter: 7.5,
 
   // ---------- DRIFT MODEL ----------
   // The ONLY physics model now: sim-real-2 (the real-car sim). The arcade / sim / sim-real

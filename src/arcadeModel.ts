@@ -89,20 +89,26 @@ export interface ArcadeParams {
 }
 
 // The live-tunable defaults (D-tuner mutates THIS object, like CONFIG).
-// Starting values from the approved map-fit envelope (oval corner 19 m/s,
-// desktop 10 m gap: grip ≤ 11 m/s or drift through at R ≈ 5.5 m).
+// Starting values from the approved map-fit envelope, re-fit to the pxm-7.5
+// world (256 m, F = 1.333 vs the old 192 m / pxm 10). The LINEAR knobs (speeds
+// m/s, accels m/s²) are scaled × F so the on-screen tempo / corner px·s / drift
+// & donut px / launch are IDENTICAL to the pxm-10 build — only the car is
+// smaller (33 px). The ANGULAR / RATE knobs (ωMax, τ_steer, kGrip, kDelta, the
+// δ angles, hbSwingRate, ωDrift*, spin rates, sMax) are UNCHANGED (rotation is
+// scale-free — scaling them would change the tempo). Model LAWS unchanged.
+// oval corner ~25.7 m/s @ R41, desktop 13.3 m gap: grip ≤ 14.6 m/s or drift R ≈ 7.3 m.
 export const ARCADE: ArcadeParams = {
-  vTop: 45, aMax: 8.5, aBrake: 12, coastDecel: 2.5,
-  omegaMax: 1.7, vRef: 4, tauSteer: 0.28,
-  kGrip: 6, aLatMax: 12, sMax: 0.157,          // 9°
-  deltaMin: 0.26, deltaMax: 0.87, kDelta: 5,   // 15° … 50°
-  omegaDriftBase: 0.9, omegaDriftGain: 1.3,
-  driftBleed: 3.5, driftFeedCap: 0.7,          // full throttle still bleeds ≥30%
-  vMinDrift: 6, kExit: 8, tauBody: 0.10,
+  vTop: 60, aMax: 11.33, aBrake: 16, coastDecel: 3.33,   // × F (linear)
+  omegaMax: 1.7, vRef: 5.33, tauSteer: 0.28,             // vRef × F; ωMax/τ unchanged
+  kGrip: 6, aLatMax: 16, sMax: 0.157,                    // aLatMax × F; kGrip/sMax unchanged (9°)
+  deltaMin: 0.26, deltaMax: 0.87, kDelta: 5,             // angles/rate unchanged (15° … 50°)
+  omegaDriftBase: 0.9, omegaDriftGain: 1.3,              // rad/s — unchanged
+  driftBleed: 4.67, driftFeedCap: 0.7,                   // driftBleed × F; cap unitless
+  vMinDrift: 8, kExit: 8, tauBody: 0.10,                 // vMinDrift × F; kExit/τ unchanged
   driftExitSteer: 0.15,
-  hbDecel: 6, hbSwingRate: 0.9,                // lock brakes at 6 m/s²; rear swings ~0.9 rad/s
-  deltaSpin: 1.05, spinYaw: 4.5, spinDecay: 0.8, spinBleed: 6,  // 60°; spin ≈ 4.5/0.8 ≈ 320°+
-  vRevMax: 7,
+  hbDecel: 8, hbSwingRate: 0.9,                          // hbDecel × F; swing rate unchanged
+  deltaSpin: 1.05, spinYaw: 4.5, spinDecay: 0.8, spinBleed: 8,  // spinBleed × F; angles/rates unchanged
+  vRevMax: 9.33,                                         // × F
 };
 
 export function makeArcadeParams(over?: Partial<ArcadeParams>): ArcadeParams {
@@ -149,7 +155,7 @@ export function stepArcade(car: CarState, input: Inputs, dt: number, p: ArcadePa
 
   // ---- absorb the velocity vector (collisions may have changed it) ----
   let v = Math.hypot(car.vx, car.vy);
-  if (v > 0.3) st.phi = Math.atan2(car.vy, car.vx);
+  if (v > 0.4) st.phi = Math.atan2(car.vy, car.vx);   // low-speed gates × F (pxm-7.5 world)
   let phi = st.phi;
   let theta = car.heading;
 
@@ -157,13 +163,13 @@ export function stepArcade(car: CarState, input: Inputs, dt: number, p: ArcadePa
   // (a drift/spin-out body legitimately points >90° off the path; that's the
   // slide, not reverse — detecting it as reverse would kill the spin mid-way).
   if (st.mode === 'grip') {
-    st.rev = v > 0.3 ? Math.cos(angDiff(phi, theta)) < 0 : st.rev && brake > 0.05;
+    st.rev = v > 0.4 ? Math.cos(angDiff(phi, theta)) < 0 : st.rev && brake > 0.05;
   }
   const rev = st.rev;
   if (rev && st.mode !== 'grip') { st.mode = 'grip'; st.delta = 0; }  // no drift in reverse
 
   // ---- L6 REVERSE entry: brake held at ~standstill → back out ----
-  if (!rev && v < 0.4 && brake > 0.1 && throttle < 0.05) {
+  if (!rev && v < 0.53 && brake > 0.1 && throttle < 0.05) {
     st.rev = true;
     phi = st.phi = norm(theta + Math.PI);
   }
@@ -172,7 +178,7 @@ export function stepArcade(car: CarState, input: Inputs, dt: number, p: ArcadePa
   if (st.rev) {
     // brake pedal = reverse throttle; gas brakes the reverse (then hooks forward)
     v += (brake * 0.5 * p.aMax - throttle * p.aBrake) * dt;
-    if (v <= 0.05 && throttle > 0.05) { st.rev = false; phi = st.phi = theta; v = 0; }
+    if (v <= 0.067 && throttle > 0.05) { st.rev = false; phi = st.phi = theta; v = 0; }
     v = clamp(v, 0, p.vRevMax);
   } else if (st.mode === 'spinout') {
     // a spin scrubs speed hard; throttle does nothing while spinning
@@ -199,7 +205,7 @@ export function stepArcade(car: CarState, input: Inputs, dt: number, p: ArcadePa
   // intent (steer OR existing yaw), the rear SWINGS OUT → the slide begins as
   // a consequence — no steer threshold, no speed gate. STRAIGHT + lever = the
   // car just BRAKES (the boss's test): no turn direction → nothing to swing.
-  if (st.mode === 'grip' && !st.rev && input.handbrake && v > 1.5) {
+  if (st.mode === 'grip' && !st.rev && input.handbrake && v > 2.0) {
     const dir = Math.abs(steer) > 0.05 ? Math.sign(steer)
       : Math.abs(car.angularVel) > 0.25 ? Math.sign(car.angularVel) : 0;
     if (dir !== 0) {
@@ -218,7 +224,7 @@ export function stepArcade(car: CarState, input: Inputs, dt: number, p: ArcadePa
       car.angularVel = Math.abs(car.angularVel) > Math.abs(w0) ? car.angularVel : w0;
     } else if (!input.handbrake && (Math.abs(steer) < p.driftExitSteer || v < p.vMinDrift)) {
       st.mode = 'exit';   // rolling rear + steer to centre / slide spent → regrips
-    } else if (input.handbrake && v < 1.0) {
+    } else if (input.handbrake && v < 1.33) {
       st.mode = 'exit';   // locked down to a crawl → parked, not sliding
     }
   }
@@ -243,7 +249,7 @@ export function stepArcade(car: CarState, input: Inputs, dt: number, p: ArcadePa
     // L3: the path chases the heading, capped by the cornering limit
     const align = st.rev ? norm(theta + Math.PI) : theta;
     const dphi = clamp(p.kGrip * Math.sin(angDiff(align, phi)),
-      -p.aLatMax / Math.max(v, 1), p.aLatMax / Math.max(v, 1));
+      -p.aLatMax / Math.max(v, 1.33), p.aLatMax / Math.max(v, 1.33));   // speed floor × F
     phi = norm(phi + dphi * dt);
 
     // FIX 1 — THE PROJECTION (slip invariant): |heading − path| ≤ sMax + |δ_exit|.
@@ -273,7 +279,7 @@ export function stepArcade(car: CarState, input: Inputs, dt: number, p: ArcadePa
       // LOCKED: no lateral hold at the rear — it keeps SWINGING OUT (the angle
       // closes/tightens) while the lever brakes (L1). The unbounded growth IS
       // the risk: crossing deltaSpin breaks into the spin-out.
-      st.delta += st.dir * p.hbSwingRate * Math.min(1, v / 8) * dt;
+      st.delta += st.dir * p.hbSwingRate * Math.min(1, v / 10.67) * dt;
     } else {
       // ROLLING/SPINNING: steering AIMS the angle (throttle feeds the slide in
       // L1); the target is hard-bounded by the drift envelope.
@@ -305,7 +311,7 @@ export function stepArcade(car: CarState, input: Inputs, dt: number, p: ArcadePa
   st.phi = phi;
 
   // rest snap: everything idle below walking pace → truly parked
-  if (v < 0.15 && throttle < 0.05 && brake < 0.05 && !input.handbrake) {
+  if (v < 0.2 && throttle < 0.05 && brake < 0.05 && !input.handbrake) {
     v = 0; car.vx = 0; car.vy = 0; car.angularVel = 0; st.rev = false;
   }
 

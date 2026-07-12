@@ -42,13 +42,20 @@ export interface DesktopWorld {
 // metres re-expressed in wheelbases (the old icon size was ≈ 2.53 wheelbases),
 // which restores the SHIPPED look (icon ≈ 1.45× the car) now in real metres.
 const WB = CONFIG.wheelbase;        // 2.565 m — the one ruler's car anchor
-const ICON_SIZE = WB * 2.53;        // ≈ 6.5 m  (icon glyph + hitbox)
-const BIN_SIZE = WB * 3.35;         // ≈ 8.6 m
-const COL_SPACING = WB * 8.65;      // ≈ 22.2 m
-const ROW_SPACING = WB * 6.46;      // ≈ 16.6 m
-const MARGIN_X = WB * 2.31;         // ≈ 5.9 m
-const MARGIN_Y = WB * 1.85;         // ≈ 4.7 m
-export const TASKBAR_M = WB * 2.08; // ≈ 5.3 m  (taskbar height + collision wall)
+// Desktop-feature unit: the icons/taskbar are scaled × 4/3 in METRES for the
+// pxm-7.5 world (F, the car-shrink factor) so they keep the SAME on-screen size
+// (metres × 7.5 = the old metres × 10) while the fixed-size 4.44 m car gets
+// proportionally MORE ROOM among them — the "small car, spacious map" look.
+// The oval is screen-derived and scales on its own; only the desktop features
+// carry this factor. Still one ruler: U is WB × a documented constant.
+const U = WB * (4 / 3);             // ≈ 3.42 m — the scaled desktop unit
+const ICON_SIZE = U * 2.53;         // ≈ 8.7 m  (icon glyph + hitbox)
+const BIN_SIZE = U * 3.35;          // ≈ 11.5 m
+const COL_SPACING = U * 8.65;       // ≈ 29.6 m
+const ROW_SPACING = U * 6.46;       // ≈ 22.1 m
+const MARGIN_X = U * 2.31;          // ≈ 7.9 m
+const MARGIN_Y = U * 1.85;          // ≈ 6.3 m
+export const TASKBAR_M = U * 2.08;  // ≈ 7.1 m  (taskbar height + collision wall)
 // Hitboxes are inset ~10% of the glyph for forgiveness.
 const HITBOX_INSET_FRAC = 0.05; // per side (fraction → auto-scales with the glyph)
 
@@ -77,17 +84,17 @@ const ICON_SPECS: Array<{
 
 export function layoutDesktop(width: number, height: number): DesktopWorld {
   const icons: DesktopIcon[] = [];
-  const usableBottom = height - TASKBAR_M - WB * 1.38;   // ≈ 3.6 m
+  const usableBottom = height - TASKBAR_M - U * 1.38;   // ≈ 3.6 m
 
   // The car spawns at the world center — keep a clear circle around it so
   // it never materializes inside (or pressed against) an icon.
-  const spawnX = width / 2, spawnY = height / 2, spawnClear = WB * 5.19;  // ≈ 13.3 m
+  const spawnX = width / 2, spawnY = height / 2, spawnClear = U * 5.19;  // ≈ 13.3 m
 
   for (const s of ICON_SPECS) {
     const x = MARGIN_X + s.col * COL_SPACING + (s.jx ?? 0);
     const y = MARGIN_Y + s.row * ROW_SPACING + (s.jy ?? 0);
     // Skip icons that don't fit the current window (small screens).
-    if (x + ICON_SIZE > width - WB * 2.31 || y + ICON_SIZE + WB * 0.92 > usableBottom) continue;
+    if (x + ICON_SIZE > width - U * 2.31 || y + ICON_SIZE + U * 0.92 > usableBottom) continue;
     if (Math.hypot(x + ICON_SIZE / 2 - spawnX, y + ICON_SIZE / 2 - spawnY) < spawnClear) continue;
     icons.push({ type: s.type, label: s.label, x, y, size: ICON_SIZE });
   }
@@ -95,8 +102,8 @@ export function layoutDesktop(width: number, height: number): DesktopWorld {
   // Recycle bin in the classic corner — bottom-right, above the taskbar.
   icons.push({
     type: 'bin', label: 'Recycle Bin',
-    x: width - BIN_SIZE - WB * 2.53,
-    y: height - TASKBAR_M - BIN_SIZE - WB * 2.77,
+    x: width - BIN_SIZE - U * 2.53,
+    y: height - TASKBAR_M - BIN_SIZE - U * 2.77,
     size: BIN_SIZE,
   });
 
@@ -128,7 +135,7 @@ export function rebuildRects(world: DesktopWorld) {
 
 // Topmost icon under a point (meters), with a small grab margin.
 export function iconAt(world: DesktopWorld, x: number, y: number): DesktopIcon | null {
-  const m = WB * 0.23;   // grab margin ≈ 0.6 m
+  const m = U * 0.23;   // grab margin ≈ 0.6 m
   for (let i = world.icons.length - 1; i >= 0; i--) {
     const ic = world.icons[i];
     if (x >= ic.x - m && x <= ic.x + ic.size + m &&
@@ -141,9 +148,9 @@ export function iconAt(world: DesktopWorld, x: number, y: number): DesktopIcon |
 
 // Keep an icon inside the desktop: off the taskbar, label row visible.
 export function clampIconToBounds(world: DesktopWorld, ic: DesktopIcon) {
-  ic.x = Math.min(Math.max(ic.x, WB * 0.35), world.width - ic.size - WB * 0.35);
-  ic.y = Math.min(Math.max(ic.y, WB * 0.35),
-    world.height - world.taskbarHeight - ic.size - WB * 1.15);
+  ic.x = Math.min(Math.max(ic.x, U * 0.35), world.width - ic.size - U * 0.35);
+  ic.y = Math.min(Math.max(ic.y, U * 0.35),
+    world.height - world.taskbarHeight - ic.size - U * 1.15);
 }
 
 // On drop: nudge out of (most) overlaps with other icons, forgivingly —

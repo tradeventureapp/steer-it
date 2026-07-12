@@ -2041,3 +2041,30 @@ determinism, **sim-real-2 0.0e+0**. (3 interim FAILs were test bugs: a worst-acc
 over-tight 0.33 s threshold vs the τ_body onset, and a too-slow donut entry speed — the model was right.)
 D-tuner: `hbSwingRate` replaces the tighten pair. tsc + build clean. **NEXT: the boss's tilt test — the
 lever now brakes ALWAYS, swings the rear in any turn, tightens while held, spins if held too deep.**
+
+---
+**CAR SCALE — Option A (car 44→33 px = the reference video's 1.7%; world +33% in metres, on-screen tempo
+IDENTICAL):** measured the reference (old-mode desktop, 1918×1078): old 1/3 car 1.5 m × pxm 22 = 33 px =
+**1.72% of screen width**; today's 4.44 m car × pxm 10 = 44 px = 2.31% → the car is 1.34× too big vs the
+video. **⚠️ The prompt said "raise pxPerMeter" but the codebase math is the opposite** (`world_m =
+screen/pxm`, car fixed 4.44 m → `car_px = 4.44·pxm`), so LOWERING pxm shrinks the car AND grows the
+metre-world. Shrink factor **F = 1.333, pxPerMeter 10 → 7.5**. **Changes:** (1) `CONFIG.pxPerMeter 7.5`
+(car 33 px, world 192→256 m; the oval is screen-derived → auto-grows, no code change); (2) desktop
+icons/taskbar (world.ts) scaled × F via a documented unit `const U = WB·(4/3)` (all the WB-multipliers →
+U-multipliers: ICON 6.5→8.7 m, COL_SPACING 22.2→29.6 m, taskbar, margins, spawn-clear, drag clamps) → the
+icons keep the SAME on-screen px while growing in metres, so the fixed-4.44 m car has proportionally MORE
+ROOM; (3) **re-fit the arcade model = scale the LINEAR knobs × F** (vTop 45→60, aMax 8.5→11.33, aBrake
+12→16, coastDecel 2.5→3.33, vRef 4→5.33, aLatMax 12→16, driftBleed 3.5→4.67, vMinDrift 6→8, hbDecel 6→8,
+spinBleed 6→8, vRevMax 7→9.33) + the hardcoded low-speed metre constants × F (rest-snap 0.15→0.2, reverse
+0.3→0.4 / 0.4→0.53 / 0.05→0.067, drift-entry v>1.5→2.0, locked-exit v<1→1.33, hbSwing ramp v/8→v/10.67,
+dphi speed floor 1→1.33); LEFT the ANGULAR/RATE knobs (ωMax, τ_steer, kGrip, kDelta, δ angles, hbSwingRate,
+ωDrift*, spin rates, sMax) unchanged (rotation is scale-free → scaling would change the tempo). Rally arcade
+overrides scaled the same way. Model LAWS unchanged. **MEASURED (harness, TODAY pxm10 vs SCALED pxm7.5,
+ON-SCREEN):** cross-screen 7.63 = 7.63 s, launch 168 ≈ 167 px, oval corner 193 = 193 px/s, donut 35 = 35 px,
+drift path 55 = 55 px, top 450 = 450 px/s — **ALL IDENTICAL** → the re-fit holds; only the car is smaller
+(33 vs 44 px). **HONEST metre-side consequence:** HUD numbers grow × 1.33 (top 162→216 km/h, launch 0.87→
+1.15 g) — on-screen pace unchanged, metric speeds higher (top is aspirational). Fit confirmed in the 256 m
+world: oval corner 25.7 m/s @ R41, desktop 13.3 m gap grips ≤14.6 m/s or drifts R≈7.3 m (1.8× room), donut
+R 4.6 m < icon 8.7 m. **sim-real-2 step() 0.0e+0** (pxPerMeter is render-only; step() unchanged); transport
+untouched; tsc + build clean. **NEXT: keyboard/desktop look (small car in a spacious map = the video) →
+boss tilt-checks; if he wants the car even smaller, drop pxm further with the same ×F recipe.**
