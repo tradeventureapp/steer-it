@@ -167,8 +167,8 @@ export const RALLY_SPEC: VehicleSpec = {
     aLatMax: 9,
     kGrip: 4.5,
     deltaMax: 1.0,       // ~57° — rally hangs it out deeper
+    deltaSpin: 1.2,      // matching wider spin threshold (~69°)
     driftBleed: 4.5,
-    driftFeed: 4.5,
   },
 };
 

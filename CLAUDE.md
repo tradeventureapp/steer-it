@@ -1984,3 +1984,33 @@ rearWheelSpeed=sound proxy; driftActive/spinTimer set; no consumer breaks. **Wir
 `arcadeDriftHold` governor left in physics.ts but OFF the active path (gate 0 in sim; nothing calls
 applyArcade) — in git. **NEXT: keyboard smoke-test (X=SIM check, drive/drift/donut/reverse), then the
 boss feel-tunes on TILT (the 20 knobs).**
+
+---
+**ARCADE L4/HANDBRAKE REDESIGN (boss live-test defects — the e-brake is now the DRIFT TOOL: causes,
+TIGHTENS, and BRAKES; overrotation risk EXISTS):** three law fixes in `arcadeModel.ts`, rest of the model
+untouched. **(1) hb = brake, never boost (the third-model curse ended by INVARIANT):** in DRIFT
+`dv = −driftBleed + throttle·driftFeedCap·driftBleed − (hbHeld ? hbDecel : 0)` — `driftFeedCap 0.7 < 1`
+hard-capped in code (throttle offsets at MOST 70% of the bleed) → **dv/dt < 0 in a drift ALWAYS**
+(measured: full throttle + held hb = −7.1 m/s² every frame; full throttle no hb still bleeds). The e-brake
+also BRAKES in grip (`hbDecel 6` added to the grip decel). **(2) held e-brake TIGHTENS:** `st.tight` grows
+at `hbTightenRate 0.35 rad/s` while held (clamped `hbTightenMax 0.4`), decays 2× on release; it ADDS to
+δ_target → the angle closes past the steer target (measured: held vs released after 1.3 s = 48° vs 25°,
+and scrubs 43 vs 71 km/h); the radius also tightens geometrically (R = v/ω, v scrubbed). Tap = enter
+(immediate, same frame), hold = tighten + scrub, release = drift lives on steered by tilt. **(3) SPIN-OUT
+exists:** δ_target past `deltaSpin 1.05 (60°)` (reachable ONLY by holding the e-brake deep — full lock
+alone targets δMax 50° < 60° so the approved controllable DONUT survives; the risk rides the hb hold per
+the boss's "hold too long" mechanic) → third state SPINOUT: ω := spinYaw 4.5 decaying exponentially at
+`spinDecay 0.8` (**total rotation FINITE = spinYaw/spinDecay ≈ 320°**), v scrubs at `spinBleed 6`, throttle
+ignored; recovery at |ω|<0.8 hands the FULL residual angle to exit (unclamped — clamping snapped the body)
+and `EXIT_RATE_CAP 3.5 rad/s` unwinds it spin-smoothly (kExit alone would yank 16 rad/s on a 120° residual).
+**Two spin bugs found+fixed by the harness:** reverse-detection killed the spin at 90° body-vs-path (rev
+now evaluated ONLY in grip mode) and the exit handover/projection snapped the heading. **(4) self-
+termination:** held-forever e-brake drift ENDS in 2.4 s (scrub → exit/spin). **VERIFIED 16/16:** both dv<0
+invariants; tighten (48° vs 25°); spin exists, lasts 2.1 s, rotates 257°, ENDS, recovers to grip; held-
+forever terminates; regressions green (slip invariant 9°, collision decay grip+drift, release exit, donut
+R 3.5 m for 3.9 s then self-terminates BY DESIGN — feed<bleed means donuts need re-provoking; note
+vMinDrift 6 / vMinEnter 8 gap makes an ended donut need speed to re-enter, a feel-tuning knob pair),
+launch determinism, **sim-real-2 0.0e+0**. New D-tuner knobs: `driftFeedCap · hbDecel · hbTightenRate ·
+hbTightenMax · deltaSpin · spinYaw · spinDecay · spinBleed` (rally: deltaSpin 1.2). tsc + build clean.
+**NEXT: boss tests the handbrake loop on TILT — tap→drift, hold→tighten+scrub, hold too long→spin-out,
+release→steer the drift; donut lifetime + the vMinDrift/vMinEnter gap are the first feel knobs to dial.**
