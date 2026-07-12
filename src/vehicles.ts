@@ -144,32 +144,9 @@ export const ROAD_SPEC: VehicleSpec = {
   overrides: {},
 };
 
-// RALLY — the Group-A gravel build of the SAME car: lighter, more power, much
-// LOWER grip (gravel µ) → loose / slidey / rotation-happy, short rally gearing.
-// All real units on the one ruler; wheelbase/pxPerMeter inherited (same size).
-// Starting values — tune on the keyboard/phone (drop the grip budgets for more
-// slide, lengthen finalDrive for a higher top, etc.).
-export const RALLY_SPEC: VehicleSpec = {
-  name: 'Blitz RS Rally',
-  liveryColor: '#eaf0f5',          // rally white — distinct from the muted road palette
-  overrides: {
-    mass: 1100,                    // kg — rally-lightened (1200 → 1100; inertia 1875 → 1719)
-    simReal2PeakTorque: 287,       // Nm — +20% → ~285 hp (road 240 Nm / 238 hp)
-    simReal2IdleTorque: 191,       // Nm — keeps the idle/peak ratio
-    simReal2BudgetRear: 4600,      // N — gravel µ_rear ~0.85 @1100kg (road 8800 / µ1.49)
-    simReal2PeakFront: 3900,       // N — gravel µ_front ~0.72 (front < rear → oversteer-happy)
-    simReal2FinalDrive: 4.4,       // short rally gearing → punch + rev-limited 5th ~225 km/h
-  },
-  // NEW arcade model: gravel character = less cornering grip, deeper drift,
-  // faster slide bleed, softer path re-align, slightly lower top.
-  arcade: {
-    vTop: 50.7,          // × F (pxm-7.5 world) — linear knob
-    aLatMax: 12,         // × F — linear knob
-    kGrip: 4.5,          // rate — unchanged
-    deltaMax: 1.0,       // ~57° — rally hangs it out deeper (angle, unchanged)
-    deltaSpin: 1.2,      // ~69° spin threshold (angle, unchanged)
-    driftBleed: 6.0,     // × F — linear knob
-  },
-};
+// RALLY variant RETIRED (Fase-0 cleanup — it depended on sim-real-2 grip
+// overrides which are also retired). The spec lives in git; re-add a VehicleSpec
+// here (with physics4 overrides once Fase 0+ exposes per-car params) to bring a
+// second car back.
 
-export const VEHICLE_SPECS: VehicleSpec[] = [ROAD_SPEC, RALLY_SPEC];
+export const VEHICLE_SPECS: VehicleSpec[] = [ROAD_SPEC];

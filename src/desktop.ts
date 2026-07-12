@@ -3,8 +3,8 @@ import type { RealtimeChannel } from '@supabase/supabase-js';
 import { channelName, createResilientChannel } from './supabase';
 import { createRtcHost, connectionPathOf, createFallbackTracker, RTC_EV } from './rtc';
 import {
-  CONFIG, makeCar, step, bodyToWorld, collideWithRects,
-  type CarState, type Inputs, type Config,
+  CONFIG, makeCar, bodyToWorld, collideWithRects,
+  type CarState, type Inputs,
 } from './physics';
 import { collideCars, applyInputs } from './cars';
 import {
@@ -16,8 +16,19 @@ import { Effects } from './effects';
 import {
   PLAYER_CAP, LOBBY_SYNC_MS, RESILIENCE, EV, colorName, LobbyState,
 } from './lobby';
-import { ROAD_SPEC, RALLY_SPEC, type VehicleSpec } from './vehicles';
+import { ROAD_SPEC, type VehicleSpec } from './vehicles';
 import { stepArcade, makeArcadeParams, ARCADE, type ArcadeParams } from './arcadeModel';
+import { step4, PHYS4, type Physics4Params } from './physics4';
+
+// The two live models behind the X toggle: ARCADE (the shipping reference) and
+// PHYSICS4 (the new per-wheel model, Fase 0). sim-real-2 + rally are retired.
+type DriveMode = 'arcade' | 'physics4';
+// Drive model behind the X toggle: ARCADE (shipping reference, DEFAULT) ⇄
+// PHYSICS4 (new per-wheel, Fase 0). Declared here (before the D-tuner build,
+// which reads it) to avoid a TDZ at init.
+let driveMode: DriveMode = 'arcade';
+// Swaps the D-tuner to the active model's knobs (assigned when the tuner builds).
+let showTunerFor: (m: DriveMode) => void = () => {};
 import {
   RaceManager, RACE_CONFIG, formatRaceTime,
   placeElement, removeElementAt, clearElements, findElementIndexAt,
@@ -140,9 +151,13 @@ brakeTunerEl.style.cssText =
 document.body.appendChild(brakeTunerEl);
 {
   const title = document.createElement('div');
-  title.textContent = 'SIM-REAL-2 TUNE — live (resets on reload)';
   title.style.cssText = 'font-weight:700;letter-spacing:.5px;margin-bottom:6px;color:#ff8a3d;';
   brakeTunerEl.appendChild(title);
+
+  // Each row is tagged with its model group so the tuner can show only the
+  // active model's knobs (no bloat). curGroup is set before each row block.
+  const tunerRows: Array<{ g: string; row: HTMLElement }> = [];
+  let curGroup = 'arcade';
 
   const mkRow = (
     label: string, get: () => number, set: (v: number) => void,
@@ -171,19 +186,12 @@ document.body.appendChild(brakeTunerEl);
     };
     row.append(name, mkBtn('−', -step), val, mkBtn('+', step));
     upd();
+    row.dataset.g = curGroup;
+    tunerRows.push({ g: curGroup, row });
     brakeTunerEl.appendChild(row);
   };
 
-  // sim-real-2 live feel-tune knobs (resets on reload → bake into physics.ts). Add rows here
-  // for Stage-C scale/feel tuning; arcade/sim/sim-real are gone, so there is only one model.
-  mkRow('simReal2BrakeForce', () => CONFIG.simReal2BrakeForce, (v) => { CONFIG.simReal2BrakeForce = v; },
-    500, 6000, 20000, (v) => String(Math.round(v)));
-  mkRow('simReal2BudgetRear', () => CONFIG.simReal2BudgetRear, (v) => { CONFIG.simReal2BudgetRear = v; },
-    200, 6000, 12000, (v) => String(Math.round(v)));
-  mkRow('simReal2PeakFront', () => CONFIG.simReal2PeakFront, (v) => { CONFIG.simReal2PeakFront = v; },
-    200, 5000, 11000, (v) => String(Math.round(v)));
-
-  // ARCADE knobs (only bite when MODE = ARCADE; re-spec every car so the change is live).
+  // ---------- ARCADE knobs (group 'arcade') ----------
   // NEW ARCADE model — every law parameter is a knob. The rows mutate the live
   // ARCADE defaults and re-apply variants so the change hits every car
   // immediately (rally keeps its per-car overrides on top of the base).
@@ -218,6 +226,36 @@ document.body.appendChild(brakeTunerEl);
   aRow('kExit',             'kExit',          0.5,  3,  16, 1);
   aRow('tauBody',           'tauBody',        0.01, 0.05, 0.3, 2);
   aRow('vRevMax',           'vRevMax',        0.5,  3,  12, 1);
+
+  // ---------- PHYSICS4 knobs (group 'phys4', Fase 0 per-wheel) ----------
+  curGroup = 'phys4';
+  const pRow = (label: string, key: keyof Physics4Params,
+                stp: number, lo: number, hi: number, d = 2) =>
+    mkRow(label, () => PHYS4[key], (v) => { PHYS4[key] = v; }, stp, lo, hi, (v) => v.toFixed(d));
+  pRow('massKg',            'massKg',               25,   800, 1800, 0);
+  pRow('weightDistFront',   'weightDistFront',      0.01, 0.4, 0.65, 2);
+  pRow('cgHeight',          'cgHeight',             0.02, 0.2, 0.9, 2);
+  pRow('yawInertiaK',       'yawInertiaK',          0.05, 0.8, 1.8, 2);
+  pRow('loadTransLong',     'loadTransferLongGain', 0.1,  0,   2.5, 2);
+  pRow('loadTransLat',      'loadTransferLatGain',  0.1,  0,   2.5, 2);
+  pRow('muNom (grip)',      'muNom',                0.05, 0.8, 2.5, 2);
+  pRow('loadSensitivity',   'loadSensitivity',      0.02, 0,   0.6, 2);
+  pRow('tireB (stiffness)', 'tireB',                0.5,  4,   20, 1);
+  pRow('tireC (shape)',     'tireC',                0.05, 1.1, 2.0, 2);
+  pRow('tireEllipseLong',   'tireEllipseLong',      0.05, 0.5, 1.5, 2);
+  pRow('relaxLength',       'relaxLength',          0.05, 0.1, 1.5, 2);
+  pRow('lowSpeedBlend',     'lowSpeedBlend',        0.25, 1,   6, 2);
+  pRow('maxSteer',          'maxSteer',             0.02, 0.3, 0.8, 2);
+
+  // Show only the active model's rows (+ set the panel title).
+  showTunerFor = (mode: DriveMode) => {
+    const g = mode === 'arcade' ? 'arcade' : 'phys4';
+    title.textContent = mode === 'arcade'
+      ? 'ARCADE TUNE — live (resets on reload)'
+      : 'PHYSICS4 TUNE — per-wheel Fase 0 (live)';
+    for (const t of tunerRows) t.row.style.display = t.g === g ? '' : 'none';
+  };
+  showTunerFor(driveMode);
 }
 
 // ---------- Sound + visual effects ----------
@@ -262,16 +300,11 @@ window.addEventListener('keydown', (e) => {
     qrOn = !qrOn;
     updateQrVisibility();
   }
-  if (e.key === 'c' || e.key === 'C') {
-    // Cycle the car variant (road ↔ rally) live — re-spec every car in place.
-    const i = (CAR_VARIANTS.indexOf(currentVariant) + 1) % CAR_VARIANTS.length;
-    currentVariant = CAR_VARIANTS[i];
-    for (const car of cars.values()) applyVariant(car, currentVariant);
-  }
   if (e.key === 'x' || e.key === 'X') {
-    // Toggle NEW ARCADE ⇄ SIM (sim-real-2). Both param sets live on the car, so
-    // the flip is instant; the step call picks the model.
-    arcadeMode = !arcadeMode;
+    // Toggle ARCADE ⇄ PHYSICS4 (the new per-wheel model). Instant — the step
+    // dispatch picks the model; the D-tuner swaps to the active model's knobs.
+    driveMode = driveMode === 'arcade' ? 'physics4' : 'arcade';
+    showTunerFor(driveMode);
   }
   if (e.key === 'p' || e.key === 'P' || e.key === 'Escape') {
     if (e.key === 'Escape') e.preventDefault();   // just toggle the menu, nothing else
@@ -765,25 +798,15 @@ interface Car {
                               //   start so the ramp eases from it to neutral
   local?: boolean;       // keyboard-driven LOCAL test car (no phone) — exempt from
                          //   the lobby sweep / syncCars removal; fed by driveKeyboard()
-  spec: VehicleSpec;     // the car's variant (road / rally) — its physics profile
-  cfg: Config;           // SIM config = { ...CONFIG, ...spec.overrides }; sim-real-2 step() reads this
+  spec: VehicleSpec;     // the car's variant (ROAD only now — rally retired)
   arcadeParams: ArcadeParams;  // NEW arcade model params (ARCADE defaults × spec.arcade)
   liveryColor?: string;  // fixed body hex from the spec; drawCar uses it over the slot colour
 }
 
-// ARCADE/SIM mode (toggled by X). NEW ARCADE (arcadeModel.ts stepArcade) is the
-// DEFAULT; SIM = sim-real-2 (car.cfg, physics.ts untouched → byte-identical).
-let arcadeMode = true;
-
-// Resolve a spec to a car's SIM config + arcade params + livery. ROAD (no
-// overrides) → cfg = CONFIG (the global ref) → SIM step() byte-identical.
-// Arcade params = live ARCADE defaults merged with the spec's per-car overrides
-// (rebuilt here so D-tuner changes apply live). Called at spawn / C / tuner.
+// Resolve a spec to a car's arcade params + livery. ROAD only (rally retired) →
+// car.arcadeParams = the live ARCADE defaults. Called at spawn / tuner.
 function applyVariant(car: Car, spec: VehicleSpec) {
   car.spec = spec;
-  car.cfg = Object.keys(spec.overrides).length === 0
-    ? CONFIG
-    : { ...CONFIG, ...spec.overrides };
   car.arcadeParams = makeArcadeParams(spec.arcade);
   car.liveryColor = spec.liveryColor;
 }
@@ -791,10 +814,7 @@ function applyVariant(car: Car, spec: VehicleSpec) {
 // Keyed by slot so routing/lookup is O(1) and nothing is hardcoded to 2 cars.
 const cars = new Map<number, Car>();
 const DEFAULT_CAR_COLOR = '#1d3fa0';
-// The active car variant (cycled live by the C key). New cars spawn in it; the
-// C handler also re-applies it to every existing car. ROAD by default → the
-// untouched, byte-identical car.
-const CAR_VARIANTS: VehicleSpec[] = [ROAD_SPEC, RALLY_SPEC];
+// Only ROAD remains (rally retired). New cars spawn in it.
 let currentVariant: VehicleSpec = ROAD_SPEC;
 // Input behaviour through a packet gap is governed by the UNIFIED lifecycle —
 // hold (coast) → ramp to neutral → parked-in-place — all keyed off RESILIENCE
@@ -816,7 +836,6 @@ function makeManagedCar(slot: number, color: string): Car {
     inputStale: false,
     coastInput: null,
     spec: ROAD_SPEC,   // overwritten by applyVariant below
-    cfg: CONFIG,
     arcadeParams: makeArcadeParams(),
   };
   applyVariant(car, currentVariant);   // spawn in the active variant
@@ -1572,8 +1591,8 @@ function frame(now: number) {
         current.handbrake = target.handbrake;
 
         // NEW ARCADE model (default) or the hidden realistic sim-real-2 (X toggles).
-        if (arcadeMode) stepArcade(car.state, current, FIXED_DT, car.arcadeParams);
-        else step(car.state, current, FIXED_DT, car.cfg);
+        if (driveMode === 'arcade') stepArcade(car.state, current, FIXED_DT, car.arcadeParams);
+        else step4(car.state, current, FIXED_DT);
         const impact = collideWithRects(car.state, world.rects);
         if (impact > 0.8) {
           sound.impact(impact);
@@ -1750,7 +1769,7 @@ function updateHud() {
     const parked = cur.throttle < 0.02 && cur.brake < 0.02 && !cur.handbrake
       && s.speed < CONFIG.restSpeed;
     debugEl.textContent =
-      `CAR: ${lead!.spec.name}   MODE: ${arcadeMode ? 'ARCADE' : 'SIM'}   (C = car · X = arcade/sim)\n` +
+      `MODE: ${driveMode === 'arcade' ? 'ARCADE' : 'PHYSICS4 (per-wheel, Fase 0 — no throttle)'}   (X = switch)\n` +
       `slot ${lead!.slot}   steer ${cur.steer.toFixed(2)}   (spin-arm ≥ ${armT.toFixed(2)}${cur.handbrake ? ' HB' : ''})\n` +
       `throttle ${cur.throttle.toFixed(2)}  brake ${cur.brake.toFixed(2)}  hb ${cur.handbrake ? 'ON' : 'off'}\n` +
       `|v| ${s.speed.toFixed(3)} m/s   yaw ${s.angularVel.toFixed(3)} rad/s   rest=${parked ? 'Y' : 'n'} (≤${CONFIG.restSpeed})\n` +

@@ -2107,3 +2107,43 @@ transport, the collision code itself. **HONEST NOTE:** a LATERAL shove now yield
 OLD's 8°) because the lock also freezes θ on a sideways hit — negligible/cleaner (the car is shoved
 sideways keeping its facing), not the end-swap. tsc + build clean. **NEXT: boss tests collisions (hit a
 wall/icon/car head-on → shove + slide, no end-swap; lateral bump → nudge).**
+
+---
+**FASE 0 — 4-WHEEL (per-wheel) FOUNDATION (`physics4.ts`) — the bicycle model's ceiling replaced:**
+the new per-wheel base, behind the X toggle (**ARCADE reference ⇄ PHYSICS4 new**). Built per the approved
+architecture. **Model (Fase 0 = chassis only, NO throttle/brake/handbrake):** 4 contact points from real
+geometry (WB 2.565 / track 1.46, CoM→axle from `weightDistFront` 0.52); **static load** 52/48 front +
+**dynamic transfer** (ΔFz_long = m·a_x·h/WB accel→rear, ΔFz_lat = m·a_y·h/T →outer; prev-frame body accel,
+clamped ±static, per-wheel Fz≥0); **grip = f(load) with DIMINISHING RETURNS** (`μ(Fz)=muNom−loadSens·(Fz−
+Fz_static)/Fz_static`, μ floor 0.3) → transferring load DROPS total axle grip = the drama; **relaxation-
+length slip** per wheel (low-pass τ=relaxLength/|vlong|, kills the low-speed blowup) → **Magic-Formula
+lateral** (`Fy=−D·sin(C·atan(B·α))`, peak-then-falloff) inside a **friction ellipse** with a GENEROUS
+longitudinal axis (Fx=0 in Fase 0; ready so Fase 1 drive keeps forward-bite → the sim-real speed-bleed is
+designed out, fully verified in Fase 1); forces **sum to net force + yaw torque** about the CoM (yaw now
+from front/rear AND **left/right** grip diffs), integrated with mass 1200 + **Iz=m·k² ≈1875**; **low-speed
+kinematic blend** (<2.5 m/s → blend ω to the bicycle-kinematic yaw + nudge velocity to heading) +
+rest-snap. **Heading is an INDEPENDENT state** (θ+=ω·dt, NOT re-derived from velocity) → the arcade 171°
+collision end-swap CANNOT recur. Per-car state (4 relaxation slips + prev accel) in a WeakMap → physics.ts
+UNTOUCHED. **CarState mapping:** rearSlip=max(|α_RL|,|α_RR|), frontSlip=max fronts, isRearSliding=rear
+tyre ≥0.95·D or |rearSlip|>0.15, wheelSpin=0 (Fase 0), rearWheelSpeed=|v| proxy; +exported `wheelDebug()`
+(per-wheel load/slip for HUD). **VERIFIED 13/13 (headless):** (1) load transfer DROPS axle grip 8476→8171 N
+(−3.6%, diminishing returns — the break-loose enabler; tunable via loadSensitivity); (2) LOW-SPEED STABLE
+— parking |v|max 0.000/still, slow donut ωmax 0.9 no NaN/shoot-off, low-speed coast yaw jitter 0.000
+(no shake); (3) yaw emerges — corner loads outer side 11068 N vs inner 732 N (huge L/R diff), ω develops;
+(4) **BREAK-LOOSE reachable + HONEST: Fase 0 (no throttle) UNDERSTEERS at a moderate limit** (front washes
+31°, rear grips — real RWD-without-throttle), the rear breaks loose at high speed (140 km/h) / on a flick,
+recovers cleanly (ω→0, a slide bleeds energy) — **oversteer/drift ON DEMAND is Fase 1**; (5) deterministic
++ cold-start clamped (no ΔFz spike); (6) frontal bounce heading swing **0°** (no end-swap); (7) **ARCADE
+byte-identical 0.0e+0** (untouched). **CLEANUP: sim-real-2 + RALLY retired from the active path** —
+desktop.ts dispatch is now `arcade ⇄ physics4` only (X), C-key/rally removed, `car.cfg`/`Config` import/3
+sim-real-2 tuner rows dropped, `RALLY_SPEC`/`VEHICLE_SPECS[rally]` removed from vehicles.ts (all in git;
+physics.ts `step()` body stays as the shared CONFIG/makeCar/collideWithRects host, unreferenced — a later
+pass can strip it). **D-tuner** swaps to the active model's knobs (arcade set OR the 14 physics4 knobs:
+massKg/weightDistFront/cgHeight/yawInertiaK/loadTransferLong/Lat/muNom/loadSensitivity/tireB/tireC/
+tireEllipseLong/relaxLength/lowSpeedBlend/maxSteer) — no bloat. tsc + build clean; multi-car; one ruler.
+**⚠️ KNOWN (tuning, expected):** lateral transfer is strong (inner nearly lifts at the limit — dial
+cgHeight/loadTransferLatGain); Fase 0 has no forward thrust so the car only COASTS (throw speed to test).
+**TOGGLE-REMOVAL PLAN:** once physics4 wins the feel test (Fase 3), delete arcade + arcadeModel.ts →
+physics4 the only model, no toggle. **NEXT: boss tests PHYSICS4 on phone (X) — throw speed, corner, feel
+the WEIGHT / load transfer / understeer-at-limit / break-loose at speed. Then Fase 1 (throttle + handbrake
++ brake + longitudinal friction-circle).**
