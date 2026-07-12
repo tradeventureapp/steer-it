@@ -2068,3 +2068,16 @@ world: oval corner 25.7 m/s @ R41, desktop 13.3 m gap grips ≤14.6 m/s or drift
 R 4.6 m < icon 8.7 m. **sim-real-2 step() 0.0e+0** (pxPerMeter is render-only; step() unchanged); transport
 untouched; tsc + build clean. **NEXT: keyboard/desktop look (small car in a spacious map = the video) →
 boss tilt-checks; if he wants the car even smaller, drop pxm further with the same ×F recipe.**
+
+---
+**DESKTOP LOOK RESTORED — icon/taskbar × 4/3 undone (`world.ts` U = WB·(4/3) → U = WB):** the previous
+car-scale task had inflated the desktop icons ×1.333 (for "more room"); with the car now at 33 px (the
+video size) that made the icons 1.34× too big vs the old mode (icon-to-car 1.95 vs the old 1.47). Reverted
+to WB-bound (the WB-multipliers already encode the shipped ~1.46 ratio) → at pxm 7.5 the desktop renders
+at the OLD-mode / video px within ~1%: ICON 48.7 (old 48.4), BIN 64.4 (63.8), TASKBAR 40.0 (39.6),
+COL_SPACING 171 (165), car-to-icon 1.46 (1.47). Only `world.ts` changed; car 33 px + arcade knobs ×1.333
++ sim-real-2 + transport + oval (screen-derived) all UNTOUCHED. **Fit (harness):** car 33 px fits the
+tightest 57 px gap; donut R 35 px < icon 49 px; drift path R 55 px threads the tightest 57 px gap — but
+that TIGHTEST gap is 7.5 m so the drift margin there is only 1.04× (barely; most gaps wider; grip threads
+≤11 m/s) = the old-video tight-gap-threading feel. tsc + build clean. **NEXT: look at the desktop (video
+proportions) + keyboard/tilt test.**
