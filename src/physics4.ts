@@ -76,29 +76,33 @@ export interface Physics4Params {
 }
 
 // D-tunable defaults (the boss tunes these live; mutated in place like CONFIG).
+// GROUP A SIM (E30 M3 Group A / DTM ref — public name Blitz RS): a realistic
+// early-90s circuit race special. High realistic slick grip, decisive breakaway,
+// race brakes, ~1020 kg stripped weight, 370 hp. The honest per-wheel sim
+// benchmark (a separate forgiving ARCADE car is built on top later).
 export const PHYS4: Physics4Params = {
-  massKg: 1200,
-  weightDistFront: 0.50,   // 50/50 (was 52/48) — mild understeer at the limit, rear not first
-  cgHeight: 0.5,
-  yawInertiaK: 1.25,
+  massKg: 1020,            // Group A stripped race weight (was 1200)
+  weightDistFront: 0.50,   // ~50/50 → neutral-mild-understeer at the limit
+  cgHeight: 0.45,          // lowered race car → less load transfer → planted
+  yawInertiaK: 1.20,       // Iz = 1020·1.20² ≈ 1469 (agile; was 1875)
   loadTransferLongGain: 1.0,
   loadTransferLatGain: 1.0,
-  muNom: 1.75,             // raised 1.5→1.75: outer wheels hold ~1.5g → 1.0-1.3g corners GRIP
-  loadSensitivity: 0.15,
-  tireB: 11,
-  tireC: 1.5,
+  muNom: 1.90,             // race slicks: outer wheels hold ~1.6g → grips hard
+  loadSensitivity: 0.12,   // slicks are more consistent under load (planted)
+  tireB: 14,               // slick: sharper rise to peak (stiffer, peak ~5.7°)
+  tireC: 1.65,             // slick: DECISIVE peak-then-falloff (a real edge, not padded)
   tireEllipseLong: 1.0,
   relaxLength: 0.5,
   lowSpeedBlend: 2.5,
   maxSteer: 0.52,
-  // FASE 1 drive tools — 370 hp RACE SPECIAL (was 230 hp)
-  peakThrust: 13000,       // sharper low-end punch + willing power-over
+  // 370 hp RACE SPECIAL
+  peakThrust: 13000,       // sharp low-end punch + willing power-over
   enginePower: 276000,     // 276 kW ≈ 370 hp
   powerFloorSpeed: 5,
   rollRadius: 0.30,
   wheelInertia: 22,
-  brakeForce: 14000,
-  brakeBiasFront: 0.6,
+  brakeForce: 15000,       // ~1.34g race brakes at 1020 kg (measured)
+  brakeBiasFront: 0.6,     // front-biased → trail-braking rotates (real load transfer)
   tireBx: 18,
   tireCx: 1.6,
   hbKineticMu: 0.9,
@@ -108,7 +112,7 @@ export const PHYS4: Physics4Params = {
   engineBrakeSlideFade: 0.9,
   wheelInertiaSlideFactor: 0.55,
   wheelReturnRate: 10,
-  driftYawDamp: 500,
+  driftYawDamp: 375,       // re-tuned 500→375 for the lower Iz (1469 vs 1875)
   reverseSpeed: 9,        // m/s ≈ 32 km/h — a real RWD coupe reverses briskly
   reverseForce: 10000,    // N → ~8.3 m/s² backward = quick pickup, not a crawl
   reverseDelay: 0.5,

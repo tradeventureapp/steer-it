@@ -2365,3 +2365,33 @@ willing (rearSlip 33°), accel faster, sustain/handbrake/stationary-HB/reverse/c
 **ARCADE 0.0e+0**. tsc + build clean; physics.ts untouched. **NEXT: boss feel-tests (X → PHYSICS4): 50
 km/h corner GRIPS (no early slide), launch spins the rears but tracks straight, 370hp pulls hard,
 power-over willing. Dial muNom (grip), peakThrust/enginePower (power), wheelInertia (launch spin drama).**
+
+---
+**GROUP A SIM RE-SPEC (E30 M3 Group A / DTM anchor; the honest per-wheel sim benchmark; 16/16):** the
+physics4 car re-tuned to a realistic early-90s circuit race special (public name Blitz RS). **Numbers,
+all physically consistent:** `massKg` 1200→**1020** (stripped race weight), `yawInertiaK` 1.25→**1.20**
+(Iz = 1020·1.2² ≈ 1469, agile), `cgHeight` 0.5→**0.45** (lowered → less transfer → planted),
+`weightDistFront` **0.50** (neutral-mild-understeer), `muNom` 1.75→**1.90** (race slicks ~1.6g),
+`loadSensitivity` 0.15→**0.12** (slicks consistent under load), `tireB` 11→**14** (sharper rise, peak
+~5.7°), `tireC` 1.5→**1.65** (DECISIVE slick breakaway — grips hard then lets go, not a padded road-tyre
+falloff), `brakeForce` 14000→**15000** (1.34g measured), `brakeBiasFront` 0.6 (front-biased, trail
+transfer), power/thrust as-is (370 hp). **WEIGHT-REGRESSION re-tune (1200→1020):** `driftYawDamp`
+500→**375** (lower Iz makes it relatively stronger); wheelInertia 22 / engineBrakeTorque 500 /
+wheelReturnRate 10 / hbKineticMu 0.9 verified fine at the new mass. **MEASURED:** 0-50 **1.65 s**, 0-100
+**3.48 s** (was 3.88 @1200kg), top **248 km/h**, braking **1.34g** (100→0 ≈ 30 m). **70 km/h BUG =
+already fixed** (d2c9fd7); now grips even firmer — peak **1.79g**, understeer, holds its line, no false
+smoke. **VERIFIED 16/16:** 70 km/h grips trivially (1.79g); hard cornering grips (front-limited
+understeer, rear not first); break-loose ONLY on provocation (throttle → rearSlip 27°); race brakes 1.34g
++ trail-brake shifts load FORWARD (front 3547 N > rear 1536 N = rear lightens, real transfer); **weight-
+regression stack OK** — sustain HOLDS a drift with skill (throttle 0.9 breaks the high slick grip loose,
+counter-steer 0.45-0.65 holds β ~33-73° — a real skill-window sim drift, NOT arcade-easy), handbrake
+locks+enters+brakes, release winds down, launch stable+deterministic; accel/top reasonable; reverse/coast/
+low-speed/parking intact; **ARCADE 0.0e+0**. **⚠️ HONEST (sim character, flagged):** the slick drift is a
+SKILL WINDOW — it needs high throttle (drive must overcome the higher grip) + precise counter-steer to
+hold; ease off and the slick regrips (correct). Trail-brake LIGHTENS the rear (real load transfer) but
+oversteer-on-trail is SUBTLE at 1.9μ slick grip — the primary drift provocations are handbrake + throttle
+power-over; a stronger trail-brake would want a lower `brakeBiasFront` (tuning lever). tsc + build clean;
+physics.ts untouched; arcade toggle model untouched. **NEXT: boss feel-tests the Group A SIM on phone
+(X → PHYSICS4): grips hard through fast corners, race brakes, drift needs commitment (full throttle +
+counter-steer = skill), decisive slick edge, 370 hp pulls. Dial muNom/tireB/tireC (grip+edge),
+brakeBiasFront (trail-brake), driftYawDamp (drift stability). Then the separate forgiving ARCADE car.**
