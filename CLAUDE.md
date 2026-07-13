@@ -2278,3 +2278,35 @@ after engaging (final 33 km/h); GATING UNCHANGED (engages only after brake held 
 braked-to-stop + 0.4 s brake → still NOT reversing); steering still mirrored, still un-sticks. Both remain
 D-tuner knobs. tsc + build clean. **NEXT: boss feel-tests reverse speed on phone; dial reverseForce/
 reverseSpeed if wanted.**
+
+---
+**FASE 1 DRIFT-SUSTAIN fix (throttle can now HOLD a drift — the equilibrium hole closed; 14/14):**
+DIAGNOSED (read-only): the drift SPUN at every throttle incl. 0 (no equilibrium). Root = (1) throttle→
+wheelspin GAP — engine braking (500 N·m) + big `wheelInertia` 22 made the rear BRAKE (κ=−1) at low/mid
+throttle, wheelspin (κ>0) only at ~0.5 → no smooth partial-wheelspin band; (2) no yaw stability → the
+marginally-stable drift oscillated/spun. Handoff ruled out (rear stays sliding through release, no regrip
+gap). **FIX (longitudinal-rear + yaw-damp only; lateral/geometry untouched):** all SMOOTH-faded on the
+REAR LATERAL slip depth (`SLIDE_SLIP_LO 9°→HI 23°`, so a straight launch burnout = ~0 lateral = NOT a
+slide → launch protected). **(A)** `engineBrakeSlideFade` 0.9 — engine-braking fades off as the rear
+slides → low/partial throttle gives κ≈0→progressive wheelspin (opens the bottom of the sustain range).
+**(B)** `wheelInertiaSlideFactor` 0.55 — effective wheel inertia drops in a slide (22→~12) → partial
+throttle = proportional wheelspin = a held angle (not a sluggish step); measured SMOOTH (0 κ direction-
+flips, no oscillation — the launch-inertia window respected). **(C)** `driftYawDamp` 500 — mild
+slide-gated yaw-rate damping (physical: tyre relaxation resisting yaw) widens the stable hold band so the
+drift SETTLES instead of spinning. **MEASURED (damp 500):** low throttle 0.3 SUSTAINS |β| ~22° (was: spin
+at every throttle); more throttle OPENS it (t0.45 → deeper); excess (full throttle + little counter) SPINS
+(|β| 95° — the risk); counter-steer CATCHES it back to grip (β→0, controllable/recoverable). **GUARDS all
+pass:** (1) in-slide wheelspin SMOOTH (0 flips); (2) grip↔slide SMOOTH FADE (max yaw jerk 5 rad/s³, no
+entry/exit step); (3) LAUNCH clean + distinguished (straight = 0° lateral slip → no fade → wspin 12%,
+deterministic). Regressions: handbrake ALWAYS brakes, stationary-HB no smoke, drift carries speed, coast
+slows, low-speed stable, determinism, **ARCADE 0.0e+0**. New D-tuner knobs: `engineBrakeSlideFade` /
+`wheelInertiaSlideFactor` / `driftYawDamp`. **⚠️ HONEST SCOPE:** the sustain is now a controllable **skill
+window** (throttle+counter-steer holds a moderate-deep drift, excess spins, catch recovers) — NOT a wide
+forgiving band. Fixed-input harness WANDERS (±17°) because a drift is a driver-held equilibrium (feedback
+holds it — the CATCH test proves control); on the phone the analog throttle + real-time counter-steer will
+hold it. A WIDER/more-forgiving band is limited by FRONT counter-authority (the front washes post-peak at
+deep β), which is LATERAL grip — the boss ring-fenced lateral/geometry, so a wider band is a possible
+FOLLOW-UP on front grip, flagged not done. tsc + build clean; physics.ts untouched. **NEXT: boss
+feel-tunes the sustain on the phone (X → PHYSICS4): flick/handbrake in → hold with counter-steer +
+partial throttle → more throttle opens, ease closes, excess spins, counter-steer catches. Dial
+driftYawDamp (stability↔depth), engineBrakeSlideFade + wheelInertiaSlideFactor (throttle response).**

@@ -60,6 +60,14 @@ export interface Physics4Params {
   dragCoef: number;           // aero drag: Fdrag = dragCoef·v² (N per (m/s)²) (0.8)
   rollResist: number;         // rolling resistance: constant force opposing motion (N) (200)
   engineBrakeTorque: number;  // closed-throttle drag torque on the rear wheels (N·m) (500)
+  // ---- DRIFT SUSTAIN: fade engine-braking + wheel inertia as the rear SLIDES
+  // (gated on LATERAL slip → a straight-line launch burnout is NOT a slide) so
+  // partial throttle gives progressive wheelspin = a held drift angle. ----
+  engineBrakeSlideFade: number;   // 0..1 — how much engine-braking fades in a full slide (0.9)
+  wheelInertiaSlideFactor: number;// 0..1 — fraction of wheel inertia kept in a full slide (0.55)
+  driftYawDamp: number;           // N·m·s/rad — mild SLIDE-GATED yaw damping (widens the stable
+                                  // hold band so a drift SETTLES at an angle instead of spinning;
+                                  // physical = the tyres' relaxation resisting yaw; 0 = off) (500 — low-mid throttle + counter-steer HOLDS a drift, excess SPINS; a skill window)
   // ---- reverse (stopped + brake held) ----
   reverseSpeed: number;       // m/s — reverse speed cap (9 ≈ 32 km/h, brisk RWD-coupe reverse)
   reverseForce: number;       // N — reverse drive force (brake pedal = reverse throttle) (10000)
@@ -98,6 +106,9 @@ export const PHYS4: Physics4Params = {
   dragCoef: 0.8,
   rollResist: 200,
   engineBrakeTorque: 500,
+  engineBrakeSlideFade: 0.9,
+  wheelInertiaSlideFactor: 0.55,
+  driftYawDamp: 500,
   reverseSpeed: 9,        // m/s ≈ 32 km/h — a real RWD coupe reverses briskly
   reverseForce: 10000,    // N → ~8.3 m/s² backward = quick pickup, not a crawl
   reverseDelay: 0.5,
@@ -105,6 +116,11 @@ export const PHYS4: Physics4Params = {
 
 const MU_FLOOR = 0.3;         // μ never collapses to ≤0 under huge load
 const SLIP_LONG_FLOOR = 0.5;  // m/s — |vlong| floor for the slip-angle atan (relaxation also guards)
+// DRIFT-SUSTAIN fade window on the rear LATERAL slip angle (rad): the fades ramp
+// in SMOOTHLY between these (no jerk on entry/exit) and are keyed on LATERAL slip
+// so a straight launch burnout (longitudinal slip, ~0 lateral) never triggers them.
+const SLIDE_SLIP_LO = 0.15;  // ~9° — fade starts
+const SLIDE_SLIP_HI = 0.40;  // ~23° — full slide (fades at max)
 
 // ---- per-car state (physics.ts untouched) ----
 interface P4State {
@@ -327,6 +343,15 @@ export function step4(car: CarState, input: Inputs, dt: number, p: Physics4Param
     if (hb) { st.rearOmega[ri] = 0; continue; }
     let omega = st.rearOmega[ri];
     const Tbrake = brakeEff * p.brakeForce * (1 - p.brakeBiasFront) / 2 * rr;
+    // DRIFT-SUSTAIN fade: how deep this rear wheel is SLIDING, by its LATERAL
+    // slip angle (relaxation-filtered → smooth ramp, no entry/exit jerk). A
+    // straight launch burnout has ~0 lateral slip → slideFrac 0 → no fade →
+    // launch stays protected (distinguished from a real lateral drift).
+    const slideFrac = clamp((Math.abs(st.slip[ri + 2]) - SLIDE_SLIP_LO)
+      / (SLIDE_SLIP_HI - SLIDE_SLIP_LO), 0, 1);
+    // (B) LOWER effective wheel inertia as it slides → partial throttle gives a
+    // proportional, controllable wheelspin (a held angle), not a sluggish step.
+    const IwEff = p.wheelInertia * (1 - (1 - p.wheelInertiaSlideFactor) * slideFrac);
     // SOFT launch traction control: below tractionSpeed, once the wheel reaches
     // the target slip, cut the drive torque to just BALANCE the tyre force (hold
     // the slip, don't spin more) → the tyre delivers its grip smoothly = strong,
@@ -337,12 +362,13 @@ export function step4(car: CarState, input: Inputs, dt: number, p: Physics4Param
       const targetSlipOmega = (rearVlong[ri] + p.tractionSlipCap * Math.max(Math.abs(rearVlong[ri]), 3)) / rr;
       if (omega >= targetSlipOmega) Tdrive = Math.min(Tdrive, rearFx[ri] * rr);
     }
-    // ENGINE BRAKING: at closed throttle a compression/friction drag torque
-    // resists the wheel → on release the wheel drops to (and below) rolling
-    // speed → κ→0 (driven wheelspin/smoke stops) → below rolling κ<0 the tyre
-    // brakes the car (contributes to coast decel).
-    const Tengine = (1 - throttle) * p.engineBrakeTorque;
-    omega += (Tdrive - rearFx[ri] * rr - Math.sign(omega) * (Tbrake + Tengine)) / p.wheelInertia * dt;
+    // ENGINE BRAKING: closed-throttle compression drag → on release the wheel
+    // drops to rolling (κ→0, smoke stops) + below rolling brakes the car (coast).
+    // (A) FADED OFF as the rear slides so low/partial throttle no longer BRAKES a
+    // drifting rear (κ<0) → κ≈0→progressive wheelspin = the bottom of the sustain
+    // range. Straight launch (slideFrac 0) keeps full engine braking.
+    const Tengine = (1 - throttle) * p.engineBrakeTorque * (1 - p.engineBrakeSlideFade * slideFrac);
+    omega += (Tdrive - rearFx[ri] * rr - Math.sign(omega) * (Tbrake + Tengine)) / IwEff * dt;
     if (omega < 0) omega = 0;   // brake can't drive the wheel backward (no reverse yet)
     st.rearOmega[ri] = omega;
   }
@@ -371,8 +397,17 @@ export function step4(car: CarState, input: Inputs, dt: number, p: Physics4Param
   const awx = abx * cos - aby * sin;
   const awy = abx * sin + aby * cos;
   let vx = car.vx + awx * dt;
+  // (C) MILD SLIDE-GATED YAW DAMPING: a drift is a marginally-stable equilibrium
+  // → without damping the yaw oscillates/runs away (spin). A yaw-rate damping
+  // torque, gated on the REAR lateral slide depth (smooth, so normal driving is
+  // untouched), lets the drift SETTLE at a held angle and widens the throttle
+  // band. Physical (the tyres' relaxation/aligning resisting yaw), not a motion
+  // source — it only opposes existing yaw.
+  const rearSlideFrac = clamp((Math.max(Math.abs(st.slip[2]), Math.abs(st.slip[3])) - SLIDE_SLIP_LO)
+    / (SLIDE_SLIP_HI - SLIDE_SLIP_LO), 0, 1);
+  const Tyaw = Tz - p.driftYawDamp * w * rearSlideFrac;
   let vy = car.vy + awy * dt;
-  let omega = w + Tz / Iz * dt;
+  let omega = w + Tyaw / Iz * dt;
 
   // ---- low-speed KINEMATIC BLEND (< lowSpeedBlend): guarantees launch / donut
   // / parking stability. Below the threshold, blend ω toward the kinematic
