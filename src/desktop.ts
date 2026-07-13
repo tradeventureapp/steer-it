@@ -257,6 +257,7 @@ document.body.appendChild(brakeTunerEl);
   pRow('tractionSlipCap',   'tractionSlipCap',      0.02, 0.02, 0.5, 2);
   pRow('tireBx (long stiff)','tireBx',              1,    6,   30, 0);
   pRow('tireCx (long shape)','tireCx',              0.05, 1.1, 2.2, 2);
+  pRow('hbKineticMu',       'hbKineticMu',          0.05, 0.4, 1.2, 2);
 
   // Show only the active model's rows (+ set the panel title).
   showTunerFor = (mode: DriveMode) => {

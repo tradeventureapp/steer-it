@@ -2181,3 +2181,26 @@ sim-real collapse); 1.0 is the start. **NEXT: boss tests PHYSICS4 (X) on phone �
 lottery), throttle-drift (power-over, carries speed), handbrake (locks + always brakes + entry), brake
 (front bite/trail rotation), counter-steer to catch, exit on release. Tune tireEllipseLong for the
 carry-vs-bleed feel. Then Fase 2 (reverse, engine curve/gears if wanted) + Fase 3 gameplay.**
+
+---
+**FASE 1 HANDBRAKE FIX — locked-rear KINETIC SCRUB (was 0.66·D rolling-MF weak → now full-budget scrub;
+10/10):** the boss felt the handbrake do almost nothing. DIAGNOSED (read-only harness): the lock pinned
+rear ω→0 INSTANTLY (wheelInertia 22 NOT the cause), but the locked wheel's force used the rolling
+`MF(κ)` at κ≈−1, where the longitudinal Magic-Formula is POST-PEAK = only **0.66·D** → the friction
+ellipse then left the rear ~**0.83·D LATERAL** grip → the rear kept gripping (β only −4°→−11° mid-corner,
+held-HB β −6° vs released −9° = the angle did NOT open). FIX: a locked wheel SLIDES on its whole contact
+patch → its force is KINETIC friction = the **full grip budget × `hbKineticMu` (0.9) directed OPPOSITE
+the contact slip velocity**, replacing BOTH the rolling MF(κ) longitudinal AND the slip-angle lateral for
+the locked rear (`Fx = −Dkin·vlong/slipMag`, `Fy = −Dkin·vlat/slipMag`, `slipMag = max(hypot(vlong,vlat),
+1)`); the friction ellipse is SKIPPED for the locked rear (already at the full budget by construction).
+Rear wheels only, under handbrake only; rolling/normal driving UNCHANGED. **MEASURED 10/10:** (1) instant
+lock (ω 0.000 in 1 frame); (2) rear lateral COLLAPSES mid-corner → drift entry (β −4°→**−38°**, rearSlip
+7°→**44°**); (3) held HB **OPENS the angle** (β **116° held vs 57° released** — tail swings way out,
+counter-steerable); (4) ALWAYS brakes — dv/dt<0 straight AND with FULL throttle (worst −4.81 m/s²),
+**deeper** (5.1 m/s² vs the old 0.66·D weak); (5) low-speed stable (parking with HB |v|max 0.000, HB
+donut ωmax 1.4 no NaN — the `slipMag` floor + low-speed blend hold); (6) determinism + **ARCADE
+0.0e+0**. New D-tuner knob `hbKineticMu` (0.9). physics.ts untouched. **⚠️ NOTE:** the lock is now STRONG
+(held-HB β 116° ≈ a big tail-out that can spin if over-held) — dial `hbKineticMu` down on the phone if
+too eager. tsc + build clean. **NEXT: boss tests the handbrake on phone (X → PHYSICS4): tap = drift
+entry, hold = tail swings out + scrub-brakes, counter-steer to hold the angle; then continue tuning
+tireEllipseLong (carry-vs-bleed) + hbKineticMu (lock strength). Then Fase 2/3.**

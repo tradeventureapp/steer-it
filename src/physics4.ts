@@ -52,6 +52,7 @@ export interface Physics4Params {
   tractionSlipCap: number;    // slip-ratio cap under traction control (0.12 — clean launch)
   tireBx: number;             // Magic-Formula LONGITUDINAL stiffness (18)
   tireCx: number;             // Magic-Formula longitudinal shape (1.6)
+  hbKineticMu: number;        // locked-rear kinetic-scrub fraction of the grip budget (0.9)
 }
 
 // D-tunable defaults (the boss tunes these live; mutated in place like CONFIG).
@@ -81,6 +82,7 @@ export const PHYS4: Physics4Params = {
   tractionSlipCap: 0.12,
   tireBx: 18,
   tireCx: 1.6,
+  hbKineticMu: 0.9,
 };
 
 const MU_FLOOR = 0.3;         // μ never collapses to ≤0 under huge load
@@ -209,32 +211,37 @@ export function step4(car: CarState, input: Inputs, dt: number, p: Physics4Param
       p.muNom - p.loadSensitivity * (Fz - FzStatic[i]) / FzStatic[i]);
     const D = mu * Fz;   // this wheel's grip budget
 
-    // Magic-Formula lateral (peak-then-falloff = the kinetic/drift regime)
+    // Magic-Formula lateral (peak-then-falloff = the kinetic/drift regime).
+    // OVERRIDDEN for a LOCKED rear below (a locked wheel scrubs, it doesn't roll).
     let Fy = -D * Math.sin(p.tireC * Math.atan(p.tireB * alpha));
-
-    // ---- longitudinal force (FASE 1) — per-wheel friction circle ----
     let Fx = 0;
+    const lockedRear = !front && hb;
+
     if (front) {
       // fronts: brake only (not driven). Brake force opposes motion, capped by
       // grip via the ellipse below → ABS-like (front locks only at full pedal).
       const fBrake = brake * p.brakeForce * p.brakeBiasFront / 2;
       Fx = -Math.sign(vlong) * fBrake;
+    } else if (lockedRear) {
+      // HANDBRAKE = LOCKED rear: the whole contact patch SLIDES on the ground,
+      // so the force is KINETIC friction = the full grip budget (× hbKineticMu)
+      // directed OPPOSITE the contact slip velocity — NOT the rolling MF(κ),
+      // which sat at only 0.66·D at full lock and left the rear gripping. This
+      // consumes the ENTIRE circle → lateral COLLAPSES (drift entry / the tail
+      // swings out) and Fx is the full along-motion brake (dv/dt<0, deeper).
+      const slipMag = Math.max(Math.hypot(vlong, vlat), 1);
+      const Dkin = D * p.hbKineticMu;
+      Fx = -Dkin * vlong / slipMag;
+      Fy = -Dkin * vlat / slipMag;                 // overrides the slip-angle lateral
+      st.slipRatio[i - 2] = -Math.sign(vlong);     // full slip (smoke / HUD)
     } else {
       const ri = i - 2;   // 0=RL, 1=RR
-      let omega = st.rearOmega[ri];
-      if (hb) {
-        // HANDBRAKE = LOCKED rear wheel: ωw pinned to 0 → the lock OVERRIDES
-        // drive torque (a stopped wheel can't be driven). κ = −vlong/… → full
-        // longitudinal slip → kinetic scrub ALWAYS opposing motion (brakes),
-        // and it eats the friction circle → rear lateral collapses (drift).
-        omega = 0;
-      }
       // longitudinal slip ratio (bounded denominator → no low-speed blow-up)
-      const kappa = (omega * rr - vlong) / Math.max(Math.abs(vlong), 3);
+      const kappa = (st.rearOmega[ri] * rr - vlong) / Math.max(Math.abs(vlong), 3);
       st.slipRatio[ri] = kappa;
       Fx = D * Math.sin(p.tireCx * Math.atan(p.tireBx * kappa));
       // rear brake force adds into the longitudinal demand (also via the circle)
-      if (!hb) Fx += -Math.sign(vlong) * brake * p.brakeForce * (1 - p.brakeBiasFront) / 2;
+      Fx += -Math.sign(vlong) * brake * p.brakeForce * (1 - p.brakeBiasFront) / 2;
     }
 
     // ---- FRICTION ELLIPSE (the one principle): the tire's grip budget D is
@@ -242,12 +249,17 @@ export function step4(car: CarState, input: Inputs, dt: number, p: Physics4Param
     // a deep drift keeps FORWARD BITE → the drift CARRIES speed (the sim-real
     // speed-bleed failure mode designed out). Over budget → both scale down:
     // throttle's Fx eats the circle → rear lateral drops → power-oversteer.
-    const demand = Math.hypot(Fx / (D * p.tireEllipseLong || 1), Fy / (D || 1));
-    if (demand > 1) { Fx /= demand; Fy /= demand; }
+    // SKIPPED for the locked rear — it's already at the full budget by construction.
+    let rearSat = lockedRear;
+    if (!lockedRear) {
+      const demand = Math.hypot(Fx / (D * p.tireEllipseLong || 1), Fy / (D || 1));
+      if (demand > 1) { Fx /= demand; Fy /= demand; }
+      rearSat = demand > 0.98;
+    }
 
     if (!front) {
       rearFx[i - 2] = Fx; rearVlong[i - 2] = vlong;
-      if (demand > 0.98 || Math.abs(alpha) > 0.15) rearSaturated = true;
+      if (rearSat || Math.abs(alpha) > 0.15) rearSaturated = true;
     }
 
     // rotate wheel force back to body frame (+δ) and accumulate
