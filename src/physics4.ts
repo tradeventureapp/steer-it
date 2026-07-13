@@ -101,7 +101,7 @@ export const PHYS4: Physics4Params = {
   powerFloorSpeed: 5,
   rollRadius: 0.30,
   wheelInertia: 22,
-  brakeForce: 15000,       // ~1.34g race brakes at 1020 kg (measured)
+  brakeForce: 13500,       // race brakes @1020 kg — measured 1.21g (see note; 15000 = 1.34g)
   brakeBiasFront: 0.6,     // front-biased → trail-braking rotates (real load transfer)
   tireBx: 18,
   tireCx: 1.6,

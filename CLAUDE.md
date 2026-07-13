@@ -2395,3 +2395,22 @@ physics.ts untouched; arcade toggle model untouched. **NEXT: boss feel-tests the
 (X → PHYSICS4): grips hard through fast corners, race brakes, drift needs commitment (full throttle +
 counter-steer = skill), decisive slick edge, 370 hp pulls. Dial muNom/tireB/tireC (grip+edge),
 brakeBiasFront (trail-brake), driftYawDamp (drift stability). Then the separate forgiving ARCADE car.**
+
+---
+**GROUP A SIM — brakeForce set to the APPROVED 13500 + RACE-CAR priority confirmed (16/16):** the
+re-spec (7a0698b) is confirmed as the race-car benchmark (grip/precision/braking priority, drift a
+secondary emergent by-product — NOT tuned toward easy drift). `brakeForce` set to the boss's approved
+**13500** (was my 15000). **MEASURED RACE METRICS:** cornering **max gripped 1.77-1.79g** at 50/70/90
+km/h (precise — β 1.6° through a 90 km/h corner; front-limited neutral-mild-understeer, rear never first);
+break-loose ONLY on real provocation (throttle → rearSlip 27°, handbrake → 30°); **braking 1.21g,
+100→0 in 33 m / 2.4 s**; trail-brake shifts load FORWARD (front 3483 > rear 1598 N); launch stable+
+deterministic; **0-50 1.65 s / 0-100 3.48 s / top 248 km/h**; drift mechanics FUNCTION (throttle 0.9 +
+counter-steer holds a β ~45° skill-window drift — provoked, not easy); reverse/coast/low-speed intact;
+**ARCADE 0.0e+0**. **⚠️ TWO HONEST NOTES vs the boss's targets (both D-tuner knobs, boss's approved
+numbers kept):** (1) `brakeForce` 13500 delivers **1.21g** — a touch under the stated ~1.35g target;
+**15000 = 1.34g** if the boss wants exactly 1.35g. (2) `muNom` 1.90 holds **~1.79g** — a touch above the
+~1.4-1.6g slick target; **muNom ~1.65 = ~1.55g** if the boss wants exactly 1.4-1.6g. Both are the exact
+approved numbers — flagged so the boss can dial to taste on the D-tuner. tsc + build clean; physics.ts +
+arcade toggle untouched. **NEXT: boss feel-tests the Group A SIM as a RACE CAR (X → PHYSICS4): grip,
+precision, braking, cornering speed first; drift secondary. Dial muNom (grip level), brakeForce (braking
+g), tireB/tireC (edge), brakeBiasFront (trail-brake). Then the separate forgiving ARCADE car.**
