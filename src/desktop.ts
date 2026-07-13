@@ -264,6 +264,7 @@ document.body.appendChild(brakeTunerEl);
   pRow('engineBrakeTorque', 'engineBrakeTorque',    50,   0,   2000, 0);
   pRow('engBrakeSlideFade', 'engineBrakeSlideFade', 0.05, 0,   1, 2);
   pRow('wheelInertiaSlide', 'wheelInertiaSlideFactor', 0.05, 0.2, 1, 2);
+  pRow('wheelReturnRate',   'wheelReturnRate',      1,    0,   30, 0);
   pRow('driftYawDamp',      'driftYawDamp',         200,  0,   8000, 0);
   pRow('reverseSpeed',      'reverseSpeed',         0.5,  3,   12, 1);
   pRow('reverseForce',      'reverseForce',         500,  2000, 12000, 0);

@@ -63,8 +63,11 @@ export interface Physics4Params {
   // ---- DRIFT SUSTAIN: fade engine-braking + wheel inertia as the rear SLIDES
   // (gated on LATERAL slip → a straight-line launch burnout is NOT a slide) so
   // partial throttle gives progressive wheelspin = a held drift angle. ----
-  engineBrakeSlideFade: number;   // 0..1 — how much engine-braking fades in a full slide (0.9)
+  engineBrakeSlideFade: number;   // 0..1 — how much engine-braking-the-CAR fades in a full slide (0.9)
   wheelInertiaSlideFactor: number;// 0..1 — fraction of wheel inertia kept in a full slide (0.55)
+  wheelReturnRate: number;        // 1/s — at low throttle the wheel SPINS DOWN to rolling (κ→0 →
+                                  // rear regrips → the drift WINDS DOWN on lift, NOT spins); this
+                                  // spin-down is NOT faded in a slide (unlike car-braking) (10)
   driftYawDamp: number;           // N·m·s/rad — mild SLIDE-GATED yaw damping (widens the stable
                                   // hold band so a drift SETTLES at an angle instead of spinning;
                                   // physical = the tyres' relaxation resisting yaw; 0 = off) (500 — low-mid throttle + counter-steer HOLDS a drift, excess SPINS; a skill window)
@@ -108,6 +111,7 @@ export const PHYS4: Physics4Params = {
   engineBrakeTorque: 500,
   engineBrakeSlideFade: 0.9,
   wheelInertiaSlideFactor: 0.55,
+  wheelReturnRate: 10,
   driftYawDamp: 500,
   reverseSpeed: 9,        // m/s ≈ 32 km/h — a real RWD coupe reverses briskly
   reverseForce: 10000,    // N → ~8.3 m/s² backward = quick pickup, not a crawl
@@ -362,14 +366,24 @@ export function step4(car: CarState, input: Inputs, dt: number, p: Physics4Param
       const targetSlipOmega = (rearVlong[ri] + p.tractionSlipCap * Math.max(Math.abs(rearVlong[ri]), 3)) / rr;
       if (omega >= targetSlipOmega) Tdrive = Math.min(Tdrive, rearFx[ri] * rr);
     }
-    // ENGINE BRAKING: closed-throttle compression drag → on release the wheel
-    // drops to rolling (κ→0, smoke stops) + below rolling brakes the car (coast).
-    // (A) FADED OFF as the rear slides so low/partial throttle no longer BRAKES a
-    // drifting rear (κ<0) → κ≈0→progressive wheelspin = the bottom of the sustain
-    // range. Straight launch (slideFrac 0) keeps full engine braking.
+    // ENGINE BRAKING the CAR: closed-throttle compression drag pulls the wheel
+    // BELOW rolling (κ<0) → the tyre brakes the car (coast decel on the straight).
+    // (A) FADED OFF as the rear slides so it doesn't brake a drifting rear.
     const Tengine = (1 - throttle) * p.engineBrakeTorque * (1 - p.engineBrakeSlideFade * slideFrac);
     omega += (Tdrive - rearFx[ri] * rr - Math.sign(omega) * (Tbrake + Tengine)) / IwEff * dt;
     if (omega < 0) omega = 0;   // brake can't drive the wheel backward (no reverse yet)
+    // FIX 1 — WHEEL SPIN-DOWN to rolling (NOT faded in a slide): at low throttle
+    // the wheel relaxes toward the rolling speed (vlong/rr) so κ→0 → the rear
+    // REGAINS grip → the drift WINDS DOWN on lift (instead of spinning out) and
+    // the burnout smoke stops. This is separate from engine-braking-the-CAR: it
+    // only removes EXCESS spin (ω > rolling), never pushes ω below rolling (so it
+    // can't fight the car-brake or the drive). throttleOff gates it off as soon
+    // as the player feeds throttle → then drive spins the rear freely (feed).
+    const throttleOff = clamp(1 - throttle / 0.2, 0, 1);   // 1 at 0 throttle, 0 by 0.2
+    const rollTarget = rearVlong[ri] / rr;
+    if (throttleOff > 0 && omega > rollTarget) {
+      omega += (rollTarget - omega) * clamp(p.wheelReturnRate * throttleOff * dt, 0, 1);
+    }
     st.rearOmega[ri] = omega;
   }
 

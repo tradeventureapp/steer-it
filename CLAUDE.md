@@ -2310,3 +2310,31 @@ FOLLOW-UP on front grip, flagged not done. tsc + build clean; physics.ts untouch
 feel-tunes the sustain on the phone (X → PHYSICS4): flick/handbrake in → hold with counter-steer +
 partial throttle → more throttle opens, ease closes, excess spins, counter-steer catches. Dial
 driftYawDamp (stability↔depth), engineBrakeSlideFade + wheelInertiaSlideFactor (throttle response).**
+
+---
+**FASE 1 THROTTLE-RELEASE + FEED fix (release winds down not spins; throttle feeds; 10/10):** the
+sustain fix (a5051e3) engine-brake fade killed TWO merged effects — it should only have killed one.
+DIAGNOSED (read-only): on throttle RELEASE mid-drift the car SPUN OUT (β −42°→177°) instead of the rear
+regripping (smoke = the persistent DRIFT/spin slide, not literal wheelspin — rearOmega did decay); and
+throttle NEVER fed forward (accel −10.4 m/s² at throttle 0 → still −4.85 at full, never positive; κ only
+0.14 at full = weak break-loose). Root: the engine-brake fade removed BOTH "engine-braking the CAR"
+(good to fade in a slide) AND "the wheel spinning DOWN to rolling" (must NOT fade → without it the rear
+never returns to grip). **FIX 1 (longitudinal-rear only):** a new SLIDE-GATED-OFF-NOT wheel SPIN-DOWN —
+`wheelReturnRate` 10 relaxes rearOmega toward the rolling speed (`vlong/rr`) at LOW throttle (`throttleOff`
+ramps it off by throttle 0.2), removing ONLY excess spin (ω > rolling, never below → can't fight the
+car-brake or the drive), NOT faded in a slide → on lift κ→0 → the rear REGAINS grip → the drift WINDS
+DOWN (β −30°→−7°, ω→0, was spin to 177°) + burnout smoke stops (κ 0.15, wspin 0%). **FIX 2 (falls out):**
+with the mid-throttle engine-braking interference gone, rising throttle now BREAKS the rear loose (κ
+−0.99→+0.54) → the friction-ellipse forward bite FEEDS the drift (accel −10.4→−4.1 m/s², clearly improves
+with throttle). **HONEST (flagged + fine):** at a DEEP angle (β 40°+) the drift still nets negative accel
+(a deep drift physically scrubs — the drive along heading projects weakly onto the sideways velocity);
+throttle-CARRY (net-positive) works up to a MODERATE angle (β ~20-25° where cos β carries), exactly as the
+boss accepted. **MECHANIC = the balance:** throttle 0 → return-to-rolling dominates (regrip/wind-down);
+throttle > 0 → drive overcomes (feed/break-loose) = "fuel vs release". **MEASURED 10/10:** release winds
+down + κ→rolling + smoke stops; throttle feeds (accel + κ rise); sustain still holds (|β| 34°, no spin);
+launch clean+deterministic, handbrake ALWAYS brakes, stationary-HB no smoke, coast slows, low-speed
+stable, **ARCADE 0.0e+0**. New D-tuner knob: `wheelReturnRate` (spin-down/wind-down rate). Longitudinal-
+rear only; lateral/yaw/geometry + physics.ts untouched. tsc + build clean. **NEXT: boss feel-tests on
+phone (X → PHYSICS4): drift → LIFT throttle = winds down + regrips (no spin, smoke stops); ADD throttle =
+feeds/carries the drift (best at a moderate angle); partial throttle still holds. Dial wheelReturnRate
+(wind-down speed) + the sustain knobs.**
