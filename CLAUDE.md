@@ -2570,3 +2570,26 @@ still decays with speed (just hooks up much faster). D-tuner `wheelInertiaDrive`
 (X → PHYSICS4) — slicks hook up and CATAPULT out of corners: brief chirp off the line then bite, corner
 exit with the wheel near-straight + throttle → hooks up and fires out (no continuous smoke, no spin-out),
 still huge traction; four-wheel slide / drift / handbrake unchanged.**
+
+---
+**physics4 FRICTION-CIRCLE fix (corner-exit spin-out cured — the rear keeps its lateral grip; 12/12):**
+the boss's "rears spin MORE on a fast-oval exit + it spins the car out" was diagnosed (read-only) as NOT
+longitudinal wheelspin — on a fast-corner exit + full throttle the rear **κ stays LOW (~0.10)**, but the
+rear **LATERAL slip blows to 80° → power-oversteer SPIN-OUT (β 96-143°)**. ROOT (the combined-slip
+friction circle): at full throttle @80 km/h the rear drive force is **6210 N/wheel = 139% of the rear grip
+D** — with the too-round ellipse (`tireEllipseLong` 1.0) that longitudinal demand ALONE crushes the ellipse
+→ **rear lateral grip → 0%** → the rear loses all cornering grip → oversteer spin-out. The boss's chain was
+right; the mechanism is the circle crushing the lateral, not wheelspin. FIX = **`tireEllipseLong` 1.0→1.3**
+(the REAL slick value — μ_long ≈ 1.3× μ_lat; the ellipse is elongated longitudinally so throttle doesn't
+crush the lateral). **MEASURED before→after (80 km/h, steer 0.3, FULL throttle exit):** no-countersteer
+spin **β128 (uncatchable) → β48 (a catchable slide)**; WITH countersteer **β31 → β0 CAUGHT**; rear lateral
+slip on exit **blew to 80° → stays 6° (the rear KEEPS its grip)**. **KEEP:** progressive exit (throttle
+0.6) GRIPS (β3) and catapults out; standstill launch unchanged (chirp 0.07s, no spinout); four-wheel slide
+(throttle) **fS17/rS15 preserved** (1.3 keeps it stronger than 1.5's fS12/rS10); handbrake drift β-64
+(locked rear, ellipse-independent); past-limit drives out; trail-brake rotates (Δβ-7.6); grip 1.97g;
+sub-limit stable; braking 1.25g; 0-100 3.03s, top 246; **ARCADE 0.0e+0**. **ONE fix cured both** the
+corner-exit "smoke" (the lateral slide, not wheelspin) and the spin-out — same root (the lateral collapse).
+Slick-realistic: grips out of normal corners, oversteers only when you overdrive the throttle at the limit,
+and it's CATCHABLE when it does. **NEXT: phone feel-test fast asphalt-oval exits (X → PHYSICS4) — progressive
+throttle catapults out gripped, full throttle at the limit slides but catches on countersteer + lift (no
+uncatchable spin), standstill launch + four-wheel slide + handbrake unchanged.**

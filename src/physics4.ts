@@ -98,7 +98,7 @@ export const PHYS4: Physics4Params = {
   loadSensitivity: 0.05,   // kept LOW for oval stability (raising it → stronger trail-brake but the oval limit-cycle returns — a real 3-way coupling; see notes)
   tireB: 10,               // real slick: BROAD peak (~10.8°) → the fronts work over a wide slip range → no premature washout at the 32° lock
   tireC: 1.45,             // real slick: gentle, broad post-peak (not a narrow cliff)
-  tireEllipseLong: 1.0,
+  tireEllipseLong: 1.3,    // REAL slick: μ_long ≈ 1.3× μ_lat → the ellipse is elongated longitudinally so throttle on a fast-corner exit doesn't crush the rear's lateral grip to 0 (the power-oversteer spin-out). Normal exit GRIPS, full-throttle-at-the-limit is a CATCHABLE slide (not an uncatchable spin)
   relaxLength: 0.5,
   lowSpeedBlend: 2.5,
   maxSteer: 0.56,          // 32° front wheel lock — the real E30 M3 lock (washout solved by the broad slick peak, not by cutting the lock)
