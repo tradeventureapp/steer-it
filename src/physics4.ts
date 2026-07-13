@@ -257,7 +257,10 @@ export function step4(car: CarState, input: Inputs, dt: number, p: Physics4Param
     // speed-bleed failure mode designed out). Over budget → both scale down:
     // throttle's Fx eats the circle → rear lateral drops → power-oversteer.
     // SKIPPED for the locked rear — it's already at the full budget by construction.
-    let rearSat = lockedRear;
+    // A LOCKED rear only counts as "sliding" (smoke/skid) when it is actually
+    // SCRUBBING across the ground (v above a small threshold) — a stationary
+    // handbrake has zero contact slip → no scrub → no smoke.
+    let rearSat = lockedRear && v > 0.6;
     if (!lockedRear) {
       const demand = Math.hypot(Fx / (D * p.tireEllipseLong || 1), Fy / (D || 1));
       if (demand > 1) { Fx /= demand; Fy /= demand; }
@@ -374,8 +377,13 @@ export function step4(car: CarState, input: Inputs, dt: number, p: Physics4Param
   // faked burnout smoke). A drift's smoke comes from isRearSliding (lateral
   // slip); this stays ~0 in a pure slide because ω·r ≈ the wheel's rolling speed.
   const wheelSurf = hb ? 0 : Math.max(st.rearOmega[0], st.rearOmega[1]) * p.rollRadius;
-  const overspin = hb ? 1 : clamp((wheelSurf - car.speed) / Math.max(car.speed, 3), 0, 1);
-  car.wheelSpin = overspin;                 // burnout smoke (handbrake lock = full scrub)
+  // A locked (handbrake) rear scrubs ONLY when the car is actually moving —
+  // smoke scales with the real contact slip speed (car.speed), ramping in over
+  // ~0.6→2 m/s, so a stationary handbrake makes NO smoke.
+  const overspin = hb
+    ? clamp((car.speed - 0.6) / 1.4, 0, 1)
+    : clamp((wheelSurf - car.speed) / Math.max(car.speed, 3), 0, 1);
+  car.wheelSpin = overspin;                 // burnout / locked-scrub smoke (real slip only)
   car.rearWheelSpeed = Math.abs((st.rearOmega[0] + st.rearOmega[1]) / 2 * p.rollRadius);
   car.driftActive = car.isRearSliding;
   car.spinTimer = 0;

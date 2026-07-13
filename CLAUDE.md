@@ -2229,3 +2229,16 @@ brakes, drift still carries speed, low-speed stable, determinism, **ARCADE 0.0e+
 only — lateral/yaw untouched; physics.ts untouched. tsc + build clean. **NEXT: boss phone-tests coast
 (car slows when you lift) + smoke (stops on release, drift smoke only while sliding). Keep tuning
 tireEllipseLong / hbKineticMu; then Fase 2 (reverse, engine curve) + Fase 3.**
+
+---
+**FASE 1 STATIONARY-HANDBRAKE SMOKE FIX (locked ≠ smoking; 8/8):** holding the handbrake on a STILL car
+smoked continuously — wrong (a locked wheel at zero speed has zero contact slip → no scrub → no smoke).
+CAUSE: the mapping set `wheelSpin = 1` and `rearSaturated = lockedRear` whenever the handbrake was DOWN,
+regardless of motion. (The scrub FORCE was already fine — `Fx = −Dkin·vlong/slipMag` → 0 at rest.) FIX:
+gate the locked-rear SMOKE + skid on the real contact slip speed — `wheelSpin = clamp((car.speed−0.6)/1.4,
+0,1)` under handbrake (ramps in 0.6→2 m/s → 0 at rest), and `rearSat = lockedRear && v > 0.6` for
+isRearSliding. **MEASURED 8/8:** stationary HB → wheelSpin 0%, isRearSliding never true, car sits still
+(|v| 0.000); moving HB → smokes (wheelSpin 100%, sliding) = real scrub; HB+steer still enters the drift
+(rearSlip 26°); HB+full throttle still ALWAYS brakes (dv/dt<0); parking with HB still; **ARCADE 0.0e+0**.
+Smoke-gate only — scrub force / drift entry / brake / lateral / yaw / physics.ts untouched. tsc + build
+clean. **NEXT: boss phone-tests — parked handbrake = no smoke; moving handbrake = smoke + drift as before.**
