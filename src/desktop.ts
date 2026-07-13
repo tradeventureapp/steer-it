@@ -254,8 +254,6 @@ document.body.appendChild(brakeTunerEl);
   pRow('wheelInertia',      'wheelInertia',         0.1,  0.4, 4, 1);
   pRow('brakeForce',        'brakeForce',           500,  5000, 30000, 0);
   pRow('brakeBiasFront',    'brakeBiasFront',       0.05, 0.3, 0.85, 2);
-  pRow('tractionSpeed',     'tractionSpeed',        0.5,  0,   10, 1);
-  pRow('tractionSlipCap',   'tractionSlipCap',      0.02, 0.02, 0.5, 2);
   pRow('tireBx (long stiff)','tireBx',              1,    6,   30, 0);
   pRow('tireCx (long shape)','tireCx',              0.05, 1.1, 2.2, 2);
   pRow('hbKineticMu',       'hbKineticMu',          0.05, 0.4, 1.2, 2);

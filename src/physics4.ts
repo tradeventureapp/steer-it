@@ -51,8 +51,6 @@ export interface Physics4Params {
   wheelInertia: number;       // kg·m² — rear wheel + engine/drivetrain reflected inertia (22 — big = stable, no launch spin-up oscillation)
   brakeForce: number;         // N — peak brake force (both axles combined) (14000)
   brakeBiasFront: number;     // 0..1 — front share of braking (0.6)
-  tractionSpeed: number;      // m/s — below this, launch traction-control caps rear wheelspin (4)
-  tractionSlipCap: number;    // slip-ratio cap under traction control (0.12 — clean launch)
   tireBx: number;             // Magic-Formula LONGITUDINAL stiffness (18)
   tireCx: number;             // Magic-Formula longitudinal shape (1.6)
   hbKineticMu: number;        // locked-rear kinetic-scrub fraction of the grip budget (0.9)
@@ -80,12 +78,12 @@ export interface Physics4Params {
 // D-tunable defaults (the boss tunes these live; mutated in place like CONFIG).
 export const PHYS4: Physics4Params = {
   massKg: 1200,
-  weightDistFront: 0.52,
+  weightDistFront: 0.50,   // 50/50 (was 52/48) — mild understeer at the limit, rear not first
   cgHeight: 0.5,
   yawInertiaK: 1.25,
   loadTransferLongGain: 1.0,
   loadTransferLatGain: 1.0,
-  muNom: 1.5,
+  muNom: 1.75,             // raised 1.5→1.75: outer wheels hold ~1.5g → 1.0-1.3g corners GRIP
   loadSensitivity: 0.15,
   tireB: 11,
   tireC: 1.5,
@@ -93,16 +91,14 @@ export const PHYS4: Physics4Params = {
   relaxLength: 0.5,
   lowSpeedBlend: 2.5,
   maxSteer: 0.52,
-  // FASE 1 drive tools
-  peakThrust: 9000,
-  enginePower: 172000,
+  // FASE 1 drive tools — 370 hp RACE SPECIAL (was 230 hp)
+  peakThrust: 13000,       // sharper low-end punch + willing power-over
+  enginePower: 276000,     // 276 kW ≈ 370 hp
   powerFloorSpeed: 5,
   rollRadius: 0.30,
   wheelInertia: 22,
   brakeForce: 14000,
   brakeBiasFront: 0.6,
-  tractionSpeed: 4,
-  tractionSlipCap: 0.12,
   tireBx: 18,
   tireCx: 1.6,
   hbKineticMu: 0.9,
@@ -324,12 +320,17 @@ export function step4(car: CarState, input: Inputs, dt: number, p: Physics4Param
     if (!lockedRear) {
       const demand = Math.hypot(Fx / (D * p.tireEllipseLong || 1), Fy / (D || 1));
       if (demand > 1) { Fx /= demand; Fy /= demand; }
-      rearSat = demand > 0.98;
+      // "sliding" (smoke/skid) only when the tyre is GENUINELY over its budget
+      // (demand > 1.1) — a car cornering near the limit (demand ~1.0, β ~1°) is
+      // still GRIPPING and must NOT smoke (the eager 0.98 flagged a gripped 1.3g
+      // corner as a slide → looked like "losing grip at 50 km/h").
+      rearSat = demand > 1.1;
     }
 
     if (!front) {
       rearFx[i - 2] = Fx; rearVlong[i - 2] = vlong;
-      if (rearSat || Math.abs(alpha) > 0.15) rearSaturated = true;
+      // real slide = over budget OR past the MF peak slip angle (kinetic regime)
+      if (rearSat || Math.abs(alpha) > 0.20) rearSaturated = true;
     }
 
     // rotate wheel force back to body frame (+δ) and accumulate
@@ -341,8 +342,8 @@ export function step4(car: CarState, input: Inputs, dt: number, p: Physics4Param
 
   // ---- rear wheel dynamics: Iw·dω/dt = T_drive − Fx·r − T_brake ----
   // (handbrake keeps ω pinned to 0 → the lock owns the wheel; drive can't spin
-  // it → the handbrake ALWAYS brakes.) A launch traction limit caps ω below
-  // tractionSpeed so a standing-start can't spin up into a wheelspin lottery.
+  // it → the handbrake ALWAYS brakes.) NO traction control — raw power (race
+  // special); the big wheelInertia keeps launch wheelspin stable, not oscillating.
   for (let ri = 0; ri < 2; ri++) {
     if (hb) { st.rearOmega[ri] = 0; continue; }
     let omega = st.rearOmega[ri];
@@ -356,16 +357,11 @@ export function step4(car: CarState, input: Inputs, dt: number, p: Physics4Param
     // (B) LOWER effective wheel inertia as it slides → partial throttle gives a
     // proportional, controllable wheelspin (a held angle), not a sluggish step.
     const IwEff = p.wheelInertia * (1 - (1 - p.wheelInertiaSlideFactor) * slideFrac);
-    // SOFT launch traction control: below tractionSpeed, once the wheel reaches
-    // the target slip, cut the drive torque to just BALANCE the tyre force (hold
-    // the slip, don't spin more) → the tyre delivers its grip smoothly = strong,
-    // clean, non-oscillating launch (a hard ω cap oscillated). Above the speed,
-    // full drive torque → wheelspin is free (donuts / power-over).
-    let Tdrive = driveTorquePerRear;
-    if (v < p.tractionSpeed) {
-      const targetSlipOmega = (rearVlong[ri] + p.tractionSlipCap * Math.max(Math.abs(rearVlong[ri]), 3)) / rr;
-      if (omega >= targetSlipOmega) Tdrive = Math.min(Tdrive, rearFx[ri] * rr);
-    }
+    // NO TRACTION CONTROL (race drift special): the drive torque is applied RAW —
+    // the wheel spins up on launch, standing burnouts work, power-over is raw. The
+    // big `wheelInertia` (22) keeps that launch wheelspin STABLE (no oscillation/
+    // shudder) without any TC masking it. The car fights its own power = character.
+    const Tdrive = driveTorquePerRear;
     // ENGINE BRAKING the CAR: closed-throttle compression drag pulls the wheel
     // BELOW rolling (κ<0) → the tyre brakes the car (coast decel on the straight).
     // (A) FADED OFF as the rear slides so it doesn't brake a drifting rear.

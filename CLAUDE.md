@@ -2338,3 +2338,30 @@ rear only; lateral/yaw/geometry + physics.ts untouched. tsc + build clean. **NEX
 phone (X → PHYSICS4): drift → LIFT throttle = winds down + regrips (no spin, smoke stops); ADD throttle =
 feeds/carries the drift (best at a moderate angle); partial throttle still holds. Dial wheelReturnRate
 (wind-down speed) + the sustain knobs.**
+
+---
+**PHYSICS4 — GRIP FIX + 370 HP + TC REMOVED (race drift special; 13/13):** three changes.
+**(1) GRIP BUG @50 km/h — DIAGNOSED + FIXED:** the car held only ~1.3g before breaking loose AND the
+rear let go first (52/48 front bias → less rear grip → oversteer). Worse, the `isRearSliding` flag fired
+at `demand > 0.98` — so a GRIPPED 1.27g corner (β steady 1°, holding its line) still flagged sliding →
+smoke/skids showed → LOOKED like "losing grip at 50." FIXES: `muNom` 1.5→**1.75** (outer wheels hold
+~1.5g → 1.0-1.3g corners GRIP; measured steer 0.4-0.7 now holds **1.5g understeer**, was 1.3g sliding);
+`weightDistFront` 0.52→**0.50** (front-limited = mild understeer, rear no longer first — measured frontα
+17° ≥ rearα 4°); **`isRearSliding` threshold `demand 0.98`→`1.1` + slip-angle 0.15→0.20 rad** (only flags
+a GENUINE slide, not a gripped near-limit corner → the false 50 km/h smoke is gone). Provoked break-loose
+kept (throttle/handbrake add longitudinal demand that eats the circle regardless). **(2) 370 HP race
+special:** `enginePower` 172000→**276000** (276 kW), `peakThrust` 9000→**13000** (sharper low-end +
+willing power-over). **(3) TRACTION CONTROL REMOVED** — the `tractionSpeed`/`tractionSlipCap` launch
+wheelspin cap DELETED (params + omega-loop logic + 2 D-tuner rows gone). Raw power: the rears spin on
+launch, power-over is raw. The big `wheelInertia` 22 keeps that launch wheelspin STABLE (measured heading
+drift **0.0°** — no shoot-off, **deterministic** — no lottery, no κ shudder). **⚠️ MEASURED ACCEL
+(0-50 / 0-100 / top):** BEFORE (230hp, TC) **2.70 s / 5.92 s / 210 km/h** → AFTER (370hp, no TC, new grip)
+**1.85 s / 3.88 s / 248 km/h**. Launch wheelspin is a modest **19%** (the big wheelInertia caps how fast
+the wheel spins up — stable, not a dramatic burnout; drop wheelInertia for more visible launch spin at the
+oscillation risk). On the maps: 0-100 in 3.88 s reaches 100 km/h on a decent straight; top 248 is
+high-speed-only (aspirational, not hit on the oval). **VERIFIED 13/13:** gripped corners no longer false-
+smoke, front-limited understeer (rear not first), launch spins-but-stable + deterministic, power-over
+willing (rearSlip 33°), accel faster, sustain/handbrake/stationary-HB/reverse/coast/low-speed all intact,
+**ARCADE 0.0e+0**. tsc + build clean; physics.ts untouched. **NEXT: boss feel-tests (X → PHYSICS4): 50
+km/h corner GRIPS (no early slide), launch spins the rears but tracks straight, 370hp pulls hard,
+power-over willing. Dial muNom (grip), peakThrust/enginePower (power), wheelInertia (launch spin drama).**
