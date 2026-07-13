@@ -53,6 +53,10 @@ export interface Physics4Params {
   tireBx: number;             // Magic-Formula LONGITUDINAL stiffness (18)
   tireCx: number;             // Magic-Formula longitudinal shape (1.6)
   hbKineticMu: number;        // locked-rear kinetic-scrub fraction of the grip budget (0.9)
+  // ---- coast forces (bleed speed at throttle 0) ----
+  dragCoef: number;           // aero drag: Fdrag = dragCoef·v² (N per (m/s)²) (0.8)
+  rollResist: number;         // rolling resistance: constant force opposing motion (N) (200)
+  engineBrakeTorque: number;  // closed-throttle drag torque on the rear wheels (N·m) (500)
 }
 
 // D-tunable defaults (the boss tunes these live; mutated in place like CONFIG).
@@ -83,6 +87,9 @@ export const PHYS4: Physics4Params = {
   tireBx: 18,
   tireCx: 1.6,
   hbKineticMu: 0.9,
+  dragCoef: 0.8,
+  rollResist: 200,
+  engineBrakeTorque: 500,
 };
 
 const MU_FLOOR = 0.3;         // μ never collapses to ≤0 under huge load
@@ -287,9 +294,23 @@ export function step4(car: CarState, input: Inputs, dt: number, p: Physics4Param
       const targetSlipOmega = (rearVlong[ri] + p.tractionSlipCap * Math.max(Math.abs(rearVlong[ri]), 3)) / rr;
       if (omega >= targetSlipOmega) Tdrive = Math.min(Tdrive, rearFx[ri] * rr);
     }
-    omega += (Tdrive - rearFx[ri] * rr - Math.sign(omega) * Tbrake) / p.wheelInertia * dt;
+    // ENGINE BRAKING: at closed throttle a compression/friction drag torque
+    // resists the wheel → on release the wheel drops to (and below) rolling
+    // speed → κ→0 (driven wheelspin/smoke stops) → below rolling κ<0 the tyre
+    // brakes the car (contributes to coast decel).
+    const Tengine = (1 - throttle) * p.engineBrakeTorque;
+    omega += (Tdrive - rearFx[ri] * rr - Math.sign(omega) * (Tbrake + Tengine)) / p.wheelInertia * dt;
     if (omega < 0) omega = 0;   // brake can't drive the wheel backward (no reverse yet)
     st.rearOmega[ri] = omega;
+  }
+
+  // ---- COAST forces: aero drag (∝v²) + rolling resistance (constant), both
+  // opposing the velocity vector → the car visibly SLOWS when coasting. Tapered
+  // to 0 near rest so they can't push a parked car backward.
+  if (v > 0.05) {
+    const coastMag = p.dragCoef * v * v + p.rollResist * Math.min(1, v);
+    Fbx -= coastMag * (vbx / v);
+    Fby -= coastMag * (vby / v);
   }
 
   // ---- integrate: net force → translation, net torque → yaw ----
@@ -347,12 +368,16 @@ export function step4(car: CarState, input: Inputs, dt: number, p: Physics4Param
   car.rearSlip = rearSlipMax;               // skids / smoke / XP read this
   car.frontSlip = frontSlipMax;
   car.isRearSliding = rearSaturated || rearSlipMax > 0.15;
-  // wheelSpin = rear longitudinal slip magnitude (0 grip … 1 full spin/lock) →
-  // smoke intensity; rearWheelSpeed = |ω·r| → sound RPM proxy.
-  const kappaMax = Math.max(Math.abs(st.slipRatio[0]), Math.abs(st.slipRatio[1]));
-  car.wheelSpin = clamp(kappaMax, 0, 1);
+  // wheelSpin = ACTUAL driven over-spin (how much the rear wheel's surface speed
+  // ω·r exceeds the true ground speed) → burnout smoke ONLY. NOT the raw vlong
+  // slip-ratio (which blows up when vlong collapses in a sideways drift and
+  // faked burnout smoke). A drift's smoke comes from isRearSliding (lateral
+  // slip); this stays ~0 in a pure slide because ω·r ≈ the wheel's rolling speed.
+  const wheelSurf = hb ? 0 : Math.max(st.rearOmega[0], st.rearOmega[1]) * p.rollRadius;
+  const overspin = hb ? 1 : clamp((wheelSurf - car.speed) / Math.max(car.speed, 3), 0, 1);
+  car.wheelSpin = overspin;                 // burnout smoke (handbrake lock = full scrub)
   car.rearWheelSpeed = Math.abs((st.rearOmega[0] + st.rearOmega[1]) / 2 * p.rollRadius);
   car.driftActive = car.isRearSliding;
   car.spinTimer = 0;
-  car.slipRatio = kappaMax;
+  car.slipRatio = overspin;
 }

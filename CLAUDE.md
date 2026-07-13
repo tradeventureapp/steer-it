@@ -2204,3 +2204,28 @@ donut ωmax 1.4 no NaN — the `slipMag` floor + low-speed blend hold); (6) dete
 too eager. tsc + build clean. **NEXT: boss tests the handbrake on phone (X → PHYSICS4): tap = drift
 entry, hold = tail swings out + scrub-brakes, counter-steer to hold the angle; then continue tuning
 tireEllipseLong (carry-vs-bleed) + hbKineticMu (lock strength). Then Fase 2/3.**
+
+---
+**FASE 1 COAST + SMOKE FIX (throttle-release: no coast decel + persistent smoke; 13/13):** two bugs on
+throttle release. **BUG 1 — frictionless coast:** physics4 had NO drag/rolling/engine-brake → at
+throttle 0 the car held speed (measured 25→25.0 over 5 s, decel 0.000). FIX: **coast forces along
+−velocity** — aero drag `Fdrag = dragCoef·v²` (0.8) + rolling resistance `Froll = rollResist` const
+(200 N, tapered to 0 near rest so a parked car can't be pushed). Now coast decel −2.25 m/s² @25 m/s,
+25→13.7 km/h... in 5 s, rolls to a full stop (8→0 in 10 s). **BUG 2 — smoke persists on release:**
+DIAGNOSED — rearOmega actually TRACKS rolling (not stuck) but decayed only via the slow tyre −Fx·r, AND
+`wheelSpin` (smoke) = the raw `vlong` slip-ratio which BLOWS UP in a sideways drift (vlong collapses →
+κ huge → 40-81% fake burnout smoke). TWO fixes: (a) **engine braking** — a closed-throttle drag torque
+`(1−throttle)·engineBrakeTorque` (500 N·m) on rearOmega → on release the wheel drops to rolling in
+**0.12 s** (κ→0, driven-spin smoke stops) and below rolling it brakes the car (adds to coast); (b)
+**honest wheelSpin** = the ACTUAL driven over-spin `(ω·r − car.speed)/max(speed,3)` clamped ≥0 (how much
+the wheel surface outruns the ground) — **NOT** the vlong slip-ratio → a sideways drift no longer fakes
+burnout smoke (measured **0%** vs 40-81% before); the drift's own smoke still comes from `isRearSliding`
+(lateral slip, unchanged). Handbrake lock → wheelSpin 1 (full scrub smoke). **MEASURED 13/13:** coast
+decel clearly negative + rolls to stop; engine braking pulls rearOmega to rolling in 0.12 s → burnout
+wheelSpin→0 on release; drift smoke holds while actually sliding (isRearSliding + rearSlip 36°) but
+burnout wheelSpin stays 0 in the slide; launch clean+deterministic, handbrake+throttle still ALWAYS
+brakes, drift still carries speed, low-speed stable, determinism, **ARCADE 0.0e+0**. New D-tuner knobs:
+`dragCoef` 0.8 / `rollResist` 200 / `engineBrakeTorque` 500. Additive longitudinal + wheelSpin mapping
+only — lateral/yaw untouched; physics.ts untouched. tsc + build clean. **NEXT: boss phone-tests coast
+(car slows when you lift) + smoke (stops on release, drift smoke only while sliding). Keep tuning
+tireEllipseLong / hbKineticMu; then Fase 2 (reverse, engine curve) + Fase 3.**
