@@ -2450,3 +2450,36 @@ but does not spin at PARTIAL throttle at low speed (that's gearing). **NEXT: bos
 — low-speed full throttle lights the rears, high speed grips, 80/50% corner holds + accelerates out;
 launch spins then hooks up. If the boss wants partial-throttle low-speed wheelspin OR the crossover pushed
 to 104, that's real GEARING (A) or a load-transfer/grip tune — flagged, not done.**
+
+---
+**physics4 REAL SELF-ALIGNING TORQUE (pneumatic trail) — the OVAL snap/limit-cycle FIXED, arcade
+driftYawDamp REMOVED (13/13):** the deep audit found the model had NO self-aligning torque and was
+under-damped in yaw → a **yaw LIMIT-CYCLE** on a sustained corner + throttle (the car built a β-46° slide,
+recovered, rebuilt — repeatedly), masked by the slide-gated arcade `driftYawDamp` whose on/off gating
+FED the cycle. That is the boss's "oval oversteer that can't be caught." FIX = real physics:
+**(1) per-wheel SELF-ALIGNING TORQUE (pneumatic trail):** `Mz = -Fy·t`, trail `t = pneumaticTrail ·
+clamp(1−|α|/trailPeakSlip, −0.15, 1) · loadScale` — MAX at centre, COLLAPSES to 0 (then slightly negative)
+as slip passes the ~5.8° force peak (the real "steering goes light at the limit"), scales with load
+(∝ contact patch). Summed into the yaw torque = an always-on restoring moment → directional stability +
+progressive breakaway + natural catch. **REAR-ONLY** (the key correctness call): a real FRONT tyre's
+aligning moment reacts through the STEERING system (self-centring feel), not the chassis — and here
+steering is a kinematic input, so a front Mz on the chassis would be spurious understeer; the REAR has no
+steering DOF so its Mz genuinely acts on the chassis. `pneumaticTrail` 0.22 / `trailPeakSlip` 0.13.
+**(2) REMOVED the slide-gated `driftYawDamp` entirely** (the arcade band-aid) → replaced by a TINY
+NON-gated `yawDampConst` 60 (numerical hygiene only, no on/off edge). **(3) slide-fades assessed:**
+`engineBrakeSlideFade`/`wheelInertiaSlideFactor` are LONGITUDINAL drift-feel aids (smooth-ramped) — with
+them off the oval wobble is unchanged (0°), so they do NOT drive the yaw cycle → KEPT.
+**GRIP RESTORE:** the rear aligning adds mild understeer (grip 1.79→1.69) → `loadSensitivity` 0.12→**0.05**
+(slicks are genuinely low load-sensitivity) restores it to **1.75g** WITHOUT touching muNom → the last
+task's low-speed traction curve stays ALIVE. **MEASURED before→after:** OVAL sustained-corner+throttle
+wobble **39/26/15° → 0°** (holds a steady β−1° line = limit-cycle GONE); lift+countersteer **catches**
+β20/40/60° deep slides; directional stability β6° perturbation **decays** at throttle 0/0.5/1.0; grip
+**1.75g**; **traction κ∝1/v ALIVE** (κ 5.6 @30 km/h → 0.03 @120); braking 1.22g; 0-50 2.08s top 248;
+still **driftable** on provocation (hb+throttle holds a deep catchable slide); **ARCADE 0.0e+0**. New
+D-tuner knobs `pneumaticTrail`/`trailPeakSlip`/`yawDampConst` (replaced `driftYawDamp`). **HONEST:** grip
+1.75g (vs the 1.79 target — within 2%; `loadSensitivity` 0.04 → ~1.77, 0.03 → 1.78 if the boss wants it
+exact). The self-aligning is a big real-physics change (not a param tweak) as the boss approved.
+**NEXT: boss feel-tests the OVAL (X → PHYSICS4) vs Project CARS — throttle-on it should HOLD a line, and
+if pushed past grip slide PROGRESSIVELY + catch on lift+countersteer (no limit-cycle wobble, no
+un-catchable snap, planted not pendulum). Dial pneumaticTrail (stability↔agility) / loadSensitivity
+(grip) on the D tuner.**

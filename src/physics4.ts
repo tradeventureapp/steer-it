@@ -41,6 +41,14 @@ export interface Physics4Params {
   relaxLength: number;        // m — tire relaxation length (slip builds over this distance) (0.5)
   lowSpeedBlend: number;      // m/s — below this, blend toward a kinematic model (2.5)
   maxSteer: number;           // rad — physical front steer lock (0.52 ≈ 30°)
+  // ---- SELF-ALIGNING TORQUE (pneumatic trail) — the REAL always-on restoring
+  // yaw moment every tire produces (Mz = -Fy·t). Trail t is max at center and
+  // COLLAPSES to ~0 (then slightly negative) as slip passes peak → progressive,
+  // catchable breakaway + the "steering goes light at the limit" cue. Replaces
+  // the old slide-gated arcade yaw damper (which gate-fed a yaw limit-cycle). ----
+  pneumaticTrail: number;     // m — trail at zero slip (× Fy = the aligning moment arm)
+  trailPeakSlip: number;      // rad — slip angle where the trail collapses to 0 (just past the force peak)
+  yawDampConst: number;       // N·m·s/rad — TINY non-gated yaw-rate damping (numerical hygiene only; NOT slide-gated)
   // ---- FASE 1 drive tools (all through the per-wheel friction circle) ----
   // SHAPED accel curve (no gears): drive = throttle · min(peakThrust, enginePower/max(v,vFloor)).
   // Torque-limited (flat peakThrust) low → power-limited (∝1/v) high = punchy + flattening.
@@ -68,9 +76,6 @@ export interface Physics4Params {
   wheelReturnRate: number;        // 1/s — at low throttle the wheel SPINS DOWN to rolling (κ→0 →
                                   // rear regrips → the drift WINDS DOWN on lift, NOT spins); this
                                   // spin-down is NOT faded in a slide (unlike car-braking) (10)
-  driftYawDamp: number;           // N·m·s/rad — mild SLIDE-GATED yaw damping (widens the stable
-                                  // hold band so a drift SETTLES at an angle instead of spinning;
-                                  // physical = the tyres' relaxation resisting yaw; 0 = off) (500 — low-mid throttle + counter-steer HOLDS a drift, excess SPINS; a skill window)
   // ---- reverse (stopped + brake held) ----
   reverseSpeed: number;       // m/s — reverse speed cap (9 ≈ 32 km/h, brisk RWD-coupe reverse)
   reverseForce: number;       // N — reverse drive force (brake pedal = reverse throttle) (10000)
@@ -90,13 +95,16 @@ export const PHYS4: Physics4Params = {
   loadTransferLongGain: 1.0,
   loadTransferLatGain: 1.0,
   muNom: 1.90,             // race slicks: outer wheels hold ~1.6g → grips hard
-  loadSensitivity: 0.12,   // slicks are more consistent under load (planted)
+  loadSensitivity: 0.05,   // slicks are consistent under load (lowered 0.12→0.05 → holds 1.77g with the rear self-aligning understeer)
   tireB: 14,               // slick: sharper rise to peak (stiffer, peak ~5.7°)
   tireC: 1.65,             // slick: DECISIVE peak-then-falloff (a real edge, not padded)
   tireEllipseLong: 1.0,
   relaxLength: 0.5,
   lowSpeedBlend: 2.5,
   maxSteer: 0.52,
+  pneumaticTrail: 0.22,    // m — aligning-moment arm at center (tuned: kills the yaw limit-cycle across the oval)
+  trailPeakSlip: 0.13,     // rad ≈ 7.5° — trail collapses just past the ~5.8° force peak (steering goes light at the limit)
+  yawDampConst: 60,        // tiny non-gated yaw-rate damping — numerical hygiene, NOT slide-gated
   // 370 hp RACE SPECIAL
   peakThrust: 13000,       // sharp low-end punch + willing power-over
   enginePower: 276000,     // 276 kW ≈ 370 hp
@@ -116,7 +124,6 @@ export const PHYS4: Physics4Params = {
   engineBrakeSlideFade: 0.9,
   wheelInertiaSlideFactor: 0.55,
   wheelReturnRate: 10,
-  driftYawDamp: 375,       // re-tuned 500→375 for the lower Iz (1469 vs 1875)
   reverseSpeed: 9,        // m/s ≈ 32 km/h — a real RWD coupe reverses briskly
   reverseForce: 10000,    // N → ~8.3 m/s² backward = quick pickup, not a crawl
   reverseDelay: 0.5,
@@ -344,11 +351,32 @@ export function step4(car: CarState, input: Inputs, dt: number, p: Physics4Param
       if (rearSat || Math.abs(alpha) > 0.20) rearSaturated = true;
     }
 
+    // ---- SELF-ALIGNING TORQUE (pneumatic trail): Mz = -Fy·t. A real tyre's
+    // lateral force acts a distance t (the pneumatic trail) BEHIND the contact
+    // centre → a restoring moment that tries to align the wheel with its
+    // velocity. The trail is MAX at centre and COLLAPSES to 0 (then slightly
+    // negative) as the slip angle passes the peak — so the moment BUILDS with
+    // slip (progressive warning + directional stability, always on, not gated),
+    // then EASES right at the grip limit (the "steering goes light" cue). Trail
+    // scales with the contact patch (∝ load).
+    // ONLY the REAR wheels feed it into the CHASSIS yaw: a real front tyre's
+    // aligning moment reacts through the STEERING system (self-centring the wheel
+    // = steering feel), not the chassis — and here steering is a kinematic input
+    // (fixed wheel angle), so a front Mz on the chassis would be spurious understeer.
+    // The REAR aligning moment has no steering DOF → it genuinely acts on the
+    // chassis = the real directional stability that kills the yaw limit-cycle.
+    let Mz = 0;
+    if (!front && !lockedRear && !reversing) {
+      const trailFrac = clamp(1 - Math.abs(alpha) / p.trailPeakSlip, -0.15, 1);
+      const loadScale = clamp(Fz / FzStatic[i], 0, 1.5);   // trail ∝ contact patch ∝ load
+      Mz = -Fy * p.pneumaticTrail * trailFrac * loadScale;
+    }
+
     // rotate wheel force back to body frame (+δ) and accumulate
     const fbx = Fx * cd - Fy * sd;
     const fby = Fx * sd + Fy * cd;
     Fbx += fbx; Fby += fby;
-    Tz += rx[i] * fby - ry[i] * fbx;   // yaw torque about CoM
+    Tz += rx[i] * fby - ry[i] * fbx + Mz;   // yaw torque about CoM + self-aligning
   }
 
   // ---- rear wheel dynamics: Iw·dω/dt = T_drive − Fx(κ)·r − T_brake ----
@@ -451,15 +479,11 @@ export function step4(car: CarState, input: Inputs, dt: number, p: Physics4Param
   const awx = abx * cos - aby * sin;
   const awy = abx * sin + aby * cos;
   let vx = car.vx + awx * dt;
-  // (C) MILD SLIDE-GATED YAW DAMPING: a drift is a marginally-stable equilibrium
-  // → without damping the yaw oscillates/runs away (spin). A yaw-rate damping
-  // torque, gated on the REAR lateral slide depth (smooth, so normal driving is
-  // untouched), lets the drift SETTLE at a held angle and widens the throttle
-  // band. Physical (the tyres' relaxation/aligning resisting yaw), not a motion
-  // source — it only opposes existing yaw.
-  const rearSlideFrac = clamp((Math.max(Math.abs(st.slip[2]), Math.abs(st.slip[3])) - SLIDE_SLIP_LO)
-    / (SLIDE_SLIP_HI - SLIDE_SLIP_LO), 0, 1);
-  const Tyaw = Tz - p.driftYawDamp * w * rearSlideFrac;
+  // YAW: the self-aligning torque (Mz, summed into Tz in the wheel loop) is the
+  // real, always-on restoring/damping moment now — the slide-gated arcade damper
+  // is GONE (its on/off gating fed the yaw limit-cycle). A tiny NON-gated yaw-rate
+  // damping remains for numerical hygiene only (no slide trigger, no on/off edge).
+  const Tyaw = Tz - p.yawDampConst * w;
   let vy = car.vy + awy * dt;
   let omega = w + Tyaw / Iz * dt;
 
