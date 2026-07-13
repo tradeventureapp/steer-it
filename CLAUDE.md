@@ -2550,3 +2550,23 @@ launch spin preserved (κ 4.6), four-wheel slide (fS30/rS31), drives out, handbr
 D-tuner: `tireBx`. **NEXT: phone feel-test (X → PHYSICS4) — full throttle: rears light up from low speed
 then HOOK UP and drive at speed (no continuous smoke), smooth surge (no hard jerk) as they catch, still
 spins easy at low speed, four-wheel slide + drift + grip unchanged.**
+
+---
+**physics4 SLICK HOOK-UP (wheelInertiaDrive 5→8 — brief chirp then BITE, no more 2.65s launch spin;
+11/11):** the "rears smoke like crazy / spin out on corner exit" was REAL low-speed over-spin lasting
+**2.65 s** from a standstill (measured; real slick chirp = 0.3-0.7 s) — a worn-tyre/dragster behaviour,
+wrong for E30 M3 Group A RACE SLICKS which hook up almost instantly. ROOT (read-only): `wheelInertiaDrive`
+5 (lowered earlier for the low-speed κ∝1/v spin) let the wheel spin up so eagerly it ran away past the
+tyre peak (bistable trap) and took 2.65 s to hook up; the slow-corner-exit shares that low-speed regime →
+the sustained smoke + occasional spin-out. Sharp bistable threshold measured: iw 6 → 2.60 s (runaway) /
+iw 7-8 → 0.08 s (hooks up). FIX = **`wheelInertiaDrive` 5→8** (above the runaway threshold, the cleaner/
+sharper bite). **MEASURED before→after:** launch chirp **2.65 s (κ 4.6) → 0.07 s (κ 0.3)** = a brief 370hp
+chirp then BITE; slow corner-exit(20 km/h) hooks up 0.07 s, NO spin-out (β 6); **0-100 3.37→3.03 s
+(FASTER — drives instead of spinning)**; four-wheel slide fS30/rS30 preserved; drives out, handbrake drift
+β-75, grip 1.97g, sub-limit stable, braking 1.21g, top 246, **ARCADE 0.0e+0**. **INTENTIONAL:** the
+low-speed κ∝1/v spin built earlier is reduced to a brief chirp — CORRECT for slicks (slick ≠ worn road
+tyre; a brief 370hp chirp is realistic, sustained low-speed smoke is not). The speed-dependent traction
+still decays with speed (just hooks up much faster). D-tuner `wheelInertiaDrive`. **NEXT: phone feel-test
+(X → PHYSICS4) — slicks hook up and CATAPULT out of corners: brief chirp off the line then bite, corner
+exit with the wheel near-straight + throttle → hooks up and fires out (no continuous smoke, no spin-out),
+still huge traction; four-wheel slide / drift / handbrake unchanged.**

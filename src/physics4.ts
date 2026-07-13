@@ -111,7 +111,7 @@ export const PHYS4: Physics4Params = {
   powerFloorSpeed: 5,
   rollRadius: 0.30,
   wheelInertia: 22,        // base — braking/coast unchanged (as tuned)
-  wheelInertiaDrive: 5,    // REAL reflected inertia on throttle → live κ∝1/v (easy slow spin, grips fast)
+  wheelInertiaDrive: 8,    // RACE SLICK: hooks up VERY quickly (brief ~0.08s chirp then BITE); iw 5 spun 2.65s (worn-tyre behaviour, wrong for slicks — bistable runaway past the tyre peak). 8 sits above the runaway threshold (iw 6→2.6s / iw 7-8→0.08s)
   wheelSubsteps: 6,        // sub-step the stiff drive-spin ODE → stable, no oscillation
   brakeForce: 13500,       // race brakes @1020 kg — measured 1.21g (see note; 15000 = 1.34g)
   brakeBiasFront: 0.6,     // front-biased → trail-braking rotates (real load transfer)
