@@ -61,8 +61,8 @@ export interface Physics4Params {
   rollResist: number;         // rolling resistance: constant force opposing motion (N) (200)
   engineBrakeTorque: number;  // closed-throttle drag torque on the rear wheels (N·m) (500)
   // ---- reverse (stopped + brake held) ----
-  reverseSpeed: number;       // m/s — reverse speed cap (7)
-  reverseForce: number;       // N — reverse drive force (brake pedal = reverse throttle) (6000)
+  reverseSpeed: number;       // m/s — reverse speed cap (9 ≈ 32 km/h, brisk RWD-coupe reverse)
+  reverseForce: number;       // N — reverse drive force (brake pedal = reverse throttle) (10000)
   reverseDelay: number;       // s — brake-held-while-stopped delay before reverse engages (0.5)
 }
 
@@ -98,8 +98,8 @@ export const PHYS4: Physics4Params = {
   dragCoef: 0.8,
   rollResist: 200,
   engineBrakeTorque: 500,
-  reverseSpeed: 7,
-  reverseForce: 6000,
+  reverseSpeed: 9,        // m/s ≈ 32 km/h — a real RWD coupe reverses briskly
+  reverseForce: 10000,    // N → ~8.3 m/s² backward = quick pickup, not a crawl
   reverseDelay: 0.5,
 };
 

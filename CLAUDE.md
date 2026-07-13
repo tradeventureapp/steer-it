@@ -2269,3 +2269,12 @@ Additive longitudinal + reverse + mapping only — lateral/yaw + physics.ts unto
 pull, no shift jerk, analog throttle), reverse (stop + hold brake 0.5s → backs up, mirrored, un-sticks),
 handbrake/drift/coast/smoke, engine sound rising with speed. Then Fase 3 (gameplay: pick the winning
 model, retire the toggle) or further tuning.**
+
+---
+**FASE 1 reverse SPEED-UP (crawl → brisk RWD-coupe reverse):** the reverse was too slow. Raised
+`reverseForce` 6000→**10000** (~8.3 m/s² backward = quick pickup, not a crawl) + `reverseSpeed` 7→**9 m/s
+(≈32 km/h)** (a real early-90s RWD coupe reverses briskly). **MEASURED:** reaches the 9 m/s cap in **1.07 s**
+after engaging (final 33 km/h); GATING UNCHANGED (engages only after brake held ~0.5 s from a stop;
+braked-to-stop + 0.4 s brake → still NOT reversing); steering still mirrored, still un-sticks. Both remain
+D-tuner knobs. tsc + build clean. **NEXT: boss feel-tests reverse speed on phone; dial reverseForce/
+reverseSpeed if wanted.**
