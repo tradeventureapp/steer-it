@@ -2414,3 +2414,39 @@ approved numbers — flagged so the boss can dial to taste on the D-tuner. tsc +
 arcade toggle untouched. **NEXT: boss feel-tests the Group A SIM as a RACE CAR (X → PHYSICS4): grip,
 precision, braking, cornering speed first; drift secondary. Dial muNom (grip level), brakeForce (braking
 g), tireB/tireC (edge), brakeBiasFront (trail-brake). Then the separate forgiving ARCADE car.**
+
+---
+**physics4 SPEED-DEPENDENT TRACTION — κ∝1/v revived (wheelInertia band-aid removed, drive ODE sub-stepped;
+11/11):** the diagnosis proved the rear never broke loose (even at full throttle = 137% of rear grip, peak
+κ 0.07) because `wheelInertia 22` (a launch-oscillation band-aid) stopped the wheel spinning up → the κ∝1/v
+slip dynamics (B) were DORMANT, and the (A) torque curve is flat below 76 km/h → the only break-loose was
+the lateral cornering circle (wrong sign, harder at speed). FIX (approach 1+2, isSimReal2-era physics4 only):
+**(1)** an on-throttle `wheelInertiaDrive` **5** (real reflected inertia) replaces the base 22 for the DRIVE
+spin-up → κ∝1/v is LIVE; **(2)** the stiff low-inertia drive ODE is **sub-stepped** (`wheelSubsteps` 6, ω
+only, recomputing Fx(κ) through the friction ellipse each sub-step; body forces stay 60 Hz) → stable, no
+oscillation. **CRITICAL ISOLATION:** the sub-step + low inertia run ONLY when `throttle>0.01 && brake≈0 &&
+!reversing`; **braking / coast / engine-braking / reverse keep the ORIGINAL single-step at base
+wheelInertia 22 → BYTE-IDENTICAL to HEAD** (proven 0.0e+0: BRAKE, COAST, BRAKE+STEER, REVERSE; a first
+attempt that sub-stepped braking too made the rear LOCK κ→−1 + shifted braking 1.21→1.40g — caught and
+isolated). **MEASURED — the fix (straight full-throttle κ): OLD 0.07/0.06/0.05/0.03 (dead) → NEW 5.72 @30 /
+2.56 @50 / 0.08 @80 / 0.03 @120** = the rear now spins violently at low speed and grips at high speed (B
+live). Launch STABLE (0° drift, 0 κ-flips) WITH real wheelspin (κ 1.0 — raw, TC-removed intent); wheelspin
+SMOOTH in a sustained corner (0 flips, sub-step stable). **KEEP all intact:** cornering 1.79g, precision β
+1.6°, braking 1.21g (byte-identical, rear ABS-ok no lock), drift sustain β~46° skill-window, handbrake
+always brakes, reverse; top 248; **ARCADE byte-identical 0.0e+0**. **HONEST — 0-100 3.48→4.37 s** (the
+launch now spins the rears = the real cost of raw wheelspin the boss chose by removing TC; 0-50 1.65→2.12).
+New D-tuner knobs `wheelInertiaDrive` (5) / `wheelSubsteps` (6). **⚠️ MEASURED BREAK-LOOSE CURVE vs the
+~104 km/h anchor (report for sign-off) — straight-line throttle-% to break loose: 30 km/h 95% · 50 km/h
+100% · 80/100/120 HOLD (grips); the boss's 80 km/h + moderate-steer + 50% corner HOLDS (the original
+complaint FIXED).** Two honest deviations from the literal anchor: **(a)** low-speed break-loose is at ~95%
+throttle, NOT partial — partial-throttle low-speed wheelspin needs real GEARING (1st-gear torque
+multiplication = the missing (A)), deliberately skipped; without gears the force balance (drive vs grip)
+sets a ~95% threshold at low speed, and the κ (B) makes that spin, once triggered, violent + speed-graded.
+**(b)** the traction crossover (grips above) is ~70-80 km/h, BELOW the static 104 anchor, because
+full-throttle LOAD TRANSFER plants the rear (grip 4753→~6600 N/wheel), which the static anchor ignored —
+physically MORE correct, just lower. So the car is grippier-at-speed than the literal anchor (the right
+direction — the complaint was too-easy break-loose at speed) and spins hard at low speed on full throttle,
+but does not spin at PARTIAL throttle at low speed (that's gearing). **NEXT: boss feel-tests physics4 (X)
+— low-speed full throttle lights the rears, high speed grips, 80/50% corner holds + accelerates out;
+launch spins then hooks up. If the boss wants partial-throttle low-speed wheelspin OR the crossover pushed
+to 104, that's real GEARING (A) or a load-transfer/grip tune — flagged, not done.**

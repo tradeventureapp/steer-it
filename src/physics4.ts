@@ -48,7 +48,9 @@ export interface Physics4Params {
   enginePower: number;        // W — peak power (~172 kW ≈ 230 hp) → the ∝1/v taper (172000)
   powerFloorSpeed: number;    // m/s — v floor in enginePower/v so low speed = flat peakThrust (5)
   rollRadius: number;         // m — wheel rolling radius (0.30)
-  wheelInertia: number;       // kg·m² — rear wheel + engine/drivetrain reflected inertia (22 — big = stable, no launch spin-up oscillation)
+  wheelInertia: number;       // kg·m² — base rear-wheel inertia for BRAKING/COAST (22 — keeps those dynamics as tuned)
+  wheelInertiaDrive: number;  // kg·m² — REAL reflected inertia for the on-throttle spin-up (~5 → live κ∝1/v speed-dependent wheelspin)
+  wheelSubsteps: number;      // internal ω-ODE sub-steps/frame for the drive spin-up (stiff low-inertia wheel stays stable; body stays 60Hz)
   brakeForce: number;         // N — peak brake force (both axles combined) (14000)
   brakeBiasFront: number;     // 0..1 — front share of braking (0.6)
   tireBx: number;             // Magic-Formula LONGITUDINAL stiffness (18)
@@ -100,7 +102,9 @@ export const PHYS4: Physics4Params = {
   enginePower: 276000,     // 276 kW ≈ 370 hp
   powerFloorSpeed: 5,
   rollRadius: 0.30,
-  wheelInertia: 22,
+  wheelInertia: 22,        // base — braking/coast unchanged (as tuned)
+  wheelInertiaDrive: 5,    // REAL reflected inertia on throttle → live κ∝1/v (easy slow spin, grips fast)
+  wheelSubsteps: 6,        // sub-step the stiff drive-spin ODE → stable, no oscillation
   brakeForce: 13500,       // race brakes @1020 kg — measured 1.21g (see note; 15000 = 1.34g)
   brakeBiasFront: 0.6,     // front-biased → trail-braking rotates (real load transfer)
   tireBx: 18,
@@ -239,6 +243,8 @@ export function step4(car: CarState, input: Inputs, dt: number, p: Physics4Param
   const loadOut: number[] = [0, 0, 0, 0];
   const rearFx: [number, number] = [0, 0];   // delivered longitudinal (for ω integration)
   const rearVlong: [number, number] = [0, 0];
+  const rearD: [number, number] = [0, 0];        // rear grip budget (sub-step ω integration)
+  const rearFyRaw: [number, number] = [0, 0];    // rear pre-ellipse lateral (sub-step ellipse)
   let rearSaturated = false;
 
   for (let i = 0; i < 4; i++) {
@@ -320,6 +326,7 @@ export function step4(car: CarState, input: Inputs, dt: number, p: Physics4Param
     // A LOCKED rear only counts as "sliding" (smoke/skid) when it is actually
     // SCRUBBING across the ground (v above a small threshold) — a stationary
     // handbrake has zero contact slip → no scrub → no smoke.
+    if (!front) { rearD[i - 2] = D; rearFyRaw[i - 2] = Fy; }
     let rearSat = lockedRear && v > 0.6;
     if (!lockedRear) {
       const demand = Math.hypot(Fx / (D * p.tireEllipseLong || 1), Fy / (D || 1));
@@ -344,10 +351,25 @@ export function step4(car: CarState, input: Inputs, dt: number, p: Physics4Param
     Tz += rx[i] * fby - ry[i] * fbx;   // yaw torque about CoM
   }
 
-  // ---- rear wheel dynamics: Iw·dω/dt = T_drive − Fx·r − T_brake ----
+  // ---- rear wheel dynamics: Iw·dω/dt = T_drive − Fx(κ)·r − T_brake ----
   // (handbrake keeps ω pinned to 0 → the lock owns the wheel; drive can't spin
   // it → the handbrake ALWAYS brakes.) NO traction control — raw power (race
-  // special); the big wheelInertia keeps launch wheelspin stable, not oscillating.
+  // special). The wheel carries a REALISTIC reflected inertia (~5 kg·m²), so the
+  // κ∝1/v longitudinal-slip dynamics are LIVE: at low speed a given wheel-speed
+  // excess is a HUGE slip ratio → the rear breaks loose easily (traction-limited);
+  // at high speed the same excess is a small κ → it grips (grip-limited). The
+  // stiff low-inertia wheel ODE is SUB-STEPPED (recomputing Fx(κ) each sub-step,
+  // body forces stay at the frame rate) so it integrates stably WITHOUT the old
+  // big-inertia band-aid that masked the whole effect. This is correct
+  // integration, not a feel tweak.
+  const nSub = Math.max(1, p.wheelSubsteps | 0);
+  const subDt = dt / nSub;
+  // ON THROTTLE (not braking/coasting/reversing) the drive spin-up runs at the REAL
+  // low reflected inertia + sub-stepped → live κ∝1/v traction (easy slow spin, grips
+  // fast) that stays numerically stable. Braking / coast / engine-braking keep the
+  // OLD single-step at the base inertia (so braking + coast are UNCHANGED — no false
+  // rear lock, the drive-only change is isolated).
+  const onThrottle = throttle > 0.01 && brakeEff <= 0.001 && !reversing;
   for (let ri = 0; ri < 2; ri++) {
     if (hb) { st.rearOmega[ri] = 0; continue; }
     let omega = st.rearOmega[ri];
@@ -360,18 +382,36 @@ export function step4(car: CarState, input: Inputs, dt: number, p: Physics4Param
       / (SLIDE_SLIP_HI - SLIDE_SLIP_LO), 0, 1);
     // (B) LOWER effective wheel inertia as it slides → partial throttle gives a
     // proportional, controllable wheelspin (a held angle), not a sluggish step.
-    const IwEff = p.wheelInertia * (1 - (1 - p.wheelInertiaSlideFactor) * slideFrac);
-    // NO TRACTION CONTROL (race drift special): the drive torque is applied RAW —
-    // the wheel spins up on launch, standing burnouts work, power-over is raw. The
-    // big `wheelInertia` (22) keeps that launch wheelspin STABLE (no oscillation/
-    // shudder) without any TC masking it. The car fights its own power = character.
+    const baseIw = onThrottle ? p.wheelInertiaDrive : p.wheelInertia;
+    const IwEff = baseIw * (1 - (1 - p.wheelInertiaSlideFactor) * slideFrac);
     const Tdrive = driveTorquePerRear;
     // ENGINE BRAKING the CAR: closed-throttle compression drag pulls the wheel
     // BELOW rolling (κ<0) → the tyre brakes the car (coast decel on the straight).
     // (A) FADED OFF as the rear slides so it doesn't brake a drifting rear.
     const Tengine = (1 - throttle) * p.engineBrakeTorque * (1 - p.engineBrakeSlideFade * slideFrac);
-    omega += (Tdrive - rearFx[ri] * rr - Math.sign(omega) * (Tbrake + Tengine)) / IwEff * dt;
-    if (omega < 0) omega = 0;   // brake can't drive the wheel backward (no reverse yet)
+    if (onThrottle) {
+      // SUB-STEP the drive ω ODE: recompute the longitudinal tyre force from the
+      // evolving κ each sub-step (the stiff nonlinearity), through the same friction
+      // ellipse the body sees (combined slip: a laterally-loaded rear spins up more).
+      const vlong = rearVlong[ri];
+      const D = rearD[ri] || 1;
+      const denom = Math.max(Math.abs(vlong), 3);
+      const ellLong = D * (p.tireEllipseLong || 1);
+      const FyRaw = rearFyRaw[ri];
+      for (let s = 0; s < nSub; s++) {
+        const kappa = (omega * rr - vlong) / denom;
+        let FxLong = D * Math.sin(p.tireCx * Math.atan(p.tireBx * kappa));
+        const demand = Math.hypot(FxLong / ellLong, FyRaw / D);
+        if (demand > 1) FxLong /= demand;
+        omega += (Tdrive - FxLong * rr - Math.sign(omega) * Tengine) / IwEff * subDt;
+        if (omega < 0) omega = 0;
+      }
+    } else {
+      // BRAKING / COAST / REVERSE: the ORIGINAL single-step (base inertia, the
+      // frame's rearFx incl. brake) → braking + coast dynamics byte-identical.
+      omega += (Tdrive - rearFx[ri] * rr - Math.sign(omega) * (Tbrake + Tengine)) / IwEff * dt;
+      if (omega < 0) omega = 0;   // brake can't drive the wheel backward (no reverse yet)
+    }
     // FIX 1 — WHEEL SPIN-DOWN to rolling (NOT faded in a slide): at low throttle
     // the wheel relaxes toward the rolling speed (vlong/rr) so κ→0 → the rear
     // REGAINS grip → the drift WINDS DOWN on lift (instead of spinning out) and
