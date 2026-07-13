@@ -2483,3 +2483,39 @@ exact). The self-aligning is a big real-physics change (not a param tweak) as th
 if pushed past grip slide PROGRESSIVELY + catch on lift+countersteer (no limit-cycle wobble, no
 un-catchable snap, planted not pendulum). Dial pneumaticTrail (stability↔agility) / loadSensitivity
 (grip) on the D tuner.**
+
+---
+**physics4 REALISTIC GROUP A rebuild (path B — root fix: directional-stability MARGIN, band-aids GONE):**
+the "trail-brake does nothing + spins instead of four-wheel-sliding" investigation found the REAL root
+(read-only): the car was **directionally UNSTABLE UNDER THROTTLE at 50/50** — with weightDistFront 0.50 the
+neutral-steer-point sits ON the CoM, so throttle's friction-circle rear-grip loss tips it into **divergent
+power-oversteer** (steer 0.2 + throttle 0.3 → 180° spin; no-throttle → stable 3°). This is what the huge
+pneumaticTrail 0.22 / yawDampConst 1100 band-aids were MASKING. Ruled OUT as the cause: prev-frame accel
+lag, relaxation length, longitudinal transfer, friction ellipse (all no-effect); lateral transfer ~half.
+**REAL FIX = a stability margin via slight front weight bias** (textbook: neutral-steer-point BEHIND the
+CoM = every real RWD car). **REALISTIC VALUES, each real-world justified:** `weightDistFront` 0.50→**0.53**
+(real E30 M3 ~52/48 + race setup = the stability margin), `maxSteer` 0.52→**0.56** (32° real E30 front
+lock), `tireB`/`tireC` 14/1.65→**10/1.45** (real slick BROAD peak ~11°, not a narrow 5.8° cliff → the
+fronts work over a wide slip range → no premature washout at the 32° lock), `pneumaticTrail` 0.22→**0.06 m**
+(REAL trail; the band-aid GONE), `trailPeakSlip`→**0.19** (collapses at the broad-slick peak), `yawDampConst`
+60→**150** (SMALL, physically-legit = real suspension ROLL DAMPING a point-model omits — NOT the 1100
+band-aid), `loadTransferLongGain` 1.0→**1.5** (for trail-brake), `loadSensitivity` **0.05** (oval
+stability). **MEASURED (12/12 harness):** (a) **sub-limit STABLE under throttle** (the root fix — was 180°
+spin, now 3°); (b) oval NO limit-cycle; (c) **FOUR-WHEEL slide** past the limit (both axles fS34/rS35,
+β-30, holds heading) — not a rear-only snap; (d) **DRIVES OUT** (provoke → countersteer → recovers); (e)
+inject β45 lift+countersteer catches; (f) brake→throttle CATCHABLE with a driver (β caught, not instant
+spin); (g) grip **~1.85-1.97g**; (h) low-speed traction κ∝1/v ALIVE; (i) braking 1.21g; (j) top 248, 0-50
+2.0s; (k) **ARCADE 0.0e+0**. The 0.22-trail / 1100-damp band-aids are REPLACED by real vehicle dynamics.
+**⚠️ HONEST TENSION (reported, deep rabbit-hole per the boss's stop-clause):** **TRAIL-BRAKE is SUBTLE**
+(Δβ ~−2.7°, rear becomes mobile 5→8°) at the stable config. It's a genuine 3-way coupling —
+STABILITY needs high rear grip (muNom ~1.90; lower → power-oversteer), a STRONG trail-brake needs low rear
+grip / high loadSensitivity, and high loadSensitivity RE-BREAKS the oval limit-cycle. A directionally-
+stable (understeer-margin) race car inherently RESISTS trail-brake rotation — the subtle rotation is
+realistic; the DRAMATIC past-limit rotation comes from the four-wheel slide under power (which works). A
+stronger trail-brake would need an oversized transfer (LTL ~1.65) or a less-stable balance (re-introducing
+the power-oversteer spin) — not shipped. Grip ~1.9g is a hair above the 1.8 slick target (coupled to the
+stability-critical muNom; the LTL 1.5 inflates the reading). D-tuner: `pneumaticTrail`/`trailPeakSlip`/
+`yawDampConst` + the balance knobs. **NEXT: phone feel-test sim-real (X → PHYSICS4) as a REAL Group A BMW
+vs Project CARS — planted/precise, grips, four-wheel-slides past the limit + drives out, catchable, no
+uncatchable snap, no oval limit-cycle. Feel whether the subtle trail-brake is enough or if it needs the
+stronger (less-stable/oversized) variant.**

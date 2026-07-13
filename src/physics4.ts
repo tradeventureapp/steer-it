@@ -89,22 +89,22 @@ export interface Physics4Params {
 // benchmark (a separate forgiving ARCADE car is built on top later).
 export const PHYS4: Physics4Params = {
   massKg: 1020,            // Group A stripped race weight (was 1200)
-  weightDistFront: 0.50,   // ~50/50 → neutral-mild-understeer at the limit
+  weightDistFront: 0.53,   // real E30 M3 ~52/48 front + race setup → the STABILITY MARGIN (neutral-steer-point BEHIND the CoM = directionally stable under throttle, no power-oversteer divergence)
   cgHeight: 0.45,          // lowered race car → less load transfer → planted
   yawInertiaK: 1.20,       // Iz = 1020·1.20² ≈ 1469 (agile; was 1875)
-  loadTransferLongGain: 1.0,
+  loadTransferLongGain: 1.5,  // the stable-margin balance plants the rear → trail-braking needs this transfer for the rear to become mobile (subtle real rotation; a dramatic one would need an oversized ~1.65 or a less-stable balance)
   loadTransferLatGain: 1.0,
-  muNom: 1.90,             // race slicks: outer wheels hold ~1.6g → grips hard
-  loadSensitivity: 0.05,   // slicks are consistent under load (lowered 0.12→0.05 → holds 1.77g with the rear self-aligning understeer)
-  tireB: 14,               // slick: sharper rise to peak (stiffer, peak ~5.7°)
-  tireC: 1.65,             // slick: DECISIVE peak-then-falloff (a real edge, not padded)
+  muNom: 1.90,             // race slicks → grip ~1.86g (also the rear grip that keeps it stable under power; lower → oversteer-prone)
+  loadSensitivity: 0.05,   // kept LOW for oval stability (raising it → stronger trail-brake but the oval limit-cycle returns — a real 3-way coupling; see notes)
+  tireB: 10,               // real slick: BROAD peak (~10.8°) → the fronts work over a wide slip range → no premature washout at the 32° lock
+  tireC: 1.45,             // real slick: gentle, broad post-peak (not a narrow cliff)
   tireEllipseLong: 1.0,
   relaxLength: 0.5,
   lowSpeedBlend: 2.5,
-  maxSteer: 0.52,
-  pneumaticTrail: 0.22,    // m — aligning-moment arm at center (tuned: kills the yaw limit-cycle across the oval)
-  trailPeakSlip: 0.13,     // rad ≈ 7.5° — trail collapses just past the ~5.8° force peak (steering goes light at the limit)
-  yawDampConst: 60,        // tiny non-gated yaw-rate damping — numerical hygiene, NOT slide-gated
+  maxSteer: 0.56,          // 32° front wheel lock — the real E30 M3 lock (washout solved by the broad slick peak, not by cutting the lock)
+  pneumaticTrail: 0.06,    // m — REAL pneumatic trail (~10-15% of the contact patch); the 0.22 band-aid is GONE (stability now comes from the weight-distribution margin, real physics)
+  trailPeakSlip: 0.19,     // rad ≈ 11° — trail collapses at the broad-slick force peak (steering goes light at the limit)
+  yawDampConst: 150,       // SMALL, physically-legitimate yaw-rate damping = real suspension ROLL DAMPING a point-model omits (NOT the 1100 band-aid)
   // 370 hp RACE SPECIAL
   peakThrust: 13000,       // sharp low-end punch + willing power-over
   enginePower: 276000,     // 276 kW ≈ 370 hp
