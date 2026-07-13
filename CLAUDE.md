@@ -2242,3 +2242,30 @@ isRearSliding. **MEASURED 8/8:** stationary HB → wheelSpin 0%, isRearSliding n
 (rearSlip 26°); HB+full throttle still ALWAYS brakes (dv/dt<0); parking with HB still; **ARCADE 0.0e+0**.
 Smoke-gate only — scrub force / drift entry / brake / lateral / yaw / physics.ts untouched. tsc + build
 clean. **NEXT: boss phone-tests — parked handbrake = no smoke; moving handbrake = smoke + drift as before.**
+
+---
+**FASE 1 COMPLETE — reverse + shaped accel curve + rpm-sound (no gears); smoke A re-verified; 18/18:**
+**(A) stationary-handbrake smoke** — re-confirmed the slip-speed gate (`wheelSpin = clamp((car.speed−0.6)
+/1.4,0,1)` under HB, `rearSat = lockedRear && v>0.6`): parked HB = 0% smoke / no skid / still; moving HB
+= smoke. **(B1) REVERSE** — per-car `reversing` + `brakeHoldT`: engages ONLY after `v<0.5 && brake>0.5 &&
+throttle<0.05 && !hb` held for `reverseDelay` 0.5 s (timer resets on motion / brake-release) → a normal
+braking stop / wall-bump-with-brake NEVER reverses (verified: brake 0.4 s = no reverse, held 0.5 s →
+reverses). In reverse the brake pedal is the reverse throttle (`brakeEff=0` so it doesn't also brake) → a
+backward BODY force `brake·reverseForce`, capped at `reverseSpeed` 7 m/s; **steering mirrored**; the rear
+tyre longitudinal Fx is forced 0 (free-rolls backward — else the ω≥0 clamp fought it); rest-snap +
+kinematic-blend made reverse-aware. Exits on throttle>0.05 (→forward) or brake-release near rest.
+Un-sticks a nosed-in car (5.5 m). **(B2) SHAPED ACCEL CURVE (no gears)** — `drive = throttle · min(peakThrust
+9000, enginePower 172000/max(v,powerFloorSpeed 5))`: torque-limited flat low (punchy) → power-limited ∝1/v
+high (flattening) = one smooth curve, **NO shift points / NO mid-drift jerk**. **ANALOG PROVEN**: at speed
+half-throttle = **exactly 50%** of full drive (linear → feeds the drift angle). 0-50 2.7 s, 0-100 5.9 s,
+top 208 km/h (power/drag limited). Launch traction limit intact (wspin 12%, no lottery). **(B3) RPM-sound**
+— `rearWheelSpeed = max(|ω·r|, v)` = rear-wheel surface speed = the engine-revs proxy: rises smoothly &
+monotonically with speed, spikes on wheelspin, **no gear sawtooth** (0 backward jumps measured). **MEASURED
+18/18** + regressions: launch clean+deterministic, handbrake+throttle ALWAYS brakes, drift carries speed,
+coast slows, low-speed stable, **ARCADE 0.0e+0**. New D-tuner knobs: `peakThrust`/`enginePower`/
+`powerFloorSpeed` (replaced engineForce/engineFadeSpeed) + `reverseSpeed`/`reverseForce`/`reverseDelay`.
+Additive longitudinal + reverse + mapping only — lateral/yaw + physics.ts untouched. tsc + build clean.
+**FASE 1 is COMPLETE.** **NEXT: boss feel-tests Fase 1 complete on phone (X → PHYSICS4): drive (punchy
+pull, no shift jerk, analog throttle), reverse (stop + hold brake 0.5s → backs up, mirrored, un-sticks),
+handbrake/drift/coast/smoke, engine sound rising with speed. Then Fase 3 (gameplay: pick the winning
+model, retire the toggle) or further tuning.**

@@ -42,8 +42,11 @@ export interface Physics4Params {
   lowSpeedBlend: number;      // m/s — below this, blend toward a kinematic model (2.5)
   maxSteer: number;           // rad — physical front steer lock (0.52 ≈ 30°)
   // ---- FASE 1 drive tools (all through the per-wheel friction circle) ----
-  engineForce: number;        // N — peak drive force at the rear AXLE (torque×gear/r) (9000)
-  engineFadeSpeed: number;    // m/s — drive force fades to 0 by here (caps top speed) (62)
+  // SHAPED accel curve (no gears): drive = throttle · min(peakThrust, enginePower/max(v,vFloor)).
+  // Torque-limited (flat peakThrust) low → power-limited (∝1/v) high = punchy + flattening.
+  peakThrust: number;         // N — max drive force at the rear axle (low-speed torque limit) (9000)
+  enginePower: number;        // W — peak power (~172 kW ≈ 230 hp) → the ∝1/v taper (172000)
+  powerFloorSpeed: number;    // m/s — v floor in enginePower/v so low speed = flat peakThrust (5)
   rollRadius: number;         // m — wheel rolling radius (0.30)
   wheelInertia: number;       // kg·m² — rear wheel + engine/drivetrain reflected inertia (22 — big = stable, no launch spin-up oscillation)
   brakeForce: number;         // N — peak brake force (both axles combined) (14000)
@@ -57,6 +60,10 @@ export interface Physics4Params {
   dragCoef: number;           // aero drag: Fdrag = dragCoef·v² (N per (m/s)²) (0.8)
   rollResist: number;         // rolling resistance: constant force opposing motion (N) (200)
   engineBrakeTorque: number;  // closed-throttle drag torque on the rear wheels (N·m) (500)
+  // ---- reverse (stopped + brake held) ----
+  reverseSpeed: number;       // m/s — reverse speed cap (7)
+  reverseForce: number;       // N — reverse drive force (brake pedal = reverse throttle) (6000)
+  reverseDelay: number;       // s — brake-held-while-stopped delay before reverse engages (0.5)
 }
 
 // D-tunable defaults (the boss tunes these live; mutated in place like CONFIG).
@@ -76,8 +83,9 @@ export const PHYS4: Physics4Params = {
   lowSpeedBlend: 2.5,
   maxSteer: 0.52,
   // FASE 1 drive tools
-  engineForce: 9000,
-  engineFadeSpeed: 62,
+  peakThrust: 9000,
+  enginePower: 172000,
+  powerFloorSpeed: 5,
   rollRadius: 0.30,
   wheelInertia: 22,
   brakeForce: 14000,
@@ -90,6 +98,9 @@ export const PHYS4: Physics4Params = {
   dragCoef: 0.8,
   rollResist: 200,
   engineBrakeTorque: 500,
+  reverseSpeed: 7,
+  reverseForce: 6000,
+  reverseDelay: 0.5,
 };
 
 const MU_FLOOR = 0.3;         // μ never collapses to ≤0 under huge load
@@ -104,6 +115,8 @@ interface P4State {
   // rear wheel angular velocity (rad/s): RL, RR — drive/brake/handbrake act here
   rearOmega: [number, number];
   initd: boolean;   // rear omega seeded to free-rolling on the first step
+  reversing: boolean;    // low-speed reverse mode (stopped + brake held)
+  brakeHoldT: number;    // s — brake held while stopped (arms reverse after reverseDelay)
   // last-frame debug for HUD / verification (per wheel)
   load: [number, number, number, number];
   slipRatio: [number, number];   // rear longitudinal slip ratio (wheelspin/lock)
@@ -115,6 +128,7 @@ function stateOf(car: CarState): P4State {
     s = {
       slip: [0, 0, 0, 0], prevAx: 0, prevAy: 0,
       rearOmega: [0, 0], initd: false,
+      reversing: false, brakeHoldT: 0,
       load: [0, 0, 0, 0], slipRatio: [0, 0],
     };
     states.set(car, s);
@@ -147,15 +161,36 @@ export function step4(car: CarState, input: Inputs, dt: number, p: Physics4Param
   const FzR = (1 - p.weightDistFront) * m * g / 2; // each rear wheel
   const FzStatic = [FzF, FzF, FzR, FzR];
 
-  const steer = clamp(input.steer, -1, 1);
-  const delta = [steer * p.maxSteer, steer * p.maxSteer, 0, 0]; // fronts steer, rears fixed
-
   // ---- body-frame velocity ----
   const h = car.heading, cos = Math.cos(h), sin = Math.sin(h);
   const vbx = car.vx * cos + car.vy * sin;    // body longitudinal
   const vby = -car.vx * sin + car.vy * cos;   // body lateral (right +)
   const v = Math.hypot(car.vx, car.vy);
   const w = car.angularVel;
+
+  const throttle = clamp(input.throttle, 0, 1);
+  const brake = clamp(input.brake, 0, 1);
+  const hb = input.handbrake;
+  const rr = p.rollRadius;
+
+  // ---- REVERSE gating: engages ONLY after the car is fully STOPPED and the
+  // brake is HELD (no throttle, no handbrake) for reverseDelay (~0.5 s) → a
+  // normal braking stop / a wall-bump-with-brake NEVER reverses (the timer only
+  // runs while stopped and resets the instant the car moves or the brake lifts).
+  if (!st.reversing) {
+    if (v < 0.5 && brake > 0.5 && throttle < 0.05 && !hb) st.brakeHoldT += dt;
+    else st.brakeHoldT = 0;
+    if (st.brakeHoldT >= p.reverseDelay) { st.reversing = true; st.brakeHoldT = 0; }
+  } else {
+    // exit reverse: throttle applied → forward; or brake released near standstill
+    if (throttle > 0.05 || (brake < 0.05 && v < 0.5)) st.reversing = false;
+  }
+  const reversing = st.reversing;
+  // in reverse the brake pedal is the REVERSE throttle → it must NOT also brake
+  const brakeEff = reversing ? 0 : brake;
+  // steering mirrors in reverse so it feels natural backing up
+  const steer = clamp(input.steer, -1, 1) * (reversing ? -1 : 1);
+  const delta = [steer * p.maxSteer, steer * p.maxSteer, 0, 0]; // fronts steer, rears fixed
 
   // ---- LOAD TRANSFER (from PREV-frame body accel — no algebraic loop) ----
   // ΔFz_long = m·ax·h/WB (accel → rear, brake → front). ΔFz_lat = m·ay·h/T
@@ -165,18 +200,17 @@ export function step4(car: CarState, input: Inputs, dt: number, p: Physics4Param
     -(FzF + FzR), (FzF + FzR));
   const dLat = m * st.prevAy * p.cgHeight / T * p.loadTransferLatGain;
 
-  const throttle = clamp(input.throttle, 0, 1);
-  const brake = clamp(input.brake, 0, 1);
-  const hb = input.handbrake;
-  const rr = p.rollRadius;
-
   // seed rear wheel speed to free-rolling on the first step (a thrown/reclaimed
   // car isn't braking its own rear); afterwards the dynamics own it.
   if (!st.initd) { st.rearOmega = [vbx / rr, vbx / rr]; st.initd = true; }
 
-  // drive force at the rear axle, faded with speed (caps top). Split per wheel;
-  // becomes a wheel drive torque = force·r.
-  const driveForceAxle = throttle * p.engineForce * clamp(1 - v / p.engineFadeSpeed, 0, 1);
+  // ---- SHAPED accel curve (no gears): one smooth torque-vs-speed force —
+  // torque-limited (flat peakThrust) at low speed = punchy pull, power-limited
+  // (∝ enginePower/v) toward top = flattening. ANALOG: drive = throttle × curve
+  // (throttle is 0..1, linear → half throttle = half force → feeds the drift
+  // angle). Forward only; reverse is its own low-speed force below.
+  const driveForceAxle = reversing ? 0
+    : throttle * Math.min(p.peakThrust, p.enginePower / Math.max(v, p.powerFloorSpeed));
   const driveTorquePerRear = (driveForceAxle / 2) * rr;
 
   // ---- per-wheel forces (body frame) + accumulate net force & yaw torque ----
@@ -227,7 +261,7 @@ export function step4(car: CarState, input: Inputs, dt: number, p: Physics4Param
     if (front) {
       // fronts: brake only (not driven). Brake force opposes motion, capped by
       // grip via the ellipse below → ABS-like (front locks only at full pedal).
-      const fBrake = brake * p.brakeForce * p.brakeBiasFront / 2;
+      const fBrake = brakeEff * p.brakeForce * p.brakeBiasFront / 2;
       Fx = -Math.sign(vlong) * fBrake;
     } else if (lockedRear) {
       // HANDBRAKE = LOCKED rear: the whole contact patch SLIDES on the ground,
@@ -241,6 +275,12 @@ export function step4(car: CarState, input: Inputs, dt: number, p: Physics4Param
       Fx = -Dkin * vlong / slipMag;
       Fy = -Dkin * vlat / slipMag;                 // overrides the slip-angle lateral
       st.slipRatio[i - 2] = -Math.sign(vlong);     // full slip (smoke / HUD)
+    } else if (reversing) {
+      // REVERSE: the rear wheel free-rolls backward with the car (no drive,
+      // ω clamped ≥0 would otherwise fight the reverse) → zero longitudinal tyre
+      // force; the reverse BODY force provides the propulsion. Lateral (Fy) stays.
+      Fx = 0;
+      st.slipRatio[i - 2] = 0;
     } else {
       const ri = i - 2;   // 0=RL, 1=RR
       // longitudinal slip ratio (bounded denominator → no low-speed blow-up)
@@ -248,7 +288,7 @@ export function step4(car: CarState, input: Inputs, dt: number, p: Physics4Param
       st.slipRatio[ri] = kappa;
       Fx = D * Math.sin(p.tireCx * Math.atan(p.tireBx * kappa));
       // rear brake force adds into the longitudinal demand (also via the circle)
-      Fx += -Math.sign(vlong) * brake * p.brakeForce * (1 - p.brakeBiasFront) / 2;
+      Fx += -Math.sign(vlong) * brakeEff * p.brakeForce * (1 - p.brakeBiasFront) / 2;
     }
 
     // ---- FRICTION ELLIPSE (the one principle): the tire's grip budget D is
@@ -286,7 +326,7 @@ export function step4(car: CarState, input: Inputs, dt: number, p: Physics4Param
   for (let ri = 0; ri < 2; ri++) {
     if (hb) { st.rearOmega[ri] = 0; continue; }
     let omega = st.rearOmega[ri];
-    const Tbrake = brake * p.brakeForce * (1 - p.brakeBiasFront) / 2 * rr;
+    const Tbrake = brakeEff * p.brakeForce * (1 - p.brakeBiasFront) / 2 * rr;
     // SOFT launch traction control: below tractionSpeed, once the wheel reaches
     // the target slip, cut the drive torque to just BALANCE the tyre force (hold
     // the slip, don't spin more) → the tyre delivers its grip smoothly = strong,
@@ -305,6 +345,12 @@ export function step4(car: CarState, input: Inputs, dt: number, p: Physics4Param
     omega += (Tdrive - rearFx[ri] * rr - Math.sign(omega) * (Tbrake + Tengine)) / p.wheelInertia * dt;
     if (omega < 0) omega = 0;   // brake can't drive the wheel backward (no reverse yet)
     st.rearOmega[ri] = omega;
+  }
+
+  // ---- REVERSE drive (low-speed mode): the brake pedal is the reverse throttle
+  // → a backward body force, capped at reverseSpeed, un-sticks a nosed-in car.
+  if (reversing && vbx > -p.reverseSpeed) {
+    Fbx -= brake * p.reverseForce;   // −body-x = backward
   }
 
   // ---- COAST forces: aero drag (∝v²) + rolling resistance (constant), both
@@ -334,13 +380,14 @@ export function step4(car: CarState, input: Inputs, dt: number, p: Physics4Param
   // slip-angle regime can't shake or shoot the car off.
   const blend = clamp((p.lowSpeedBlend - v) / p.lowSpeedBlend, 0, 1);
   if (blend > 0) {
-    const omegaKin = v * Math.tan(delta[0]) / WB;
+    // in reverse the motion side is the BACK of the car → align to heading+π
+    const omegaKin = (reversing ? -v : v) * Math.tan(delta[0]) / WB;
     omega = (1 - blend) * omega + blend * omegaKin;
-    // rotate (vx,vy) toward the heading direction by `blend`
+    // rotate (vx,vy) toward the (reverse-aware) heading direction by `blend`
     const sp = Math.hypot(vx, vy);
     if (sp > 1e-4) {
       const cur = Math.atan2(vy, vx);
-      const twd = h;
+      const twd = reversing ? h + Math.PI : h;   // d is normalised below
       let d = cur - twd;
       d = Math.atan2(Math.sin(d), Math.cos(d));
       const na = cur - d * blend * 0.5;
@@ -348,8 +395,9 @@ export function step4(car: CarState, input: Inputs, dt: number, p: Physics4Param
     }
   }
 
-  // rest snap — fully parked below walking pace with no drive input
-  if (v < 0.15 && throttle < 0.02) {
+  // rest snap — fully parked below walking pace with no drive input (NOT in
+  // reverse, where the brake pedal is the reverse throttle driving it backward)
+  if (v < 0.15 && throttle < 0.02 && !reversing) {
     vx = 0; vy = 0; omega = 0; st.rearOmega = [0, 0];
   }
 
@@ -384,7 +432,11 @@ export function step4(car: CarState, input: Inputs, dt: number, p: Physics4Param
     ? clamp((car.speed - 0.6) / 1.4, 0, 1)
     : clamp((wheelSurf - car.speed) / Math.max(car.speed, 3), 0, 1);
   car.wheelSpin = overspin;                 // burnout / locked-scrub smoke (real slip only)
-  car.rearWheelSpeed = Math.abs((st.rearOmega[0] + st.rearOmega[1]) / 2 * p.rollRadius);
+  // engine-RPM proxy for the motor sound: the rear-wheel SURFACE speed (∝ revs,
+  // no gears → smooth + monotonic, no sawtooth), floored by car speed so it
+  // rises cleanly with velocity; a wheelspin lifts it (engine revs up). The
+  // sound engine maps this m/s value to pitch (idle → redline).
+  car.rearWheelSpeed = Math.max(Math.abs((st.rearOmega[0] + st.rearOmega[1]) / 2 * p.rollRadius), v);
   car.driftActive = car.isRearSliding;
   car.spinTimer = 0;
   car.slipRatio = overspin;

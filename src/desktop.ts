@@ -247,8 +247,9 @@ document.body.appendChild(brakeTunerEl);
   pRow('lowSpeedBlend',     'lowSpeedBlend',        0.25, 1,   6, 2);
   pRow('maxSteer',          'maxSteer',             0.02, 0.3, 0.8, 2);
   // Fase 1 drive tools
-  pRow('engineForce',       'engineForce',          500,  3000, 20000, 0);
-  pRow('engineFadeSpeed',   'engineFadeSpeed',      2,    30,  90, 0);
+  pRow('peakThrust',        'peakThrust',           500,  3000, 20000, 0);
+  pRow('enginePower (W)',   'enginePower',          5000, 60000, 300000, 0);
+  pRow('powerFloorSpeed',   'powerFloorSpeed',      0.5,  2,   15, 1);
   pRow('rollRadius',        'rollRadius',           0.01, 0.2, 0.45, 2);
   pRow('wheelInertia',      'wheelInertia',         0.1,  0.4, 4, 1);
   pRow('brakeForce',        'brakeForce',           500,  5000, 30000, 0);
@@ -261,6 +262,9 @@ document.body.appendChild(brakeTunerEl);
   pRow('dragCoef',          'dragCoef',             0.1,  0,   4, 2);
   pRow('rollResist',        'rollResist',           50,   0,   1200, 0);
   pRow('engineBrakeTorque', 'engineBrakeTorque',    50,   0,   2000, 0);
+  pRow('reverseSpeed',      'reverseSpeed',         0.5,  3,   12, 1);
+  pRow('reverseForce',      'reverseForce',         500,  2000, 12000, 0);
+  pRow('reverseDelay',      'reverseDelay',         0.05, 0.1, 1.5, 2);
 
   // Show only the active model's rows (+ set the panel title).
   showTunerFor = (mode: DriveMode) => {
