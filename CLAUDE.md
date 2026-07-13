@@ -2519,3 +2519,34 @@ stability-critical muNom; the LTL 1.5 inflates the reading). D-tuner: `pneumatic
 vs Project CARS — planted/precise, grips, four-wheel-slides past the limit + drives out, catchable, no
 uncatchable snap, no oval limit-cycle. Feel whether the subtle trail-brake is enough or if it needs the
 stronger (less-stable/oversized) variant.**
+
+---
+**physics4 WHEEL-SPEED POWER LIMIT (constant full-throttle smoke FIXED — the engine revs WITH the wheel;
+12/12):** the "rears smoke continuously at full throttle even at speed" symptom was **REAL over-spin**
+(measured free-accel κ 5.9/6.0/6.2/5.2 @30/50/80/120 km/h; wheel surface ωr ran 5× the ground speed;
+`isRearSliding` FALSE so NOT false smoke). ROOT (read-only): the drive power limit `enginePower/max(v,…)`
+used the **CAR/ground speed** — when the rear spun up at launch, the engine kept delivering full power-
+limited torque based on the slow car speed → the wheel ran away on the falling longitudinal tyre curve (a
+bistable trap: past-peak → less force → more net torque → more slip) → continuous spin until ~130 km/h
+where car-speed power finally drops. **FIX (physically correct): the ENGINE REVS WITH THE DRIVEN WHEEL** —
+the power limit is set by the engine RPM, which tracks the wheel surface speed `ω·r` through the drivetrain,
+NOT the ground speed. Recomputed inside the drive sub-step: `driveForce = throttle·min(peakThrust,
+enginePower/max(v, ω·r, powerFloorSpeed))`. When the wheel spins (ω·r ≫ v) the engine revs into the power
+taper → drive torque DROPS 84% → the spin self-limits and HOOKS UP (a real car can't hold infinite
+wheelspin — power caps it). Below rolling (ω·r ≤ v) it equals the car-speed value → launch/low-speed
+wheelspin unchanged. **PAIRED: `tireBx` 18→12** (longitudinal peak κ 0.08→0.12, a realistic slick — broader
+→ the spin→grip hook-up is a gentler surge, not a jerk). **MEASURED before→after (free full-throttle
+accel):** κ **5.9/6.0/6.2/5.2 (spin forever) → 4.2/2.1/0.18/0.04** @20/40/80/120 km/h; wheelSpin/smoke
+**100% everywhere → 100/100/14/4%** (lights up low, hooks up by ~90 km/h); **PERFECTION CHECKS:** (1)
+spin→grip SMOOTH — κ decays as a gradient, hook-up jerk **5.11→3.51 m/s²** (a mild realistic surge as the
+rears hook up, not a lurch; tireBx 12 broadened the peak); (2) **NO runaway window** — partial throttle
+(0.3/0.5/0.7) AND in a corner (steer 0.3) across 30-120 km/h, ZERO high-speed κ>3 traps; (3) **speed-
+dependent break-loose INTACT** — κ still decays 30:2.98→120:0.04 (easy spin slow, hooks up fast). **KEEP:**
+launch spin preserved (κ 4.6), four-wheel slide (fS30/rS31), drives out, handbrake drift (β-75), grip
+1.97g, sub-limit stable, braking 1.21g, top 246, **0-100 3.37s (FASTER — drives instead of smoking, was
+4.05)**, ARCADE 0.0e+0. **HONEST:** the hook-up jerk is REDUCED (5.11→3.51) not zero — a broader tyre
+(tireBx 10) flattens it to 2.93 but softens the launch spin (κ 3.9); tireBx 12 keeps a strong launch spin
+(κ 4.6) with a mild surge = the realistic balance (a real car does surge slightly when the rears hook up).
+D-tuner: `tireBx`. **NEXT: phone feel-test (X → PHYSICS4) — full throttle: rears light up from low speed
+then HOOK UP and drive at speed (no continuous smoke), smooth surge (no hard jerk) as they catch, still
+spins easy at low speed, four-wheel slide + drift + grip unchanged.**

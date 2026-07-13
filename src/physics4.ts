@@ -115,7 +115,7 @@ export const PHYS4: Physics4Params = {
   wheelSubsteps: 6,        // sub-step the stiff drive-spin ODE → stable, no oscillation
   brakeForce: 13500,       // race brakes @1020 kg — measured 1.21g (see note; 15000 = 1.34g)
   brakeBiasFront: 0.6,     // front-biased → trail-braking rotates (real load transfer)
-  tireBx: 18,
+  tireBx: 12,              // longitudinal peak at κ≈0.12 (realistic slick; broader than the old stiff 18) → the spin→grip hook-up is a gentler surge, not a jerk
   tireCx: 1.6,
   hbKineticMu: 0.9,
   dragCoef: 0.8,
@@ -431,7 +431,20 @@ export function step4(car: CarState, input: Inputs, dt: number, p: Physics4Param
         let FxLong = D * Math.sin(p.tireCx * Math.atan(p.tireBx * kappa));
         const demand = Math.hypot(FxLong / ellLong, FyRaw / D);
         if (demand > 1) FxLong /= demand;
-        omega += (Tdrive - FxLong * rr - Math.sign(omega) * Tengine) / IwEff * subDt;
+        // ENGINE REVS WITH THE WHEEL: the power limit is set by the ENGINE RPM,
+        // which tracks the driven wheel's surface speed (ω·r) through the drivetrain
+        // — NOT the ground speed. When the wheel spins up (ω·r ≫ v) the engine revs
+        // into the power taper → the drive torque DROPS → the spin self-limits and
+        // HOOKS UP (a real car can't hold infinite wheelspin — power caps it). The
+        // frame-level `driveTorquePerRear` used car speed, which kept feeding a
+        // runaway spin on the falling tyre curve; recomputing it here at the wheel
+        // speed each sub-step breaks that trap. Below rolling (ω·r ≤ v) this equals
+        // the car-speed value → launch/low-speed wheelspin (κ∝1/v) is unchanged.
+        const wheelSurf = Math.abs(omega) * rr;
+        const driveForceW = throttle * Math.min(p.peakThrust,
+          p.enginePower / Math.max(v, wheelSurf, p.powerFloorSpeed));
+        const TdriveW = (driveForceW / 2) * rr;
+        omega += (TdriveW - FxLong * rr - Math.sign(omega) * Tengine) / IwEff * subDt;
         if (omega < 0) omega = 0;
       }
     } else {
