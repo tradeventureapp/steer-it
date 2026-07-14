@@ -2977,3 +2977,21 @@ left + right outfield sweeps are full kerb (left R412/W396/B327, right R483/W365
 UNTOUCHED** → `step()` 0.0e+0 (maps.ts-only). tsc + build clean. **⚠️ browser screenshots hang — verified
 via pixel harness. Phone/desktop check: a continuous red/white+blue kerb rings the whole outer perimeter
 (left sweep, bottom straight, right sweep), blue on the grass edge, tapered ends, existing kerbs intact.**
+
+---
+**CIRCUIT MAP — BLUE-ONLY sections on the outer run (boss's blue: strip the stripes, keep the blue):** the
+boss marked the BOTTOM of the outer-perimeter run to lose its red/white stripes but keep the blue strip.
+Added a `KERB_BLUE_ONLY` zone (fraction of the outer run) inside the outer-run loop: a per-point
+`stripeFactor` = 1 (full stripes) outside the zone, 0 (blue-only) inside `[start 0.15, end 0.85]` — i.e.
+the bottom-left corner + the whole bottom straight + the bottom-right corner — with smootherstep `ramp`
+(0.05) fades at each boundary. The red/white stripe width `w = KERB_WIDTH · stripeFactor` (fades to 0 in
+the zone → stripes vanish); the BLUE strip is unchanged (`mid = band/2 + w`, so as the stripes fade the
+blue simply shifts in to sit right at the asphalt edge → `asphalt → blue → grass`), staying CONTINUOUS the
+whole way. The left/right SWEEPS (fraction 0–0.15, 0.85–1.0) keep the full striped kerb. ONLY the outer run
+is touched — the corner apex kerbs (+ cuts/extends) are unchanged (the blue-only logic lives only in the
+outer-run loop). **VERIFIED** (pixel harness, perpendicular scans along the run): left sweep f0.08 `asph →
+R → BLUE → grass` + right sweep f0.92 `asph → W → BLUE → grass` (full kerb); bottom f0.25/f0.50/f0.75 all
+`asph → BLUE → grass` (blue-only, no stripes); blue present in every sample (continuous). **physics.ts
+UNTOUCHED** → `step()` 0.0e+0 (maps.ts-only). tsc + build clean. **⚠️ browser screenshots hang — verified
+via pixel harness. Phone/desktop check: the bottom of the outer ring is blue-only, the left/right sweeps
+keep red/white, stripes fade in/out smoothly, blue continuous.** Tunable: `KERB_BLUE_ONLY.start/end/ramp`.

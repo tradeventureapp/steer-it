@@ -814,6 +814,12 @@ const KERB_STRIPE = 10;               // stripe length in KERB-EDGE arc (sketch 
                                       //   CONSTANT physical size on gentle + sharp corners)
 const KERB_RED = '#c9382f', KERB_WHITE = '#e8e8ee', KERB_BLUE = '#2f6fca';
 
+// BLUE-ONLY zone on the OUTER-perimeter run (boss's blue marks): over this fraction
+// of the run — the bottom section (corners + straight) — the red/white stripe width
+// fades to 0 (stripes gone) while the blue strip stays continuous; `ramp` = the
+// smootherstep fade width on each side (stripes ease out/in, no abrupt cut).
+const KERB_BLUE_ONLY = { start: 0.15, end: 0.85, ramp: 0.05 };
+
 // Two kerbs the boss shortened (orange marks): trim a fraction off the region END
 // nearest each reference sketch point — the new end then tapers out like any other.
 const KERB_CUTS: Array<{ near: Pt; removeFrac: number }> = [
@@ -926,7 +932,14 @@ const CIRCUIT_KERBS: KerbQuad[] = ((): KerbQuad[] => {
       let tx = c[0] - a[0], ty = c[1] - a[1]; const tl = Math.hypot(tx, ty) || 1; tx /= tl; ty /= tl;
       const nx = oSign * -ty, ny = oSign * tx;   // OUTWARD normal (away from interior)
       const taper = smoother(Math.min(Math.min(1, k / KERB_END_TAPER), Math.min(1, (len - 1 - k) / KERB_END_TAPER)));
-      const w = KERB_WIDTH, bw = KERB_BLUE_WIDTH * taper;
+      // stripeFactor: 1 = full red/white, 0 = BLUE-ONLY (stripe width faded to 0), with
+      // smootherstep ramps at the zone edges → the stripes ease out/in; blue stays put.
+      const f = k / (len - 1), B = KERB_BLUE_ONLY;
+      const sf = (f > B.start && f < B.end) ? 0
+        : (f >= B.start - B.ramp && f <= B.start) ? 1 - smoother((f - (B.start - B.ramp)) / B.ramp)
+        : (f >= B.end && f <= B.end + B.ramp) ? smoother((f - B.end) / B.ramp)
+        : 1;
+      const w = KERB_WIDTH * sf, bw = KERB_BLUE_WIDTH * taper;
       const o = (d: number): Pt => [P[0] + nx * (CS_BAND / 2 + d), P[1] + ny * (CS_BAND / 2 + d)];
       edge.push(o(0)); mid.push(o(w)); out.push(o(w + bw));
       if (k > 0) arc.push(arc[k - 1] + Math.hypot(edge[k][0] - edge[k - 1][0], edge[k][1] - edge[k - 1][1]));
