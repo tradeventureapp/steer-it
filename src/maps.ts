@@ -662,9 +662,18 @@ export const asphaltTrackMap: MapDefinition = makeStadiumMap({
 
 // Sketch centerline control points (viewBox 1760×780, clockwise). Band = 124
 // sketch-units wide (the width the shape was designed at in the track editor).
+// The BOTTOM STRAIGHT (start/finish) is levelled to a single y (620) across four
+// collinear points → a perfectly HORIZONTAL, straight finish segment; the corners
+// are smoothed by the CENTRIPETAL spline in traceCircuit (no kinks, layout kept).
 const CIRCUIT_SKETCH: Array<[number, number]> = [
-  [1016,632],[1377,610],[1522,497],[1554,321],[1520,218],[1447,160],[1333,136],[1231,170],
-  [1154,260],[1114,419],[1000,469],[855,407],[789,212],[681,166],[584,246],[578,455],[747,612],
+  // bottom-right corner, then UP the right side to the top
+  [1377,620],[1522,497],[1554,321],[1520,218],[1447,160],[1333,136],[1231,170],
+  // inner section (the technical middle)
+  [1154,260],[1114,419],[1000,469],[855,407],[789,212],
+  // top-left bump + DOWN the left side
+  [681,166],[584,246],[578,455],
+  // BOTTOM STRAIGHT — levelled to y=620 (horizontal finish line), left→right
+  [747,620],[980,620],[1180,620],
 ];
 const CS_BAND = 124;
 
@@ -693,18 +702,31 @@ function circuitToWorld(sx: number, sy: number): { x: number; y: number } {
   };
 }
 
-// Trace the closed centerline (pixel points) as a smooth Catmull-Rom path.
+// Trace the closed centerline as a smooth CENTRIPETAL Catmull-Rom spline. Uniform
+// Catmull-Rom (tangent = (c−a)/6) KINKS through unevenly-spaced control points —
+// a long segment next to a short one overshoots, giving the jagged/irregular bends.
+// Centripetal parameterisation (knot spacing = chord-length^0.5) weights each
+// tangent by its neighbours' chord lengths, so the curve keeps even curvature and
+// has NO cusps/kinks — clean, regular racing-line arcs — WITHOUT moving a single
+// control point (the layout is identical). Barry–Goldman non-uniform CR → Bézier.
 function traceCircuit(ctx: CanvasRenderingContext2D, pts: Array<[number, number]>) {
   const n = pts.length;
+  const chord = (a: [number, number], b: [number, number]) =>
+    Math.max(1e-4, Math.sqrt(Math.hypot(b[0] - a[0], b[1] - a[1])));   // |Δ|^0.5
   ctx.beginPath();
   ctx.moveTo(pts[0][0], pts[0][1]);
   for (let i = 0; i < n; i++) {
-    const a = pts[(i - 1 + n) % n], b = pts[i], c = pts[(i + 1) % n], d = pts[(i + 2) % n];
-    ctx.bezierCurveTo(
-      b[0] + (c[0] - a[0]) / 6, b[1] + (c[1] - a[1]) / 6,
-      c[0] - (d[0] - b[0]) / 6, c[1] - (d[1] - b[1]) / 6,
-      c[0], c[1],
-    );
+    const p0 = pts[(i - 1 + n) % n], p1 = pts[i], p2 = pts[(i + 1) % n], p3 = pts[(i + 2) % n];
+    const d1 = chord(p0, p1), d2 = chord(p1, p2), d3 = chord(p2, p3);
+    // Chord-weighted tangents at p1 (m1) and p2 (m2), scaled to this segment (×d2).
+    const c1: [number, number] = [0, 0], c2: [number, number] = [0, 0];
+    for (let k = 0; k < 2; k++) {
+      const m1 = (p1[k] - p0[k]) / d1 - (p2[k] - p0[k]) / (d1 + d2) + (p2[k] - p1[k]) / d2;
+      const m2 = (p2[k] - p1[k]) / d2 - (p3[k] - p1[k]) / (d2 + d3) + (p3[k] - p2[k]) / d3;
+      c1[k] = p1[k] + (d2 * m1) / 3;
+      c2[k] = p2[k] - (d2 * m2) / 3;
+    }
+    ctx.bezierCurveTo(c1[0], c1[1], c2[0], c2[1], p2[0], p2[1]);
   }
   ctx.closePath();
 }
@@ -762,11 +784,11 @@ export const circuitMap: MapDefinition = {
   drawBackground(ctx, wPx, hPx) { drawCircuitSurface(ctx, wPx, hPx); },
   drawObstacles() { /* no barriers / no decor this pass */ },
 
-  // Grid spawn on the long BOTTOM straight (sketch ~x1000,y625), facing +x (the
-  // racing direction along the bottom: sketch 747→1016→1377 = left→right).
+  // Grid spawn on the flat BOTTOM straight (the finish line, sketch ~x1080,y620),
+  // facing +x (the racing direction along the bottom: 747→980→1180→1377 = left→right).
   spawn(slot, world) {
     void world;
-    const c = circuitToWorld(1000, 625);
+    const c = circuitToWorld(1080, 620);
     const col = slot % 2, row = Math.floor(slot / 2);
     const laneOff = (col === 0 ? -1 : 1) * CIRCUIT_TRACK_W * 0.18;   // heading 0 ⇒ perp is y
     const back = CONFIG.wheelbase * 1.73 + row * CONFIG.wheelbase * 3.0;

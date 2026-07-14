@@ -2725,3 +2725,25 @@ UNVERIFIABLE HEADLESS — phone/desktop test: the new shape is centred, fills th
 size as the oval, whole track visible without scrolling. NOTE: it fits on a ≥1920×1080 host; on a bigger
 monitor the track keeps its metre size (more grass around) — car stays standard.** KNOWN (deferred): kerbs
 / start-finish line / grass-grip still to come.
+
+---
+**CIRCUIT MAP — GEOMETRY POLISH (smooth corners via centripetal spline + horizontal finish straight):**
+two shape fixes from the boss's annotated screenshot (couldn't fetch it here — the shared folder isn't
+reachable in this environment — so both were done from the geometry itself). **(1) KINKY CORNERS →
+CLEAN ARCS:** the corners were irregular/kinked because `traceCircuit` used a UNIFORM Catmull-Rom spline
+(tangent `(c−a)/6`), which OVERSHOOTS through unevenly-spaced control points (a long segment beside a
+short one). Replaced with **CENTRIPETAL Catmull-Rom** (Barry–Goldman non-uniform → Bézier, knot spacing =
+chord-length^0.5): each tangent is chord-weighted by its neighbours, so curvature stays even and there are
+NO cusps/kinks — clean regular racing-line arcs — WITHOUT moving a single control point (layout identical).
+Applies to all three strokes (edge/asphalt/line). MEASURED: worst control-arm/segment ratio **0.36** (no
+overshoot). This smooths EVERY corner including the yellow-marked ones. **(2) FINISH STRAIGHT → HORIZONTAL:**
+the bottom-straight points were at different y (612/632/610 = a sag/tilt). Levelled to a single **y=620**
+across FOUR collinear points (`[747,620],[980,620],[1180,620]` + the `[1377,620]` corner) → the tangents at
+the inner two are **exactly horizontal (y=0, measured)** → a truly HORIZONTAL, dead-straight finish segment;
+kept at ~the same distance from the bottom (levelled to the mean, ±~2 m). Spawn moved to the flat middle
+(`circuitToWorld(1080,620)`), heading 0. Pixel render (canvas harness) confirmed the straight's lower edge
+is constant y across x = horizontal. Track now 18 pts; bbox 976×484, extent **246.8×137.6 m** still fits the
+256×144 world (grass 4.6/3.2 m). Style/width/no-barriers/one-screen all unchanged. **physics.ts UNTOUCHED**
+→ `step()` 0.0e+0 (maps.ts-only). tsc + build clean. **⚠️ phone/desktop test: corners are smooth even arcs
+(no jagged bends), the bottom finish straight is level + straight; whole track on one screen, car standard
+size.** (If a specific yellow corner still reads off, tell me which — I smoothed globally, blind to the marks.)
