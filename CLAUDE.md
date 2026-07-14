@@ -2858,3 +2858,21 @@ finish was just cleaned up); if the boss wants the straight's outer edge kerbed 
 **⚠️ browser screenshots hang in this env — verified via the pixel harness. Phone/desktop check: red/white
 kerbs on the OUTER grass edge of the left+right sweeps, extending outward, asphalt full width, drivable.**
 Tunable: `KERB_TURN_TH` (how much perimeter), `KERB_WIDTH` (reach into grass), `KERB_TAPER_FRAC` (ramp).
+
+---
+**CIRCUIT MAP — KERBS BACK TO ORIGINAL (apex) + WIDEN (extend into grass, don't eat asphalt):** the boss
+wanted the ORIGINAL kerbs restored, but as a track WIDENING instead of a narrowing. Reverted the builder to
+the original a375a6f version EXACTLY — CONCAVE (inner/apex) normal (toward the chord midpoint), `KERB_TURN_TH`
+0.5, full corner length (no trim), fixed `KERB_END_TAPER` 10-pt ease-in/out → the original **5 apex kerbs**
+(right hump, middle, left hump, bottom-left, bottom-right). The ONE change vs the original: the offset
+direction — the kerb sits at the asphalt inner edge (`CS_BAND/2`) and extends **OUTWARD by `w` into the
+infield GRASS** (`CS_BAND/2 + w`) instead of inward into the asphalt (`CS_BAND/2 − w`). So the striped kerb
+ADDS surface at the apex (widens the track) rather than eating drivable asphalt (which narrowed it). **The
+full asphalt width is untouched.** **VERIFIED** (canvas pixel harness): a vertical scan through the left-
+hump apex reads `grass → asphalt(hump, intact) → RED → WHITE → grass(infield)` — the asphalt is full width,
+the kerb is the red/white strip added at the inner edge INTO the infield grass; 5 regions, 709 striped
+quads. Drivable (run onto the widened kerb). **physics.ts UNTOUCHED** → `step()` 0.0e+0 (maps.ts-only). tsc
++ build clean. **⚠️ browser screenshots hang in this env — verified via the pixel harness. Phone/desktop
+check: the original 5 apex kerbs are back, now extending INTO the grass (widening the apex), asphalt full
+width, drivable.** Tunable: `KERB_WIDTH` (how far it widens), `KERB_END_TAPER` (ramp), `KERB_TURN_TH` (which
+corners).
