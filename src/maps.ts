@@ -848,7 +848,9 @@ const CIRCUIT_KERBS: KerbQuad[] = ((): KerbQuad[] => {
       let nx = -ty, ny = tx;
       if (nx * ((a[0] + c[0]) / 2 - P[0]) + ny * ((a[1] + c[1]) / 2 - P[1]) < 0) { nx = -nx; ny = -ny; }
       const taper = smoother(Math.min(Math.min(1, k / KERB_END_TAPER), Math.min(1, (len - 1 - k) / KERB_END_TAPER)));
-      const w = KERB_WIDTH * taper, bw = KERB_BLUE_WIDTH * taper;
+      // red/white kerb = CONSTANT full width (crisp, defined ends). The gradual ease
+      // in/out lives on the BLUE border instead — it fades from full to 0 at each end.
+      const w = KERB_WIDTH, bw = KERB_BLUE_WIDTH * taper;
       // sits at the asphalt inner edge (CS_BAND/2) and extends OUTWARD into the infield
       // GRASS: red/white for `w`, then a solid BLUE border for `bw` — a track WIDENING.
       const o = (d: number): Pt => [P[0] + nx * (CS_BAND / 2 + d), P[1] + ny * (CS_BAND / 2 + d)];

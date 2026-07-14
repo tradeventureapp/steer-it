@@ -2891,3 +2891,15 @@ on the outer grass edge, matching the photo; 5 apex kerbs, 1418 quads, red/white
 **physics.ts UNTOUCHED** → `step()` 0.0e+0 (maps.ts-only). tsc + build clean. **⚠️ browser screenshots hang
 — verified via pixel harness. Phone/desktop check: kerbs look like the reference (red/white + blue trim).**
 Tunable: `KERB_BLUE_WIDTH` / `KERB_BLUE`.
+
+---
+**CIRCUIT MAP — KERB TAPER MOVED TO THE BLUE (red/white constant width):** the boss wanted the red/white
+kerb graphically as-is but at CONSTANT full width, with the gradual ease-in/out on the BLUE border instead
+of on the stripes. One-line change in the builder: `w` (red/white radial width) = `KERB_WIDTH` constant
+(no per-point taper → full-width stripes with crisp, defined ends), while `bw` (blue width) =
+`KERB_BLUE_WIDTH · taper` — so the BLUE fades from full in the middle to 0 at each end (the gradual
+transition now lives entirely on the blue). Everything else identical to the blue-border build (concave/
+apex placement, extends OUTWARD into the infield grass = widening, asphalt untouched, 5 apex kerbs,
+red/white striped by arc bucket, blue #2f6fca solid). **physics.ts UNTOUCHED** → `step()` 0.0e+0
+(maps.ts-only). tsc + build clean. **⚠️ browser screenshots hang — phone/desktop check: red/white kerb is
+full width along its length (crisp ends), the blue border eases in/out.** Tunable: `KERB_BLUE_WIDTH`.
