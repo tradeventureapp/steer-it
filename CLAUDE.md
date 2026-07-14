@@ -2876,3 +2876,18 @@ quads. Drivable (run onto the widened kerb). **physics.ts UNTOUCHED** → `step(
 check: the original 5 apex kerbs are back, now extending INTO the grass (widening the apex), asphalt full
 width, drivable.** Tunable: `KERB_WIDTH` (how far it widens), `KERB_END_TAPER` (ramp), `KERB_TURN_TH` (which
 corners).
+
+---
+**CIRCUIT MAP — KERB BLUE BORDER (F1-style red/white + blue outer strip):** per the boss's reference photo
+(red/white kerb with a solid BLUE border on the grass side). Added a second, solid-blue quad strip beyond
+the red/white on each kerb: per point the kerb now has THREE offsets — asphalt inner edge (`CS_BAND/2`) →
+red/white outer (`+KERB_WIDTH·taper`) → blue outer (`+KERB_BLUE_WIDTH·taper`), all on the concave/apex
+normal, extending into the infield GRASS (still a track WIDENING, asphalt untouched). The blue
+(`KERB_BLUE` #2f6fca, `KERB_BLUE_WIDTH` 0.045·band ≈ 1.2 m) is a CONTINUOUS solid border (not striped) and
+tapers with the kerb (fades to a point at each end with the red/white). `KerbQuad` now carries a `fill`
+string (red/white by arc bucket, or blue). **VERIFIED** (pixel harness): a scan across the left-hump kerb
+reads `grass → asphalt(intact) → RED → WHITE → BLUE → grass(infield)` = red/white kerb with the blue border
+on the outer grass edge, matching the photo; 5 apex kerbs, 1418 quads, red/white/blue all present.
+**physics.ts UNTOUCHED** → `step()` 0.0e+0 (maps.ts-only). tsc + build clean. **⚠️ browser screenshots hang
+— verified via pixel harness. Phone/desktop check: kerbs look like the reference (red/white + blue trim).**
+Tunable: `KERB_BLUE_WIDTH` / `KERB_BLUE`.

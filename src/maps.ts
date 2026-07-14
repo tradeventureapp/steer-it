@@ -808,11 +808,12 @@ const CIRCUIT_FINISH = ((): { x: number; y: number } => {
 const KERB_TURN_TH = 0.5;             // smoothed turn (deg/pt) above which it's a corner
 const KERB_MIN_PTS = 30;              // ignore bends shorter than this (straights, blips)
 const KERB_END_TAPER = 10;            // pts over which width fades in/out at each end
-const KERB_WIDTH = CS_BAND * 0.11;    // kerb reach into the grass = track WIDENING (≈3 m)
+const KERB_WIDTH = CS_BAND * 0.11;    // red/white kerb reach into the grass = track WIDENING (≈3 m)
+const KERB_BLUE_WIDTH = CS_BAND * 0.045;  // solid BLUE border strip beyond it (grass side)
 const KERB_STRIPE = 14;               // stripe length along the edge (sketch units)
-const KERB_RED = '#c9382f', KERB_WHITE = '#e8e8ee';
+const KERB_RED = '#c9382f', KERB_WHITE = '#e8e8ee', KERB_BLUE = '#2f6fca';
 
-interface KerbQuad { a: Pt; b: Pt; c: Pt; d: Pt; red: boolean; }
+interface KerbQuad { a: Pt; b: Pt; c: Pt; d: Pt; fill: string; }
 const CIRCUIT_KERBS: KerbQuad[] = ((): KerbQuad[] => {
   const N = CIRCUIT_PATH.length, idx = (i: number) => ((i % N) + N) % N;
   const smoother = (t: number) => t * t * t * (t * (t * 6 - 15) + 10);
@@ -838,24 +839,26 @@ const CIRCUIT_KERBS: KerbQuad[] = ((): KerbQuad[] => {
   const quads: KerbQuad[] = [];
   for (const [s, e] of regions) {
     const len = ((e - s + N) % N) + 1;
-    const edge: Pt[] = [], grass: Pt[] = [], arc: number[] = [0];
+    // three edges per point: asphalt edge → red/white outer → blue outer (deepest in grass)
+    const edge: Pt[] = [], mid: Pt[] = [], out: Pt[] = [], arc: number[] = [0];
     for (let k = 0; k < len; k++) {
       const i = idx(s + k), a = CIRCUIT_PATH[idx(i - 1)], c = CIRCUIT_PATH[idx(i + 1)], P = CIRCUIT_PATH[i];
       // concave (inner/apex) unit normal: ⟂ to the tangent, pointing toward the chord midpoint
       let tx = c[0] - a[0], ty = c[1] - a[1]; const tl = Math.hypot(tx, ty) || 1; tx /= tl; ty /= tl;
       let nx = -ty, ny = tx;
       if (nx * ((a[0] + c[0]) / 2 - P[0]) + ny * ((a[1] + c[1]) / 2 - P[1]) < 0) { nx = -nx; ny = -ny; }
-      const w = KERB_WIDTH * smoother(Math.min(Math.min(1, k / KERB_END_TAPER), Math.min(1, (len - 1 - k) / KERB_END_TAPER)));
-      // original apex position — but the kerb now sits at the asphalt inner edge
-      // (CS_BAND/2) and extends OUTWARD by w into the infield GRASS: a track WIDENING
-      // (adds surface) instead of eating INTO the asphalt (which narrowed it).
-      edge.push([P[0] + nx * (CS_BAND / 2), P[1] + ny * (CS_BAND / 2)]);
-      grass.push([P[0] + nx * (CS_BAND / 2 + w), P[1] + ny * (CS_BAND / 2 + w)]);
+      const taper = smoother(Math.min(Math.min(1, k / KERB_END_TAPER), Math.min(1, (len - 1 - k) / KERB_END_TAPER)));
+      const w = KERB_WIDTH * taper, bw = KERB_BLUE_WIDTH * taper;
+      // sits at the asphalt inner edge (CS_BAND/2) and extends OUTWARD into the infield
+      // GRASS: red/white for `w`, then a solid BLUE border for `bw` — a track WIDENING.
+      const o = (d: number): Pt => [P[0] + nx * (CS_BAND / 2 + d), P[1] + ny * (CS_BAND / 2 + d)];
+      edge.push(o(0)); mid.push(o(w)); out.push(o(w + bw));
       if (k > 0) arc.push(arc[k - 1] + Math.hypot(P[0] - a[0], P[1] - a[1]));
     }
     for (let k = 0; k < len - 1; k++) {
-      const red = Math.floor(arc[k] / KERB_STRIPE) % 2 === 0;
-      quads.push({ a: edge[k], b: grass[k], c: grass[k + 1], d: edge[k + 1], red });
+      const rw = Math.floor(arc[k] / KERB_STRIPE) % 2 === 0 ? KERB_RED : KERB_WHITE;
+      quads.push({ a: edge[k], b: mid[k], c: mid[k + 1], d: edge[k + 1], fill: rw });        // red/white stripe
+      quads.push({ a: mid[k], b: out[k], c: out[k + 1], d: mid[k + 1], fill: KERB_BLUE });    // blue border
     }
   }
   return quads;
@@ -924,7 +927,7 @@ function drawCircuitSurface(ctx: CanvasRenderingContext2D, wPx: number, hPx: num
   // drawn ON TOP of the asphalt (each quad is a perpendicular stripe slice). Purely
   // visual + drivable (the surface has no collision). Scale-agnostic (sketch → px).
   for (const q of CIRCUIT_KERBS) {
-    ctx.fillStyle = q.red ? KERB_RED : KERB_WHITE;
+    ctx.fillStyle = q.fill;
     ctx.beginPath();
     ctx.moveTo(offX + q.a[0] * s, offY + q.a[1] * s);
     ctx.lineTo(offX + q.b[0] * s, offY + q.b[1] * s);
