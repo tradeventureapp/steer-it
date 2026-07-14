@@ -807,7 +807,11 @@ const CIRCUIT_FINISH = ((): { x: number; y: number } => {
 // drivable, no physics this pass. Each quad is a perpendicular slice → clean stripes.
 const KERB_TURN_TH = 0.5;             // smoothed turn (deg/pt) above which it's a corner
 const KERB_MIN_PTS = 30;              // ignore bends shorter than this (straights, blips)
-const KERB_END_TAPER = 10;            // pts over which width fades in/out at each end
+const KERB_TRIM_TH = 0.68;            // trim each corner to its CORE above this cornerness
+                                      //   → drops the gentle legs (shortens the over-long
+                                      //   hump/entry kerbs); the tight middle stays long
+const KERB_TAPER_FRAC = 0.42;         // width ramps 0→full over this fraction of the kerb
+                                      //   length at EACH end → long, gradual ease in/out
 const KERB_WIDTH = CS_BAND * 0.11;    // kerb reach onto the asphalt (sketch units, ≈3 m)
 const KERB_STRIPE = 14;               // stripe length along the edge (sketch units)
 const KERB_RED = '#c9382f', KERB_WHITE = '#e8e8ee';
@@ -835,9 +839,24 @@ const CIRCUIT_KERBS: KerbQuad[] = ((): KerbQuad[] => {
     if (on && st < 0) st = k;
     else if (!on && st >= 0) { if (k - st >= KERB_MIN_PTS) regions.push([idx(off + st), idx(off + k - 1)]); st = -1; }
   }
+  // TRIM each corner to its high-curvature CORE, centred on the peak-cornerness point:
+  // expand out while cornerness ≥ KERB_TRIM_TH (bridging small dips) → drops the gentle
+  // legs so the over-long hump/entry kerbs shorten to the apex; tight corners stay long.
+  const trimmed: Array<[number, number]> = regions.map(([s, e]) => {
+    const rl = ((e - s + N) % N) + 1, ci: number[] = [];
+    for (let k = 0; k < rl; k++) ci.push(idx(s + k));
+    let pp = 0, pk = 0;
+    for (let k = 0; k < rl; k++) if (corner[ci[k]] > pk) { pk = corner[ci[k]]; pp = k; }
+    let lo = pp, hi = pp, gap = 0;
+    for (let k = pp - 1; k >= 0; k--) { if (corner[ci[k]] >= KERB_TRIM_TH) { lo = k; gap = 0; } else if (++gap > 4) break; }
+    gap = 0;
+    for (let k = pp + 1; k < rl; k++) { if (corner[ci[k]] >= KERB_TRIM_TH) { hi = k; gap = 0; } else if (++gap > 4) break; }
+    return [ci[lo], ci[hi]];
+  });
   const quads: KerbQuad[] = [];
-  for (const [s, e] of regions) {
+  for (const [s, e] of trimmed) {
     const len = ((e - s + N) % N) + 1;
+    const taper = Math.max(1, Math.round(len * KERB_TAPER_FRAC));   // long gradual ramp
     const edge: Pt[] = [], inner: Pt[] = [], arc: number[] = [0];
     for (let k = 0; k < len; k++) {
       const i = idx(s + k), a = CIRCUIT_PATH[idx(i - 1)], c = CIRCUIT_PATH[idx(i + 1)], P = CIRCUIT_PATH[i];
@@ -845,7 +864,7 @@ const CIRCUIT_KERBS: KerbQuad[] = ((): KerbQuad[] => {
       let tx = c[0] - a[0], ty = c[1] - a[1]; const tl = Math.hypot(tx, ty) || 1; tx /= tl; ty /= tl;
       let nx = -ty, ny = tx;
       if (nx * ((a[0] + c[0]) / 2 - P[0]) + ny * ((a[1] + c[1]) / 2 - P[1]) < 0) { nx = -nx; ny = -ny; }
-      const w = KERB_WIDTH * smoother(Math.min(Math.min(1, k / KERB_END_TAPER), Math.min(1, (len - 1 - k) / KERB_END_TAPER)));
+      const w = KERB_WIDTH * smoother(Math.min(Math.min(1, k / taper), Math.min(1, (len - 1 - k) / taper)));
       edge.push([P[0] + nx * (CS_BAND / 2), P[1] + ny * (CS_BAND / 2)]);
       inner.push([P[0] + nx * (CS_BAND / 2 - w), P[1] + ny * (CS_BAND / 2 - w)]);
       if (k > 0) arc.push(arc[k - 1] + Math.hypot(P[0] - a[0], P[1] - a[1]));

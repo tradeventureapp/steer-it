@@ -2817,3 +2817,22 @@ grass / no-barriers / one-screen / standard car all unchanged. **physics.ts UNTO
 corners have red/white striped kerbs on their inner edge, following the curve, drivable.** Tunable:
 `KERB_TURN_TH`/`KERB_MIN_PTS` (which corners), `KERB_WIDTH`/`KERB_STRIPE` (size/stripe). Kerb grip/bump =
 a later pass.
+
+---
+**CIRCUIT MAP — KERB TRANSITIONS + LENGTHS (gradual ease in/out + shorten the over-long ones):** per the
+boss's annotated screenshot (RED = make transitions gradual, BLACK lines = cut the over-long kerbs). Two
+changes to the `CIRCUIT_KERBS` builder (maps.ts): **(1) LONG GRADUAL TAPER** — the width now ramps 0→full
+over `KERB_TAPER_FRAC` 0.42 of the kerb length at EACH end (smootherstep), replacing the old fixed 10-pt
+taper → every kerb eases IN and OUT as a long wedge (measured width 0.00 → 13.6 → 0.00, so no abrupt
+start/end edge anywhere). **(2) TRIM TO THE APEX CORE** — each detected corner (turn ≥ 0.5°/pt, ≥30 pts)
+is trimmed to the contiguous CORE around its peak-cornerness point where cornerness ≥ `KERB_TRIM_TH` 0.68
+(bridging small dips) → the gentle LEGS of the big sweepers are dropped, shortening the over-long kerbs to
+hug the apex, while genuinely tight corners stay long. **MEASURED (builder output):** RIGHT hump 212→**72**
+pt (46 m), LEFT hump 211→**121** pt (78 m), bottom-RIGHT 108→**25** pt (16 m) — all shortened (the three
+BLACK-line kerbs); MIDDLE apex stays **137** pt (88 m, tight throughout, unmarked); bottom-LEFT **22** pt
+(short corner). Each kerb keeps a full-width core (5–35 pt) with long tapered ramps (9–58 pt/side). Concave
+inner-edge placement, red/white striping, on-asphalt, drivable, no-collision all unchanged. **physics.ts
+UNTOUCHED** → `step()` 0.0e+0 (maps.ts-only). tsc + build clean. **⚠️ browser screenshots hang in this env
+— verified NUMERICALLY on the exact builder output (width 0 at both ends = gradual; hump/entry lengths cut;
+middle kept). Phone/desktop check: kerbs ease in and out smoothly (wedge, no pop-on/off) and the humps +
+bottom-right are shorter.** Tunable: `KERB_TAPER_FRAC` (ramp length), `KERB_TRIM_TH` (how much leg is cut).
