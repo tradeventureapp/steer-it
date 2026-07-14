@@ -912,6 +912,88 @@ phone→desktop `join | color | name | leave | control`; desktop→phone `lobby 
 
 ---
 
+## 9. PHYSICS FOUNDATION — physics4.ts (the per-wheel SIM engine)
+
+- `physics4.ts` = a full PER-WHEEL vehicle model (4 contact points), separate from the legacy
+  arcade `physics.ts`. Toggled live with **X** (arcade ⇄ physics4). It is a SIMULATION: absolute
+  realism is the priority; drift is emergent only, never a tuned-in feature. A forgiving arcade
+  car will be built later as a second car on this same engine.
+- **GUIDING ORDER (core lesson): REALITY sets the numbers; the physics is tuned AROUND them, never
+  the reverse.** When a behavior is wrong, find the real physical cause. Don't pick a number just to
+  unlock a behavior, and don't paper over a missing mechanism with an artificial damper/gate
+  ("band-aid") — every band-aid we added was masking a real missing physical effect.
+- **Physics pillars (12):** 1. grip ∝ load with diminishing returns (load sensitivity); 2. load
+  transfer (long + lateral, reduces total axle grip); 3. slip (lateral angle + longitudinal κ, per
+  wheel); 4. friction circle (shared budget, per wheel, elongated for slicks); 5. three tools +
+  countersteer (throttle=rear wheelspin, brake=weight forward, handbrake=locks rear); 6. yaw
+  (front/rear + left/right, bounded via real self-aligning torque); 7. inertia/weight;
+  8. longitudinal (torque→wheel→drive, power limited at WHEEL speed); 9. forward-heading thrust
+  (drift carries speed); 10. surface (asphalt only for now); 11. collisions (later); 12. car spec
+  (see §10).
+- **Key mechanisms & lessons:**
+  * **Self-aligning torque / pneumatic trail, REAR-ONLY:** Mz=−Fy·t, trail max near center,
+    collapses past the grip peak. Rear-only because the front's self-aligning acts through the
+    steering (kinematic input), not the chassis. Gives progressive grip loss + catchability + killed
+    the oval limit-cycle. Replaced an arcade `driftYawDamp` band-aid.
+  * **Directional stability = a real STABILITY MARGIN, not a damper:** at 50/50 the neutral-steer-
+    point sits on the CoM → throttle tips into divergent power-oversteer; the fix every real RWD has
+    is a slight FRONT weight bias → NSP behind the CoM → stable. (An oversized `yawDampConst` was
+    masking this — removed.)
+  * **Wheel-speed power limit:** the engine revs WITH the driven wheel, so the drive power limit
+    uses WHEEL surface speed (ω·r), not car speed. Car speed let a spun-up wheel keep full torque →
+    runaway wheelspin → constant smoke at speed. Wheel speed → a slipping wheel drops power →
+    self-limits and hooks up.
+  * **Wheel inertia (drive) sets hook-up speed:** low inertia → wheel runs away (long spin); raising
+    it → brief launch chirp then BITE (correct for slicks; a long low-speed burnout is a worn-tire
+    trait).
+  * **Friction ellipse elongated for slicks (~1.3× longitudinal):** too round an ellipse lets
+    throttle crush the rear's LATERAL grip to zero on corner exit → spin-out; elongated → catapults
+    out gripped.
+  * **Four-wheel slide is the target past-limit behavior:** whole car slides (both axles), holds
+    heading, catchable — not a rear-only snap-spin. From matching the steering lock to the front
+    grip peak + a neutral-enough balance.
+  * **Trail-braking is subtle by nature:** a directionally-stable car resists foot-brake rotation
+    (real stable race cars do too); dramatic past-limit rotation comes from the four-wheel slide, not
+    oversized transfer.
+  * **Feedback — burnout vs slide smoke:** burnout (longitudinal wheelspin) = dense, behind the
+    wheel, inherits ~25% car velocity; slide (lateral scrub) = thinner, emitted at the contact point
+    into WORLD space (`inheritVel` 0) so it stays put and the car slides away from it. Render-only
+    (`effects.ts`), physics byte-identical.
+- **Verification:** physics4 can't run in the browser preview without a connected phone/Supabase;
+  verified via an esbuild + Node headless harness (bundle the real module, fixed inputs, measure
+  κ/slip/β/grip-g/stability). All changes keep the arcade model byte-identical (0.0e+0).
+- **Phase plan:** 0 per-wheel foundation DONE; 1 drive tools DONE; 2 folded into the realism work
+  (drift emerges from real physics); 3 gameplay (input tilt curve, feedback smoke/sound/skids,
+  forgiveness/assist = the future arcade car) IN PROGRESS. Two-car strategy: this SIM car first, a
+  forgiving ARCADE car on the same engine afterward.
+
+## 10. CARS
+
+Each car is a spec (values) running on the physics engine (§9); the physics is tuned AROUND a car's
+realistic values, not the reverse.
+
+### Blitz RS — the SIM car (current)
+A race-bred coupe: light, powerful, on slicks. Runs on `physics4.ts`. Character: planted, precise,
+grips and corners hard, catapults out of corners; past the limit it four-wheel-slides and is
+catchable. Drift is emergent, not a feature.
+- **Character/stats:** Mass ~1020 kg (light race coupe); ~370 hp inline-six (strong power, NO
+  traction control); weight distribution ~53% front (the stability margin, ~52/48 + race bias);
+  steering lock 0.56 rad (~32°, sharp race lock, fronts near grip peak); slicks (broad grip peak,
+  high longitudinal grip); peak cornering ~1.85-1.97 g; 0-100 ~3.0 s; top ~246 km/h; braking
+  ~1.21 g; reverse top speed ~50 km/h (realistic ceiling ~40, 50 = deliberate practical choice).
+- **physics4 knobs (current realistic values):** `massKg` ~1020, `weightDistFront` 0.53, `maxSteer`
+  0.56, `muNom` 1.90, `tireB`/`tireC` 10/1.45, `tireBx` 12, `tireEllipseLong` 1.3, `pneumaticTrail`
+  0.06, `yawDampConst` 150, `loadTransferLongGain` 1.5, `loadSensitivity` 0.05, `wheelInertiaDrive`
+  8, `reverseSpeed` 14 m/s.
+- **Palette:** retro/90s 12-colour set in `vehicles.ts` (`BLITZ_RS_COLORS`).
+
+### Arcade car — PLANNED (the second car)
+A forgiving arcade car built on the SAME physics engine, AFTER the sim car proves the physics. This
+is where the forgiveness/assist gameplay layer lives (arcade-friendly handling, easy provokable
+drift, possibly faster reverse). Not yet built.
+
+---
+
 *Note for Code: keep this file current. The context / rules / decisions / monetization
 sections carry knowledge not readable from code — preserve them. Technical details (file
 and function names, CONFIG keys, constants, build/test commands) should be corrected to
