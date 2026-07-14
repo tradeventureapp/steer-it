@@ -807,9 +807,10 @@ const CIRCUIT_FINISH = ((): { x: number; y: number } => {
 // drivable, no physics this pass. Each quad is a perpendicular slice → clean stripes.
 const KERB_TURN_TH = 0.5;             // smoothed turn (deg/pt) above which it's a corner
 const KERB_MIN_PTS = 30;              // ignore bends shorter than this (straights, blips)
-const KERB_BLUE_TAIL = 25;            // arc-length (sketch u, ~2.5 stripe blocks): the BLUE
-                                      //   continues PAST each stripe end, sliding onto the
-                                      //   asphalt edge and tapering its width to 0 (dissolves)
+const KERB_BLUE_TAIL = 70;            // arc-length (sketch u, ~7 stripe blocks): the BLUE
+                                      //   continues PAST each stripe end at its NORMAL slim
+                                      //   width, hugging the asphalt edge, only NARROWING to
+                                      //   0 over a long, gently-eased dissolve (no bulge)
 const KERB_WIDTH = CS_BAND * 0.11;    // red/white kerb reach into the grass = track WIDENING (≈3 m)
 const KERB_BLUE_WIDTH = CS_BAND * 0.045;  // solid BLUE border strip beyond it (grass side)
 const KERB_STRIPE = 10;               // stripe length in KERB-EDGE arc (sketch units ≈2.2 m,
@@ -907,18 +908,30 @@ const CIRCUIT_KERBS: KerbQuad[] = ((): KerbQuad[] => {
       boE = snap(arc[Math.round(kSS + blueOnly.end * (kSE - kSS))]);
     }
     const stripeAt = (k: number) => arc[k] >= stripeStartArc && arc[k] < stripeEndArc && !(arc[k] >= boS && arc[k] < boE);
-    const tf = (k: number) => smoother(Math.min(Math.min(1, k / TAIL_PTS), Math.min(1, (blen - 1 - k) / TAIL_PTS)));   // blue-outer taper (0 at the tail ends)
     const off = (k: number, d: number): Pt => [P[k][0] + nrm[k][0] * (CS_BAND / 2 + d), P[k][1] + nrm[k][1] * (CS_BAND / 2 + d)];
+    // BLUE edges per point (offsets from the asphalt edge, band/2):
+    //  - kerb BODY (within the snapped stripe span): the width-fix blue — thin OUTSIDE the
+    //    stripes (inner KERB_WIDTH → grass edge), or full width in a blue-only sub-range;
+    //  - TAIL (past a stripe end): hugs the asphalt edge (inner 0) at the blue's NORMAL slim
+    //    width (= KERB_BLUE_WIDTH), only NARROWING to 0 over the long KERB_BLUE_TAIL, gently
+    //    eased (1−smoother(t²) → stays near full for most of the tail, fades late). The WIDTH
+    //    is continuous across the cut (slim→slim), so there is no bulge and no width step.
+    const blueEdges = (k: number): [number, number] => {
+      if (arc[k] >= stripeStartArc && arc[k] < stripeEndArc) {
+        const inStripe = !(arc[k] >= boS && arc[k] < boE);
+        return [inStripe ? KERB_WIDTH : 0, FULL_W];
+      }
+      const dist = arc[k] < stripeStartArc ? stripeStartArc - arc[k] : arc[k] - stripeEndArc;
+      const t = Math.min(1, dist / KERB_BLUE_TAIL);      // 0 at the cut → 1 at the tail end
+      return [0, KERB_BLUE_WIDTH * (1 - smoother(t * t))];
+    };
     for (let k = 0; k < blen - 1; k++) {
-      const strip = stripeAt(k);
-      if (strip) {   // red/white FULL-WIDTH block (hard cut; constant arc-length size)
+      if (stripeAt(k)) {   // red/white FULL-WIDTH block (hard cut; constant arc-length size)
         const rw = Math.floor(arc[k] / KERB_STRIPE) % 2 === 0 ? KERB_RED : KERB_WHITE;
         quads.push({ a: off(k, 0), b: off(k, KERB_WIDTH), c: off(k + 1, KERB_WIDTH), d: off(k + 1, 0), fill: rw });
       }
-      // blue inner = outside the stripes where they exist, else the asphalt edge (fills in);
-      // outer = the fixed grass edge scaled by the tail taper → dissolves past the stripe ends.
-      const bi = strip ? KERB_WIDTH : 0;
-      quads.push({ a: off(k, bi), b: off(k, FULL_W * tf(k)), c: off(k + 1, FULL_W * tf(k + 1)), d: off(k + 1, bi), fill: KERB_BLUE });
+      const [bi0, bo0] = blueEdges(k), [bi1, bo1] = blueEdges(k + 1);
+      quads.push({ a: off(k, bi0), b: off(k, bo0), c: off(k + 1, bo1), d: off(k + 1, bi1), fill: KERB_BLUE });
     }
   };
   // APEX kerbs — concave (turnSign) normal (robust on the straight extensions).

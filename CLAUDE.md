@@ -3148,3 +3148,22 @@ kerb); +3 `asph→BLUE→grass` bluePx 18 (full-width blue on the asphalt edge, 
 (tapering); +18/+26 `asph→grass` bluePx 0 (dissolved). Blue-only zone still continuous full-width. Applies
 GLOBALLY (all apex kerbs incl. the cut/extended ends + the outer-run ends, one helper). **physics.ts
 UNTOUCHED** → `step()` 0.0e+0 (maps.ts-only). tsc + build clean. Tunable: `KERB_BLUE_TAIL`.
+
+---
+**CIRCUIT MAP — BLUE TAILS LONGER + GENTLER (no blob):** the blue tails worked but read as a short abrupt
+BLOB (they ballooned to FULL kerb width at the stripe cut, then tapered over a short ~2.5-block tail). Boss
+wants a noticeably LONGER tail that starts at the blue's NORMAL slim width and thins out very gradually
+along the asphalt edge. Two changes (maps.ts `emitKerb` only): (1) `KERB_BLUE_TAIL` 25→**70** (~7 stripe
+blocks, 2.8×); (2) the tail no longer fills to full width — a per-point `blueEdges(k)`: in the kerb BODY it's
+the width-fix blue (thin outside stripes / full in a blue-only sub-range, out to the fixed grass edge); in
+the TAIL past a stripe end it hugs the asphalt edge (inner 0) at the blue's NORMAL slim width KERB_BLUE_WIDTH
+and only NARROWS to 0 via `KERB_BLUE_WIDTH·(1−smoother(t²))` — the `t²` bias keeps it near-full for the first
+part of the tail then fades late. The WIDTH is continuous across the cut (slim→slim), so there is no bulge
+and no width jump; only the POSITION slides in to the asphalt edge (the intended "slides onto the asphalt").
+**VERIFIED** (pixel harness, trailing tail of the right-hump kerb, geometric blue width vs arc-offset from
+the stripe cut): 0→5.58, 5→5.58, 10→5.58, 15→5.57, 20→5.55, 25→5.46, 30→5.25, 35→4.79, 40→4.44, 45→3.43,
+50→2.09, 55→1.40, 60→0.30, 65→0.05, 70→0 = starts at exactly KERB_BLUE_WIDTH (5.58, the slim width — NOT the
+old full 13.6 blob), monotonically narrowing to 0 over the full 70u tail, stays near-full for the first ~15u
+then fades. Pixel scans: hard stripe cut → slim blue on the asphalt edge (6→4→1 px) → gone. Applies globally
+(all apex + outer-run kerb ends, one `emitKerb`). **physics.ts UNTOUCHED** → `step()` 0.0e+0. tsc + build
+clean. Tunable: `KERB_BLUE_TAIL`.
