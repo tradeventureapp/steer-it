@@ -3185,3 +3185,21 @@ scans: thin border beside stripes → hard cut → FULL-band blue (17 px, asphal
 px) → 0. Applies globally (all apex + outer-run kerb ends; blue-only-zone boundaries read as stripes-cut →
 the zone's already-full-width blue continues, naturally consistent). **physics.ts UNTOUCHED** → `step()`
 0.0e+0. tsc + build clean. Tunable: `KERB_BLUE_TAIL`.
+
+---
+**CIRCUIT MAP — KERB SEAM FIX + SOFT EDGES (boss close-up: grass sliver at the stripe↔blue seam + razor
+edges):** two render-only polish fixes (maps.ts only; geometry/lengths/cuts/tails/colours unchanged).
+**(1) GAP FIX** — the close-up showed a thin GRASS sliver between the red/white band and the blue band (a
+canvas AA hairline where two separately-filled quads share an edge, worse through curves where per-point
+normals round differently). Fix = OVERLAP + back-to-front draw: `KERB_SEAM` 0.8 sketch-u (≈1 render px); the
+BLUE inner edge is pulled KERB_SEAM UNDER its neighbour (KERB_WIDTH−SEAM under the stripes, −SEAM under the
+asphalt rim in the tail/blue-only), the STRIPE inner edge is pulled −SEAM under the asphalt rim, and quads
+carry a `z` (0 blue, 1 stripes) + `quads.sort((a,b)=>a.z−b.z)` so ALL blue draws first (underneath) and the
+stripes/asphalt paint over the overlap → no seam can show. **(2) SOFT EDGES** — each kerb quad is now FILLED
+*and* lightly STROKED in its own colour (`softPx = max(0.8, twPx·0.02)` ≈1 px, round joins/caps already set)
+→ subtly rounded/feathered edges (not knife-edged, still crisp) everywhere (apex kerbs, outer run, blue-only,
+tails); the stroke also overlaps neighbours = extra seam insurance. **VERIFIED** (pixel harness, perpendicular
+scans): STRAIGHT (bottom-extended kerb, meanY 607) + CURVE (right-hump apex, meanY 220) every scan reads
+`asph → R/W → BLUE → grass`; **seam-gap count = 0 across 48 scans** (no grass sandwiched between the stripe
+and blue on straights OR curves). **physics.ts UNTOUCHED** → `step()` 0.0e+0. tsc + build clean. Tunable:
+`KERB_SEAM` (overlap), the `softPx` factor (edge feather).

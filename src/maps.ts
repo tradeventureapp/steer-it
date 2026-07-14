@@ -816,6 +816,10 @@ const KERB_BLUE_WIDTH = CS_BAND * 0.045;  // solid BLUE border strip beyond it (
 const KERB_STRIPE = 10;               // stripe length in KERB-EDGE arc (sketch units ≈2.2 m,
                                       //   CONSTANT physical size on gentle + sharp corners)
 const KERB_RED = '#c9382f', KERB_WHITE = '#e8e8ee', KERB_BLUE = '#2f6fca';
+// Seam overlap (sketch u, ≈1 render px): bands are extended UNDER their neighbour and
+// drawn back-to-front (asphalt rim → blue → stripes) so no background sliver can show at
+// a seam, on straights OR through curves where per-point normals round differently.
+const KERB_SEAM = 0.8;
 
 // BLUE-ONLY zone on the OUTER-perimeter run (boss's blue marks): over this fraction
 // of the run — the bottom section (corners + straight) — the red/white stripes are
@@ -836,7 +840,7 @@ const KERB_EXTENDS: Array<{ near: Pt; addPts: number }> = [
   { near: [1345, 620], addPts: 30 },   // BOTTOM-RIGHT — extend left along the straight
 ];
 
-interface KerbQuad { a: Pt; b: Pt; c: Pt; d: Pt; fill: string; }
+interface KerbQuad { a: Pt; b: Pt; c: Pt; d: Pt; fill: string; z: number; }  // z: 0 blue (under) · 1 stripes (over)
 const CIRCUIT_KERBS: KerbQuad[] = ((): KerbQuad[] => {
   const N = CIRCUIT_PATH.length, idx = (i: number) => ((i % N) + N) % N;
   // smoothed per-point turn magnitude (deg) → "cornerness"
@@ -915,22 +919,25 @@ const CIRCUIT_KERBS: KerbQuad[] = ((): KerbQuad[] => {
     //    outer = the FULL kerb+blue band (FULL_W) right AT the cut, its grass-side edge tapering
     //    STEADILY inward (linear 1−t, no plateau) to 0 at the tail end. So the last stripe block
     //    is immediately followed by a full-width solid blue block that wedges down to nothing.
+    // BLUE inner edge is pulled KERB_SEAM UNDER its neighbour (the stripes where they exist,
+    // else the asphalt edge) so the blue — drawn FIRST/underneath — is overlapped by the
+    // stripes/asphalt on top → no background sliver at the seam, straight or curved.
     const blueEdges = (k: number): [number, number] => {
       if (arc[k] >= stripeStartArc && arc[k] < stripeEndArc) {
         const inStripe = !(arc[k] >= boS && arc[k] < boE);
-        return [inStripe ? KERB_WIDTH : 0, FULL_W];
+        return [inStripe ? KERB_WIDTH - KERB_SEAM : -KERB_SEAM, FULL_W];
       }
       const dist = arc[k] < stripeStartArc ? stripeStartArc - arc[k] : arc[k] - stripeEndArc;
       const t = Math.min(1, dist / KERB_BLUE_TAIL);      // 0 at the cut → 1 at the tail end
-      return [0, FULL_W * (1 - t)];                      // full band at the cut, steady wedge to 0
+      return [-KERB_SEAM, FULL_W * (1 - t)];             // full band at the cut, steady wedge to 0
     };
     for (let k = 0; k < blen - 1; k++) {
-      if (stripeAt(k)) {   // red/white FULL-WIDTH block (hard cut; constant arc-length size)
-        const rw = Math.floor(arc[k] / KERB_STRIPE) % 2 === 0 ? KERB_RED : KERB_WHITE;
-        quads.push({ a: off(k, 0), b: off(k, KERB_WIDTH), c: off(k + 1, KERB_WIDTH), d: off(k + 1, 0), fill: rw });
-      }
       const [bi0, bo0] = blueEdges(k), [bi1, bo1] = blueEdges(k + 1);
-      quads.push({ a: off(k, bi0), b: off(k, bo0), c: off(k + 1, bo1), d: off(k + 1, bi1), fill: KERB_BLUE });
+      quads.push({ a: off(k, bi0), b: off(k, bo0), c: off(k + 1, bo1), d: off(k + 1, bi1), fill: KERB_BLUE, z: 0 });
+      if (stripeAt(k)) {   // red/white FULL-WIDTH block (hard cut; constant arc-length size),
+        const rw = Math.floor(arc[k] / KERB_STRIPE) % 2 === 0 ? KERB_RED : KERB_WHITE;   // inner
+        quads.push({ a: off(k, -KERB_SEAM), b: off(k, KERB_WIDTH), c: off(k + 1, KERB_WIDTH), d: off(k + 1, -KERB_SEAM), fill: rw, z: 1 });  // pulled under the asphalt rim
+      }
     }
   };
   // APEX kerbs — concave (turnSign) normal (robust on the straight extensions).
@@ -954,6 +961,7 @@ const CIRCUIT_KERBS: KerbQuad[] = ((): KerbQuad[] => {
     const oSign = bt >= 0 ? 1 : -1;
     emitKerb(rs, re, (tx, ty) => [oSign * -ty, oSign * tx], KERB_BLUE_ONLY);
   }
+  quads.sort((p, q) => p.z - q.z);   // ALL blue first (underneath), then ALL stripes on top (stable)
   return quads;
 })();
 
@@ -1016,18 +1024,21 @@ function drawCircuitSurface(ctx: CanvasRenderingContext2D, wPx: number, hPx: num
   tracePolyline(ctx, ptsPx);
   ctx.strokeStyle = a.lineStroke; ctx.lineWidth = twPx * 0.3; ctx.stroke();
 
-  // APEX KERBS — red/white striped curbs along the inside edge of each corner,
-  // drawn ON TOP of the asphalt (each quad is a perpendicular stripe slice). Purely
-  // visual + drivable (the surface has no collision). Scale-agnostic (sketch → px).
+  // KERBS — red/white striped curbs + blue border, drawn ON TOP of the asphalt (each
+  // quad is a perpendicular slice). Blue first (underneath), stripes over (CIRCUIT_KERBS is
+  // z-sorted). Each quad is FILLED and lightly STROKED in its own colour (round joins,
+  // ~1 px) → subtly softened edges (not knife-edged) + the stroke overlaps neighbours so no
+  // seam sliver shows. Purely visual + drivable (no collision). Scale-agnostic (sketch → px).
+  const softPx = Math.max(0.8, twPx * 0.02);   // ~1 px edge feather, scales gently with zoom
   for (const q of CIRCUIT_KERBS) {
-    ctx.fillStyle = q.fill;
     ctx.beginPath();
     ctx.moveTo(offX + q.a[0] * s, offY + q.a[1] * s);
     ctx.lineTo(offX + q.b[0] * s, offY + q.b[1] * s);
     ctx.lineTo(offX + q.c[0] * s, offY + q.c[1] * s);
     ctx.lineTo(offX + q.d[0] * s, offY + q.d[1] * s);
     ctx.closePath();
-    ctx.fill();
+    ctx.fillStyle = q.fill; ctx.fill();
+    ctx.strokeStyle = q.fill; ctx.lineWidth = softPx; ctx.stroke();
   }
 }
 
