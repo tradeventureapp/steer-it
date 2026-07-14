@@ -124,7 +124,7 @@ export const PHYS4: Physics4Params = {
   engineBrakeSlideFade: 0.9,
   wheelInertiaSlideFactor: 0.55,
   wheelReturnRate: 10,
-  reverseSpeed: 9,        // m/s ≈ 32 km/h — a real RWD coupe reverses briskly
+  reverseSpeed: 14,       // m/s ≈ 50 km/h — boss's practical choice for reversing out on the oval (real Getrag 265 ceiling is ~40 km/h; slightly above, deliberately, still close to real not arcade)
   reverseForce: 10000,    // N → ~8.3 m/s² backward = quick pickup, not a crawl
   reverseDelay: 0.5,
 };
