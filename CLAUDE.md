@@ -2770,3 +2770,26 @@ tsc + build clean. **⚠️ browser screenshots hang in this env (renderer), so 
 pipeline output (turn/pt < 2° everywhere = provably no sharp edges) — phone/desktop check: the whole track
 is one smoothly-rounded ribbon, the bottom finish is level + straight, whole track on one screen.** Tunable
 if wanted: smoothing radius/passes (rounder vs tighter), taper fraction (finish-straight length).
+
+---
+**CIRCUIT MAP — FINISH-STRAIGHT BULGE FIXED (clamp-the-overshoot, not taper):** the phone render showed the
+bottom finish straight bulging OUTWARD (downward). ROOT (measured the y-profile): the centripetal spline
+OVERSHOOTS below the straight entering/leaving the corners — the control straight sits at y=620 but the
+smoothed centreline dips to **y≈630 at x≈820 (left) and ≈627 at x≈1300 (right)**, while the middle stays at
+620 → an asymmetric downward bulge. The previous tapered-blend flattened to `fy=maxY` (the 630 DIP) over a
+short centre → it PUSHED the straight down to the dip (made it worse). FIX (in the `CIRCUIT_PATH` build,
+after the resample+smooth): **(1) CLAMP** every bottom point that dips below the straight line up onto it
+(`y > CIRCUIT_STRAIGHT_Y=620 && near-bottom → y=620`) → the whole bottom is flat AND nothing sits below the
+line (corners rise UP from it, no outward bulge); **(2) light global re-smooth** (`smoothClosed r4 ×3`)
+rounds the clamp junctions into the corners — and since averaging values that are all ≤ the line can NEVER
+produce one below it, it cannot re-create a bulge; **(3) re-clamp** so the middle stays dead-flat after the
+smooth lifts the junctions up into the corners. `CIRCUIT_FINISH` = the centre of the exactly-620 flat run.
+**MEASURED (pipeline output, the shipped algorithm):** the finish straight is **120 m DEAD FLAT** (188 pts
+at exactly y=620, x 792→1331 ≈ corner-to-corner), **max turn 1.93°/pt** everywhere (no kink at the
+junctions — the earlier hard-flatten cusped 34–74° here; the clamp+resmooth is what keeps it smooth),
+**min radius 83 u > band/2 (62)** (no pinch), and **0 points below the line** (bulge GONE, vs the ~9 u dip
+the taper left). Rest of the ribbon unchanged/smooth; extent 246.9×134.2 m still fits 256×144. Style/width/
+no-barriers/one-screen/standard-car all unchanged. **physics.ts UNTOUCHED** → `step()` 0.0e+0 (maps.ts-
+only). tsc + build clean. **⚠️ browser screenshots hang in this env — verified NUMERICALLY on the exact
+pipeline output (whole bottom y=620 constant, nothing below it, turn <2°/pt): the finish straight is dead
+straight + level with no bulge. Phone/desktop check the bottom straight is flat corner-to-corner.**

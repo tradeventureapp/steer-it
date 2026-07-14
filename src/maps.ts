@@ -763,33 +763,40 @@ function smoothClosed(pts: Pt[], radius: number, passes: number): Pt[] {
 }
 
 const CIRCUIT_SAMPLES = 1000;
-const CIRCUIT_PATH: Pt[] = resampleClosed(
-  smoothClosed(resampleClosed(sampleSpline(CIRCUIT_SKETCH, 48), CIRCUIT_SAMPLES), 14, 2),
-  CIRCUIT_SAMPLES,
-);
 
-// Finish line = the track's NEAREST-TO-BOTTOM point (max y). TAPERED-blend the
-// contiguous near-bottom run to a single y: FLAT (weight 1) in the centre → a
-// perfectly LEVEL, straight finish segment; a smootherstep taper drops the weight
-// to 0 at both ends → ZERO-slope joins into the corners, so NO kink is introduced
-// (max turn stays ~1.8°/pt, exactly as the un-flattened ribbon). A hard flatten
-// here would cusp at the junctions — the taper is what keeps it smooth.
+// The bottom control points sit at this y — the FLAT finish-straight level. The
+// smoothed spline OVERSHOOTS below it entering/leaving the corners (a dip to ~630),
+// which is the visible outward BULGE. Flattening clamps those dips back up to it.
+const CIRCUIT_STRAIGHT_Y = Math.max(...CIRCUIT_SKETCH.map((p) => p[1]));
+
+const CIRCUIT_PATH: Pt[] = ((): Pt[] => {
+  let p = resampleClosed(
+    smoothClosed(resampleClosed(sampleSpline(CIRCUIT_SKETCH, 48), CIRCUIT_SAMPLES), 14, 2),
+    CIRCUIT_SAMPLES,
+  );
+  // FINISH-STRAIGHT FLATTEN — a dead-level, straight segment the WHOLE bottom length,
+  // no bulge, smooth into the corners. Not a per-point tweak: (1) CLAMP every bottom
+  // point that dips BELOW the straight line up onto it → the whole bottom is flat AND
+  // nothing sits below the line (so no outward bulge — the corners rise UP from it);
+  // (2) a light global re-smooth rounds the clamp junctions into the corners (no kink),
+  // and — since averaging values that are all ≤ the line can NEVER produce one below it
+  // — cannot re-create a bulge; (3) re-clamp so the middle stays dead-flat after the
+  // smooth lifts the junction points up into the corners.
+  const maxY = Math.max(...p.map((q) => q[1]));
+  const flatten = (q: Pt): Pt =>
+    q[1] > CIRCUIT_STRAIGHT_Y && q[1] > maxY - 45 ? [q[0], CIRCUIT_STRAIGHT_Y] : q;
+  p = p.map(flatten);
+  p = smoothClosed(p, 4, 3);
+  p = p.map(flatten);
+  return p;
+})();
+
+// Finish line = the centre of the dead-flat bottom straight (level, at straightY).
 const CIRCUIT_FINISH = ((): { x: number; y: number } => {
-  const N = CIRCUIT_PATH.length, idx = (i: number) => ((i % N) + N) % N;
-  const smoother = (t: number) => t * t * t * (t * (t * 6 - 15) + 10);   // smootherstep
-  let fi = 0;
-  for (let i = 1; i < N; i++) if (CIRCUIT_PATH[i][1] > CIRCUIT_PATH[fi][1]) fi = i;
-  const fy = CIRCUIT_PATH[fi][1], T = 10, cap = Math.floor(N / 3);
-  let lo = fi, hi = fi;
-  for (let s = 1; s <= cap && CIRCUIT_PATH[idx(fi - s)][1] >= fy - T; s++) lo = idx(fi - s);
-  for (let s = 1; s <= cap && CIRCUIT_PATH[idx(fi + s)][1] >= fy - T; s++) hi = idx(fi + s);
-  const M = ((hi - lo + N) % N) + 1, taper = 0.35;
-  for (let k = 0; k < M; k++) {
-    const i = idx(lo + k), u = k / (M - 1);
-    const w = u < taper ? smoother(u / taper) : u > 1 - taper ? smoother((1 - u) / taper) : 1;
-    CIRCUIT_PATH[i] = [CIRCUIT_PATH[i][0], (1 - w) * CIRCUIT_PATH[i][1] + w * fy];
-  }
-  return { x: CIRCUIT_PATH[fi][0], y: fy };
+  const fx = CIRCUIT_PATH
+    .filter((p) => Math.abs(p[1] - CIRCUIT_STRAIGHT_Y) < 1e-6)
+    .map((p) => p[0]);
+  return { x: (Math.min(...fx) + Math.max(...fx)) / 2, y: CIRCUIT_STRAIGHT_Y };
 })();
 
 // Track bbox centre (of the SMOOTH path) → centre the ribbon in the screen world.
