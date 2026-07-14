@@ -2922,3 +2922,20 @@ screenshot showed otherwise it was a stale/cached build (close tab + rescan). Ev
 **physics.ts UNTOUCHED** → `step()` 0.0e+0 (maps.ts-only). tsc + build clean. **⚠️ browser screenshots
 hang — verified via pixel harness. Phone/desktop check: blocks are the same size on every corner; blue
 strip sits on the grass edge.** Tunable: `KERB_STRIPE` (block size).
+
+---
+**CIRCUIT MAP — SHORTEN TWO KERBS (boss's orange marks):** the boss scribbled ORANGE over the part of two
+kerbs to remove. Mapped each orange blob to a path fraction (region screen-position vs the orange image-
+fraction) and added a `KERB_CUTS` step in the builder that trims a fraction off the region END nearest a
+reference point: **(a) LEFT hairpin** — `near [626,526]`, removeFrac **0.40** → the region 211→127 pts,
+dropping the descending-LEFT leg (new end ~(570,299), the far-left before it descends); **(b) LOWER-RIGHT
+corner** — `near [1547,415]`, removeFrac **0.30** → 108→76 pts, dropping the UPPER part (new end
+~(1516,501), part-way up from the bottom-right). Matched by endpoint proximity (<55 u), so ONLY these two
+regions are touched; the other three (right hump, middle dip, bottom-left) are byte-unchanged. The new
+(shortened) ends get the existing taper automatically (blue eases out, red/white crisp — same as every
+other kerb end). **VERIFIED** (pixel-box scan): the removed areas now have **0** kerb pixels (LEFT
+descending-leg 0, RIGHT upper 0) while the kept parts still render (LEFT hairpin-top 1176, RIGHT
+lower-corner 674 kerb px). Blue grass-side strip + constant arc-length stripes continue correctly to the
+new tapered ends. **physics.ts UNTOUCHED** → `step()` 0.0e+0 (maps.ts-only). tsc + build clean. **⚠️
+browser screenshots hang — verified via pixel scan. Phone/desktop check: the left hairpin + lower-right
+kerbs are shorter (orange parts gone), tapered ends.** Tunable: the two `removeFrac` values in `KERB_CUTS`.

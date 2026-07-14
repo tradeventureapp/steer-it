@@ -814,6 +814,13 @@ const KERB_STRIPE = 10;               // stripe length in KERB-EDGE arc (sketch 
                                       //   CONSTANT physical size on gentle + sharp corners)
 const KERB_RED = '#c9382f', KERB_WHITE = '#e8e8ee', KERB_BLUE = '#2f6fca';
 
+// Two kerbs the boss shortened (orange marks): trim a fraction off the region END
+// nearest each reference sketch point — the new end then tapers out like any other.
+const KERB_CUTS: Array<{ near: Pt; removeFrac: number }> = [
+  { near: [626, 526], removeFrac: 0.40 },   // LEFT hairpin — drop the descending-left leg
+  { near: [1547, 415], removeFrac: 0.30 },  // LOWER-RIGHT corner — drop the upper part
+];
+
 interface KerbQuad { a: Pt; b: Pt; c: Pt; d: Pt; fill: string; }
 const CIRCUIT_KERBS: KerbQuad[] = ((): KerbQuad[] => {
   const N = CIRCUIT_PATH.length, idx = (i: number) => ((i % N) + N) % N;
@@ -837,8 +844,18 @@ const CIRCUIT_KERBS: KerbQuad[] = ((): KerbQuad[] => {
     if (on && st < 0) st = k;
     else if (!on && st >= 0) { if (k - st >= KERB_MIN_PTS) regions.push([idx(off + st), idx(off + k - 1)]); st = -1; }
   }
+  // Apply the boss's per-kerb cuts: trim removeFrac off the END nearest each ref point.
+  const cutRegions: Array<[number, number]> = regions.map(([s, e]) => {
+    const len = ((e - s + N) % N) + 1;
+    const nearRef = (p: Pt, q: Pt) => Math.hypot(p[0] - q[0], p[1] - q[1]) < 55;
+    for (const cut of KERB_CUTS) {
+      if (nearRef(CIRCUIT_PATH[e], cut.near)) return [s, idx(s + Math.round((1 - cut.removeFrac) * (len - 1)))];
+      if (nearRef(CIRCUIT_PATH[s], cut.near)) return [idx(s + Math.round(cut.removeFrac * (len - 1))), e];
+    }
+    return [s, e];
+  });
   const quads: KerbQuad[] = [];
-  for (const [s, e] of regions) {
+  for (const [s, e] of cutRegions) {
     const len = ((e - s + N) % N) + 1;
     // three edges per point: asphalt edge → red/white outer → blue outer (deepest in grass)
     const edge: Pt[] = [], mid: Pt[] = [], out: Pt[] = [], arc: number[] = [0];
