@@ -2959,3 +2959,21 @@ kerbs changed; the other three + the two prior cuts unchanged. **physics.ts UNTO
 (maps.ts-only). tsc + build clean. **⚠️ browser screenshots hang — verified via pixel harness. Phone/
 desktop check: the bottom-left + lower-right kerbs now extend along the straight, tapered ends.** Tunable:
 the two `addPts` in `KERB_EXTENDS`.
+
+---
+**CIRCUIT MAP — OUTER-PERIMETER KERB RUN (boss's blue: the whole lower/outer loop):** added ONE continuous
+kerb along the entire outer edge the boss marked — far-left → down the left sweep → the long bottom straight
+→ up the right sweep → far-right. Built as a separate pass appended to `CIRCUIT_KERBS`: find the far-LEFT
+(min-x, idx~665 ≈ (564,359)), far-RIGHT (max-x, idx~119 ≈ (1553,349)) and bottom-most points; the run is the
+arc between far-left and far-right that PASSES the bottom-most point (the lower/outer loop, length ~455 pts,
+not the top). Placed on the OUTWARD normal `oSign·(−ty, tx)` (away from the loop interior — the OPPOSITE
+side to the apex kerbs — no chord-degeneracy on the straight), extending into the OUTFIELD grass; SAME
+styling — red/white constant-arc stripes + solid BLUE border on the grass side + `KERB_END_TAPER` tapered
+ends. Blends with the existing apex kerbs by being on the opposite edge (no overlap) with tapered ends where
+it approaches the left-hairpin / right-hump kerbs at the far-left/far-right. **VERIFIED** (pixel harness):
+the bottom straight reads `asph → red/white → BLUE → grass` continuously across its length (x800→1320); the
+left + right outfield sweeps are full kerb (left R412/W396/B327, right R483/W365/B350); the existing kerbs
+(e.g. middle dip R591/W418/B439) + the two cuts + two extends are all still present/unchanged. **physics.ts
+UNTOUCHED** → `step()` 0.0e+0 (maps.ts-only). tsc + build clean. **⚠️ browser screenshots hang — verified
+via pixel harness. Phone/desktop check: a continuous red/white+blue kerb rings the whole outer perimeter
+(left sweep, bottom straight, right sweep), blue on the grass edge, tapered ends, existing kerbs intact.**

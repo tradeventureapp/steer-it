@@ -900,6 +900,43 @@ const CIRCUIT_KERBS: KerbQuad[] = ((): KerbQuad[] => {
       quads.push({ a: mid[k], b: out[k], c: out[k + 1], d: mid[k + 1], fill: KERB_BLUE });    // blue border
     }
   }
+  // ---- OUTER-PERIMETER RUN (boss's blue): one continuous kerb along the OUTER edge,
+  // far-left → down the left → bottom straight → up the right → far-right. Placed on the
+  // OUTWARD normal (away from the loop interior — the OPPOSITE side to the apex kerbs),
+  // extending into the OUTFIELD grass; same red/white + blue + constant-arc styling and
+  // tapered ends. Runs on the arc between the far-left and far-right that passes the
+  // bottom-most point (so it's the lower/outer loop, not the top).
+  {
+    let iL = 0, iR = 0, iB = 0;
+    for (let i = 1; i < N; i++) {
+      if (CIRCUIT_PATH[i][0] < CIRCUIT_PATH[iL][0]) iL = i;
+      if (CIRCUIT_PATH[i][0] > CIRCUIT_PATH[iR][0]) iR = i;
+      if (CIRCUIT_PATH[i][1] > CIRCUIT_PATH[iB][1]) iB = i;
+    }
+    const [rs, re] = ((iB - iL + N) % N) <= ((iR - iL + N) % N) ? [iL, iR] : [iR, iL];
+    const bt = (() => {   // outward sign: at the bottom, "out of the loop" = +y (down)
+      const a = CIRCUIT_PATH[idx(iB - 1)], c = CIRCUIT_PATH[idx(iB + 1)];
+      const tx = c[0] - a[0], ty = c[1] - a[1]; return tx / (Math.hypot(tx, ty) || 1);
+    })();
+    const oSign = bt >= 0 ? 1 : -1;
+    const len = ((re - rs + N) % N) + 1;
+    const edge: Pt[] = [], mid: Pt[] = [], out: Pt[] = [], arc: number[] = [0];
+    for (let k = 0; k < len; k++) {
+      const i = idx(rs + k), a = CIRCUIT_PATH[idx(i - 1)], c = CIRCUIT_PATH[idx(i + 1)], P = CIRCUIT_PATH[i];
+      let tx = c[0] - a[0], ty = c[1] - a[1]; const tl = Math.hypot(tx, ty) || 1; tx /= tl; ty /= tl;
+      const nx = oSign * -ty, ny = oSign * tx;   // OUTWARD normal (away from interior)
+      const taper = smoother(Math.min(Math.min(1, k / KERB_END_TAPER), Math.min(1, (len - 1 - k) / KERB_END_TAPER)));
+      const w = KERB_WIDTH, bw = KERB_BLUE_WIDTH * taper;
+      const o = (d: number): Pt => [P[0] + nx * (CS_BAND / 2 + d), P[1] + ny * (CS_BAND / 2 + d)];
+      edge.push(o(0)); mid.push(o(w)); out.push(o(w + bw));
+      if (k > 0) arc.push(arc[k - 1] + Math.hypot(edge[k][0] - edge[k - 1][0], edge[k][1] - edge[k - 1][1]));
+    }
+    for (let k = 0; k < len - 1; k++) {
+      const rw = Math.floor(arc[k] / KERB_STRIPE) % 2 === 0 ? KERB_RED : KERB_WHITE;
+      quads.push({ a: edge[k], b: mid[k], c: mid[k + 1], d: edge[k + 1], fill: rw });
+      quads.push({ a: mid[k], b: out[k], c: out[k + 1], d: mid[k + 1], fill: KERB_BLUE });
+    }
+  }
   return quads;
 })();
 
