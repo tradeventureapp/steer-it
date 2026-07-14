@@ -660,27 +660,38 @@ export const asphaltTrackMap: MapDefinition = makeStadiumMap({
 //  come later). Shape = the sketch control points, smoothed by a closed spline.
 // =============================================================================
 
-// Sketch centerline control points (viewBox 1760×780, clockwise). Band = 112
-// sketch-units wide. CS_MARGIN = grass around the sketch (sketch units).
+// Sketch centerline control points (viewBox 1760×780, clockwise). Band = 124
+// sketch-units wide (the width the shape was designed at in the track editor).
 const CIRCUIT_SKETCH: Array<[number, number]> = [
-  [296,670],[510,717],[767,717],[1052,721],[1218,719],[1350,717],[1486,709],[1602,654],
-  [1683,532],[1691,400],[1690,250],[1660,150],[1594,86],[1484,84],[1433,104],[1386,165],
-  [1382,256],[1350,370],[1246,478],[1070,500],[948,506],[826,500],[808,419],[853,307],
-  [1149,291],[1171,102],[1028,82],[949,76],[842,78],[652,114],[597,435],[447,475],
-  [365,402],[386,283],[412,171],[359,76],[244,63],[128,84],[71,167],[63,307],[71,451],
-  [114,542],[175,601],
+  [1016,632],[1377,610],[1522,497],[1554,321],[1520,218],[1447,160],[1333,136],[1231,170],
+  [1154,260],[1114,419],[1000,469],[855,407],[789,212],[681,166],[584,246],[578,455],[747,612],
 ];
-const CS_W = 1760, CS_H = 780, CS_BAND = 112, CS_MARGIN = 60;
+const CS_BAND = 124;
 
-// Track width = ~2/3 of the asphalt oval's band, in real metres → the world is
-// sized so the sketch (+margin) maps at that width. A technical circuit is a big
-// track, so the car reads a bit smaller than on the oval (a bigger world).
+// Track width = 2/3 of the asphalt oval's band, in real metres. The band px value
+// (124) only sets the SCALE — the width in metres is ALWAYS 2/3 of the oval.
 const CIRCUIT_TRACK_W = computeStadium(FLAT_LOGICAL.widthM, FLAT_LOGICAL.heightM).bandW * (2 / 3);
 const CS_SCALE = CIRCUIT_TRACK_W / CS_BAND;      // metres per sketch unit
-const CIRCUIT_LOGICAL = {
-  widthM:  (CS_W + 2 * CS_MARGIN) * CS_SCALE,
-  heightM: (CS_H + 2 * CS_MARGIN) * CS_SCALE,
-};
+
+// The shape was designed (in the editor's screen-frame) to FIT one screen at this
+// width, so the world = one screen (FLAT_LOGICAL) and it renders exactly like the
+// oval: uniform scale-to-fit ⇒ the car is the STANDARD size, the whole track is
+// visible, grass fills the screen, NO camera scroll. (A future shape too big for
+// one screen would switch on `followCam` instead.)
+const CIRCUIT_LOGICAL = { widthM: FLAT_LOGICAL.widthM, heightM: FLAT_LOGICAL.heightM };
+
+// Sketch bbox centre → used to CENTRE the track in the (screen-sized) world.
+const _csx = CIRCUIT_SKETCH.map((p) => p[0]), _csy = CIRCUIT_SKETCH.map((p) => p[1]);
+const CS_BCX = (Math.min(..._csx) + Math.max(..._csx)) / 2;
+const CS_BCY = (Math.min(..._csy) + Math.max(..._csy)) / 2;
+
+// One sketch unit → world METRES (fixed 2/3-oval scale, bbox centred on the world).
+function circuitToWorld(sx: number, sy: number): { x: number; y: number } {
+  return {
+    x: (sx - CS_BCX) * CS_SCALE + CIRCUIT_LOGICAL.widthM / 2,
+    y: (sy - CS_BCY) * CS_SCALE + CIRCUIT_LOGICAL.heightM / 2,
+  };
+}
 
 // Trace the closed centerline (pixel points) as a smooth Catmull-Rom path.
 function traceCircuit(ctx: CanvasRenderingContext2D, pts: Array<[number, number]>) {
@@ -703,13 +714,17 @@ function traceCircuit(ctx: CanvasRenderingContext2D, pts: Array<[number, number]
 // whatever canvas size it's given (game world OR the map-select mini-preview),
 // preserving aspect + centring — so world coords and the render always agree.
 function drawCircuitSurface(ctx: CanvasRenderingContext2D, wPx: number, hPx: number) {
-  const SW = CS_W + 2 * CS_MARGIN, SH = CS_H + 2 * CS_MARGIN;
-  const scale = Math.min(wPx / SW, hPx / SH);
-  const offX = (wPx - SW * scale) / 2, offY = (hPx - SH * scale) / 2;
+  // Map the sketch at the FIXED 2/3-oval scale (never scale-to-fit — that would
+  // change the track width), centred, for whatever canvas this is (game world OR
+  // the map-select mini-preview — both share the world's aspect). px-per-metre =
+  // wPx / world-width-in-metres, so the band renders at exactly 2/3 of the oval.
+  const pxPerM = wPx / CIRCUIT_LOGICAL.widthM;
+  const s = CS_SCALE * pxPerM;                          // canvas px per sketch unit
+  const offX = wPx / 2 - CS_BCX * s, offY = hPx / 2 - CS_BCY * s;
   const ptsPx = CIRCUIT_SKETCH.map(
-    (p) => [offX + (p[0] + CS_MARGIN) * scale, offY + (p[1] + CS_MARGIN) * scale] as [number, number],
+    (p) => [offX + p[0] * s, offY + p[1] * s] as [number, number],
   );
-  const twPx = CS_BAND * scale;
+  const twPx = CS_BAND * s;                             // = CIRCUIT_TRACK_W · pxPerM
   const a = SURFACE_STYLES.asphalt;
 
   // Grass — the oval's infield green (day-grass), the whole field.
@@ -723,7 +738,7 @@ function drawCircuitSurface(ctx: CanvasRenderingContext2D, wPx: number, hPx: num
   traceCircuit(ctx, ptsPx);
   ctx.strokeStyle = '#1d1f24'; ctx.lineWidth = twPx + Math.max(3, twPx * 0.06); ctx.stroke();
   // Asphalt SURFACE — the oval's tarmac gradient, applied vertically for depth.
-  const asf = ctx.createLinearGradient(0, offY, 0, offY + SH * scale);
+  const asf = ctx.createLinearGradient(0, 0, 0, hPx);
   asf.addColorStop(0, a.ringInner); asf.addColorStop(1, a.ringOuter);
   traceCircuit(ctx, ptsPx);
   ctx.strokeStyle = asf; ctx.lineWidth = twPx; ctx.stroke();
@@ -737,9 +752,7 @@ export const circuitMap: MapDefinition = {
   name: 'Circuit',
   trackType: 'open',              // free surface (no built-in start line this pass)
   smokeColor: [248, 248, 251],    // white rubber smoke (asphalt), matching the oval
-  fixedWorld: CIRCUIT_LOGICAL,
-  followCam: true,                // world is bigger than one screen → camera follows
-                                  // the car at the OVAL's scale (car = standard size)
+  fixedWorld: CIRCUIT_LOGICAL,    // = one screen ⇒ oval-style render (car standard size)
 
   // OPEN track: NO barriers, NO collision rects — drive off onto the grass freely.
   createWorld(widthM, heightM) {
@@ -749,14 +762,15 @@ export const circuitMap: MapDefinition = {
   drawBackground(ctx, wPx, hPx) { drawCircuitSurface(ctx, wPx, hPx); },
   drawObstacles() { /* no barriers / no decor this pass */ },
 
-  // Grid spawn on the long BOTTOM straight (sketch ~x700,y705), facing +x along it.
+  // Grid spawn on the long BOTTOM straight (sketch ~x1000,y625), facing +x (the
+  // racing direction along the bottom: sketch 747→1016→1377 = left→right).
   spawn(slot, world) {
     void world;
-    const cx = (700 + CS_MARGIN) * CS_SCALE, cy = (705 + CS_MARGIN) * CS_SCALE;
+    const c = circuitToWorld(1000, 625);
     const col = slot % 2, row = Math.floor(slot / 2);
     const laneOff = (col === 0 ? -1 : 1) * CIRCUIT_TRACK_W * 0.18;   // heading 0 ⇒ perp is y
     const back = CONFIG.wheelbase * 1.73 + row * CONFIG.wheelbase * 3.0;
-    return { x: cx - back, y: cy + laneOff, heading: 0 };
+    return { x: c.x - back, y: c.y + laneOff, heading: 0 };
   },
 
   // No walls: just a soft clamp at the (far-out) world edge so a car can't leave

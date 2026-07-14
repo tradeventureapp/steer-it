@@ -2703,3 +2703,25 @@ phone/desktop test: on the Circuit the car is the SAME size as on the oval, the 
 drives, the track scrolls, no shrunk car.** **KNOWN (flagged, not this task):** the editor (E) on a
 follow-cam world can only reach the centred region (no camera pan while editing) — deferred with the
 other circuit follow-ups (kerbs / start-finish / grass-grip).
+
+---
+**CIRCUIT MAP — NEW SHAPE (boss's editor export) + FITS ONE SCREEN (oval-style, no camera scroll):**
+the boss redesigned the circuit in the track editor (17 control points, viewBox 1760×780, band 124) so it
+FITS one screen at 2/3-oval width, and sent the coords. Rebuilt `circuitMap` (maps.ts only): new
+`CIRCUIT_SKETCH` (17 pts) + `CS_BAND 124`. **KEY CHANGE — the world is now SCREEN-SIZED** (`CIRCUIT_LOGICAL
+= FLAT_LOGICAL`, not the old sketch-sized 462×221 m), because the shape was designed to fit: it renders
+exactly like the oval (uniform scale-to-fit ⇒ **car = STANDARD size, whole track visible, grass fills the
+screen, NO camera scroll**). `followCam` DROPPED from the circuit (the prior follow-cam infra in desktop.ts
+stays for a future too-big track). The sketch is mapped at the FIXED 2/3-oval scale (`CS_SCALE =
+CIRCUIT_TRACK_W / CS_BAND`, `CIRCUIT_TRACK_W = oval bandW × 2/3`) — NEVER scale-to-fit (that would change
+the track width) — and CENTRED on the world via the sketch bbox centre (`circuitToWorld(sx,sy)`, shared by
+`drawCircuitSurface` + `spawn`). **MEASURED (formula):** oval band 41.28 m → track **27.52 m (2/3)** =
+206 px in-game; track extent **246.8×140.3 m** fits the **256×144 m** world (grass margin 4.6 m sides /
+1.9 m top-bottom — tight by design, the boss squeezed it to fill the screen); spawn on the bottom straight
+`circuitToWorld(1000,625)` = (113.4, 125.5) m, heading 0 (+x = the racing direction, sketch
+747→1016→1377). Style unchanged (asphalt-on-grass, oval `SURFACE_STYLES.asphalt` + worn line, no barriers/
+collision). **physics.ts UNTOUCHED** → `step()` 0.0e+0 (maps.ts-only). tsc + build clean. **⚠️ RENDER
+UNVERIFIABLE HEADLESS — phone/desktop test: the new shape is centred, fills the screen, car is the SAME
+size as the oval, whole track visible without scrolling. NOTE: it fits on a ≥1920×1080 host; on a bigger
+monitor the track keeps its metre size (more grass around) — car stays standard.** KNOWN (deferred): kerbs
+/ start-finish line / grass-grip still to come.
