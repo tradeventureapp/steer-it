@@ -807,7 +807,9 @@ const CIRCUIT_FINISH = ((): { x: number; y: number } => {
 // drivable, no physics this pass. Each quad is a perpendicular slice → clean stripes.
 const KERB_TURN_TH = 0.5;             // smoothed turn (deg/pt) above which it's a corner
 const KERB_MIN_PTS = 30;              // ignore bends shorter than this (straights, blips)
-const KERB_END_TAPER = 10;            // pts over which width fades in/out at each end
+const KERB_BLUE_TAIL = 25;            // arc-length (sketch u, ~2.5 stripe blocks): the BLUE
+                                      //   continues PAST each stripe end, sliding onto the
+                                      //   asphalt edge and tapering its width to 0 (dissolves)
 const KERB_WIDTH = CS_BAND * 0.11;    // red/white kerb reach into the grass = track WIDENING (≈3 m)
 const KERB_BLUE_WIDTH = CS_BAND * 0.045;  // solid BLUE border strip beyond it (grass side)
 const KERB_STRIPE = 10;               // stripe length in KERB-EDGE arc (sketch units ≈2.2 m,
@@ -873,45 +875,61 @@ const CIRCUIT_KERBS: KerbQuad[] = ((): KerbQuad[] => {
     return [s, e];
   });
   const quads: KerbQuad[] = [];
-  for (const [s, e] of cutRegions) {
-    const len = ((e - s + N) % N) + 1;
-    // concave SIDE from the region's signed turn (once) — robust where a per-point
-    // chord test is degenerate (the straight-line EXTENSIONS): keeps the kerb on the
-    // corner's apex side all along. Proven identical to the chord test at the corners.
-    let turnSum = 0; for (let k = 0; k < len; k++) turnSum += raw[idx(s + k)];
-    const turnSign = turnSum >= 0 ? 1 : -1;
-    // three edges per point: asphalt edge → red/white outer → blue outer (deepest in grass)
-    const edge: Pt[] = [], mid: Pt[] = [], out: Pt[] = [], arc: number[] = [0];
-    for (let k = 0; k < len; k++) {
-      const i = idx(s + k), a = CIRCUIT_PATH[idx(i - 1)], c = CIRCUIT_PATH[idx(i + 1)], P = CIRCUIT_PATH[i];
-      // concave (inner/apex) unit normal: ⟂ to the tangent, oriented by the region's turn
+  const FULL_W = KERB_WIDTH + KERB_BLUE_WIDTH;   // full kerb reach → the FIXED grass edge
+  const avgSeg = (() => { let s = 0; for (let i = 0; i < N; i++) s += Math.hypot(CIRCUIT_PATH[(i + 1) % N][0] - CIRCUIT_PATH[i][0], CIRCUIT_PATH[(i + 1) % N][1] - CIRCUIT_PATH[i][1]); return s / N; })();
+  const TAIL_PTS = Math.max(2, Math.round(KERB_BLUE_TAIL / avgSeg));   // blue tail length in points
+  // Emit ONE kerb over the STRIPE index range [sStart, sEnd] with a side-normal `normFn`:
+  //  - red/white = FULL-WIDTH blocks, HARD-CUT ends snapped to the stripe-block grid (no
+  //    sliver), skipping an optional blue-only sub-range (outer run);
+  //  - the BLUE runs over [sStart−TAIL_PTS, sEnd+TAIL_PTS]: inner edge = asphalt edge where
+  //    there is NO stripe (else the stripe's outer edge), OUTER edge = the FIXED grass edge
+  //    (band/2 + FULL_W) but tapering to 0 over the TAIL past each stripe end → past the
+  //    stripes the blue slides onto the asphalt edge and dissolves (a smooth tail, no hard end).
+  const emitKerb = (sStart: number, sEnd: number, normFn: (tx: number, ty: number) => Pt, blueOnly: { start: number; end: number } | null) => {
+    const bStart = idx(sStart - TAIL_PTS);
+    const blen = ((sEnd - sStart + N) % N) + 1 + 2 * TAIL_PTS;
+    const P: Pt[] = [], nrm: Pt[] = [], edge: Pt[] = [], arc: number[] = [0];
+    for (let k = 0; k < blen; k++) {
+      const i = idx(bStart + k), a = CIRCUIT_PATH[idx(i - 1)], c = CIRCUIT_PATH[idx(i + 1)], p = CIRCUIT_PATH[i];
       let tx = c[0] - a[0], ty = c[1] - a[1]; const tl = Math.hypot(tx, ty) || 1; tx /= tl; ty /= tl;
-      const nx = turnSign * -ty, ny = turnSign * tx;
-      const taper = smoother(Math.min(Math.min(1, k / KERB_END_TAPER), Math.min(1, (len - 1 - k) / KERB_END_TAPER)));
-      // red/white kerb = CONSTANT full width (crisp, defined ends). The gradual ease
-      // in/out lives on the BLUE border instead — it fades from full to 0 at each end.
-      const w = KERB_WIDTH, bw = KERB_BLUE_WIDTH * taper;
-      // sits at the asphalt inner edge (CS_BAND/2) and extends OUTWARD into the infield
-      // GRASS: red/white for `w`, then a solid BLUE border for `bw` — a track WIDENING.
-      const o = (d: number): Pt => [P[0] + nx * (CS_BAND / 2 + d), P[1] + ny * (CS_BAND / 2 + d)];
-      edge.push(o(0)); mid.push(o(w)); out.push(o(w + bw));
-      // stripe bucket runs on the KERB-EDGE arc (not the centreline): the inside of a
-      // tight corner has a much shorter radius, so centreline arc would COMPRESS the
-      // blocks there — measuring along the kerb keeps every block a constant real size.
+      const n = normFn(tx, ty);
+      P.push(p); nrm.push(n);
+      edge.push([p[0] + n[0] * (CS_BAND / 2), p[1] + n[1] * (CS_BAND / 2)]);
       if (k > 0) arc.push(arc[k - 1] + Math.hypot(edge[k][0] - edge[k - 1][0], edge[k][1] - edge[k - 1][1]));
     }
-    for (let k = 0; k < len - 1; k++) {
-      const rw = Math.floor(arc[k] / KERB_STRIPE) % 2 === 0 ? KERB_RED : KERB_WHITE;
-      quads.push({ a: edge[k], b: mid[k], c: mid[k + 1], d: edge[k + 1], fill: rw });        // red/white stripe
-      quads.push({ a: mid[k], b: out[k], c: out[k + 1], d: mid[k + 1], fill: KERB_BLUE });    // blue border
+    const kSS = TAIL_PTS, kSE = blen - 1 - TAIL_PTS;                          // stripe range indices
+    const stripeStartArc = Math.ceil(arc[kSS] / KERB_STRIPE) * KERB_STRIPE;   // snap to whole blocks
+    const stripeEndArc = Math.floor(arc[kSE] / KERB_STRIPE) * KERB_STRIPE;    //   (no sliver at the edge)
+    let boS = Infinity, boE = -Infinity;                                     // optional blue-only sub-range (arc)
+    if (blueOnly) {
+      const snap = (a: number) => Math.round(a / KERB_STRIPE) * KERB_STRIPE;
+      boS = snap(arc[Math.round(kSS + blueOnly.start * (kSE - kSS))]);
+      boE = snap(arc[Math.round(kSS + blueOnly.end * (kSE - kSS))]);
     }
+    const stripeAt = (k: number) => arc[k] >= stripeStartArc && arc[k] < stripeEndArc && !(arc[k] >= boS && arc[k] < boE);
+    const tf = (k: number) => smoother(Math.min(Math.min(1, k / TAIL_PTS), Math.min(1, (blen - 1 - k) / TAIL_PTS)));   // blue-outer taper (0 at the tail ends)
+    const off = (k: number, d: number): Pt => [P[k][0] + nrm[k][0] * (CS_BAND / 2 + d), P[k][1] + nrm[k][1] * (CS_BAND / 2 + d)];
+    for (let k = 0; k < blen - 1; k++) {
+      const strip = stripeAt(k);
+      if (strip) {   // red/white FULL-WIDTH block (hard cut; constant arc-length size)
+        const rw = Math.floor(arc[k] / KERB_STRIPE) % 2 === 0 ? KERB_RED : KERB_WHITE;
+        quads.push({ a: off(k, 0), b: off(k, KERB_WIDTH), c: off(k + 1, KERB_WIDTH), d: off(k + 1, 0), fill: rw });
+      }
+      // blue inner = outside the stripes where they exist, else the asphalt edge (fills in);
+      // outer = the fixed grass edge scaled by the tail taper → dissolves past the stripe ends.
+      const bi = strip ? KERB_WIDTH : 0;
+      quads.push({ a: off(k, bi), b: off(k, FULL_W * tf(k)), c: off(k + 1, FULL_W * tf(k + 1)), d: off(k + 1, bi), fill: KERB_BLUE });
+    }
+  };
+  // APEX kerbs — concave (turnSign) normal (robust on the straight extensions).
+  for (const [s, e] of cutRegions) {
+    const len = ((e - s + N) % N) + 1;
+    let turnSum = 0; for (let k = 0; k < len; k++) turnSum += raw[idx(s + k)];
+    const ts = turnSum >= 0 ? 1 : -1;
+    emitKerb(s, e, (tx, ty) => [ts * -ty, ts * tx], null);
   }
-  // ---- OUTER-PERIMETER RUN (boss's blue): one continuous kerb along the OUTER edge,
-  // far-left → down the left → bottom straight → up the right → far-right. Placed on the
-  // OUTWARD normal (away from the loop interior — the OPPOSITE side to the apex kerbs),
-  // extending into the OUTFIELD grass; same red/white + blue + constant-arc styling and
-  // tapered ends. Runs on the arc between the far-left and far-right that passes the
-  // bottom-most point (so it's the lower/outer loop, not the top).
+  // OUTER-PERIMETER run — OUTWARD normal (opposite side to the apex kerbs) + the blue-only
+  // zone. Runs on the arc between the far-left and far-right that passes the bottom-most pt.
   {
     let iL = 0, iR = 0, iB = 0;
     for (let i = 1; i < N; i++) {
@@ -920,46 +938,9 @@ const CIRCUIT_KERBS: KerbQuad[] = ((): KerbQuad[] => {
       if (CIRCUIT_PATH[i][1] > CIRCUIT_PATH[iB][1]) iB = i;
     }
     const [rs, re] = ((iB - iL + N) % N) <= ((iR - iL + N) % N) ? [iL, iR] : [iR, iL];
-    const bt = (() => {   // outward sign: at the bottom, "out of the loop" = +y (down)
-      const a = CIRCUIT_PATH[idx(iB - 1)], c = CIRCUIT_PATH[idx(iB + 1)];
-      const tx = c[0] - a[0], ty = c[1] - a[1]; return tx / (Math.hypot(tx, ty) || 1);
-    })();
+    const bt = (() => { const a = CIRCUIT_PATH[idx(iB - 1)], c = CIRCUIT_PATH[idx(iB + 1)]; const tx = c[0] - a[0], ty = c[1] - a[1]; return tx / (Math.hypot(tx, ty) || 1); })();
     const oSign = bt >= 0 ? 1 : -1;
-    const len = ((re - rs + N) % N) + 1;
-    // Pass 1 — geometry: `edge` (asphalt edge, band/2), `midFull` (ALWAYS band/2 +
-    // KERB_WIDTH, the full red/white width), `out` (the FIXED grass edge, band/2 +
-    // KERB_WIDTH + bw with the end-taper on the blue), and the kerb-edge `arc`.
-    const edge: Pt[] = [], midFull: Pt[] = [], out: Pt[] = [], arc: number[] = [0];
-    for (let k = 0; k < len; k++) {
-      const i = idx(rs + k), a = CIRCUIT_PATH[idx(i - 1)], c = CIRCUIT_PATH[idx(i + 1)], P = CIRCUIT_PATH[i];
-      let tx = c[0] - a[0], ty = c[1] - a[1]; const tl = Math.hypot(tx, ty) || 1; tx /= tl; ty /= tl;
-      const nx = oSign * -ty, ny = oSign * tx;   // OUTWARD normal (away from interior)
-      const taper = smoother(Math.min(Math.min(1, k / KERB_END_TAPER), Math.min(1, (len - 1 - k) / KERB_END_TAPER)));
-      const bw = KERB_BLUE_WIDTH * taper;
-      const o = (d: number): Pt => [P[0] + nx * (CS_BAND / 2 + d), P[1] + ny * (CS_BAND / 2 + d)];
-      edge.push(o(0)); midFull.push(o(KERB_WIDTH)); out.push(o(KERB_WIDTH + bw));
-      if (k > 0) arc.push(arc[k - 1] + Math.hypot(edge[k][0] - edge[k - 1][0], edge[k][1] - edge[k - 1][1]));
-    }
-    // BLUE-ONLY zone: the red/white stripes end with a HARD CUT snapped to the stripe-
-    // block grid (whole blocks only, no sliver, NO smootherstep) — only the blue eases.
-    // Snap the zone's arc boundaries to a multiple of KERB_STRIPE, then per QUAD it's a
-    // BINARY choice: stripe block (full-width red/white + thin blue) or blue-only (no
-    // red/white, blue fills the full width). The blue's inner edge STEPS between the two.
-    const B = KERB_BLUE_ONLY;
-    const snap = (a: number) => Math.round(a / KERB_STRIPE) * KERB_STRIPE;
-    const cutStart = snap(arc[Math.round(B.start * (len - 1))]);
-    const cutEnd = snap(arc[Math.round(B.end * (len - 1))]);
-    for (let k = 0; k < len - 1; k++) {
-      const stripe = arc[k] < cutStart || arc[k] >= cutEnd;   // binary, snapped to the block grid
-      if (stripe) {   // red/white = FULL-WIDTH block, no taper (hard cut at the zone edge)
-        const rw = Math.floor(arc[k] / KERB_STRIPE) % 2 === 0 ? KERB_RED : KERB_WHITE;
-        quads.push({ a: edge[k], b: midFull[k], c: midFull[k + 1], d: edge[k + 1], fill: rw });
-      }
-      // blue: inner edge = the stripe outer edge where stripes exist, else the asphalt
-      // edge (full width) — a HARD step at the cut; the outer (grass) edge never moves.
-      const bi = stripe ? midFull : edge;
-      quads.push({ a: bi[k], b: out[k], c: out[k + 1], d: bi[k + 1], fill: KERB_BLUE });
-    }
+    emitKerb(rs, re, (tx, ty) => [oSign * -ty, oSign * tx], KERB_BLUE_ONLY);
   }
   return quads;
 })();

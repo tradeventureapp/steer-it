@@ -402,12 +402,17 @@ deployment-hash URL); `steer-it.vercel.app` also serves it.
   (`KERB_STRIPE` ≈2.2 m — centreline arc would COMPRESS them on tight corners).
   Gradual TAPERED entry/exit (no abrupt start/stop). Placed on: the corner apexes
   (concave `turnSign` normal) + ONE continuous OUTER-PERIMETER run (left sweep +
-  bottom straight + right sweep, on the OUTWARD normal). BLUE-ONLY sections
-  (`KERB_BLUE_ONLY`): over the bottom of the outer run the red/white stripes END with
-  a HARD CUT snapped to a whole stripe block (last block full-size, no shrink/taper —
-  the stripes stop dead, exactly like the crisp apex-kerb ends); ONLY the blue eases,
-  and it holds the FULL kerb width out to the same grass edge (asphalt → blue →
-  grass). Per-kerb `KERB_CUTS`/`KERB_EXTENDS` trim/lengthen
+  bottom straight + right sweep, on the OUTWARD normal) — all built by ONE unified
+  `emitKerb(sStart, sEnd, normFn, blueOnly?)` helper. The red/white stripes END with a
+  HARD CUT snapped to a whole stripe block (last block full-size, no shrink/taper); the
+  BLUE does NOT stop with them — it runs over `[sStart−TAIL, sEnd+TAIL]` and CONTINUES
+  past each stripe end as a TAIL (`KERB_BLUE_TAIL` ≈2.5 blocks): past the stripes the
+  blue slides onto the asphalt edge (fills in, like the blue-only zone) and its width
+  TAPERS to 0 → it "flows onto the asphalt and dissolves" (no hard blue end). BLUE-ONLY
+  sections (`KERB_BLUE_ONLY`, the bottom of the outer run): stripes removed (hard cut),
+  the blue holds the FULL kerb width out to the same grass edge (asphalt → blue → grass,
+  continuous). The grass edge is FIXED (`KERB_WIDTH + KERB_BLUE_WIDTH`), asphalt width
+  untouched. Per-kerb `KERB_CUTS`/`KERB_EXTENDS` trim/lengthen
   specific kerbs to the boss's marks. Drawn in `drawCircuitSurface`; physics.ts
   untouched throughout (the many kerb passes were all render-only, tuned by the boss
   over photos/marks — the running log has the blow-by-blow). Kerb grip/bump physics
@@ -3125,3 +3130,21 @@ along-run scan at the outer red/white radial reads full R/W blocks then abruptly
 over ~one segment, no gradual thin); perpendicular scans one segment apart = `asph→W→blue→grass` (full kerb)
 → `asph→blue→grass` (full-width blue); blue continuous both sides, grass edge unmoved. **physics.ts
 UNTOUCHED** → `step()` 0.0e+0 (maps.ts-only). tsc + build clean.
+
+---
+**CIRCUIT MAP — BLUE TAIL past every stripe end (unified `emitKerb`):** the boss wanted the blue to NOT
+stop with the red/white stripes but CONTINUE past the stripe end as a tapering tail that flows onto the
+asphalt and dissolves (green target he drew on the right hairpin; red X = the old "blue stops dead"). Both
+kerb passes (apex corners + the outer-perimeter run) were UNIFIED into one `emitKerb(sStart, sEnd, normFn,
+blueOnly?)`. Mechanism: red/white blocks over the STRIPE range `[sStart, sEnd]` with the existing HARD CUT
+(snapped to whole blocks); the BLUE runs over `[sStart−TAIL_PTS, sEnd+TAIL_PTS]` where TAIL_PTS = round(
+`KERB_BLUE_TAIL` 25 / avg-seg) ≈ 9 — inner edge = the stripe outer edge where stripes exist, else the
+asphalt edge (fills in); OUTER edge = the FIXED grass edge (`FULL_W = KERB_WIDTH + KERB_BLUE_WIDTH`) scaled
+by a smootherstep taper `tf` that is 1 across the stripe range and → 0 over the TAIL past each end. So past
+the hard cut the blue slides to the asphalt edge at full width, then its width dissolves to 0 over the tail.
+Replaced `KERB_END_TAPER` with `KERB_BLUE_TAIL`. **VERIFIED** (pixel harness, perpendicular scans along the
+right-hump kerb's trailing end, arc-offset from the stripe end): −5 `asph→R→BLUE→grass` (thin blue in the
+kerb); +3 `asph→BLUE→grass` bluePx 18 (full-width blue on the asphalt edge, stripes gone); +10 bluePx 7
+(tapering); +18/+26 `asph→grass` bluePx 0 (dissolved). Blue-only zone still continuous full-width. Applies
+GLOBALLY (all apex kerbs incl. the cut/extended ends + the outer-run ends, one helper). **physics.ts
+UNTOUCHED** → `step()` 0.0e+0 (maps.ts-only). tsc + build clean. Tunable: `KERB_BLUE_TAIL`.
