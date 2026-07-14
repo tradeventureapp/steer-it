@@ -219,8 +219,12 @@ export function step4(car: CarState, input: Inputs, dt: number, p: Physics4Param
   const reversing = st.reversing;
   // in reverse the brake pedal is the REVERSE throttle → it must NOT also brake
   const brakeEff = reversing ? 0 : brake;
-  // steering mirrors in reverse so it feels natural backing up
-  const steer = clamp(input.steer, -1, 1) * (reversing ? -1 : 1);
+  // steer angle follows the input the SAME way forward or reverse (front wheels
+  // point where you steer) — the reverse direction falls out of the physics (the
+  // low-speed kinematic yaw uses −v when reversing). NO explicit mirror: a mirror
+  // double-flipped it → steer left backed the car RIGHT. Now: steer left → the
+  // front wheels point left → the car reverses to the LEFT, like a real car.
+  const steer = clamp(input.steer, -1, 1);
   const delta = [steer * p.maxSteer, steer * p.maxSteer, 0, 0]; // fronts steer, rears fixed
 
   // ---- LOAD TRANSFER (from PREV-frame body accel — no algebraic loop) ----
