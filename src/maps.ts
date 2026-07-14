@@ -662,9 +662,9 @@ export const asphaltTrackMap: MapDefinition = makeStadiumMap({
 
 // Sketch centerline control points (viewBox 1760×780, clockwise). Band = 124
 // sketch-units wide (the width the shape was designed at in the track editor).
-// The BOTTOM STRAIGHT (start/finish) is levelled to a single y (620) across four
-// collinear points → a perfectly HORIZONTAL, straight finish segment; the corners
-// are smoothed by the CENTRIPETAL spline in traceCircuit (no kinks, layout kept).
+// These are just the LAYOUT nodes — the actual driven ribbon is the resampled +
+// low-pass-smoothed CIRCUIT_PATH built below (globally smooth, no per-node kinks).
+// The bottom straight is levelled to y=620 so the finish run stays horizontal.
 const CIRCUIT_SKETCH: Array<[number, number]> = [
   // bottom-right corner, then UP the right side to the top
   [1377,620],[1522,497],[1554,321],[1520,218],[1447,160],[1333,136],[1231,170],
@@ -689,10 +689,113 @@ const CS_SCALE = CIRCUIT_TRACK_W / CS_BAND;      // metres per sketch unit
 // one screen would switch on `followCam` instead.)
 const CIRCUIT_LOGICAL = { widthM: FLAT_LOGICAL.widthM, heightM: FLAT_LOGICAL.heightM };
 
-// Sketch bbox centre → used to CENTRE the track in the (screen-sized) world.
-const _csx = CIRCUIT_SKETCH.map((p) => p[0]), _csy = CIRCUIT_SKETCH.map((p) => p[1]);
-const CS_BCX = (Math.min(..._csx) + Math.max(..._csx)) / 2;
-const CS_BCY = (Math.min(..._csy) + Math.max(..._csy)) / 2;
+// ---- ONE globally-smooth centerline: dense spline → arc-length even → low-pass --
+// Tweaking individual control points only RELOCATES kinks. Instead the whole closed
+// curve is (1) sampled through a centripetal Catmull-Rom, (2) resampled to a high,
+// UNIFORM (arc-length) resolution so spacing is even everywhere, (3) low-pass
+// smoothed (circular box blur) so curvature can't spike at any node → the whole
+// ribbon is evenly rounded with NO sharp point anywhere, (4) resampled again to stay
+// even. Computed ONCE at load; the surface just strokes the resulting polyline.
+type Pt = [number, number];
+
+function sampleSpline(ctrl: Pt[], perSeg: number): Pt[] {
+  const n = ctrl.length, out: Pt[] = [];
+  const chord = (a: Pt, b: Pt) => Math.max(1e-4, Math.sqrt(Math.hypot(b[0] - a[0], b[1] - a[1])));
+  for (let i = 0; i < n; i++) {
+    const p0 = ctrl[(i - 1 + n) % n], p1 = ctrl[i], p2 = ctrl[(i + 1) % n], p3 = ctrl[(i + 2) % n];
+    const d1 = chord(p0, p1), d2 = chord(p1, p2), d3 = chord(p2, p3);
+    const c1: Pt = [0, 0], c2: Pt = [0, 0];
+    for (let k = 0; k < 2; k++) {
+      const m1 = (p1[k] - p0[k]) / d1 - (p2[k] - p0[k]) / (d1 + d2) + (p2[k] - p1[k]) / d2;
+      const m2 = (p2[k] - p1[k]) / d2 - (p3[k] - p1[k]) / (d2 + d3) + (p3[k] - p2[k]) / d3;
+      c1[k] = p1[k] + (d2 * m1) / 3;
+      c2[k] = p2[k] - (d2 * m2) / 3;
+    }
+    for (let j = 0; j < perSeg; j++) {
+      const t = j / perSeg, u = 1 - t;
+      out.push([
+        u * u * u * p1[0] + 3 * u * u * t * c1[0] + 3 * u * t * t * c2[0] + t * t * t * p2[0],
+        u * u * u * p1[1] + 3 * u * u * t * c1[1] + 3 * u * t * t * c2[1] + t * t * t * p2[1],
+      ]);
+    }
+  }
+  return out;
+}
+
+// Uniform (arc-length) resample of a CLOSED polyline to N evenly-spaced points.
+function resampleClosed(pts: Pt[], N: number): Pt[] {
+  const m = pts.length, seg: number[] = [], cum: number[] = [0];
+  for (let i = 0; i < m; i++) {
+    const a = pts[i], b = pts[(i + 1) % m];
+    const d = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    seg.push(d); cum.push(cum[i] + d);
+  }
+  const L = cum[m], out: Pt[] = [];
+  let si = 0;
+  for (let k = 0; k < N; k++) {
+    const target = (k * L) / N;
+    while (si < m - 1 && cum[si + 1] < target) si++;
+    const t = seg[si] > 1e-9 ? (target - cum[si]) / seg[si] : 0;
+    const a = pts[si], b = pts[(si + 1) % m];
+    out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]);
+  }
+  return out;
+}
+
+// Circular box-blur over the closed loop — rounds EVERY corner uniformly. On dense,
+// even points a small radius removes sharp bends without melting the overall shape.
+function smoothClosed(pts: Pt[], radius: number, passes: number): Pt[] {
+  const N = pts.length, w = 2 * radius + 1;
+  let cur = pts;
+  for (let p = 0; p < passes; p++) {
+    const next: Pt[] = new Array(N);
+    for (let i = 0; i < N; i++) {
+      let sx = 0, sy = 0;
+      for (let d = -radius; d <= radius; d++) {
+        const q = cur[((i + d) % N + N) % N];
+        sx += q[0]; sy += q[1];
+      }
+      next[i] = [sx / w, sy / w];
+    }
+    cur = next;
+  }
+  return cur;
+}
+
+const CIRCUIT_SAMPLES = 1000;
+const CIRCUIT_PATH: Pt[] = resampleClosed(
+  smoothClosed(resampleClosed(sampleSpline(CIRCUIT_SKETCH, 48), CIRCUIT_SAMPLES), 14, 2),
+  CIRCUIT_SAMPLES,
+);
+
+// Finish line = the track's NEAREST-TO-BOTTOM point (max y). TAPERED-blend the
+// contiguous near-bottom run to a single y: FLAT (weight 1) in the centre → a
+// perfectly LEVEL, straight finish segment; a smootherstep taper drops the weight
+// to 0 at both ends → ZERO-slope joins into the corners, so NO kink is introduced
+// (max turn stays ~1.8°/pt, exactly as the un-flattened ribbon). A hard flatten
+// here would cusp at the junctions — the taper is what keeps it smooth.
+const CIRCUIT_FINISH = ((): { x: number; y: number } => {
+  const N = CIRCUIT_PATH.length, idx = (i: number) => ((i % N) + N) % N;
+  const smoother = (t: number) => t * t * t * (t * (t * 6 - 15) + 10);   // smootherstep
+  let fi = 0;
+  for (let i = 1; i < N; i++) if (CIRCUIT_PATH[i][1] > CIRCUIT_PATH[fi][1]) fi = i;
+  const fy = CIRCUIT_PATH[fi][1], T = 10, cap = Math.floor(N / 3);
+  let lo = fi, hi = fi;
+  for (let s = 1; s <= cap && CIRCUIT_PATH[idx(fi - s)][1] >= fy - T; s++) lo = idx(fi - s);
+  for (let s = 1; s <= cap && CIRCUIT_PATH[idx(fi + s)][1] >= fy - T; s++) hi = idx(fi + s);
+  const M = ((hi - lo + N) % N) + 1, taper = 0.35;
+  for (let k = 0; k < M; k++) {
+    const i = idx(lo + k), u = k / (M - 1);
+    const w = u < taper ? smoother(u / taper) : u > 1 - taper ? smoother((1 - u) / taper) : 1;
+    CIRCUIT_PATH[i] = [CIRCUIT_PATH[i][0], (1 - w) * CIRCUIT_PATH[i][1] + w * fy];
+  }
+  return { x: CIRCUIT_PATH[fi][0], y: fy };
+})();
+
+// Track bbox centre (of the SMOOTH path) → centre the ribbon in the screen world.
+const _cpx = CIRCUIT_PATH.map((p) => p[0]), _cpy = CIRCUIT_PATH.map((p) => p[1]);
+const CS_BCX = (Math.min(..._cpx) + Math.max(..._cpx)) / 2;
+const CS_BCY = (Math.min(..._cpy) + Math.max(..._cpy)) / 2;
 
 // One sketch unit → world METRES (fixed 2/3-oval scale, bbox centred on the world).
 function circuitToWorld(sx: number, sy: number): { x: number; y: number } {
@@ -702,32 +805,12 @@ function circuitToWorld(sx: number, sy: number): { x: number; y: number } {
   };
 }
 
-// Trace the closed centerline as a smooth CENTRIPETAL Catmull-Rom spline. Uniform
-// Catmull-Rom (tangent = (c−a)/6) KINKS through unevenly-spaced control points —
-// a long segment next to a short one overshoots, giving the jagged/irregular bends.
-// Centripetal parameterisation (knot spacing = chord-length^0.5) weights each
-// tangent by its neighbours' chord lengths, so the curve keeps even curvature and
-// has NO cusps/kinks — clean, regular racing-line arcs — WITHOUT moving a single
-// control point (the layout is identical). Barry–Goldman non-uniform CR → Bézier.
-function traceCircuit(ctx: CanvasRenderingContext2D, pts: Array<[number, number]>) {
-  const n = pts.length;
-  const chord = (a: [number, number], b: [number, number]) =>
-    Math.max(1e-4, Math.sqrt(Math.hypot(b[0] - a[0], b[1] - a[1])));   // |Δ|^0.5
+// Stroke the pre-mapped dense polyline (PIXEL space) — 1000 short segments + round
+// joins render as a perfectly smooth ribbon.
+function tracePolyline(ctx: CanvasRenderingContext2D, pxPts: Pt[]) {
   ctx.beginPath();
-  ctx.moveTo(pts[0][0], pts[0][1]);
-  for (let i = 0; i < n; i++) {
-    const p0 = pts[(i - 1 + n) % n], p1 = pts[i], p2 = pts[(i + 1) % n], p3 = pts[(i + 2) % n];
-    const d1 = chord(p0, p1), d2 = chord(p1, p2), d3 = chord(p2, p3);
-    // Chord-weighted tangents at p1 (m1) and p2 (m2), scaled to this segment (×d2).
-    const c1: [number, number] = [0, 0], c2: [number, number] = [0, 0];
-    for (let k = 0; k < 2; k++) {
-      const m1 = (p1[k] - p0[k]) / d1 - (p2[k] - p0[k]) / (d1 + d2) + (p2[k] - p1[k]) / d2;
-      const m2 = (p2[k] - p1[k]) / d2 - (p3[k] - p1[k]) / (d2 + d3) + (p3[k] - p2[k]) / d3;
-      c1[k] = p1[k] + (d2 * m1) / 3;
-      c2[k] = p2[k] - (d2 * m2) / 3;
-    }
-    ctx.bezierCurveTo(c1[0], c1[1], c2[0], c2[1], p2[0], p2[1]);
-  }
+  ctx.moveTo(pxPts[0][0], pxPts[0][1]);
+  for (let i = 1; i < pxPts.length; i++) ctx.lineTo(pxPts[i][0], pxPts[i][1]);
   ctx.closePath();
 }
 
@@ -743,7 +826,7 @@ function drawCircuitSurface(ctx: CanvasRenderingContext2D, wPx: number, hPx: num
   const pxPerM = wPx / CIRCUIT_LOGICAL.widthM;
   const s = CS_SCALE * pxPerM;                          // canvas px per sketch unit
   const offX = wPx / 2 - CS_BCX * s, offY = hPx / 2 - CS_BCY * s;
-  const ptsPx = CIRCUIT_SKETCH.map(
+  const ptsPx = CIRCUIT_PATH.map(
     (p) => [offX + p[0] * s, offY + p[1] * s] as [number, number],
   );
   const twPx = CS_BAND * s;                             // = CIRCUIT_TRACK_W · pxPerM
@@ -757,15 +840,15 @@ function drawCircuitSurface(ctx: CanvasRenderingContext2D, wPx: number, hPx: num
   ctx.lineJoin = 'round'; ctx.lineCap = 'round';
   // Dark asphalt EDGE — a thin darker rim so the track reads against the grass
   // (cosmetic only — there is NO wall / NO collision here).
-  traceCircuit(ctx, ptsPx);
+  tracePolyline(ctx, ptsPx);
   ctx.strokeStyle = '#1d1f24'; ctx.lineWidth = twPx + Math.max(3, twPx * 0.06); ctx.stroke();
   // Asphalt SURFACE — the oval's tarmac gradient, applied vertically for depth.
   const asf = ctx.createLinearGradient(0, 0, 0, hPx);
   asf.addColorStop(0, a.ringInner); asf.addColorStop(1, a.ringOuter);
-  traceCircuit(ctx, ptsPx);
+  tracePolyline(ctx, ptsPx);
   ctx.strokeStyle = asf; ctx.lineWidth = twPx; ctx.stroke();
   // Rubbered-in racing line down the middle (the oval's worn-line treatment).
-  traceCircuit(ctx, ptsPx);
+  tracePolyline(ctx, ptsPx);
   ctx.strokeStyle = a.lineStroke; ctx.lineWidth = twPx * 0.3; ctx.stroke();
 }
 
@@ -784,11 +867,11 @@ export const circuitMap: MapDefinition = {
   drawBackground(ctx, wPx, hPx) { drawCircuitSurface(ctx, wPx, hPx); },
   drawObstacles() { /* no barriers / no decor this pass */ },
 
-  // Grid spawn on the flat BOTTOM straight (the finish line, sketch ~x1080,y620),
-  // facing +x (the racing direction along the bottom: 747→980→1180→1377 = left→right).
+  // Grid spawn on the flat finish straight (the nearest-to-bottom, levelled run),
+  // facing +x (the racing direction along the bottom = left→right).
   spawn(slot, world) {
     void world;
-    const c = circuitToWorld(1080, 620);
+    const c = circuitToWorld(CIRCUIT_FINISH.x, CIRCUIT_FINISH.y);
     const col = slot % 2, row = Math.floor(slot / 2);
     const laneOff = (col === 0 ? -1 : 1) * CIRCUIT_TRACK_W * 0.18;   // heading 0 ⇒ perp is y
     const back = CONFIG.wheelbase * 1.73 + row * CONFIG.wheelbase * 3.0;

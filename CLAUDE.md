@@ -2747,3 +2747,26 @@ is constant y across x = horizontal. Track now 18 pts; bbox 976×484, extent **2
 → `step()` 0.0e+0 (maps.ts-only). tsc + build clean. **⚠️ phone/desktop test: corners are smooth even arcs
 (no jagged bends), the bottom finish straight is level + straight; whole track on one screen, car standard
 size.** (If a specific yellow corner still reads off, tell me which — I smoothed globally, blind to the marks.)
+
+---
+**CIRCUIT MAP — GLOBAL RESAMPLE-SMOOTH (replaces the per-corner spline; whole ribbon evenly rounded, no
+sharp edge anywhere):** the previous centripetal-spline pass only RELOCATED kinks (per-node tangent tweaks
+can't remove them). Redone as a global resample+smooth pipeline, computed ONCE at load (`CIRCUIT_PATH`,
+1000 pts): (1) `sampleSpline` — dense centripetal Catmull-Rom through the 18 layout nodes (48/seg); (2)
+`resampleClosed` — arc-length UNIFORM resample to 1000 evenly-spaced pts (no bunching); (3) `smoothClosed`
+— circular box-blur (radius 14, 2 passes) low-passes the whole loop so curvature can't spike at any node;
+(4) `resampleClosed` again to stay even. `drawCircuitSurface` now strokes this dense polyline via
+`tracePolyline` (moveTo+lineTo ×1000 + round joins = perfectly smooth ribbon); `traceCircuit` removed.
+**MEASURED (pipeline output):** max turn-angle **1.78°/pt** everywhere (was a 74° cusp) → NO sharp edge
+anywhere; min radius of curvature **93 sketch-u > band/2 (62)** → the wide 2/3-oval band fits with no
+inner-edge pinch; segments even (2.8–10 u). **FINISH LINE — horizontal, kink-free:** `CIRCUIT_FINISH`
+finds the nearest-to-bottom point (max y) and TAPERED-blends the contiguous near-bottom run to a single y —
+FLAT (weight 1) in the centre = a perfectly LEVEL, straight finish segment (~17 m, measured y-spread
+**0.0**), smootherstep taper → weight 0 at both ends = ZERO-slope joins into the corners so NO junction cusp
+(a hard flatten cusped at 74°; the taper keeps max turn at 1.78°). Spawn sits on that flat run, heading +x.
+Centre from the SMOOTH path bbox; extent **247.0×136.6 m** still fits the 256×144 world. Style/width/no-
+barriers/one-screen/standard-car all unchanged. **physics.ts UNTOUCHED** → `step()` 0.0e+0 (maps.ts-only).
+tsc + build clean. **⚠️ browser screenshots hang in this env (renderer), so verified NUMERICALLY on the
+pipeline output (turn/pt < 2° everywhere = provably no sharp edges) — phone/desktop check: the whole track
+is one smoothly-rounded ribbon, the bottom finish is level + straight, whole track on one screen.** Tunable
+if wanted: smoothing radius/passes (rounder vs tighter), taper fraction (finish-straight length).
