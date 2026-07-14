@@ -23,8 +23,13 @@ deployment-hash URL); `steer-it.vercel.app` also serves it.
 ## 2. Stack & architecture
 
 - **Frontend:** Vite + vanilla TypeScript + Canvas 2D (no framework, no Phaser)
-- **Realtime transport:** Supabase Realtime Broadcast (phone <-> desktop). Chosen over
-  WebRTC because WSS:443 passes through school firewalls.
+- **Realtime transport (three-tier, recent — see the running log):** originally Supabase
+  Realtime Broadcast only (WSS:443 passes school firewalls). Since extended to WebRTC P2P
+  as the primary tier — phone↔desktop tilt over a DataChannel (`src/rtc.ts`), with Supabase
+  used ONLY for signaling; a Cloudflare TURN relay (`api/turn.js`) for NAT-blocked players;
+  and Supabase Realtime as the final fallback. Order: direct P2P → TURN relay → Realtime.
+  This makes Realtime signaling-only for everyone (closes the quota problem). A Step-1 send
+  DEADBAND (idle control 30→5 msg/s) also cut Realtime traffic. AWAITING a live 2-phone test.
 - **Hosting:** Vercel (paid Pro plan)
 - **Repo:** github.com/tradeventureapp/steer-it (PRIVATE)
 
@@ -177,7 +182,7 @@ deployment-hash URL); `steer-it.vercel.app` also serves it.
   healthy; the term is kept as a harmless, more-correct normalisation + a safety net if
   rear grip is raised, but the ACTIVE levers are the drift-build power + fade. Power-to-grip
   live-tunable on the D tuner (`driftSimEnginePower` 12500 / `driftSimBoostFadeSpeed` 40).
-  Trademark-safe: internal wording is generic "drift-build reference" only — NO BMW/E30/325i
+  Trademark-safe: internal wording is generic "drift-build reference" only — NO real make/model names
   anywhere.
   **p29 — SIM DRIFT TWO-GAP CLOSE (the TRAVELING DEEP drift, by tuning existing forces only):**
   a STEP-0 sensitivity sweep (perturb each existing force, measure Δ equilibrium β) proved the
@@ -371,6 +376,40 @@ deployment-hash URL); `steer-it.vercel.app` also serves it.
   fills the screen, wraps. (Also fixes the oval squashing when exiting fullscreen.)
   desktop.ts reads everything through the active `MapDefinition`; `switchMap(id)`
   swaps it. Dev hooks: `window.steerMaps()` / `window.steerSwitchMap(id)`.
+  **MAP 4 — the WINDING CIRCUIT (`circuitMap`, id `'circuit'`, "Circuit")** — a
+  technical road course from the boss's hand-drawn sketch (17 control points), in
+  OUR asphalt-on-grass style (the oval's `SURFACE_STYLES.asphalt` tones + green
+  surround). NO barriers / NO collision — grass all around, drive off freely
+  (`createWorld` returns `rects: []`); `trackType: 'open'` (no built-in start line
+  yet). `fixedWorld = FLAT_LOGICAL` (= one screen) so it renders exactly like the
+  oval and the whole track fits one screen at the STANDARD car size (see the camera
+  rule in §3). Track width = 2/3 of the oval band.
+  **GEOMETRY PIPELINE (why it's smooth — the key lesson):** per-node spline tweaks
+  only RELOCATE kinks; the fix is GLOBAL. `CIRCUIT_PATH` (computed once at load) =
+  control points → dense CENTRIPETAL Catmull-Rom → arc-length RESAMPLE to 1000 EVEN
+  points → circular box-blur SMOOTH (r14×2) → resample again = ONE globally-smooth
+  ribbon, no sharp point anywhere (measured max turn <2°/pt, min radius > band/2).
+  **FINISH/BOTTOM STRAIGHT:** the spline OVERSHOOTS below the straight entering the
+  corners (a dip = a visible outward bulge); fixed by CLAMPING every dip up to the
+  straight level (`CIRCUIT_STRAIGHT_Y`) + a light re-smooth → DEAD-flat + horizontal
+  with no kink; sits near the bottom edge; spawn (`CIRCUIT_FINISH`) on its flat
+  centre, heading +x.
+  **KERBS (`CIRCUIT_KERBS`) — visual-only + DRIVABLE (NO grip/bump physics yet):**
+  red/white striped kerbs on the OUTER (grass-side) edge as track EXTENSIONS — they
+  ADD surface OUTWARD into the grass, the asphalt width is UNTOUCHED (they never eat
+  asphalt). A solid BLUE strip on the grass side of each kerb (asphalt → red/white →
+  blue → grass). Stripes are a CONSTANT PHYSICAL size via KERB-EDGE ARC LENGTH
+  (`KERB_STRIPE` ≈2.2 m — centreline arc would COMPRESS them on tight corners).
+  Gradual TAPERED entry/exit (no abrupt start/stop). Placed on: the corner apexes
+  (concave `turnSign` normal) + ONE continuous OUTER-PERIMETER run (left sweep +
+  bottom straight + right sweep, on the OUTWARD normal). BLUE-ONLY sections
+  (`KERB_BLUE_ONLY`): over the bottom of the outer run the red/white width fades out
+  (smootherstep) but the BLUE holds the FULL kerb width out to the same grass edge
+  (asphalt → blue → grass). Per-kerb `KERB_CUTS`/`KERB_EXTENDS` trim/lengthen
+  specific kerbs to the boss's marks. Drawn in `drawCircuitSurface`; physics.ts
+  untouched throughout (the many kerb passes were all render-only, tuned by the boss
+  over photos/marks — the running log has the blow-by-blow). Kerb grip/bump physics
+  + a start/finish line + laps are DEFERRED (§5).
 - `lobby.ts` — N-player lobby state machine (`LobbyState`): slots, colors, names,
   join/leave/sweep/reclaim. Pure (no DOM/transport). Config + `EV` event names live here.
 - `cars.ts` — multiplayer math (pure): `spawnOffset`/`spawnPose` (non-overlapping
@@ -403,7 +442,14 @@ deployment-hash URL); `steer-it.vercel.app` also serves it.
   the HUD (`#xp-hud` score+`×mult`, blink, `#xp-end` card + RETRY), the circuit
   editor LAPS/XP toggle (`circuitMode`), and feeds it the SOLO (lowest-slot) car.
 - `effects.ts` — particles (tire smoke, impact sparks, screen shake). Global hard cap
-  (`FX_CONFIG.maxParticles`); emission stops at the cap.
+  (`FX_CONFIG.maxParticles`); emission stops at the cap. **SMOKE is split BURNOUT vs
+  SLIDE (render-only, physics byte-identical):** burnout (longitudinal wheelspin) =
+  DENSE, emitted BEHIND the wheel, inherits ~25% of car velocity (`inheritVel` 0.25)
+  → billows off the tyre; slide (lateral scrub) = THINNER (lower `alphaMul` + rate),
+  WORLD-anchored at the CONTACT POINT (`inheritVel` 0) so it STAYS PUT and the car
+  slides away from it (marks where the tyre scrubbed the asphalt). Overall smoke was
+  cut ~½ + made more transparent for the restrained SIM look (`smokeRatePerWheel`
+  55→28, `smokeAlpha` 0.20→0.16).
 - `sound.ts` — `SoundEngine` (WebAudio). OFF by default; toggled by the M key / button.
 - `supabase.ts` — Supabase client + `channelName(code)` + `createResilientChannel`.
   Realtime client config: 15s heartbeat with **`worker: true`** (the heartbeat
@@ -445,6 +491,19 @@ deployment-hash URL); `steer-it.vercel.app` also serves it.
   regression from the cosmetic car/colour commit — diffs proved that commit
   touched only `drawCar` + the colour list, with `physics.ts` and ALL of the
   resilience/sweep/lastSeen logic byte-identical.
+- `rtc.ts` — WebRTC P2P layer (recent). Phone initiates a PC + two DataChannels
+  ("control" unreliable-unordered tilt stream = the EV.control payload shape;
+  "state" reliable = lobby/join both ways); signaling rides the existing
+  `steer:<code>` Supabase channel (`rtc-offer`/`answer`/`ice`). On control-DC open
+  the phone LEAVES Realtime (`rc.stop()`); 8 s fallback to Realtime if P2P never
+  opens; reconnect-by-id. Injectable PeerFactory → unit-tested headless. TURN creds
+  from `api/turn.js` (Cloudflare, TTL 600 s; env-unset → 503 → STUN-only). Desktop
+  logs per-pairing `via direct | relay (TURN) | fallback (Realtime)`. Transport-
+  agnostic seam: the desktop/phone EV handlers are called from BOTH the Realtime
+  wire and the rtc callbacks. LIVE test PENDING (no local Supabase/NAT here).
+- `api/turn.js` — Vercel serverless fn (plain JS, OUTSIDE tsc/Vite) that POSTs
+  Cloudflare `credentials/generate` for short-lived TURN iceServers; Origin
+  allow-list; needs `CF_TURN_KEY_ID` + `CF_TURN_API_TOKEN` in Vercel env.
 
 ### Build / test / run commands
 - `npm run dev` — Vite dev server (port 5173).
@@ -609,6 +668,14 @@ phone→desktop `join | color | name | leave | control`; desktop→phone `lobby 
 ### Multiplayer / general
 - **Build for N, not hardcoded for 2.** Slots, cars, colors = array/map keyed by slot.
   Player cap = a single config (`PLAYER_CAP`). Target ~10 players, tested with 2.
+- **CAMERA: the WHOLE track is ALWAYS visible on ONE screen; the CAR SIZE is a
+  CONSTANT.** Steer It is local multiplayer on ONE shared monitor (several phones,
+  one screen), so a FOLLOW-CAMERA is NOT allowed — it would force splitscreen. (A
+  follow camera WAS tried for the circuit and REVERTED for exactly this reason.)
+  Rule: the car renders at a fixed on-screen size, NEVER scaled to fit a track; the
+  TRACK is sized to fit the screen at that standard car size (fixed-world maps use
+  `FLAT_LOGICAL` = the screen, one uniform scale-to-fit). New tracks MUST fit one
+  screen (the circuit's shape was designed in the editor to do so).
 - **Test live, not just in sim.** Claude Code has NO real Supabase in preview (placeholder
   creds = no WebSocket), so live transport (multiple phones connecting, sync) MUST be
   smoke-tested on real devices. Isolate logic into pure testable modules (lobby.ts,
@@ -634,7 +701,7 @@ phone→desktop `join | color | name | leave | control`; desktop→phone `lobby 
   governor sustains a provoked slide at `driftAssist=1`, one `driftAssist` knob
   (arcade→sim). Kinetic friction SPLIT: `frontDriftFriction` 0.83 (turn-in =
   OLD) + `rearDriftFriction` 0.65 (drift slip, feel-tunable).
-  **p19b (BMW-feel, post-feel-test, AWAITING re-test):** the feel-test kept ONLY
+  **p19b (race-feel, post-feel-test, AWAITING re-test):** the feel-test kept ONLY
   the throttle-assisted drift EXIT and the 50° lock; everything else from the p19
   Tier-1 prototype was reverted. THROTTLE REAR-RE-GRIP (`loadTransferGain` 0.35)
   is now the ACCEL-ONLY half of the load transfer (`axNorm` clamped ≥0, rear-only):
@@ -656,6 +723,10 @@ phone→desktop `join | color | name | leave | control`; desktop→phone `lobby 
   English names ("DO NOT DELETE!!!", "taxes_2024_final_v3"...), recycle bin, taskbar.
   Icons = solid obstacles (arcade bounce). **Icons are mouse-draggable** (= live track building).
 - **Tire smoke** on drift/burnout (particles, capped at `FX_CONFIG.maxParticles = 340`).
+  Split BURNOUT (dense, behind the wheel, inherits ~25% car vel) vs SLIDE (thinner,
+  world-anchored at the contact point, `inheritVel` 0 — stays put as the car slides
+  away); overall amount cut ~½ + slightly more transparent (SIM restraint). Render-
+  only (`effects.ts`), physics byte-identical.
 - **Car** — the **Blitz RS**, a top-down early-90s RWD drift coupe (vector-drawn
   in `drawCar`, recolours per slot via `shadeHex`): sculpted boxy 3-box
   silhouette (long hood / short deck), twin round headlights + slim slat grille,
@@ -822,6 +893,20 @@ phone→desktop `join | color | name | leave | control`; desktop→phone `lobby 
   ids stay independently registered + launched. `steerSwitchMap('flat')` /
   `steerSwitchMap('asphalt')` dev hooks work. A per-surface GRIP difference is
   DEFERRED.
+- **Map 4 — the WINDING CIRCUIT (`circuitMap`)** — a technical road course from the
+  boss's sketch, in our asphalt-on-grass style, NO barriers (drive off onto the
+  grass freely). Globally-smooth ribbon (control points → centripetal Catmull-Rom →
+  arc-length resample to 1000 pts → box-blur → resample; no sharp edges). Dead-flat
+  horizontal FINISH straight near the bottom edge; spawn on it. Fits ONE screen at
+  the standard car size (a follow-camera was tried + REVERTED — §3). **F1-style
+  KERBS** (`CIRCUIT_KERBS`, visual + drivable): red/white striped kerbs on the OUTER
+  (grass-side) edge as track EXTENSIONS (asphalt width intact) with a solid BLUE
+  strip on the grass side, CONSTANT arc-length stripes, tapered transitions, and
+  BLUE-ONLY sections (stripes removed, blue holds the full width) — on the corner
+  apexes + one continuous outer-perimeter run, all tuned to the boss's marks. Kerb
+  grip/bump physics + start/finish + laps DEFERRED. Appears as its own "Circuit"
+  map-select tile; `steerSwitchMap('circuit')` works. (See the §2 maps.ts entry +
+  the running log for the full geometry/kerb detail.)
 - **Vercel/QR blocker FIXED** — the QR pointed to a protected deployment-hash URL
   (login wall for other players). Fix: the QR is built from env var `VITE_PUBLIC_BASE_URL`
   (= production domain), not window.location.origin. + disable Vercel Authentication.
@@ -852,6 +937,11 @@ phone→desktop `join | color | name | leave | control`; desktop→phone `lobby 
 ### Other planned (still on the roadmap)
 6. **Interactive taskbar** — turn the bottom bar into a control panel (launch
    editor/pause/laps via buttons instead of keys). UI shell over existing functions.
+6b. **Circuit-map follow-ups** — the Winding Circuit (map 4) is a drivable
+   asphalt-on-grass course with kerbs, but still to add: kerb GRIP/BUMP physics
+   (currently the kerbs are visual + freely drivable, no effect); a START/FINISH
+   line + lap counting (it's `trackType: 'open'` with no built-in start line yet);
+   optionally gravel run-off / more decor. Physics untouched by all the kerb work.
 7. **REEL** — a 10–20s viral video (phone-as-wheel in the first 2s, multiple cars
    racing the desktop). Primarily TikTok / YT Shorts.
 8. **Scaling check** — BEFORE the reel, verify how many concurrent games the
@@ -914,10 +1004,13 @@ phone→desktop `join | color | name | leave | control`; desktop→phone `lobby 
 
 ## 9. PHYSICS FOUNDATION — physics4.ts (the per-wheel SIM engine)
 
-- `physics4.ts` = a full PER-WHEEL vehicle model (4 contact points), separate from the legacy
-  arcade `physics.ts`. Toggled live with **X** (arcade ⇄ physics4). It is a SIMULATION: absolute
-  realism is the priority; drift is emergent only, never a tuned-in feature. A forgiving arcade
-  car will be built later as a second car on this same engine.
+- `physics4.ts` = a full PER-WHEEL vehicle model (4 contact points). The game now runs TWO live
+  drive models toggled by **X** (`DriveMode` in desktop.ts): **`arcadeModel.ts`** = a simple
+  KINEMATIC arcade controller (6 laws, owns v/φ/θ; forgiving; the current default), and
+  **`physics4.ts`** = this per-wheel SIMULATION (absolute realism, drift emergent only, never a
+  tuned-in feature). Every physics4 change keeps the arcade model byte-identical (0.0e+0). The old
+  `physics.ts` (the p1–p33 arcade + sim-real history in the running log) is RETIRED/unreferenced by
+  the drive loop — kept in git. A forgiving arcade car ON the physics4 engine is still planned (§10).
 - **GUIDING ORDER (core lesson): REALITY sets the numbers; the physics is tuned AROUND them, never
   the reverse.** When a behavior is wrong, find the real physical cause. Don't pick a number just to
   unlock a behavior, and don't paper over a missing mechanism with an artificial damper/gate
@@ -981,10 +1074,12 @@ catchable. Drift is emergent, not a feature.
   steering lock 0.56 rad (~32°, sharp race lock, fronts near grip peak); slicks (broad grip peak,
   high longitudinal grip); peak cornering ~1.85-1.97 g; 0-100 ~3.0 s; top ~246 km/h; braking
   ~1.21 g; reverse top speed ~50 km/h (realistic ceiling ~40, 50 = deliberate practical choice).
-- **physics4 knobs (current realistic values):** `massKg` ~1020, `weightDistFront` 0.53, `maxSteer`
-  0.56, `muNom` 1.90, `tireB`/`tireC` 10/1.45, `tireBx` 12, `tireEllipseLong` 1.3, `pneumaticTrail`
-  0.06, `yawDampConst` 150, `loadTransferLongGain` 1.5, `loadSensitivity` 0.05, `wheelInertiaDrive`
-  8, `reverseSpeed` 14 m/s.
+- **physics4 knobs (current realistic values, reconciled with `physics4.ts`):** `massKg` 1020,
+  `weightDistFront` 0.53, `maxSteer` 0.56, `muNom` 1.90, `tireB`/`tireC` 10/1.45, `tireBx` 12,
+  `tireEllipseLong` 1.3, `pneumaticTrail` 0.06, `yawDampConst` 150, `loadTransferLongGain` 1.5,
+  `loadSensitivity` 0.05, `wheelInertiaDrive` 8, `enginePower` 276000 (≈370 hp), `peakThrust` 13000,
+  `brakeForce` 13500 (≈1.21 g), `reverseSpeed` 14 m/s (≈50 km/h; realistic ceiling ~40, 50 = a
+  deliberate practical choice for reversing out on-track).
 - **Palette:** retro/90s 12-colour set in `vehicles.ts` (`BLITZ_RS_COLORS`).
 
 ### Arcade car — PLANNED (the second car)
@@ -1114,7 +1209,7 @@ car finally drifts: inflated→real-grip took a provoked drift from lifetime 0.7
 (β2→15°), and TRAVELS at a visible ~17 km/h (not on-the-spot); (d) MECHANISM confirmed — the rear CARRIES
 at real kinetic μ (doesn't snap back to grip) + the front (now ≤ rear) STEERS without over-braking the
 attitude; (e) SPIN STILL BLEEDS 63→16k over 3s (no rocket); (f) CORNERING in sim-real is now LOOSER —
-steer0.4+gas0.5 breaks to β53° (vs arcade β1° grippy), yaw 1.19 = still corners (real-E30 slides willingly,
+steer0.4+gas0.5 breaks to β53° (vs arcade β1° grippy), yaw 1.19 = still corners (a real race coupe slides willingly,
 SIM-REAL ONLY → arcade/sim corners stay grippy byte-identical); (g) EXIT is GENTLER (real low-grip) — from
 a deep drift, straighten+throttle dips through the de-rotation (25k→1k as β69→2°) then ACCELERATES out
 1→31k over 3s; straight-line 0–50 in 4.7s (vs the inflated rocket); (h) Stage-iv yaw ceiling holds,
@@ -1754,7 +1849,7 @@ the car is now a switchable PARAMETER SET on the ONE sim-real-2 model. `vehicles
 (`{ name, liveryColor?, overrides: Partial<Config> }`) + `ROAD_SPEC` (name 'Blitz RS', `overrides:{}` → cfg
 = CONFIG) + `RALLY_SPEC` (name 'Blitz RS Rally'). The Car holds `spec` + a cached `cfg` (= CONFIG for road,
 `{...CONFIG, ...overrides}` for rally) + `liveryColor`; `step(car.state, current, FIXED_DT, car.cfg)` reads
-it. `applyVariant(car, spec)` rebuilds cfg/livery in place. **RALLY overrides (gravel Group-A build, all
+it. `applyVariant(car, spec)` rebuilds cfg/livery in place. **RALLY overrides (gravel period-race build, all
 real units on the one ruler — starting values, tune on phone):** `mass 1100` (−100, inertia 1875→1719),
 `simReal2PeakTorque 287`/`IdleTorque 191` (+20% → ~285 hp), `simReal2BudgetRear 4600` (gravel µ_rear ~0.85
 vs road 8800/µ1.49), `simReal2PeakFront 3900` (µ_front ~0.72, front<rear → oversteer-happy), `simReal2FinalDrive
@@ -2449,7 +2544,7 @@ km/h corner GRIPS (no early slide), launch spins the rears but tracks straight, 
 power-over willing. Dial muNom (grip), peakThrust/enginePower (power), wheelInertia (launch spin drama).**
 
 ---
-**GROUP A SIM RE-SPEC (E30 M3 Group A / DTM anchor; the honest per-wheel sim benchmark; 16/16):** the
+**RACE-SPEC SIM RE-SPEC (the race reference / touring-car anchor; the honest per-wheel sim benchmark; 16/16):** the
 physics4 car re-tuned to a realistic early-90s circuit race special (public name Blitz RS). **Numbers,
 all physically consistent:** `massKg` 1200→**1020** (stripped race weight), `yawInertiaK` 1.25→**1.20**
 (Iz = 1020·1.2² ≈ 1469, agile), `cgHeight` 0.5→**0.45** (lowered → less transfer → planted),
@@ -2473,13 +2568,13 @@ SKILL WINDOW — it needs high throttle (drive must overcome the higher grip) + 
 hold; ease off and the slick regrips (correct). Trail-brake LIGHTENS the rear (real load transfer) but
 oversteer-on-trail is SUBTLE at 1.9μ slick grip — the primary drift provocations are handbrake + throttle
 power-over; a stronger trail-brake would want a lower `brakeBiasFront` (tuning lever). tsc + build clean;
-physics.ts untouched; arcade toggle model untouched. **NEXT: boss feel-tests the Group A SIM on phone
+physics.ts untouched; arcade toggle model untouched. **NEXT: boss feel-tests the race-spec SIM on phone
 (X → PHYSICS4): grips hard through fast corners, race brakes, drift needs commitment (full throttle +
 counter-steer = skill), decisive slick edge, 370 hp pulls. Dial muNom/tireB/tireC (grip+edge),
 brakeBiasFront (trail-brake), driftYawDamp (drift stability). Then the separate forgiving ARCADE car.**
 
 ---
-**GROUP A SIM — brakeForce set to the APPROVED 13500 + RACE-CAR priority confirmed (16/16):** the
+**RACE-SPEC SIM — brakeForce set to the APPROVED 13500 + RACE-CAR priority confirmed (16/16):** the
 re-spec (7a0698b) is confirmed as the race-car benchmark (grip/precision/braking priority, drift a
 secondary emergent by-product — NOT tuned toward easy drift). `brakeForce` set to the boss's approved
 **13500** (was my 15000). **MEASURED RACE METRICS:** cornering **max gripped 1.77-1.79g** at 50/70/90
@@ -2493,7 +2588,7 @@ numbers kept):** (1) `brakeForce` 13500 delivers **1.21g** — a touch under the
 **15000 = 1.34g** if the boss wants exactly 1.35g. (2) `muNom` 1.90 holds **~1.79g** — a touch above the
 ~1.4-1.6g slick target; **muNom ~1.65 = ~1.55g** if the boss wants exactly 1.4-1.6g. Both are the exact
 approved numbers — flagged so the boss can dial to taste on the D-tuner. tsc + build clean; physics.ts +
-arcade toggle untouched. **NEXT: boss feel-tests the Group A SIM as a RACE CAR (X → PHYSICS4): grip,
+arcade toggle untouched. **NEXT: boss feel-tests the race-spec SIM as a RACE CAR (X → PHYSICS4): grip,
 precision, braking, cornering speed first; drift secondary. Dial muNom (grip level), brakeForce (braking
 g), tireB/tireC (edge), brakeBiasFront (trail-brake). Then the separate forgiving ARCADE car.**
 
@@ -2567,7 +2662,7 @@ un-catchable snap, planted not pendulum). Dial pneumaticTrail (stability↔agili
 (grip) on the D tuner.**
 
 ---
-**physics4 REALISTIC GROUP A rebuild (path B — root fix: directional-stability MARGIN, band-aids GONE):**
+**physics4 REALISTIC RACE-SPEC rebuild (path B — root fix: directional-stability MARGIN, band-aids GONE):**
 the "trail-brake does nothing + spins instead of four-wheel-sliding" investigation found the REAL root
 (read-only): the car was **directionally UNSTABLE UNDER THROTTLE at 50/50** — with weightDistFront 0.50 the
 neutral-steer-point sits ON the CoM, so throttle's friction-circle rear-grip loss tips it into **divergent
@@ -2576,7 +2671,7 @@ pneumaticTrail 0.22 / yawDampConst 1100 band-aids were MASKING. Ruled OUT as the
 lag, relaxation length, longitudinal transfer, friction ellipse (all no-effect); lateral transfer ~half.
 **REAL FIX = a stability margin via slight front weight bias** (textbook: neutral-steer-point BEHIND the
 CoM = every real RWD car). **REALISTIC VALUES, each real-world justified:** `weightDistFront` 0.50→**0.53**
-(real E30 M3 ~52/48 + race setup = the stability margin), `maxSteer` 0.52→**0.56** (32° real E30 front
+(a real race coupe ~52/48 + race setup = the stability margin), `maxSteer` 0.52→**0.56** (32° real race coupe front
 lock), `tireB`/`tireC` 14/1.65→**10/1.45** (real slick BROAD peak ~11°, not a narrow 5.8° cliff → the
 fronts work over a wide slip range → no premature washout at the 32° lock), `pneumaticTrail` 0.22→**0.06 m**
 (REAL trail; the band-aid GONE), `trailPeakSlip`→**0.19** (collapses at the broad-slick peak), `yawDampConst`
@@ -2597,7 +2692,7 @@ realistic; the DRAMATIC past-limit rotation comes from the four-wheel slide unde
 stronger trail-brake would need an oversized transfer (LTL ~1.65) or a less-stable balance (re-introducing
 the power-oversteer spin) — not shipped. Grip ~1.9g is a hair above the 1.8 slick target (coupled to the
 stability-critical muNom; the LTL 1.5 inflates the reading). D-tuner: `pneumaticTrail`/`trailPeakSlip`/
-`yawDampConst` + the balance knobs. **NEXT: phone feel-test sim-real (X → PHYSICS4) as a REAL Group A BMW
+`yawDampConst` + the balance knobs. **NEXT: phone feel-test sim-real (X → PHYSICS4) as a a real race coupe
 vs Project CARS — planted/precise, grips, four-wheel-slides past the limit + drives out, catchable, no
 uncatchable snap, no oval limit-cycle. Feel whether the subtle trail-brake is enough or if it needs the
 stronger (less-stable/oversized) variant.**
@@ -2637,7 +2732,7 @@ spins easy at low speed, four-wheel slide + drift + grip unchanged.**
 **physics4 SLICK HOOK-UP (wheelInertiaDrive 5→8 — brief chirp then BITE, no more 2.65s launch spin;
 11/11):** the "rears smoke like crazy / spin out on corner exit" was REAL low-speed over-spin lasting
 **2.65 s** from a standstill (measured; real slick chirp = 0.3-0.7 s) — a worn-tyre/dragster behaviour,
-wrong for E30 M3 Group A RACE SLICKS which hook up almost instantly. ROOT (read-only): `wheelInertiaDrive`
+wrong for the race reference RACE SLICKS which hook up almost instantly. ROOT (read-only): `wheelInertiaDrive`
 5 (lowered earlier for the low-speed κ∝1/v spin) let the wheel spin up so eagerly it ran away past the
 tyre peak (bistable trap) and took 2.65 s to hook up; the slow-corner-exit shares that low-speed regime →
 the sustained smoke + occasional spin-out. Sharp bistable threshold measured: iw 6 → 2.60 s (runaway) /
