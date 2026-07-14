@@ -799,6 +799,65 @@ const CIRCUIT_FINISH = ((): { x: number; y: number } => {
   return { x: (Math.min(...fx) + Math.max(...fx)) / 2, y: CIRCUIT_STRAIGHT_Y };
 })();
 
+// ---- Apex KERBS — red/white striped curbs on the INSIDE edge of the corners -----
+// Real circuits line the apex (inside) of corners with red/white striped kerbs. We
+// find the high-curvature arcs (the corners) of the smooth 1000-pt ribbon and lay a
+// striped band along the CONCAVE inner edge, hugging the asphalt just inside the edge
+// and tapering to a point at each end. Purely visual (baked into the surface layer) —
+// drivable, no physics this pass. Each quad is a perpendicular slice → clean stripes.
+const KERB_TURN_TH = 0.5;             // smoothed turn (deg/pt) above which it's a corner
+const KERB_MIN_PTS = 30;              // ignore bends shorter than this (straights, blips)
+const KERB_END_TAPER = 10;            // pts over which width fades in/out at each end
+const KERB_WIDTH = CS_BAND * 0.11;    // kerb reach onto the asphalt (sketch units, ≈3 m)
+const KERB_STRIPE = 14;               // stripe length along the edge (sketch units)
+const KERB_RED = '#c9382f', KERB_WHITE = '#e8e8ee';
+
+interface KerbQuad { a: Pt; b: Pt; c: Pt; d: Pt; red: boolean; }
+const CIRCUIT_KERBS: KerbQuad[] = ((): KerbQuad[] => {
+  const N = CIRCUIT_PATH.length, idx = (i: number) => ((i % N) + N) % N;
+  const smoother = (t: number) => t * t * t * (t * (t * 6 - 15) + 10);
+  // smoothed per-point turn magnitude (deg) → "cornerness"
+  const raw: number[] = [];
+  for (let i = 0; i < N; i++) {
+    const a = CIRCUIT_PATH[idx(i - 1)], b = CIRCUIT_PATH[i], c = CIRCUIT_PATH[idx(i + 1)];
+    const v1x = b[0] - a[0], v1y = b[1] - a[1], v2x = c[0] - b[0], v2y = c[1] - b[1];
+    let cr = (v1x * v2y - v1y * v2x) / (Math.hypot(v1x, v1y) * Math.hypot(v2x, v2y));
+    raw.push(Math.asin(Math.max(-1, Math.min(1, cr))) * 180 / Math.PI);
+  }
+  const corner: number[] = [];
+  for (let i = 0; i < N; i++) { let s = 0; for (let d = -6; d <= 6; d++) s += Math.abs(raw[idx(i + d)]); corner.push(s / 13); }
+  // contiguous corner regions (start scanning at a non-corner point so none wraps index 0)
+  let off = 0; while (off < N && corner[off] >= KERB_TURN_TH) off++;
+  const regions: Array<[number, number]> = [];
+  let st = -1;
+  for (let k = 0; k <= N; k++) {
+    const on = k < N && corner[idx(off + k)] >= KERB_TURN_TH;
+    if (on && st < 0) st = k;
+    else if (!on && st >= 0) { if (k - st >= KERB_MIN_PTS) regions.push([idx(off + st), idx(off + k - 1)]); st = -1; }
+  }
+  const quads: KerbQuad[] = [];
+  for (const [s, e] of regions) {
+    const len = ((e - s + N) % N) + 1;
+    const edge: Pt[] = [], inner: Pt[] = [], arc: number[] = [0];
+    for (let k = 0; k < len; k++) {
+      const i = idx(s + k), a = CIRCUIT_PATH[idx(i - 1)], c = CIRCUIT_PATH[idx(i + 1)], P = CIRCUIT_PATH[i];
+      // concave (inner) unit normal: ⟂ to the tangent, pointing toward the chord midpoint
+      let tx = c[0] - a[0], ty = c[1] - a[1]; const tl = Math.hypot(tx, ty) || 1; tx /= tl; ty /= tl;
+      let nx = -ty, ny = tx;
+      if (nx * ((a[0] + c[0]) / 2 - P[0]) + ny * ((a[1] + c[1]) / 2 - P[1]) < 0) { nx = -nx; ny = -ny; }
+      const w = KERB_WIDTH * smoother(Math.min(Math.min(1, k / KERB_END_TAPER), Math.min(1, (len - 1 - k) / KERB_END_TAPER)));
+      edge.push([P[0] + nx * (CS_BAND / 2), P[1] + ny * (CS_BAND / 2)]);
+      inner.push([P[0] + nx * (CS_BAND / 2 - w), P[1] + ny * (CS_BAND / 2 - w)]);
+      if (k > 0) arc.push(arc[k - 1] + Math.hypot(P[0] - a[0], P[1] - a[1]));
+    }
+    for (let k = 0; k < len - 1; k++) {
+      const red = Math.floor(arc[k] / KERB_STRIPE) % 2 === 0;
+      quads.push({ a: edge[k], b: inner[k], c: inner[k + 1], d: edge[k + 1], red });
+    }
+  }
+  return quads;
+})();
+
 // Track bbox centre (of the SMOOTH path) → centre the ribbon in the screen world.
 const _cpx = CIRCUIT_PATH.map((p) => p[0]), _cpy = CIRCUIT_PATH.map((p) => p[1]);
 const CS_BCX = (Math.min(..._cpx) + Math.max(..._cpx)) / 2;
@@ -857,6 +916,20 @@ function drawCircuitSurface(ctx: CanvasRenderingContext2D, wPx: number, hPx: num
   // Rubbered-in racing line down the middle (the oval's worn-line treatment).
   tracePolyline(ctx, ptsPx);
   ctx.strokeStyle = a.lineStroke; ctx.lineWidth = twPx * 0.3; ctx.stroke();
+
+  // APEX KERBS — red/white striped curbs along the inside edge of each corner,
+  // drawn ON TOP of the asphalt (each quad is a perpendicular stripe slice). Purely
+  // visual + drivable (the surface has no collision). Scale-agnostic (sketch → px).
+  for (const q of CIRCUIT_KERBS) {
+    ctx.fillStyle = q.red ? KERB_RED : KERB_WHITE;
+    ctx.beginPath();
+    ctx.moveTo(offX + q.a[0] * s, offY + q.a[1] * s);
+    ctx.lineTo(offX + q.b[0] * s, offY + q.b[1] * s);
+    ctx.lineTo(offX + q.c[0] * s, offY + q.c[1] * s);
+    ctx.lineTo(offX + q.d[0] * s, offY + q.d[1] * s);
+    ctx.closePath();
+    ctx.fill();
+  }
 }
 
 export const circuitMap: MapDefinition = {

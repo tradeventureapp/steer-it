@@ -2793,3 +2793,27 @@ no-barriers/one-screen/standard-car all unchanged. **physics.ts UNTOUCHED** → 
 only). tsc + build clean. **⚠️ browser screenshots hang in this env — verified NUMERICALLY on the exact
 pipeline output (whole bottom y=620 constant, nothing below it, turn <2°/pt): the finish straight is dead
 straight + level with no bulge. Phone/desktop check the bottom straight is flat corner-to-corner.**
+
+---
+**CIRCUIT MAP — APEX KERBS (red/white striped curbs on the inside of the corners):** added real-circuit-
+style red/white striped apex kerbs along the INSIDE (concave) edge of the corners, following the smooth
+1000-pt ribbon. Visual-only + drivable this pass (the surface has no collision; no bump/grip effect yet).
+Built once at load (`CIRCUIT_KERBS`, in maps.ts): (1) per-point "cornerness" = the smoothed |turn|/pt of
+CIRCUIT_PATH; (2) contiguous arcs above `KERB_TURN_TH` 0.5°/pt and ≥ `KERB_MIN_PTS` 30 pts = the corners
+(straights excluded); (3) along each, a striped band on the CONCAVE inner edge — unit normal ⟂ to the
+tangent, oriented toward the chord midpoint (always the apex side, auto-flips through the esses), placed at
+the asphalt inner edge (`CS_BAND/2`) reaching `KERB_WIDTH` (0.11·band ≈ 3 m) onto the track, width
+smootherstep-TAPERED to a point at each end; (4) alternating red/white by arc-length bucket
+(`KERB_STRIPE` 14 u ≈ 3 m) — each quad is a perpendicular slice so the stripes are clean + follow the
+curve. Drawn in `drawCircuitSurface` ON TOP of the asphalt (after the racing line), sketch→px like
+everything else (scale-agnostic). **RESULT: 5 corners kerbed** — the top-right hump (~1372,141), the middle
+apex (~979,464), the top-left hump (~591,243), and the two finish-straight corners (bottom-left ~729,608,
+bottom-right ~1477,551); 709 striped quads. Colours `#c9382f` red / `#e8e8ee` white. **VERIFIED** (canvas
+pixel harness, since browser screenshots hang in this env): kerbs render as red AND white pixels sitting on
+the asphalt at the corners (1633 red / 1191 white px, balanced), and scans across the corners show
+ALTERNATING stripes (`RWWWRWRWRWWWRW` etc.) — not solid blocks. Finish straight / smooth ribbon / style /
+grass / no-barriers / one-screen / standard car all unchanged. **physics.ts UNTOUCHED** → `step()` 0.0e+0
+(maps.ts-only; kerbs are drivable — no collision added). tsc + build clean. **⚠️ phone/desktop check: the
+corners have red/white striped kerbs on their inner edge, following the curve, drivable.** Tunable:
+`KERB_TURN_TH`/`KERB_MIN_PTS` (which corners), `KERB_WIDTH`/`KERB_STRIPE` (size/stripe). Kerb grip/bump =
+a later pass.
