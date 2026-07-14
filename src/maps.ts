@@ -815,10 +815,10 @@ const KERB_STRIPE = 10;               // stripe length in KERB-EDGE arc (sketch 
 const KERB_RED = '#c9382f', KERB_WHITE = '#e8e8ee', KERB_BLUE = '#2f6fca';
 
 // BLUE-ONLY zone on the OUTER-perimeter run (boss's blue marks): over this fraction
-// of the run — the bottom section (corners + straight) — the red/white stripe width
-// fades to 0 (stripes gone) while the blue strip stays continuous; `ramp` = the
-// smootherstep fade width on each side (stripes ease out/in, no abrupt cut).
-const KERB_BLUE_ONLY = { start: 0.15, end: 0.85, ramp: 0.05 };
+// of the run — the bottom section (corners + straight) — the red/white stripes are
+// REMOVED (they end with a HARD CUT snapped to a whole stripe block, no shrink/taper)
+// while the blue strip continues at FULL width. Only the blue eases (its end-taper).
+const KERB_BLUE_ONLY = { start: 0.15, end: 0.85 };
 
 // Two kerbs the boss shortened (orange marks): trim a fraction off the region END
 // nearest each reference sketch point — the new end then tapers out like any other.
@@ -926,32 +926,39 @@ const CIRCUIT_KERBS: KerbQuad[] = ((): KerbQuad[] => {
     })();
     const oSign = bt >= 0 ? 1 : -1;
     const len = ((re - rs + N) % N) + 1;
-    const edge: Pt[] = [], mid: Pt[] = [], out: Pt[] = [], arc: number[] = [0];
+    // Pass 1 — geometry: `edge` (asphalt edge, band/2), `midFull` (ALWAYS band/2 +
+    // KERB_WIDTH, the full red/white width), `out` (the FIXED grass edge, band/2 +
+    // KERB_WIDTH + bw with the end-taper on the blue), and the kerb-edge `arc`.
+    const edge: Pt[] = [], midFull: Pt[] = [], out: Pt[] = [], arc: number[] = [0];
     for (let k = 0; k < len; k++) {
       const i = idx(rs + k), a = CIRCUIT_PATH[idx(i - 1)], c = CIRCUIT_PATH[idx(i + 1)], P = CIRCUIT_PATH[i];
       let tx = c[0] - a[0], ty = c[1] - a[1]; const tl = Math.hypot(tx, ty) || 1; tx /= tl; ty /= tl;
       const nx = oSign * -ty, ny = oSign * tx;   // OUTWARD normal (away from interior)
       const taper = smoother(Math.min(Math.min(1, k / KERB_END_TAPER), Math.min(1, (len - 1 - k) / KERB_END_TAPER)));
-      // stripeFactor: 1 = full red/white, 0 = BLUE-ONLY (stripe width faded to 0), with
-      // smootherstep ramps at the zone edges → the stripes ease out/in; blue stays put.
-      const f = k / (len - 1), B = KERB_BLUE_ONLY;
-      const sf = (f > B.start && f < B.end) ? 0
-        : (f >= B.start - B.ramp && f <= B.start) ? 1 - smoother((f - (B.start - B.ramp)) / B.ramp)
-        : (f >= B.end && f <= B.end + B.ramp) ? smoother((f - B.end) / B.ramp)
-        : 1;
-      const w = KERB_WIDTH * sf, bw = KERB_BLUE_WIDTH * taper;
+      const bw = KERB_BLUE_WIDTH * taper;
       const o = (d: number): Pt => [P[0] + nx * (CS_BAND / 2 + d), P[1] + ny * (CS_BAND / 2 + d)];
-      // OUTER (grass) edge is FIXED at the full strip+kerb width (KERB_WIDTH + bw) — as
-      // the stripes fade (w→0 in the blue-only zone) the BLUE fills the vacated space out
-      // to the SAME grass edge; the grass never moves inward. red/white = edge→mid (w),
-      // blue = mid→out (fills the rest to the original grass edge).
-      edge.push(o(0)); mid.push(o(w)); out.push(o(KERB_WIDTH + bw));
+      edge.push(o(0)); midFull.push(o(KERB_WIDTH)); out.push(o(KERB_WIDTH + bw));
       if (k > 0) arc.push(arc[k - 1] + Math.hypot(edge[k][0] - edge[k - 1][0], edge[k][1] - edge[k - 1][1]));
     }
+    // BLUE-ONLY zone: the red/white stripes end with a HARD CUT snapped to the stripe-
+    // block grid (whole blocks only, no sliver, NO smootherstep) — only the blue eases.
+    // Snap the zone's arc boundaries to a multiple of KERB_STRIPE, then per QUAD it's a
+    // BINARY choice: stripe block (full-width red/white + thin blue) or blue-only (no
+    // red/white, blue fills the full width). The blue's inner edge STEPS between the two.
+    const B = KERB_BLUE_ONLY;
+    const snap = (a: number) => Math.round(a / KERB_STRIPE) * KERB_STRIPE;
+    const cutStart = snap(arc[Math.round(B.start * (len - 1))]);
+    const cutEnd = snap(arc[Math.round(B.end * (len - 1))]);
     for (let k = 0; k < len - 1; k++) {
-      const rw = Math.floor(arc[k] / KERB_STRIPE) % 2 === 0 ? KERB_RED : KERB_WHITE;
-      quads.push({ a: edge[k], b: mid[k], c: mid[k + 1], d: edge[k + 1], fill: rw });
-      quads.push({ a: mid[k], b: out[k], c: out[k + 1], d: mid[k + 1], fill: KERB_BLUE });
+      const stripe = arc[k] < cutStart || arc[k] >= cutEnd;   // binary, snapped to the block grid
+      if (stripe) {   // red/white = FULL-WIDTH block, no taper (hard cut at the zone edge)
+        const rw = Math.floor(arc[k] / KERB_STRIPE) % 2 === 0 ? KERB_RED : KERB_WHITE;
+        quads.push({ a: edge[k], b: midFull[k], c: midFull[k + 1], d: edge[k + 1], fill: rw });
+      }
+      // blue: inner edge = the stripe outer edge where stripes exist, else the asphalt
+      // edge (full width) — a HARD step at the cut; the outer (grass) edge never moves.
+      const bi = stripe ? midFull : edge;
+      quads.push({ a: bi[k], b: out[k], c: out[k + 1], d: bi[k + 1], fill: KERB_BLUE });
     }
   }
   return quads;

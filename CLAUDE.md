@@ -403,9 +403,11 @@ deployment-hash URL); `steer-it.vercel.app` also serves it.
   Gradual TAPERED entry/exit (no abrupt start/stop). Placed on: the corner apexes
   (concave `turnSign` normal) + ONE continuous OUTER-PERIMETER run (left sweep +
   bottom straight + right sweep, on the OUTWARD normal). BLUE-ONLY sections
-  (`KERB_BLUE_ONLY`): over the bottom of the outer run the red/white width fades out
-  (smootherstep) but the BLUE holds the FULL kerb width out to the same grass edge
-  (asphalt → blue → grass). Per-kerb `KERB_CUTS`/`KERB_EXTENDS` trim/lengthen
+  (`KERB_BLUE_ONLY`): over the bottom of the outer run the red/white stripes END with
+  a HARD CUT snapped to a whole stripe block (last block full-size, no shrink/taper —
+  the stripes stop dead, exactly like the crisp apex-kerb ends); ONLY the blue eases,
+  and it holds the FULL kerb width out to the same grass edge (asphalt → blue →
+  grass). Per-kerb `KERB_CUTS`/`KERB_EXTENDS` trim/lengthen
   specific kerbs to the boss's marks. Drawn in `drawCircuitSurface`; physics.ts
   untouched throughout (the many kerb passes were all render-only, tuned by the boss
   over photos/marks — the running log has the blow-by-blow). Kerb grip/bump physics
@@ -3107,3 +3109,19 @@ edge → grass edge); FULL-KERB sweep `asph → R → BLUE → grass` spanning *
 between striped and blue-only intact. **physics.ts UNTOUCHED** → `step()` 0.0e+0 (maps.ts-only). tsc +
 build clean. **⚠️ browser screenshots hang — verified via pixel harness. Phone/desktop check: the blue-only
 bottom is now a FULL-width blue band out to the same grass edge as the striped kerbs, no grass gap.**
+
+---
+**CIRCUIT MAP — KERB STRIPE ENDS = HARD CUT (only the blue tapers):** the boss flagged (yellow marks) that
+in the `KERB_BLUE_ONLY` zone the red/white stripes FADED OUT gradually (the smootherstep `stripeFactor`
+width ramp) — wrong. Rule now: red/white stripes END WITH A HARD CUT (last block full-size, then stop dead,
+like the crisp apex-kerb ends); ONLY the blue eases. Rebuilt the outer-run rendering: (1) snap the blue-
+only zone's arc boundaries to the KERB-STRIPE grid (`cutStart`/`cutEnd = round(arc/KERB_STRIPE)·KERB_STRIPE`
+→ whole blocks, no sliver); (2) per-QUAD BINARY choice `stripe = arc[k] < cutStart || arc[k] >= cutEnd`
+(replaces the smootherstep `sf`); (3) red/white drawn as FULL-WIDTH blocks only where `stripe` (no per-point
+width taper); (4) the BLUE inner edge STEPS hard between `midFull` (after stripes) and `edge` (asphalt edge,
+full-width blue) — the outer/grass edge stays fixed at `KERB_WIDTH + bw`. Removed `KERB_BLUE_ONLY.ramp`.
+The apex/corner kerbs were already crisp (the reference) — untouched. **VERIFIED** (pixel harness):
+along-run scan at the outer red/white radial reads full R/W blocks then abruptly BLUE (`…RRWW|BBBB…`, cut
+over ~one segment, no gradual thin); perpendicular scans one segment apart = `asph→W→blue→grass` (full kerb)
+→ `asph→blue→grass` (full-width blue); blue continuous both sides, grass edge unmoved. **physics.ts
+UNTOUCHED** → `step()` 0.0e+0 (maps.ts-only). tsc + build clean.
