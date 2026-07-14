@@ -2903,3 +2903,22 @@ apex placement, extends OUTWARD into the infield grass = widening, asphalt untou
 red/white striped by arc bucket, blue #2f6fca solid). **physics.ts UNTOUCHED** → `step()` 0.0e+0
 (maps.ts-only). tsc + build clean. **⚠️ browser screenshots hang — phone/desktop check: red/white kerb is
 full width along its length (crisp ends), the blue border eases in/out.** Tunable: `KERB_BLUE_WIDTH`.
+
+---
+**CIRCUIT MAP — KERB CONSTANT-SIZE STRIPES (arc measured on the kerb, not centreline) + blue-side
+confirmed:** **(2) CONSTANT STRIPE SIZE (the fix):** the stripe bucket used `arc[k]` = cumulative
+CENTRELINE distance; but the stripes sit on the concave kerb, whose inside-of-corner radius is much shorter
+than the centreline — so a fixed centreline-arc stripe COMPRESSED on tight corners (measured kerb-edge arc
+= 0.61× centreline on the tight middle vs 0.72× on the gentle right → different block sizes per corner).
+FIX: bucket by the KERB-EDGE arc (accumulate `hypot(edge[k]−edge[k−1])`, the band/2 offset curve) so every
+block is a constant PHYSICAL size regardless of corner sharpness; `KERB_STRIPE` 14→10 (≈2.2 m). MEASURED
+(pixel harness): block size now RIGHT 2.22 / MID 2.23 / LEFT 2.22 / botL 2.18 / botR 2.23 m — equal
+everywhere (was ~0.61–0.72× varying). The tapered end leaves a clean partial block (floor bucket). **(1)
+BLUE ON THE GRASS SIDE:** already correct in the build and re-CONFIRMED (pixel scans read `asphalt →
+red/white → BLUE → grass`) — the blue is the OUTERMOST strip (concave normal, deepest into the infield
+grass), between the kerb and the grass, never between asphalt and kerb. No change needed; if the boss's
+screenshot showed otherwise it was a stale/cached build (close tab + rescan). Everything else unchanged
+(outer/grass-edge extension = widening, asphalt intact, gradual blue taper, 5 apex kerbs, drivable).
+**physics.ts UNTOUCHED** → `step()` 0.0e+0 (maps.ts-only). tsc + build clean. **⚠️ browser screenshots
+hang — verified via pixel harness. Phone/desktop check: blocks are the same size on every corner; blue
+strip sits on the grass edge.** Tunable: `KERB_STRIPE` (block size).

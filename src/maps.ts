@@ -810,7 +810,8 @@ const KERB_MIN_PTS = 30;              // ignore bends shorter than this (straigh
 const KERB_END_TAPER = 10;            // pts over which width fades in/out at each end
 const KERB_WIDTH = CS_BAND * 0.11;    // red/white kerb reach into the grass = track WIDENING (≈3 m)
 const KERB_BLUE_WIDTH = CS_BAND * 0.045;  // solid BLUE border strip beyond it (grass side)
-const KERB_STRIPE = 14;               // stripe length along the edge (sketch units)
+const KERB_STRIPE = 10;               // stripe length in KERB-EDGE arc (sketch units ≈2.2 m,
+                                      //   CONSTANT physical size on gentle + sharp corners)
 const KERB_RED = '#c9382f', KERB_WHITE = '#e8e8ee', KERB_BLUE = '#2f6fca';
 
 interface KerbQuad { a: Pt; b: Pt; c: Pt; d: Pt; fill: string; }
@@ -855,7 +856,10 @@ const CIRCUIT_KERBS: KerbQuad[] = ((): KerbQuad[] => {
       // GRASS: red/white for `w`, then a solid BLUE border for `bw` — a track WIDENING.
       const o = (d: number): Pt => [P[0] + nx * (CS_BAND / 2 + d), P[1] + ny * (CS_BAND / 2 + d)];
       edge.push(o(0)); mid.push(o(w)); out.push(o(w + bw));
-      if (k > 0) arc.push(arc[k - 1] + Math.hypot(P[0] - a[0], P[1] - a[1]));
+      // stripe bucket runs on the KERB-EDGE arc (not the centreline): the inside of a
+      // tight corner has a much shorter radius, so centreline arc would COMPRESS the
+      // blocks there — measuring along the kerb keeps every block a constant real size.
+      if (k > 0) arc.push(arc[k - 1] + Math.hypot(edge[k][0] - edge[k - 1][0], edge[k][1] - edge[k - 1][1]));
     }
     for (let k = 0; k < len - 1; k++) {
       const rw = Math.floor(arc[k] / KERB_STRIPE) % 2 === 0 ? KERB_RED : KERB_WHITE;
