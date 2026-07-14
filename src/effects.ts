@@ -10,13 +10,14 @@ export const FX_CONFIG = {
   maxParticles: 340,
 
   // ---------- Tire smoke (p11 polish: clearly visible drift trail) ----------
-  smokeRatePerWheel: 55,   // particles/s per wheel at full drift intensity
+  smokeRatePerWheel: 28,   // particles/s per wheel at full intensity (halved 55→28 = ~½ the smoke; scales burnout + slide together, keeping slide's ×0.75 relative)
   smokeLife: 1.1,          // s (± var)
   smokeLifeVar: 0.35,
   smokeSize: 1.24,         // m initial radius (Stage C1: real metres, ×2.96 for the 2.565 m car)
   smokeGrow: 4.44,         // m/s radius growth (Stage C1: ×2.96)
-  smokeAlpha: 0.20,        // initial opacity — light & see-through (was 0.38);
-                           //   real rubber smoke is airy, never hides the car
+  smokeAlpha: 0.16,        // initial opacity — light & see-through (0.20→0.16, a touch
+                           //   more transparent); real rubber smoke is airy, never hides
+                           //   the car. Slide keeps its ×0.6 alphaMul (still thinner than burnout).
   smokeDrift: 0.8,         // m/s random drift velocity
   smokeInheritVel: 0.25,   // fraction of car velocity inherited
 
