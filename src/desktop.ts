@@ -708,20 +708,40 @@ function syncCanvasesAndView(): boolean {
   const lpW = Math.max(1, Math.round(wM * CONFIG.pxPerMeter));
   const lpH = Math.max(1, Math.round(hM * CONFIG.pxPerMeter));
 
-  // Uniform scale-to-fit + centre. Desktop: lpW=W, lpH=H ⇒ scale 1, offset 0.
-  viewScale = Math.min(W / lpW, H / lpH);
-  viewOffX = (W - lpW * viewScale) / 2;
-  viewOffY = (H - lpH * viewScale) / 2;
+  if (currentMap.followCam) {
+    // FOLLOW-CAM: render at the OVAL's scale so the car is the STANDARD on-screen
+    // size (min(W/screen, H/screen) is exactly what the fixed oval uses at this
+    // window). The world is bigger than the view; render() sets the camera offset
+    // (viewOffX/Y) per-frame to keep the lead car centred.
+    const sw = (window.screen && window.screen.width) || 1920;
+    const sh = (window.screen && window.screen.height) || 1080;
+    viewScale = Math.min(W / sw, H / sh);
+    viewOffX = 0; viewOffY = 0;
+  } else {
+    // Uniform scale-to-fit + centre. Desktop: lpW=W, lpH=H ⇒ scale 1, offset 0.
+    viewScale = Math.min(W / lpW, H / lpH);
+    viewOffX = (W - lpW * viewScale) / 2;
+    viewOffY = (H - lpH * viewScale) / 2;
+  }
 
-  if (lpW === logicalPxW && lpH === logicalPxH && dpr === layerDpr) return false;
-  logicalPxW = lpW; logicalPxH = lpH; layerDpr = dpr;
+  // Follow-cam worlds are bigger than one screen; cap the offscreen backing-store
+  // dpr so a pre-render layer never exceeds the ~4096 px canvas/texture limit (it
+  // would blank on some GPUs). The blit scales the backing store to CSS px anyway,
+  // so this touches only pre-render sharpness — the car/HUD keep full dpr (main
+  // canvas). Non-follow-cam maps (oval/desktop) are UNCHANGED (layerDprEff = dpr).
+  const layerDprEff = currentMap.followCam
+    ? Math.min(dpr, 4096 / Math.max(lpW, lpH))
+    : dpr;
+
+  if (lpW === logicalPxW && lpH === logicalPxH && layerDprEff === layerDpr) return false;
+  logicalPxW = lpW; logicalPxH = lpH; layerDpr = layerDprEff;
   for (const [cv, cx] of [
     [skidCanvas, skidCtx],
     [wallpaperCanvas, wallpaperCtx], [overlayCanvas, overlayCtx],
   ] as Array<[HTMLCanvasElement, CanvasRenderingContext2D]>) {
-    cv.width = Math.floor(lpW * dpr);
-    cv.height = Math.floor(lpH * dpr);
-    cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    cv.width = Math.floor(lpW * layerDprEff);
+    cv.height = Math.floor(lpH * layerDprEff);
+    cx.setTransform(layerDprEff, 0, 0, layerDprEff, 0, 0);
   }
   return true;
 }
@@ -1719,10 +1739,31 @@ function frame(now: number) {
 }
 requestAnimationFrame(frame);
 
+// ---------- Follow camera (world bigger than the screen) --------------------
+// For a followCam map the world is bigger than the view and viewScale is fixed at
+// the oval's scale (car = standard size). Each frame we set viewOffX/Y so the lead
+// car sits centred, clamped to the world so we never scroll past its edges. All
+// downstream render + screenToWorld math already reads viewOffX/Y, so nothing else
+// changes. Non-follow-cam maps never call this (their offset is the letterbox).
+function updateCamera() {
+  const W = window.innerWidth, H = window.innerHeight;
+  const vw = W / viewScale, vh = H / viewScale;        // visible area in LOGICAL px
+  const lead = primaryCar();
+  const cxPx = (lead ? lead.state.x : logicalPxW / CONFIG.pxPerMeter / 2) * CONFIG.pxPerMeter;
+  const cyPx = (lead ? lead.state.y : logicalPxH / CONFIG.pxPerMeter / 2) * CONFIG.pxPerMeter;
+  let camX = cxPx - vw / 2, camY = cyPx - vh / 2;
+  camX = logicalPxW > vw ? Math.max(0, Math.min(logicalPxW - vw, camX)) : (logicalPxW - vw) / 2;
+  camY = logicalPxH > vh ? Math.max(0, Math.min(logicalPxH - vh, camY)) : (logicalPxH - vh) / 2;
+  viewOffX = -camX * viewScale;
+  viewOffY = -camY * viewScale;
+}
+
 // ---------- Render ----------
 function render() {
   const W = window.innerWidth;
   const H = window.innerHeight;
+
+  if (currentMap.followCam) updateCamera();
 
   // Fill the whole viewport first so the letterbox/pillarbox margins of a fixed-
   // world map are clean. The desktop world fully overdraws this.

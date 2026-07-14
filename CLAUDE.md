@@ -2675,3 +2675,31 @@ Slick-realistic: grips out of normal corners, oversteers only when you overdrive
 and it's CATCHABLE when it does. **NEXT: phone feel-test fast asphalt-oval exits (X → PHYSICS4) — progressive
 throttle catapults out gripped, full throttle at the limit slides but catches on countersteer + lift (no
 uncatchable spin), standstill launch + four-wheel slide + handbrake unchanged.**
+
+---
+**CIRCUIT MAP — CAR SIZE FIX (follow camera; car now pixel-identical to the oval; render-only,
+physics 0.0e+0):** the circuit rendered the car ~11 px vs ~19 px on the oval — a BUG (car size is a
+CONSTANT, never scaled to fit a track). ROOT: the circuit's `fixedWorld` (462×221 m) is bigger than the
+screen, and desktop.ts SCALE-TO-FITS a fixed world into the viewport → the whole scene (car included)
+shrank by `min(W/3466, H/1659) ≈ 0.554`. The oval doesn't shrink because its `fixedWorld` (`FLAT_LOGICAL`
+= `window.screen / pxPerMeter`) equals the screen → viewScale ≈ 1. FIX = a **FOLLOW CAMERA** for
+big-world maps (NEW `MapDefinition.followCam?: boolean`, set on `circuitMap`): (1) render at the OVAL's
+scale `viewScale = min(W/screen.width, H/screen.height)` (car = STANDARD size at any resolution — same
+reference the oval uses), NOT scale-to-fit; (2) `updateCamera()` (called per-frame in `render()`) sets
+`viewOffX/Y` to keep the lead car (`primaryCar()`) centred, clamped to the world edges — all downstream
+render + `screenToWorld` already read `viewOffX/Y`, so nothing else changed; (3) the offscreen layers
+back the FULL world (3466×1659 px) so the pre-rendered track + persistent skids scroll under the camera,
+with a `layerDprEff = min(dpr, 4096/maxDim)` cap so a layer never exceeds the ~4096 px canvas/texture
+limit (would blank on some GPUs) — the blit scales the backing store to CSS px regardless, so only the
+pre-render sharpness is capped; the car/HUD keep full dpr (main canvas). **The car is NOT scaled; the
+WORLD is bigger than one screen and the camera follows it.** Track width stays 2/3 of the oval band (the
+shape/geometry from the sketch is unchanged). **MEASURED (formula, 1920×1080 fullscreen):** oval car
+**19.24 px**; circuit BEFORE **10.66 px** (viewScale 0.554) → circuit AFTER **19.24 px** (viewScale 1.000)
+= **pixel-identical to the oval**; layer backing 4096 px wide (≤ limit). **Non-follow-cam maps
+(oval/desktop) UNCHANGED** — `followCam` false → the scale-to-fit branch + `layerDprEff = dpr` are the
+exact old code (byte-identical). **physics.ts UNTOUCHED** → `step()` 0.0e+0 (render-only change; only
+desktop.ts + maps.ts). tsc + build clean. **⚠️ RENDER UNVERIFIABLE HEADLESS (no Supabase/browser) —
+phone/desktop test: on the Circuit the car is the SAME size as on the oval, the camera follows it as it
+drives, the track scrolls, no shrunk car.** **KNOWN (flagged, not this task):** the editor (E) on a
+follow-cam world can only reach the centred region (no camera pan while editing) — deferred with the
+other circuit follow-ups (kerbs / start-finish / grass-grip).

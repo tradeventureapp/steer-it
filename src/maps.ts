@@ -80,6 +80,13 @@ export interface MapDefinition {
   // world is sized to the viewport (the desktop, which fills the screen + wraps).
   fixedWorld?: { widthM: number; heightM: number };
 
+  // FOLLOW-CAMERA world. When true, the world may be BIGGER than the viewport and
+  // is NOT scaled to fit — it is rendered at the SAME scale as the oval (so the car
+  // is pixel-for-pixel the STANDARD size on every map), and a camera scrolls to
+  // keep the lead car centred. The car size is a constant; the world is the thing
+  // that's bigger than one screen. Requires fixedWorld (the world's true metres).
+  followCam?: boolean;
+
   // ---- World construction ----
   // Build the world state for a canvas of (widthM × heightM) METRES: obstacles,
   // collision rects, bounds. Called on load, on resize, and on switch.
@@ -731,6 +738,8 @@ export const circuitMap: MapDefinition = {
   trackType: 'open',              // free surface (no built-in start line this pass)
   smokeColor: [248, 248, 251],    // white rubber smoke (asphalt), matching the oval
   fixedWorld: CIRCUIT_LOGICAL,
+  followCam: true,                // world is bigger than one screen → camera follows
+                                  // the car at the OVAL's scale (car = standard size)
 
   // OPEN track: NO barriers, NO collision rects — drive off onto the grass freely.
   createWorld(widthM, heightM) {
