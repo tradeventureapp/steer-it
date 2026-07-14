@@ -2995,3 +2995,20 @@ R → BLUE → grass` + right sweep f0.92 `asph → W → BLUE → grass` (full 
 UNTOUCHED** → `step()` 0.0e+0 (maps.ts-only). tsc + build clean. **⚠️ browser screenshots hang — verified
 via pixel harness. Phone/desktop check: the bottom of the outer ring is blue-only, the left/right sweeps
 keep red/white, stripes fade in/out smoothly, blue continuous.** Tunable: `KERB_BLUE_ONLY.start/end/ramp`.
+
+---
+**CIRCUIT MAP — BLUE-ONLY WIDTH FIX (blue fills the full strip+kerb width, grass stays put):** the blue-
+only sections rendered a THIN blue strip then grass — the grass had moved inward into the vacated kerb
+space. ROOT: the outer (grass) edge was `out = o(w + bw)`, and `w = KERB_WIDTH·stripeFactor` → in the
+blue-only zone `w→0` so `out→band/2+bw` (grass edge pulled in). FIX (one term, outer-run only): fix the
+outer edge at the FULL width `out = o(KERB_WIDTH + bw)` regardless of the stripe fade. Now red/white =
+edge→mid (`band/2 → band/2+w`) and blue = mid→out (`band/2+w → band/2+KERB_WIDTH+bw`): as the stripes fade
+(`w→0`) the BLUE expands to fill the whole space out to the SAME grass edge (`band/2+KERB_WIDTH+bw`), which
+never moves. Full-kerb sections are unchanged (there `w=KERB_WIDTH` so `w+bw == KERB_WIDTH+bw`); the corner
+apex kerbs untouched (their `w` is already constant `KERB_WIDTH`). **VERIFIED** (pixel harness,
+perpendicular scans): BLUE-ONLY straight `asph → BLUE → grass` with blue spanning offset **62→80** (asphalt
+edge → grass edge); FULL-KERB sweep `asph → R → BLUE → grass` spanning **63→81** — the grass edge matches
+(~80–81) so no grass encroaches; the blue-only fill = the full strip+kerb width. Tapered transitions
+between striped and blue-only intact. **physics.ts UNTOUCHED** → `step()` 0.0e+0 (maps.ts-only). tsc +
+build clean. **⚠️ browser screenshots hang — verified via pixel harness. Phone/desktop check: the blue-only
+bottom is now a FULL-width blue band out to the same grass edge as the striped kerbs, no grass gap.**

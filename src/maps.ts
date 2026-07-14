@@ -941,7 +941,11 @@ const CIRCUIT_KERBS: KerbQuad[] = ((): KerbQuad[] => {
         : 1;
       const w = KERB_WIDTH * sf, bw = KERB_BLUE_WIDTH * taper;
       const o = (d: number): Pt => [P[0] + nx * (CS_BAND / 2 + d), P[1] + ny * (CS_BAND / 2 + d)];
-      edge.push(o(0)); mid.push(o(w)); out.push(o(w + bw));
+      // OUTER (grass) edge is FIXED at the full strip+kerb width (KERB_WIDTH + bw) — as
+      // the stripes fade (w→0 in the blue-only zone) the BLUE fills the vacated space out
+      // to the SAME grass edge; the grass never moves inward. red/white = edge→mid (w),
+      // blue = mid→out (fills the rest to the original grass edge).
+      edge.push(o(0)); mid.push(o(w)); out.push(o(KERB_WIDTH + bw));
       if (k > 0) arc.push(arc[k - 1] + Math.hypot(edge[k][0] - edge[k - 1][0], edge[k][1] - edge[k - 1][1]));
     }
     for (let k = 0; k < len - 1; k++) {
