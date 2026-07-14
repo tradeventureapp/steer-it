@@ -1462,6 +1462,14 @@ function rearWheelPositions(state: CarState) {
   return { L, R };
 }
 
+function frontWheelPositions(state: CarState) {
+  const halfTrack = CONFIG.trackWidth / 2;
+  const frontOffset = CONFIG.wheelbase / 2;
+  const L = bodyToWorld(state, frontOffset, +halfTrack);
+  const R = bodyToWorld(state, frontOffset, -halfTrack);
+  return { L, R };
+}
+
 function drawSkidSegment(
   trail: WheelTrail, wx: number, wy: number, sliding: boolean, style: string,
 ) {
@@ -1517,20 +1525,40 @@ function invalidateSkidTrails(car: Car) {
 // noise. Emission is capped globally by the shared Effects pool.
 function emitCarSmoke(car: Car, realDt: number) {
   const s = car.state;
-  const slipNorm = Math.min(1,
-    Math.abs(s.rearSlip) / (CONFIG.slipThresholdForSkid * 2.5));
-  const smokeIntensity = Math.max(s.wheelSpin, slipNorm > 0.4 ? slipNorm : 0);
-  if (smokeIntensity <= 0.2) return;
-  // Spawn slightly BEHIND the rear wheels (along -heading) and keep puffs
-  // modest near a slow car so a standing burnout never hides it.
-  const back = 0.45;
-  const bx = -Math.cos(s.heading) * back;
-  const by = -Math.sin(s.heading) * back;
-  const sizeScale = 0.55 + 0.45 * Math.min(1, s.speed / 6);
   const tint = currentMap.smokeColor;   // undefined ⇒ default white smoke
-  const { L, R } = rearWheelPositions(s);
-  fx.emitSmoke(L.x + bx, L.y + by, s.vx, s.vy, smokeIntensity, realDt, sizeScale, tint);
-  fx.emitSmoke(R.x + bx, R.y + by, s.vx, s.vy, smokeIntensity, realDt, sizeScale, tint);
+  const sizeScale = 0.55 + 0.45 * Math.min(1, s.speed / 6);
+  const slideFull = CONFIG.slipThresholdForSkid * 2.5;   // lateral slip → full slide intensity
+
+  // ---- BURNOUT smoke — LONGITUDINAL wheelspin (launch / full throttle). Dense,
+  // spawned slightly BEHIND the rear wheels and BILLOWS with the car (inheritVel
+  // default) — the classic burnout plume. Unchanged.
+  const burnoutInt = s.wheelSpin;
+  if (burnoutInt > 0.2) {
+    const back = 0.45;
+    const bx = -Math.cos(s.heading) * back, by = -Math.sin(s.heading) * back;
+    const { L, R } = rearWheelPositions(s);
+    fx.emitSmoke(L.x + bx, L.y + by, s.vx, s.vy, burnoutInt, realDt, sizeScale, tint);
+    fx.emitSmoke(R.x + bx, R.y + by, s.vx, s.vy, burnoutInt, realDt, sizeScale, tint);
+  }
+
+  // ---- SLIDE smoke — LATERAL scrub (four-wheel slide / oversteer). Thinner, born
+  // at the tyre CONTACT POINT and WORLD-ANCHORED (inheritVel 0 → the puff stays put
+  // and the car slides AWAY from it, marking where the tyre ground the asphalt).
+  // Emitted from EVERY scrubbing wheel — rear (rearSlip) AND front (frontSlip) =
+  // the whole car sliding. Tuned: visible tyre-scrub wisp, not a drift cloud.
+  const SL_INHERIT = 0, SL_ALPHA = 0.6, SL_RATE = 0.75;
+  const rearSlide = Math.min(1, Math.abs(s.rearSlip) / slideFull);
+  if (rearSlide > 0.4) {
+    const { L, R } = rearWheelPositions(s);
+    fx.emitSmoke(L.x, L.y, s.vx, s.vy, rearSlide, realDt, sizeScale, tint, SL_INHERIT, SL_ALPHA, SL_RATE);
+    fx.emitSmoke(R.x, R.y, s.vx, s.vy, rearSlide, realDt, sizeScale, tint, SL_INHERIT, SL_ALPHA, SL_RATE);
+  }
+  const frontSlide = Math.min(1, Math.abs(s.frontSlip) / slideFull);
+  if (frontSlide > 0.4) {
+    const { L, R } = frontWheelPositions(s);
+    fx.emitSmoke(L.x, L.y, s.vx, s.vy, frontSlide, realDt, sizeScale, tint, SL_INHERIT, SL_ALPHA, SL_RATE);
+    fx.emitSmoke(R.x, R.y, s.vx, s.vy, frontSlide, realDt, sizeScale, tint, SL_INHERIT, SL_ALPHA, SL_RATE);
+  }
 }
 
 // ---------- Main loop with fixed-timestep accumulator ----------
