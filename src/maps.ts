@@ -820,6 +820,12 @@ const KERB_CUTS: Array<{ near: Pt; removeFrac: number }> = [
   { near: [626, 526], removeFrac: 0.40 },   // LEFT hairpin — drop the descending-left leg
   { near: [1547, 415], removeFrac: 0.30 },  // LOWER-RIGHT corner — drop the upper part
 ];
+// Two kerbs the boss lengthened (blue marks): grow the region END nearest each ref
+// point by addPts, extending it along the bottom straight; the new end tapers out.
+const KERB_EXTENDS: Array<{ near: Pt; addPts: number }> = [
+  { near: [780, 620], addPts: 24 },    // BOTTOM-LEFT — extend right along the straight
+  { near: [1345, 620], addPts: 30 },   // BOTTOM-RIGHT — extend left along the straight
+];
 
 interface KerbQuad { a: Pt; b: Pt; c: Pt; d: Pt; fill: string; }
 const CIRCUIT_KERBS: KerbQuad[] = ((): KerbQuad[] => {
@@ -844,27 +850,37 @@ const CIRCUIT_KERBS: KerbQuad[] = ((): KerbQuad[] => {
     if (on && st < 0) st = k;
     else if (!on && st >= 0) { if (k - st >= KERB_MIN_PTS) regions.push([idx(off + st), idx(off + k - 1)]); st = -1; }
   }
-  // Apply the boss's per-kerb cuts: trim removeFrac off the END nearest each ref point.
-  const cutRegions: Array<[number, number]> = regions.map(([s, e]) => {
-    const len = ((e - s + N) % N) + 1;
-    const nearRef = (p: Pt, q: Pt) => Math.hypot(p[0] - q[0], p[1] - q[1]) < 55;
+  // Apply the boss's per-kerb edits: CUT trims removeFrac off the END nearest a ref
+  // point; EXTEND grows the END nearest a ref point by addPts (along the straight).
+  const nearRef = (p: Pt, q: Pt) => Math.hypot(p[0] - q[0], p[1] - q[1]) < 55;
+  const cutRegions: Array<[number, number]> = regions.map(([s0, e0]) => {
+    let s = s0, e = e0;
+    const len = ((e0 - s0 + N) % N) + 1;
     for (const cut of KERB_CUTS) {
-      if (nearRef(CIRCUIT_PATH[e], cut.near)) return [s, idx(s + Math.round((1 - cut.removeFrac) * (len - 1)))];
-      if (nearRef(CIRCUIT_PATH[s], cut.near)) return [idx(s + Math.round(cut.removeFrac * (len - 1))), e];
+      if (nearRef(CIRCUIT_PATH[e0], cut.near)) { e = idx(s0 + Math.round((1 - cut.removeFrac) * (len - 1))); break; }
+      if (nearRef(CIRCUIT_PATH[s0], cut.near)) { s = idx(s0 + Math.round(cut.removeFrac * (len - 1))); break; }
+    }
+    for (const ext of KERB_EXTENDS) {
+      if (nearRef(CIRCUIT_PATH[e0], ext.near)) { e = idx(e + ext.addPts); break; }
+      if (nearRef(CIRCUIT_PATH[s0], ext.near)) { s = idx(s - ext.addPts); break; }
     }
     return [s, e];
   });
   const quads: KerbQuad[] = [];
   for (const [s, e] of cutRegions) {
     const len = ((e - s + N) % N) + 1;
+    // concave SIDE from the region's signed turn (once) — robust where a per-point
+    // chord test is degenerate (the straight-line EXTENSIONS): keeps the kerb on the
+    // corner's apex side all along. Proven identical to the chord test at the corners.
+    let turnSum = 0; for (let k = 0; k < len; k++) turnSum += raw[idx(s + k)];
+    const turnSign = turnSum >= 0 ? 1 : -1;
     // three edges per point: asphalt edge → red/white outer → blue outer (deepest in grass)
     const edge: Pt[] = [], mid: Pt[] = [], out: Pt[] = [], arc: number[] = [0];
     for (let k = 0; k < len; k++) {
       const i = idx(s + k), a = CIRCUIT_PATH[idx(i - 1)], c = CIRCUIT_PATH[idx(i + 1)], P = CIRCUIT_PATH[i];
-      // concave (inner/apex) unit normal: ⟂ to the tangent, pointing toward the chord midpoint
+      // concave (inner/apex) unit normal: ⟂ to the tangent, oriented by the region's turn
       let tx = c[0] - a[0], ty = c[1] - a[1]; const tl = Math.hypot(tx, ty) || 1; tx /= tl; ty /= tl;
-      let nx = -ty, ny = tx;
-      if (nx * ((a[0] + c[0]) / 2 - P[0]) + ny * ((a[1] + c[1]) / 2 - P[1]) < 0) { nx = -nx; ny = -ny; }
+      const nx = turnSign * -ty, ny = turnSign * tx;
       const taper = smoother(Math.min(Math.min(1, k / KERB_END_TAPER), Math.min(1, (len - 1 - k) / KERB_END_TAPER)));
       // red/white kerb = CONSTANT full width (crisp, defined ends). The gradual ease
       // in/out lives on the BLUE border instead — it fades from full to 0 at each end.

@@ -2939,3 +2939,23 @@ lower-corner 674 kerb px). Blue grass-side strip + constant arc-length stripes c
 new tapered ends. **physics.ts UNTOUCHED** → `step()` 0.0e+0 (maps.ts-only). tsc + build clean. **⚠️
 browser screenshots hang — verified via pixel scan. Phone/desktop check: the left hairpin + lower-right
 kerbs are shorter (orange parts gone), tapered ends.** Tunable: the two `removeFrac` values in `KERB_CUTS`.
+
+---
+**CIRCUIT MAP — EXTEND TWO KERBS along the finish straight (boss's blue marks):** the boss scribbled BLUE
+where two kerbs should be LENGTHENED. Added a `KERB_EXTENDS` step (mirror of the cuts): grow the region END
+nearest a ref point by `addPts`, extending it along the bottom straight — **(a) BOTTOM-LEFT** `near
+[780,620]`, +**24** pts → new end ~(849,620) (extends RIGHT into the straight); **(b) BOTTOM-RIGHT** `near
+[1345,620]`, +**30** pts (extends the START LEFT) → new start ~(1259,620). Extends map from the blue image
+positions. **KEY FIX for straight extensions:** the per-point concave normal used a chord-midpoint test
+that's DEGENERATE on a straight (midpoint ≈ point → the kerb would flip to the wrong side). Replaced it
+with a per-region `turnSign` (sign of the summed signed curvature) → `normal = turnSign·(−ty, tx)`, which
+keeps the kerb on the corner's apex side ALL along, including the straight extension. Proven **100%
+identical** to the chord test at every existing corner (208/208, 141/141, 207/207, 34/34, 104/104
+agreement) so no other kerb changes; robust where the chord test fails. New ends taper out via the existing
+blue taper. **VERIFIED** (pixel harness): the straight extensions render `grass → BLUE → red/white →
+asphalt` (kerb on the infield side, blue on the grass edge, R/W stripes continue), full kerb present at the
+extension midpoints (botL R632/W306/B372, botR R582/W357/B399), clear beyond the new ends. Only these two
+kerbs changed; the other three + the two prior cuts unchanged. **physics.ts UNTOUCHED** → `step()` 0.0e+0
+(maps.ts-only). tsc + build clean. **⚠️ browser screenshots hang — verified via pixel harness. Phone/
+desktop check: the bottom-left + lower-right kerbs now extend along the straight, tapered ends.** Tunable:
+the two `addPts` in `KERB_EXTENDS`.
