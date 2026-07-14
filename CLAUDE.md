@@ -3167,3 +3167,21 @@ old full 13.6 blob), monotonically narrowing to 0 over the full 70u tail, stays 
 then fades. Pixel scans: hard stripe cut → slim blue on the asphalt edge (6→4→1 px) → gone. Applies globally
 (all apex + outer-run kerb ends, one `emitKerb`). **physics.ts UNTOUCHED** → `step()` 0.0e+0. tsc + build
 clean. Tunable: `KERB_BLUE_TAIL`.
+
+---
+**CIRCUIT MAP — BLUE TAIL = WEDGE (full band at the cut → steady taper to 0):** the boss corrected the tail
+shape: it must START at the FULL kerb+blue band (not the slim width) and WEDGE down. Rewrote `blueEdges`'s
+tail branch (maps.ts `emitKerb` only): past a stripe end the blue INNER edge is pinned to the asphalt edge
+(0) the whole way, and the OUTER (grass-side) edge = `FULL_W · (1 − t)` (t = dist/`KERB_BLUE_TAIL`, LINEAR —
+no plateau) → right at the hard cut the blue fills the ENTIRE vacated band (asphalt edge → the SAME grass
+edge as the striped kerb, = band/2 + KERB_WIDTH + bw, consistent with the blue-only zone), then the grass-
+side edge tapers STEADILY inward to nothing = a clean wedge. `KERB_BLUE_TAIL` 70→**35** (~3.5 stripe blocks;
+clamp keeps a tail off its neighbours). The kerb BODY (thin blue border beside the stripes / full width in a
+blue-only sub-range) is unchanged; only the past-stripe tail differs. Removed the now-unused local `smoother`.
+**VERIFIED** (pixel harness, trailing tail of the right-hump kerb): geometric blue width at the cut **17.64**
+(inner 0, outer to the grass edge = full band) → monotonic **16.4, 15.14, 12.55, 11.22, 9.87, 8.48, 7.08,
+4.17, 2.67, 1.14, 0** over the 35u tail (inner pinned to the asphalt edge throughout); perpendicular pixel
+scans: thin border beside stripes → hard cut → FULL-band blue (17 px, asphalt→grass) → wedging in (12→9→4
+px) → 0. Applies globally (all apex + outer-run kerb ends; blue-only-zone boundaries read as stripes-cut →
+the zone's already-full-width blue continues, naturally consistent). **physics.ts UNTOUCHED** → `step()`
+0.0e+0. tsc + build clean. Tunable: `KERB_BLUE_TAIL`.

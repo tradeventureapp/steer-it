@@ -807,10 +807,10 @@ const CIRCUIT_FINISH = ((): { x: number; y: number } => {
 // drivable, no physics this pass. Each quad is a perpendicular slice → clean stripes.
 const KERB_TURN_TH = 0.5;             // smoothed turn (deg/pt) above which it's a corner
 const KERB_MIN_PTS = 30;              // ignore bends shorter than this (straights, blips)
-const KERB_BLUE_TAIL = 70;            // arc-length (sketch u, ~7 stripe blocks): the BLUE
-                                      //   continues PAST each stripe end at its NORMAL slim
-                                      //   width, hugging the asphalt edge, only NARROWING to
-                                      //   0 over a long, gently-eased dissolve (no bulge)
+const KERB_BLUE_TAIL = 35;            // arc-length (sketch u, ~3.5 stripe blocks): the BLUE
+                                      //   continues PAST each stripe end as a WEDGE — the full
+                                      //   kerb+blue band at the cut, its grass-side edge tapering
+                                      //   STEADILY inward to the asphalt edge until it vanishes
 const KERB_WIDTH = CS_BAND * 0.11;    // red/white kerb reach into the grass = track WIDENING (≈3 m)
 const KERB_BLUE_WIDTH = CS_BAND * 0.045;  // solid BLUE border strip beyond it (grass side)
 const KERB_STRIPE = 10;               // stripe length in KERB-EDGE arc (sketch units ≈2.2 m,
@@ -839,7 +839,6 @@ const KERB_EXTENDS: Array<{ near: Pt; addPts: number }> = [
 interface KerbQuad { a: Pt; b: Pt; c: Pt; d: Pt; fill: string; }
 const CIRCUIT_KERBS: KerbQuad[] = ((): KerbQuad[] => {
   const N = CIRCUIT_PATH.length, idx = (i: number) => ((i % N) + N) % N;
-  const smoother = (t: number) => t * t * t * (t * (t * 6 - 15) + 10);
   // smoothed per-point turn magnitude (deg) → "cornerness"
   const raw: number[] = [];
   for (let i = 0; i < N; i++) {
@@ -909,13 +908,13 @@ const CIRCUIT_KERBS: KerbQuad[] = ((): KerbQuad[] => {
     }
     const stripeAt = (k: number) => arc[k] >= stripeStartArc && arc[k] < stripeEndArc && !(arc[k] >= boS && arc[k] < boE);
     const off = (k: number, d: number): Pt => [P[k][0] + nrm[k][0] * (CS_BAND / 2 + d), P[k][1] + nrm[k][1] * (CS_BAND / 2 + d)];
-    // BLUE edges per point (offsets from the asphalt edge, band/2):
+    // BLUE edges per point = [inner, outer] offsets from the asphalt edge (band/2):
     //  - kerb BODY (within the snapped stripe span): the width-fix blue — thin OUTSIDE the
-    //    stripes (inner KERB_WIDTH → grass edge), or full width in a blue-only sub-range;
-    //  - TAIL (past a stripe end): hugs the asphalt edge (inner 0) at the blue's NORMAL slim
-    //    width (= KERB_BLUE_WIDTH), only NARROWING to 0 over the long KERB_BLUE_TAIL, gently
-    //    eased (1−smoother(t²) → stays near full for most of the tail, fades late). The WIDTH
-    //    is continuous across the cut (slim→slim), so there is no bulge and no width step.
+    //    stripes (inner KERB_WIDTH → grass edge FULL_W), or full width in a blue-only sub-range;
+    //  - TAIL (past a stripe end): a WEDGE — inner pinned to the asphalt edge (0) the whole way,
+    //    outer = the FULL kerb+blue band (FULL_W) right AT the cut, its grass-side edge tapering
+    //    STEADILY inward (linear 1−t, no plateau) to 0 at the tail end. So the last stripe block
+    //    is immediately followed by a full-width solid blue block that wedges down to nothing.
     const blueEdges = (k: number): [number, number] => {
       if (arc[k] >= stripeStartArc && arc[k] < stripeEndArc) {
         const inStripe = !(arc[k] >= boS && arc[k] < boE);
@@ -923,7 +922,7 @@ const CIRCUIT_KERBS: KerbQuad[] = ((): KerbQuad[] => {
       }
       const dist = arc[k] < stripeStartArc ? stripeStartArc - arc[k] : arc[k] - stripeEndArc;
       const t = Math.min(1, dist / KERB_BLUE_TAIL);      // 0 at the cut → 1 at the tail end
-      return [0, KERB_BLUE_WIDTH * (1 - smoother(t * t))];
+      return [0, FULL_W * (1 - t)];                      // full band at the cut, steady wedge to 0
     };
     for (let k = 0; k < blen - 1; k++) {
       if (stripeAt(k)) {   // red/white FULL-WIDTH block (hard cut; constant arc-length size)
