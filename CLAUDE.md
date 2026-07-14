@@ -2836,3 +2836,25 @@ UNTOUCHED** → `step()` 0.0e+0 (maps.ts-only). tsc + build clean. **⚠️ brow
 — verified NUMERICALLY on the exact builder output (width 0 at both ends = gradual; hump/entry lengths cut;
 middle kept). Phone/desktop check: kerbs ease in and out smoothly (wedge, no pop-on/off) and the humps +
 bottom-right are shorter.** Tunable: `KERB_TAPER_FRAC` (ramp length), `KERB_TRIM_TH` (how much leg is cut).
+
+---
+**CIRCUIT MAP — KERBS MOVED TO THE OUTER EDGE (grass side, as a track EXTENSION) + lengths restored:**
+three fixes per the boss's red-outlined screenshot. **(1) REVERTED the blanket shortening** — removed the
+`KERB_TRIM_TH` core-trim; kerbs are full corner length again. **(2) MOVED inner→OUTER edge** — the kerb
+normal is now the globally-OUTWARD normal (⟂ tangent, away from the loop interior), not the concave/inner
+one, and it extends OUTWARD: the striped band sits at the asphalt OUTER edge (`CS_BAND/2`) and reaches
+`KERB_WIDTH` (≈3 m) into the GRASS — an EXTENSION of the track, so the **full asphalt width is untouched**
+(no longer eats drivable surface). Outward sign is calibrated once (at the bottom-most point, "out of loop"
+= +y). **(3) COVERAGE for the red outer perimeter** — lowered `KERB_TURN_TH` 0.5→0.4 so the corners merge
+into **3 continuous kerbs**: the whole LEFT outer sweep (top-left hump → far-left → bottom-left), the whole
+RIGHT outer sweep (bottom-right → far-right → top-right) — these trace the boss's red left+right perimeter
+— plus the MIDDLE dip (kept, existing). Gradual `KERB_TAPER_FRAC` 0.42 ease-in/out preserved. **VERIFIED**
+(canvas pixel harness): horizontal scans show `grass → RED kerb → asphalt` on the far-left and `asphalt →
+WHITE kerb → grass` on the right = kerb on the OUTER/grass edge with the asphalt intact INSIDE it; 3
+regions, 771 striped quads, balanced red/white. Drivable (run wide onto the kerb; no collision/grip this
+pass). **physics.ts UNTOUCHED** → `step()` 0.0e+0 (maps.ts-only). tsc + build clean. **HONEST NOTE:** the
+dead-straight FINISH bottom is left UNKERBED (a straight — real circuits don't kerb mid-straight, and the
+finish was just cleaned up); if the boss wants the straight's outer edge kerbed too, it's an easy add.
+**⚠️ browser screenshots hang in this env — verified via the pixel harness. Phone/desktop check: red/white
+kerbs on the OUTER grass edge of the left+right sweeps, extending outward, asphalt full width, drivable.**
+Tunable: `KERB_TURN_TH` (how much perimeter), `KERB_WIDTH` (reach into grass), `KERB_TAPER_FRAC` (ramp).

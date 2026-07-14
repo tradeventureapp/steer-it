@@ -805,14 +805,13 @@ const CIRCUIT_FINISH = ((): { x: number; y: number } => {
 // striped band along the CONCAVE inner edge, hugging the asphalt just inside the edge
 // and tapering to a point at each end. Purely visual (baked into the surface layer) —
 // drivable, no physics this pass. Each quad is a perpendicular slice → clean stripes.
-const KERB_TURN_TH = 0.5;             // smoothed turn (deg/pt) above which it's a corner
+const KERB_TURN_TH = 0.4;             // smoothed turn (deg/pt) above which it's a corner
+                                      //   (0.4 → the left/right OUTER sweeps run as one
+                                      //   continuous kerb each, tracing the outer perimeter)
 const KERB_MIN_PTS = 30;              // ignore bends shorter than this (straights, blips)
-const KERB_TRIM_TH = 0.68;            // trim each corner to its CORE above this cornerness
-                                      //   → drops the gentle legs (shortens the over-long
-                                      //   hump/entry kerbs); the tight middle stays long
 const KERB_TAPER_FRAC = 0.42;         // width ramps 0→full over this fraction of the kerb
                                       //   length at EACH end → long, gradual ease in/out
-const KERB_WIDTH = CS_BAND * 0.11;    // kerb reach onto the asphalt (sketch units, ≈3 m)
+const KERB_WIDTH = CS_BAND * 0.11;    // kerb reach OUTWARD into the grass (sketch units ≈3 m)
 const KERB_STRIPE = 14;               // stripe length along the edge (sketch units)
 const KERB_RED = '#c9382f', KERB_WHITE = '#e8e8ee';
 
@@ -830,6 +829,16 @@ const CIRCUIT_KERBS: KerbQuad[] = ((): KerbQuad[] => {
   }
   const corner: number[] = [];
   for (let i = 0; i < N; i++) { let s = 0; for (let d = -6; d <= 6; d++) s += Math.abs(raw[idx(i + d)]); corner.push(s / 13); }
+  // OUTWARD-normal sign: at the bottom-most point, "out of the loop" = +y (down). The
+  // normal ⟂-to-tangent (−ty, tx) is a globally-consistent side of a simple closed
+  // curve; pick the sign that makes it point +y at the bottom → outward everywhere.
+  let bi = 0; for (let i = 1; i < N; i++) if (CIRCUIT_PATH[i][1] > CIRCUIT_PATH[bi][1]) bi = i;
+  const bt = ((): number => {
+    const a = CIRCUIT_PATH[idx(bi - 1)], c = CIRCUIT_PATH[idx(bi + 1)];
+    let tx = c[0] - a[0], ty = c[1] - a[1]; const tl = Math.hypot(tx, ty) || 1; tx /= tl; ty /= tl;
+    return tx;   // (−ty, tx).y = tx; outward (down) ⇒ want tx > 0
+  })();
+  const outSign = bt >= 0 ? 1 : -1;
   // contiguous corner regions (start scanning at a non-corner point so none wraps index 0)
   let off = 0; while (off < N && corner[off] >= KERB_TURN_TH) off++;
   const regions: Array<[number, number]> = [];
@@ -839,39 +848,26 @@ const CIRCUIT_KERBS: KerbQuad[] = ((): KerbQuad[] => {
     if (on && st < 0) st = k;
     else if (!on && st >= 0) { if (k - st >= KERB_MIN_PTS) regions.push([idx(off + st), idx(off + k - 1)]); st = -1; }
   }
-  // TRIM each corner to its high-curvature CORE, centred on the peak-cornerness point:
-  // expand out while cornerness ≥ KERB_TRIM_TH (bridging small dips) → drops the gentle
-  // legs so the over-long hump/entry kerbs shorten to the apex; tight corners stay long.
-  const trimmed: Array<[number, number]> = regions.map(([s, e]) => {
-    const rl = ((e - s + N) % N) + 1, ci: number[] = [];
-    for (let k = 0; k < rl; k++) ci.push(idx(s + k));
-    let pp = 0, pk = 0;
-    for (let k = 0; k < rl; k++) if (corner[ci[k]] > pk) { pk = corner[ci[k]]; pp = k; }
-    let lo = pp, hi = pp, gap = 0;
-    for (let k = pp - 1; k >= 0; k--) { if (corner[ci[k]] >= KERB_TRIM_TH) { lo = k; gap = 0; } else if (++gap > 4) break; }
-    gap = 0;
-    for (let k = pp + 1; k < rl; k++) { if (corner[ci[k]] >= KERB_TRIM_TH) { hi = k; gap = 0; } else if (++gap > 4) break; }
-    return [ci[lo], ci[hi]];
-  });
   const quads: KerbQuad[] = [];
-  for (const [s, e] of trimmed) {
+  for (const [s, e] of regions) {
     const len = ((e - s + N) % N) + 1;
     const taper = Math.max(1, Math.round(len * KERB_TAPER_FRAC));   // long gradual ramp
-    const edge: Pt[] = [], inner: Pt[] = [], arc: number[] = [0];
+    const flush: Pt[] = [], out: Pt[] = [], arc: number[] = [0];
     for (let k = 0; k < len; k++) {
       const i = idx(s + k), a = CIRCUIT_PATH[idx(i - 1)], c = CIRCUIT_PATH[idx(i + 1)], P = CIRCUIT_PATH[i];
-      // concave (inner) unit normal: ⟂ to the tangent, pointing toward the chord midpoint
+      // OUTWARD unit normal (⟂ tangent, away from the loop interior — the grass side)
       let tx = c[0] - a[0], ty = c[1] - a[1]; const tl = Math.hypot(tx, ty) || 1; tx /= tl; ty /= tl;
-      let nx = -ty, ny = tx;
-      if (nx * ((a[0] + c[0]) / 2 - P[0]) + ny * ((a[1] + c[1]) / 2 - P[1]) < 0) { nx = -nx; ny = -ny; }
+      const nx = outSign * -ty, ny = outSign * tx;
       const w = KERB_WIDTH * smoother(Math.min(Math.min(1, k / taper), Math.min(1, (len - 1 - k) / taper)));
-      edge.push([P[0] + nx * (CS_BAND / 2), P[1] + ny * (CS_BAND / 2)]);
-      inner.push([P[0] + nx * (CS_BAND / 2 - w), P[1] + ny * (CS_BAND / 2 - w)]);
+      // kerb sits at the asphalt OUTER edge (CS_BAND/2) and extends OUTWARD into the
+      // grass by w — an EXTENSION of the track, the asphalt width is untouched.
+      flush.push([P[0] + nx * (CS_BAND / 2), P[1] + ny * (CS_BAND / 2)]);
+      out.push([P[0] + nx * (CS_BAND / 2 + w), P[1] + ny * (CS_BAND / 2 + w)]);
       if (k > 0) arc.push(arc[k - 1] + Math.hypot(P[0] - a[0], P[1] - a[1]));
     }
     for (let k = 0; k < len - 1; k++) {
       const red = Math.floor(arc[k] / KERB_STRIPE) % 2 === 0;
-      quads.push({ a: edge[k], b: inner[k], c: inner[k + 1], d: edge[k + 1], red });
+      quads.push({ a: flush[k], b: out[k], c: out[k + 1], d: flush[k + 1], red });
     }
   }
   return quads;
