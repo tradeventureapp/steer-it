@@ -3385,3 +3385,52 @@ every `ASPHALT_GRAIN_*` / `ASPHALT_PATCH_*` constant, and the helpers they pulle
 alphas 0.15 + 0.30) from b98bcc4, and the kerbs — all byte-identical. **VERIFIED:** `git diff b98bcc4 --
 src/maps.ts` is EXACTLY the racing-line pass removal and nothing else ⇒ gradient + feather + kerbs
 untouched. Circuit only; ovals untouched. **physics.ts UNTOUCHED** → `step()` 0.0e+0. tsc + build clean.
+
+---
+**CIRCUIT MAP — GRASS PHYSICS (per-wheel surface grip + rolling drag + dig tracks & minimal dust):**
+grass is now real on the circuit, on the physics4 model, with NO assist crutches.
+**(1) SURFACE MASK (`maps.ts`)** — new `Surface = 'asphalt'|'grass'` + optional `MapDefinition.surfaceAt`.
+The circuit bakes a **rasterised bitmap ONCE at first use** (`circuitMask`): the ribbon (the FULL-width
+stroked CIRCUIT_PATH band) + **EVERY kerb quad (stripes + blue + the wedges — kerbs are rideable at full
+asphalt grip, no kerb physics yet)** are rendered white = asphalt, everything else = grass. It reuses
+`circuitToWorld`, so mask and render agree by construction. `CIRCUIT_MASK_PPM` **4** px/m (0.25 m; kerb ≈3 m
+= 12 px) → **1024×576 = 576 KB** over the 256×144 m world, **55 % asphalt**. Per-frame cost is a plain array
+index (`circuitSurfaceAt`), no geometry maths per wheel per frame. Off-world = grass; off-DOM = asphalt (so
+headless tests never get penalised). Exported `surfaceAt(map,x,y)` returns 'asphalt' for any map without a
+mask (desktop + both ovals).
+**(2) PER-WHEEL GRIP (`physics4.ts`)** — `step4(car, input, dt, p, surfaceAt?)`. The ground is sampled UNDER
+EACH of the 4 contact points every step and scales THAT wheel's μ: `CONFIG PHYS4.grassMuScale` **0.28**
+(μ 1.90 → **0.53**, the biggest grip loss of any surface). It feeds the EXISTING friction circle / load
+model — never a car-level multiplier. Per-wheel ground is exposed via `wheelDebug().onGrass` for the render
+layer only.
+**(3) ROLLING DRAG** — per grass wheel, `F = −grassDragPerWheel · v_contact` (linear), applied at the
+contact point so it also feeds the yaw torque (a wheel dropping onto grass drags that corner back).
+**(4) VISUALS (render-only)** — brown **DIG TRACKS** (`DIG_TRACK_WIDTH` **5** px vs the 3 px rubber skid,
+`DIG_TRACK_ALPHA` **0.5** jittered ×0.65–1.35 per segment = patchy dug turf, `DIG_TRACK_RGB` 96,68,40),
+world-anchored like skids, one trail per wheel; a rear wheel ON grass no longer lays a rubber skid. Brown
+**DUST** via the dirt-oval mechanism (`GRASS_DUST_RGB` [170,126,84], `inheritVel` 0) at `FX_CONFIG.
+grassDustScale` **0.28** / `grassDustSize` **0.8** / `grassDustAlpha` **0.7**. BOTH strictly dig-gated on
+the SAME thresholds the smoke uses (wheelSpin > 0.2 OR |slip| > `slipThresholdForSkid`) ⇒ rolling calmly
+over grass leaves NOTHING.
+**MEASURED (headless, real bundled modules):** (a) **IDENTITY 0.0e+0** — physics4 with no sampler ==
+with an all-asphalt sampler == with ABSURD grass params (μ×0.001, drag 9999) across launch/corner/brake/
+handbrake/drift ⇒ the grass path is provably dead code off the circuit; arcade untouched. (b) top speed
+asphalt **246** → grass **80 km/h**. (c) **wheelspin EMERGES** (no assist): grass 0 % @0.15 · 3 % @0.30 ·
+**100 % @0.60** throttle vs asphalt 2 % @0.60 / 5 % @1.0. (d) lift-off 1 s from 108 km/h: asphalt −9.6 →
+grass −11.1 km/h. (e) **2-on-grass asymmetry is emergent** — onGrass `[false,true,false,true]` held, the
+car yaws INTO the grass (heading 2.68°, ω 0.04, vy 1.21 m/s over 1 s) while the all-asphalt control is
+0.00°/0.000. (f) peak cornering **1.90 g → 0.52 g**. Mask verified BY EYE (PNG harness, mask overlaid
+magenta): ribbon + stripes + blue + wedges all read asphalt, grass untinted right outside the kerb edge.
+**⚠️ HONEST FINDINGS (the brief's two drag targets CANNOT both hold — reported, not papered over):** the
+suggested **90 N·s/m is ~9× too high — it gives a 13 km/h grass top speed (undrivable)**; the rear is
+TRACTION-limited to μ·Fz ≈ 2.5 kN on grass while 90 would be 10.8 kN of drag at 30 m/s. MEASURED SWEEP
+(grass top / ratio / lift-off loss): 0 → 143/0.58/−8.0 · **2 → 127/0.51/−8.6** · 5 → 106/0.43/−9.6 ·
+**10 → 80/0.33/−11.1** · 20 → 51/0.21/−14.1 · 90 → 13/0.05/−33.5. A LINEAR drag scales with v, so the
+value that visibly scrubs at 30 m/s is exactly the value that dominates the top-speed equilibrium — and
+grass also LOSES ~840 N of engine braking (transmitted through the tyre, capped by the low μ), so **below
+~7 N·s/m grass coasts FURTHER than asphalt**. Shipped **`grassDragPerWheel` 10** as the balance (swallows
+the car — top a third of asphalt, never ice — and scrubs a little more than asphalt on lift-off); **2**
+would hit "half top speed" exactly but read as ice. A CONSTANT (real Crr) term would decouple the two
+targets — NOT added (the design was locked to linear). Also honest: wheelspin does not appear at 0.15
+throttle because 1950 N < the grass longitudinal capacity (~3.2 kN) — correct physics, not a missing
+mechanism. **physics.ts (the retired model) UNTOUCHED** → `step()` 0.0e+0. tsc + build clean.

@@ -56,6 +56,9 @@ export interface SurfaceGroup {
   isDefault?: boolean; // this member is the group's default-selected surface
 }
 
+// Ground under a world point. Drives PER-WHEEL grip + rolling drag in physics4.
+export type Surface = 'asphalt' | 'grass';
+
 export interface MapDefinition {
   id: string;
   name: string;
@@ -63,6 +66,11 @@ export interface MapDefinition {
 
   // See SurfaceGroup — optional map-select grouping metadata (presentation only).
   surfaceGroup?: SurfaceGroup;
+
+  // O(1) ground lookup for a world point (metres). ABSENT ⇒ the map is asphalt
+  // everywhere (the desktop + both ovals) — and physics4 is then handed `undefined`,
+  // so the whole grass path is dead code and those maps stay byte-identical.
+  surfaceAt?(x: number, y: number): Surface;
 
   // Circuit maps only: the built-in start/finish line as a race START element
   // (acts as start AND finish in circuit mode). Open maps omit it.
@@ -1059,6 +1067,69 @@ function tracePolyline(ctx: CanvasRenderingContext2D, pxPts: Pt[]) {
   ctx.closePath();
 }
 
+// ---------- SURFACE MASK (circuit) ----------
+// The ground lookup is a bitmap baked ONCE at first use: the track ribbon (the FULL-width
+// stroked CIRCUIT_PATH band) + EVERY kerb quad (stripes + blue incl. the wedges — kerbs are
+// rideable at full asphalt grip; no special kerb physics yet) are rasterised as ASPHALT,
+// everything else is GRASS. Per-frame cost is then a plain array index — no geometry maths
+// per wheel per frame. It reuses circuitToWorld, so mask and render agree by construction.
+const CIRCUIT_MASK_PPM = 4;              // mask px per metre → 0.25 m resolution (kerb ≈3 m = 12 px)
+let _circuitMask: Uint8Array | null | undefined;
+let _maskW = 0, _maskH = 0;
+function circuitMask(): Uint8Array | null {
+  if (_circuitMask !== undefined) return _circuitMask;
+  if (typeof document === 'undefined') { _circuitMask = null; return null; }   // off-DOM tests
+  const W = Math.max(1, Math.round(CIRCUIT_LOGICAL.widthM * CIRCUIT_MASK_PPM));
+  const H = Math.max(1, Math.round(CIRCUIT_LOGICAL.heightM * CIRCUIT_MASK_PPM));
+  const cv = document.createElement('canvas');
+  cv.width = W; cv.height = H;
+  const c = cv.getContext('2d');
+  if (!c) { _circuitMask = null; return null; }
+  const toMask = (sx: number, sy: number): Pt => {
+    const w = circuitToWorld(sx, sy);
+    return [w.x * CIRCUIT_MASK_PPM, w.y * CIRCUIT_MASK_PPM];
+  };
+  c.fillStyle = '#000'; c.fillRect(0, 0, W, H);                 // grass everywhere
+  c.strokeStyle = '#fff'; c.fillStyle = '#fff';
+  c.lineJoin = 'round'; c.lineCap = 'round';
+  const pts = CIRCUIT_PATH.map((p) => toMask(p[0], p[1]));      // the ribbon, full band width
+  c.beginPath();
+  c.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) c.lineTo(pts[i][0], pts[i][1]);
+  c.closePath();
+  c.lineWidth = CIRCUIT_TRACK_W * CIRCUIT_MASK_PPM;
+  c.stroke();
+  for (const q of CIRCUIT_KERBS) {                              // every kerb quad = rideable asphalt
+    const a = toMask(q.a[0], q.a[1]), b = toMask(q.b[0], q.b[1]);
+    const d = toMask(q.c[0], q.c[1]), e = toMask(q.d[0], q.d[1]);
+    c.beginPath();
+    c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.lineTo(d[0], d[1]); c.lineTo(e[0], e[1]);
+    c.closePath(); c.fill();
+  }
+  const img = c.getImageData(0, 0, W, H).data;
+  const mask = new Uint8Array(W * H);
+  for (let i = 0; i < W * H; i++) mask[i] = img[i * 4] > 127 ? 1 : 0;   // white = asphalt
+  _maskW = W; _maskH = H;
+  _circuitMask = mask;
+  return mask;
+}
+function circuitSurfaceAt(x: number, y: number): Surface {
+  const m = circuitMask();
+  if (!m) return 'asphalt';        // no raster available (off-DOM) → never penalise
+  const mx = (x * CIRCUIT_MASK_PPM) | 0, my = (y * CIRCUIT_MASK_PPM) | 0;
+  if (mx < 0 || my < 0 || mx >= _maskW || my >= _maskH) return 'grass';   // outside the world = surround
+  return m[my * _maskW + mx] ? 'asphalt' : 'grass';
+}
+/** Ground under a world point for `map`. Maps with no mask (desktop, ovals) are all asphalt. */
+export function surfaceAt(map: MapDefinition, x: number, y: number): Surface {
+  return map.surfaceAt ? map.surfaceAt(x, y) : 'asphalt';
+}
+/** Debug/verification: the baked mask + its dims (builds it on first call). */
+export function circuitMaskDebug(): { mask: Uint8Array | null; w: number; h: number; ppm: number } {
+  const mask = circuitMask();
+  return { mask, w: _maskW, h: _maskH, ppm: CIRCUIT_MASK_PPM };
+}
+
 // ASPHALT → GRASS SOFT EDGE (circuit only — the ovals keep their own look). The tarmac sits
 // DIRECTLY on the grass: there is NO dark rim / outline, so the track doesn't read as "drawn".
 // To stop that becoming a razor-sharp scissors cut, the edge is FEATHERED — two slightly-wider
@@ -1137,6 +1208,10 @@ export const circuitMap: MapDefinition = {
   trackType: 'open',              // free surface (no built-in start line this pass)
   smokeColor: [248, 248, 251],    // white rubber smoke (asphalt), matching the oval
   fixedWorld: CIRCUIT_LOGICAL,    // = one screen ⇒ oval-style render (car standard size)
+
+  // Ribbon + kerbs = asphalt, the rest = grass (baked bitmap, O(1) lookup). Supplying this
+  // is what ARMS the per-wheel grass grip/drag in physics4 — no other map defines it.
+  surfaceAt: circuitSurfaceAt,
 
   // OPEN track: NO barriers, NO collision rects — drive off onto the grass freely.
   createWorld(widthM, heightM) {

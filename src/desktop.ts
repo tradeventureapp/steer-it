@@ -12,13 +12,13 @@ import {
   type MapDefinition, type MapWorld, type MapObstacle,
 } from './maps';
 import { SoundEngine } from './sound';
-import { Effects } from './effects';
+import { Effects, FX_CONFIG, GRASS_DUST_RGB } from './effects';
 import {
   PLAYER_CAP, LOBBY_SYNC_MS, RESILIENCE, EV, colorName, LobbyState,
 } from './lobby';
 import { ROAD_SPEC, type VehicleSpec } from './vehicles';
 import { stepArcade, makeArcadeParams, ARCADE, type ArcadeParams } from './arcadeModel';
-import { step4, PHYS4, type Physics4Params } from './physics4';
+import { step4, PHYS4, wheelDebug, type Physics4Params } from './physics4';
 
 // The two live models behind the X toggle: ARCADE (the shipping reference) and
 // PHYSICS4 (the new per-wheel model, Fase 0). sim-real-2 + rally are retired.
@@ -604,8 +604,7 @@ function restartRace() {
     car.state = makeCar(pose.x, pose.y, pose.heading);
     car.target = { steer: 0, throttle: 0, brake: 0, handbrake: false };
     car.current = { steer: 0, throttle: 0, brake: 0, handbrake: false };
-    car.skidL.active = false;
-    car.skidR.active = false;
+    invalidateSkidTrails(car);
     car.lastInputAt = performance.now();
   }
   raceManager.reset();   // every car's laps/time/phase → zero
@@ -835,6 +834,9 @@ interface Car {
   current: Inputs;
   skidL: WheelTrail;
   skidR: WheelTrail;
+  // GRASS dig tracks — one trail per wheel, in DESKTOP L/R order [fL, fR, rL, rR].
+  // Only ever used on a map with a surface mask in physics4 (see wheelGrass).
+  dig: WheelTrail[];
   lastInputAt: number;   // performance.now() of the last control packet (liveness)
   inputStale: boolean;   // currently RECONNECTING (ramping/neutral)? (for D-debug)
   coastInput: Inputs | null;  // snapshot of the last live input, taken at ramp
@@ -873,6 +875,7 @@ function makeManagedCar(slot: number, color: string): Car {
     skidStyle: skidColorFor(color),
     target: { steer: 0, throttle: 0, brake: 0, handbrake: false },
     current: { steer: 0, throttle: 0, brake: 0, handbrake: false },
+    dig: [0, 0, 0, 0].map(() => ({ px: 0, py: 0, active: false })),
     skidL: { px: 0, py: 0, active: false },
     skidR: { px: 0, py: 0, active: false },
     lastInputAt: performance.now(),
@@ -1074,7 +1077,7 @@ function startXpRun() {
     car.state = makeCar(pose.x, pose.y, pose.heading);
     car.target = { steer: 0, throttle: 0, brake: 0, handbrake: false };
     car.current = { steer: 0, throttle: 0, brake: 0, handbrake: false };
-    car.skidL.active = false; car.skidR.active = false;
+    invalidateSkidTrails(car);
     car.lastInputAt = performance.now();
   }
   skidCtx.clearRect(0, 0, logicalPxW, logicalPxH);
@@ -1492,6 +1495,7 @@ function frontWheelPositions(state: CarState) {
 
 function drawSkidSegment(
   trail: WheelTrail, wx: number, wy: number, sliding: boolean, style: string,
+  width = 3,
 ) {
   const px = wx * PX();
   const py = wy * PX();
@@ -1501,7 +1505,7 @@ function drawSkidSegment(
       const dx = px - trail.px, dy = py - trail.py;
       if (dx * dx + dy * dy < 10000) {
         skidCtx.strokeStyle = style;
-        skidCtx.lineWidth = 3;
+        skidCtx.lineWidth = width;
         skidCtx.lineCap = 'round';
         skidCtx.beginPath();
         skidCtx.moveTo(trail.px, trail.py);
@@ -1517,13 +1521,58 @@ function drawSkidSegment(
   }
 }
 
+// ---------- GRASS: per-wheel ground (physics4 + a masked map only) ----------
+// physics4's wheel order is 0 FL 1 FR 2 RL 3 RR with ry = [−T/2, +T/2, −T/2, +T/2], and
+// bodyToWorld's `by` IS ry — so desktop's L (by = +halfTrack) is physics4's +y index, i.e.
+// its "R". Hence the crossed mapping below. Returns all-false unless we're in physics4 on a
+// map that has a surface mask ⇒ every grass visual stays dead code elsewhere.
+const NO_GRASS = { fL: false, fR: false, rL: false, rR: false, any: false };
+function wheelGrass(car: Car) {
+  if (driveMode !== 'physics4' || !currentMap.surfaceAt) return NO_GRASS;
+  const g = wheelDebug(car.state)?.onGrass;
+  if (!g) return NO_GRASS;
+  return { fL: g[1], fR: g[0], rL: g[3], rR: g[2], any: g[0] || g[1] || g[2] || g[3] };
+}
+// Per-wheel LATERAL slip, same crossed mapping (front L/R, rear L/R).
+function wheelSlips(car: Car): [number, number, number, number] {
+  const sl = wheelDebug(car.state)?.slip;
+  return sl ? [sl[1], sl[0], sl[3], sl[2]] : [0, 0, 0, 0];
+}
+// DIG TRACKS — dug-up turf. Wider than the 3 px rubber skid, and the opacity is jittered
+// per segment so the track reads as patchy dirt rather than a clean drawn line. TUNE:
+const DIG_TRACK_WIDTH = 5;      // px (rubber skid is 3)
+const DIG_TRACK_ALPHA = 0.5;    // mean opacity (jittered ×0.65–1.35 per segment)
+const DIG_TRACK_RGB = '96,68,40';
+const digStyle = () =>
+  `rgba(${DIG_TRACK_RGB},${(DIG_TRACK_ALPHA * (0.65 + Math.random() * 0.7)).toFixed(3)})`;
+// A wheel is DIGGING when it's spinning up or scrubbing sideways — the SAME thresholds the
+// smoke uses. Rolling calmly over grass digs nothing (→ no track, no dust).
+function digging(car: Car, slip: number, rear: boolean) {
+  return (rear && car.state.wheelSpin > 0.2)
+    || Math.abs(slip) > CONFIG.slipThresholdForSkid;
+}
+
 function recordSkids(car: Car) {
   const s = car.state;
   const driftingRear =
     s.isRearSliding || Math.abs(s.rearSlip) > CONFIG.slipThresholdForSkid;
+  const g = wheelGrass(car);
   const { L, R } = rearWheelPositions(s);
-  drawSkidSegment(car.skidL, L.x, L.y, driftingRear, car.skidStyle);
-  drawSkidSegment(car.skidR, R.x, R.y, driftingRear, car.skidStyle);
+  // Rubber skid — rear only, and only for a rear wheel actually ON asphalt (a wheel on
+  // grass leaves dug turf, not a rubber mark). Off the grass path g.rL/g.rR are false ⇒
+  // identical to before.
+  drawSkidSegment(car.skidL, L.x, L.y, driftingRear && !g.rL, car.skidStyle);
+  drawSkidSegment(car.skidR, R.x, R.y, driftingRear && !g.rR, car.skidStyle);
+  if (!g.any) { for (const d of car.dig) d.active = false; return; }
+  // GRASS DIG TRACKS — every wheel that is digging into turf, world-anchored like skids.
+  const f = frontWheelPositions(s);
+  const sl = wheelSlips(car);
+  const pos = [f.L, f.R, L, R];
+  const grass = [g.fL, g.fR, g.rL, g.rR];
+  for (let i = 0; i < 4; i++) {
+    const dug = grass[i] && digging(car, sl[i], i >= 2);
+    drawSkidSegment(car.dig[i], pos[i].x, pos[i].y, dug, digStyle(), DIG_TRACK_WIDTH);
+  }
 }
 
 // ---------- World wrap (per car) — delegated to the active map ----------
@@ -1534,9 +1583,10 @@ function wrap(car: Car) {
   if (currentMap.wrap(car.state, world)) invalidateSkidTrails(car);
 }
 function invalidateSkidTrails(car: Car) {
-  // After wrapping we don't want a long streak across the screen.
+  // After wrapping/respawning we don't want a long streak across the screen.
   car.skidL.active = false;
   car.skidR.active = false;
+  for (const d of car.dig) d.active = false;
 }
 
 // Tire smoke from one car's rear wheels while drifting or spinning — the visual
@@ -1548,6 +1598,13 @@ function emitCarSmoke(car: Car, realDt: number) {
   const tint = currentMap.smokeColor;   // undefined ⇒ default white smoke
   const sizeScale = 0.55 + 0.45 * Math.min(1, s.speed / 6);
   const slideFull = CONFIG.slipThresholdForSkid * 2.5;   // lateral slip → full slide intensity
+  const g = wheelGrass(car);
+  // A wheel digging into GRASS throws a small BROWN puff instead of rubber smoke: the dirt
+  // oval's mechanism + colour, dialled to grassDustScale (grass doesn't billow like a
+  // flattrack). World-anchored (inheritVel 0) like slide smoke, so it marks where it dug.
+  const dust = (x: number, y: number, intensity: number) =>
+    fx.emitSmoke(x, y, s.vx, s.vy, intensity, realDt, sizeScale * FX_CONFIG.grassDustSize,
+      GRASS_DUST_RGB, 0, FX_CONFIG.grassDustAlpha, FX_CONFIG.grassDustScale);
 
   // ---- BURNOUT smoke — LONGITUDINAL wheelspin (launch / full throttle). Dense,
   // spawned slightly BEHIND the rear wheels and BILLOWS with the car (inheritVel
@@ -1557,8 +1614,11 @@ function emitCarSmoke(car: Car, realDt: number) {
     const back = 0.45;
     const bx = -Math.cos(s.heading) * back, by = -Math.sin(s.heading) * back;
     const { L, R } = rearWheelPositions(s);
-    fx.emitSmoke(L.x + bx, L.y + by, s.vx, s.vy, burnoutInt, realDt, sizeScale, tint);
-    fx.emitSmoke(R.x + bx, R.y + by, s.vx, s.vy, burnoutInt, realDt, sizeScale, tint);
+    // a rear wheel spinning up on GRASS digs turf → brown dust, at the contact point
+    if (g.rL) dust(L.x, L.y, burnoutInt);
+    else fx.emitSmoke(L.x + bx, L.y + by, s.vx, s.vy, burnoutInt, realDt, sizeScale, tint);
+    if (g.rR) dust(R.x, R.y, burnoutInt);
+    else fx.emitSmoke(R.x + bx, R.y + by, s.vx, s.vy, burnoutInt, realDt, sizeScale, tint);
   }
 
   // ---- SLIDE smoke — LATERAL scrub (four-wheel slide / oversteer). Thinner, born
@@ -1570,14 +1630,18 @@ function emitCarSmoke(car: Car, realDt: number) {
   const rearSlide = Math.min(1, Math.abs(s.rearSlip) / slideFull);
   if (rearSlide > 0.4) {
     const { L, R } = rearWheelPositions(s);
-    fx.emitSmoke(L.x, L.y, s.vx, s.vy, rearSlide, realDt, sizeScale, tint, SL_INHERIT, SL_ALPHA, SL_RATE);
-    fx.emitSmoke(R.x, R.y, s.vx, s.vy, rearSlide, realDt, sizeScale, tint, SL_INHERIT, SL_ALPHA, SL_RATE);
+    if (g.rL) dust(L.x, L.y, rearSlide);
+    else fx.emitSmoke(L.x, L.y, s.vx, s.vy, rearSlide, realDt, sizeScale, tint, SL_INHERIT, SL_ALPHA, SL_RATE);
+    if (g.rR) dust(R.x, R.y, rearSlide);
+    else fx.emitSmoke(R.x, R.y, s.vx, s.vy, rearSlide, realDt, sizeScale, tint, SL_INHERIT, SL_ALPHA, SL_RATE);
   }
   const frontSlide = Math.min(1, Math.abs(s.frontSlip) / slideFull);
   if (frontSlide > 0.4) {
     const { L, R } = frontWheelPositions(s);
-    fx.emitSmoke(L.x, L.y, s.vx, s.vy, frontSlide, realDt, sizeScale, tint, SL_INHERIT, SL_ALPHA, SL_RATE);
-    fx.emitSmoke(R.x, R.y, s.vx, s.vy, frontSlide, realDt, sizeScale, tint, SL_INHERIT, SL_ALPHA, SL_RATE);
+    if (g.fL) dust(L.x, L.y, frontSlide);
+    else fx.emitSmoke(L.x, L.y, s.vx, s.vy, frontSlide, realDt, sizeScale, tint, SL_INHERIT, SL_ALPHA, SL_RATE);
+    if (g.fR) dust(R.x, R.y, frontSlide);
+    else fx.emitSmoke(R.x, R.y, s.vx, s.vy, frontSlide, realDt, sizeScale, tint, SL_INHERIT, SL_ALPHA, SL_RATE);
   }
 }
 
@@ -1663,7 +1727,9 @@ function frame(now: number) {
 
         // NEW ARCADE model (default) or the hidden realistic sim-real-2 (X toggles).
         if (driveMode === 'arcade') stepArcade(car.state, current, FIXED_DT, car.arcadeParams);
-        else step4(car.state, current, FIXED_DT);
+        // the map's ground lookup ARMS the per-wheel grass grip/drag; every map except
+        // the circuit passes undefined → the grass path never runs (byte-identical).
+        else step4(car.state, current, FIXED_DT, PHYS4, currentMap.surfaceAt);
         const impact = collideWithRects(car.state, world.rects);
         if (impact > 0.8) {
           sound.impact(impact);
@@ -2294,8 +2360,7 @@ function switchMap(id: string): boolean {
   for (const [slot, car] of cars) {
     const pose = currentMap.spawn(slot, world);
     car.state = makeCar(pose.x, pose.y, pose.heading);
-    car.skidL.active = false;
-    car.skidR.active = false;
+    invalidateSkidTrails(car);
   }
   console.info(`[map] switched to "${def.id}" (${def.name})`);
   return true;

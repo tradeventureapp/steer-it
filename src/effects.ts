@@ -21,6 +21,15 @@ export const FX_CONFIG = {
   smokeDrift: 0.8,         // m/s random drift velocity
   smokeInheritVel: 0.25,   // fraction of car velocity inherited
 
+  // ---------- GRASS dust (circuit only, dig-gated) ----------
+  // Grass does NOT billow like a flattrack: a wheel DIGGING into turf throws a small,
+  // short brown puff, not a dust cloud. Same mechanism/colour family as the dirt oval,
+  // dialled right down. Emission is strictly gated on digging (wheelspin OR lateral slip)
+  // — rolling calmly over grass emits NOTHING. TUNE:
+  grassDustScale: 0.28,    // × the dirt oval's emission rate (the ONE rate knob)
+  grassDustSize: 0.8,      // × particle size (slightly smaller than rubber smoke)
+  grassDustAlpha: 0.7,     // × opacity (slightly more transparent)
+
   // ---------- Impact sparks ----------
   sparkImpactMin: 4,       // m/s normal impact needed to spawn sparks
   sparkCount: 10,          // at full impact (scaled down for lighter hits)
@@ -37,6 +46,8 @@ export const FX_CONFIG = {
 // Default tire-smoke tint — whitish warm grey (the desktop surface). Maps can
 // override per emission (e.g. the dirt oval kicks up brown dust).
 export const DEFAULT_SMOKE_RGB: [number, number, number] = [248, 248, 251];
+// Dug-up turf — the dirt oval's brown dust family, used by a wheel digging into grass.
+export const GRASS_DUST_RGB: [number, number, number] = [170, 126, 84];
 
 interface Particle {
   kind: 'smoke' | 'spark';

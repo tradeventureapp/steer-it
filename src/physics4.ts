@@ -80,6 +80,11 @@ export interface Physics4Params {
   reverseSpeed: number;       // m/s — reverse speed cap (9 ≈ 32 km/h, brisk RWD-coupe reverse)
   reverseForce: number;       // N — reverse drive force (brake pedal = reverse throttle) (10000)
   reverseDelay: number;       // s — brake-held-while-stopped delay before reverse engages (0.5)
+  // ---- SURFACE: grass. ONLY reached when the active map supplies a surface sampler
+  // (the circuit); every other map passes undefined → this is dead code and they stay
+  // byte-identical. Both are applied PER WHEEL, never as a car-level multiplier.
+  grassMuScale: number;       // × this wheel's μ on grass (slicks on grass are hopeless)
+  grassDragPerWheel: number;  // N·s/m — linear drag opposing this wheel's CONTACT-POINT velocity
 }
 
 // D-tunable defaults (the boss tunes these live; mutated in place like CONFIG).
@@ -127,6 +132,19 @@ export const PHYS4: Physics4Params = {
   reverseSpeed: 14,       // m/s ≈ 50 km/h — boss's practical choice for reversing out on the oval (real Getrag 265 ceiling is ~40 km/h; slightly above, deliberately, still close to real not arcade)
   reverseForce: 10000,    // N → ~8.3 m/s² backward = quick pickup, not a crawl
   reverseDelay: 0.5,
+  grassMuScale: 0.28,     // μ 1.90 → 0.53 on grass: the biggest grip loss of any surface (slicks on grass are hopeless)
+  // N·s/m PER WHEEL (×4 = 40 total). ~10 ≈ 1.2 kN at 30 m/s ≈ a real grass rolling resistance
+  // (Crr ≈ 0.1 · mg). MEASURED SWEEP (flat-out grass top vs asphalt's 246 km/h | lift-off loss
+  // over 1 s from 108 km/h, asphalt = −9.6):
+  //     0 → 143 (0.58) −8.0 | 2 → 127 (0.51) −8.6 | 5 → 106 (0.43) −9.6 | 10 → 80 (0.33) −11.1
+  //    20 →  51 (0.21) −14.1 | 90 →  13 (0.05) −33.5   ← the suggested 90 makes grass undrivable
+  // The brief's two targets CANNOT both hold: a LINEAR drag scales with v, so the value that
+  // visibly scrubs at 30 m/s is exactly the value that dominates the top-speed equilibrium.
+  // Worse, grass LOSES ~840 N of engine braking (it is transmitted through the tyre, capped by
+  // the low μ) — so below ~7 N·s/m grass actually coasts FURTHER than asphalt. 10 is the
+  // balance: it swallows the car (top a third of asphalt, never ice-like) and scrubs slightly
+  // more than asphalt on lift-off; 2 would hit "half top speed" exactly but read as ice.
+  grassDragPerWheel: 10,
 };
 
 const MU_FLOOR = 0.3;         // μ never collapses to ≤0 under huge load
@@ -151,6 +169,9 @@ interface P4State {
   // last-frame debug for HUD / verification (per wheel)
   load: [number, number, number, number];
   slipRatio: [number, number];   // rear longitudinal slip ratio (wheelspin/lock)
+  // last-frame ground under each wheel (all false unless the map supplies a sampler) —
+  // read by the render layer for the grass dig tracks / dust. NOT read by the physics.
+  onGrass: [boolean, boolean, boolean, boolean];
 }
 const states = new WeakMap<CarState, P4State>();
 function stateOf(car: CarState): P4State {
@@ -161,6 +182,7 @@ function stateOf(car: CarState): P4State {
       rearOmega: [0, 0], initd: false,
       reversing: false, brakeHoldT: 0,
       load: [0, 0, 0, 0], slipRatio: [0, 0],
+      onGrass: [false, false, false, false],
     };
     states.set(car, s);
   }
@@ -171,7 +193,15 @@ export function wheelDebug(car: CarState): P4State | undefined { return states.g
 function clamp(v: number, lo: number, hi: number) { return v < lo ? lo : v > hi ? hi : v; }
 
 // wheel order: 0 FL, 1 FR, 2 RL, 3 RR
-export function step4(car: CarState, input: Inputs, dt: number, p: Physics4Params = PHYS4) {
+//
+// `surfaceAt` — the ACTIVE MAP's O(1) ground lookup (world metres). Omitted (desktop, both
+// ovals, and every arcade-mode call) ⇒ the grass branches never run and the step is
+// byte-identical. Sampled UNDER EACH WHEEL separately, so two wheels on grass + two on
+// asphalt produce the real asymmetric pull/oversteer emergently — never a car-level fudge.
+export function step4(
+  car: CarState, input: Inputs, dt: number, p: Physics4Params = PHYS4,
+  surfaceAt?: (x: number, y: number) => 'asphalt' | 'grass',
+) {
   const st = stateOf(car);
   const WB = CONFIG.wheelbase;      // one ruler
   const T = CONFIG.trackWidth;
@@ -256,10 +286,19 @@ export function step4(car: CarState, input: Inputs, dt: number, p: Physics4Param
   const rearVlong: [number, number] = [0, 0];
   const rearD: [number, number] = [0, 0];        // rear grip budget (sub-step ω integration)
   const rearFyRaw: [number, number] = [0, 0];    // rear pre-ellipse lateral (sub-step ellipse)
+  const grassOut: boolean[] = [false, false, false, false];
   let rearSaturated = false;
 
   for (let i = 0; i < 4; i++) {
     const front = i < 2;
+    // ---- GROUND under THIS wheel's contact point (world) ----
+    let onGrass = false;
+    if (surfaceAt) {
+      const wx = car.x + rx[i] * cos - ry[i] * sin;
+      const wy = car.y + rx[i] * sin + ry[i] * cos;
+      onGrass = surfaceAt(wx, wy) === 'grass';
+    }
+    grassOut[i] = onGrass;
     // longitudinal load transfer: fronts lose under accel, rears gain
     const dz = (front ? -dLong : dLong) / 2;
     // lateral load transfer: outer wheel loads. Outer side = sign opposite ay.
@@ -284,9 +323,11 @@ export function step4(car: CarState, input: Inputs, dt: number, p: Physics4Param
     const alpha = st.slip[i];
     slipOut[i] = alpha;
 
-    // grip = f(load) with DIMINISHING RETURNS (tire load sensitivity)
+    // grip = f(load) with DIMINISHING RETURNS (tire load sensitivity), then scaled by the
+    // GROUND under this wheel. On asphalt the scale is exactly 1 → byte-identical.
     const mu = Math.max(MU_FLOOR,
-      p.muNom - p.loadSensitivity * (Fz - FzStatic[i]) / FzStatic[i]);
+      p.muNom - p.loadSensitivity * (Fz - FzStatic[i]) / FzStatic[i])
+      * (onGrass ? p.grassMuScale : 1);
     const D = mu * Fz;   // this wheel's grip budget
 
     // Magic-Formula lateral (peak-then-falloff = the kinetic/drift regime).
@@ -377,8 +418,17 @@ export function step4(car: CarState, input: Inputs, dt: number, p: Physics4Param
     }
 
     // rotate wheel force back to body frame (+δ) and accumulate
-    const fbx = Fx * cd - Fy * sd;
-    const fby = Fx * sd + Fy * cd;
+    let fbx = Fx * cd - Fy * sd;
+    let fby = Fx * sd + Fy * cd;
+    // ---- GRASS ROLLING DRAG (grass ≠ ice): a linear resistance opposing THIS wheel's
+    // contact-point velocity — the turf swallows the wheel. It is a separate rolling
+    // resistance, NOT a tyre force, so it does not go through the friction circle. It acts
+    // at the contact point, so it feeds the yaw torque below too (a wheel dropping onto the
+    // grass drags that corner back = the real pull, emergently).
+    if (onGrass) {
+      fbx -= p.grassDragPerWheel * vwx;
+      fby -= p.grassDragPerWheel * vwy;
+    }
     Fbx += fbx; Fby += fby;
     Tz += rx[i] * fby - ry[i] * fbx + Mz;   // yaw torque about CoM + self-aligning
   }
@@ -539,6 +589,7 @@ export function step4(car: CarState, input: Inputs, dt: number, p: Physics4Param
   car.y += vy * dt;
 
   st.load = [loadOut[0], loadOut[1], loadOut[2], loadOut[3]];
+  st.onGrass = [grassOut[0], grassOut[1], grassOut[2], grassOut[3]];
 
   // ---- CarState effects mapping (smoke / skids / XP / sound / HUD) ----
   const rearSlipMax = Math.max(Math.abs(slipOut[2]), Math.abs(slipOut[3]));
