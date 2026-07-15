@@ -808,6 +808,46 @@ const CIRCUIT_FINISH = ((): { x: number; y: number } => {
   return { x: (Math.min(...fx) + Math.max(...fx)) / 2, y: CIRCUIT_STRAIGHT_Y };
 })();
 
+// The lap's FAR POINT: the "must reach" that ARMS a lap (see the startLine below). DERIVED
+// from the ribbon, not eyeballed, so it stays right if the shape is ever re-drawn.
+//
+// It is NOT simply the half-lap-by-arc point. This circuit has NO BARRIERS — you can cut
+// straight across the grass — so what a lap-farmer actually pays to reach an arming point is
+// min(the arc along the track, the straight line across the grass), there and back. On this
+// layout the arc-midpoint lands in the middle dip, which hangs back DOWN toward the finish:
+// 319 m by arc but only 38 m in a straight line, so a lap could be farmed by nipping 38 m
+// onto the infield and back (~77 m vs a real 639 m lap). So the point is chosen to MAXIMISE
+// min(arc, straight-line) — the criterion that actually bounds the shortcut. On this layout
+// that is the top of the right-hand upper sweep: 181 m by arc, 135 m straight, so the
+// cheapest possible fake lap costs ~269 m (3.5× better than the arc-midpoint's ~77 m).
+const CIRCUIT_FAR = ((): { x: number; y: number } => {
+  const N = CIRCUIT_PATH.length;
+  // index of the finish on the (evenly-resampled) path
+  let fi = 0, fd = Infinity;
+  CIRCUIT_PATH.forEach((p, i) => {
+    const d = (p[0] - CIRCUIT_FINISH.x) ** 2 + (p[1] - CIRCUIT_FINISH.y) ** 2;
+    if (d < fd) { fd = d; fi = i; }
+  });
+  const seg: number[] = [];
+  let total = 0;
+  for (let i = 0; i < N; i++) {
+    const j = (i + 1) % N;
+    const d = Math.hypot(CIRCUIT_PATH[j][0] - CIRCUIT_PATH[i][0], CIRCUIT_PATH[j][1] - CIRCUIT_PATH[i][1]);
+    seg.push(d); total += d;
+  }
+  let best = { score: -1, p: CIRCUIT_PATH[fi] };
+  let run = 0;
+  for (let k = 0; k < N; k++) {
+    const i = (fi + k) % N;
+    const arc = Math.min(run, total - run);          // shorter way round to this point
+    const straight = Math.hypot(CIRCUIT_PATH[i][0] - CIRCUIT_FINISH.x, CIRCUIT_PATH[i][1] - CIRCUIT_FINISH.y);
+    const score = Math.min(arc, straight);
+    if (score > best.score) best = { score, p: CIRCUIT_PATH[i] };
+    run += seg[i];
+  }
+  return { x: best.p[0], y: best.p[1] };
+})();
+
 // ---- Apex KERBS — red/white striped curbs on the INSIDE edge of the corners -----
 // Real circuits line the apex (inside) of corners with red/white striped kerbs. We
 // find the high-curvature arcs (the corners) of the smooth 1000-pt ribbon and lay a
@@ -1550,12 +1590,26 @@ function drawCircuitSurface(ctx: CanvasRenderingContext2D, wPx: number, hPx: num
     ctx.fillStyle = q.fill; ctx.fill();
     ctx.strokeStyle = q.fill; ctx.lineWidth = softPx; ctx.stroke();
   }
+
+  // START/FINISH — a checkered stripe across the bottom straight, drawn on top of the
+  // asphalt at CIRCUIT_FINISH. Same visual treatment as the ovals (9 segments, 1.2 m wide),
+  // sized off the TRACK WIDTH here since the circuit's band is 2/3 of the oval's.
+  const fx = offX + CIRCUIT_FINISH.x * s, fy = offY + CIRCUIT_FINISH.y * s;
+  const segs = 9, half = twPx / 2, segH = twPx / segs;
+  const lw = 1.2 * pxPerM;
+  for (let i = 0; i < segs; i++) {
+    ctx.fillStyle = i % 2 ? '#0c0c0c' : '#eef0f2';
+    ctx.fillRect(fx - lw / 2, fy - half + i * segH, lw, segH);
+  }
 }
 
 export const circuitMap: MapDefinition = {
   id: 'circuit',
   name: 'Circuit',
-  trackType: 'open',              // free surface (no built-in start line this pass)
+  // CIRCUIT: the built-in start/finish below is start AND finish, so the editor shows the
+  // LAPS panel (0 = free-roam, N = an N-lap race) instead of the place-elements palette —
+  // exactly like the ovals.
+  trackType: 'circuit',
   smokeColor: [248, 248, 251],    // white rubber smoke (asphalt), matching the oval
   fixedWorld: CIRCUIT_LOGICAL,    // = one screen ⇒ oval-style render (car standard size)
 
@@ -1571,15 +1625,42 @@ export const circuitMap: MapDefinition = {
   drawBackground(ctx, wPx, hPx) { drawCircuitSurface(ctx, wPx, hPx); },
   drawObstacles() { /* no barriers / no decor this pass */ },
 
-  // Grid spawn on the flat finish straight (the nearest-to-bottom, levelled run),
-  // facing +x (the racing direction along the bottom = left→right).
+  // Built-in start/finish: a START gate on the flat bottom straight, spanning the track
+  // width so a car always trips it. In circuit mode this single gate is start AND finish,
+  // and the ARMED full-lap mechanism is the oval's, unchanged (race.ts is not touched).
+  startLine(world) {
+    void world;
+    const c = circuitToWorld(CIRCUIT_FINISH.x, CIRCUIT_FINISH.y);
+    const far = circuitToWorld(CIRCUIT_FAR.x, CIRCUIT_FAR.y);
+    return {
+      type: 'start',
+      x: c.x,
+      y: c.y,
+      radius: CIRCUIT_TRACK_W / 2,     // spans the band → can't be driven around
+      angle: Math.PI / 2,              // the gate lies ACROSS the horizontal straight
+      // CLOCKWISE: cars cross the bottom straight RIGHT→LEFT, so only a −x crossing
+      // counts. Reversing (+x) back over the line does not.
+      forward: Math.PI,
+      // The lap ARMS only once the car reaches the far point (see CIRCUIT_FAR — the point
+      // that maximises the shortcut a farmer would have to drive), so back-and-forth over
+      // the line, or circling at it, never complete a lap. Generous radius (one track
+      // width), as on the oval.
+      farX: far.x,
+      farY: far.y,
+      farRadius: CIRCUIT_TRACK_W,
+    };
+  },
+
+  // Grid spawn on the flat finish straight (the nearest-to-bottom, levelled run), facing
+  // −x: the circuit runs CLOCKWISE, so the bottom straight is driven right→left. Rows
+  // therefore stack BEHIND the line = to its +x side.
   spawn(slot, world) {
     void world;
     const c = circuitToWorld(CIRCUIT_FINISH.x, CIRCUIT_FINISH.y);
     const col = slot % 2, row = Math.floor(slot / 2);
-    const laneOff = (col === 0 ? -1 : 1) * CIRCUIT_TRACK_W * 0.18;   // heading 0 ⇒ perp is y
+    const laneOff = (col === 0 ? -1 : 1) * CIRCUIT_TRACK_W * 0.18;   // heading π ⇒ perp is y
     const back = CONFIG.wheelbase * 1.73 + row * CONFIG.wheelbase * 3.0;
-    return { x: c.x - back, y: c.y + laneOff, heading: 0 };
+    return { x: c.x + back, y: c.y + laneOff, heading: Math.PI };
   },
 
   // No walls: just a soft clamp at the (far-out) world edge so a car can't leave

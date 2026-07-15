@@ -3943,3 +3943,55 @@ onto the kerb edge, which is plausible; it only misled the MEASUREMENT (the firs
 boundary pixels and reported blue as grey-brown), so the final sample excludes them.
 **TUNABLE:** `MARK.mulKerb` **'128,128,131'** (×0.50) — lower = blacker kerbs (×0.45 = white 104),
 higher = subtler (×0.59 = white 137, the asphalt level).
+
+---
+**CIRCUIT — LAPS: built-in start/finish + armed full-lap counting, CLOCKWISE (`maps.ts` ONLY;
+race.ts reused as-is):** the circuit is now a real lap-race map on the oval's proven system.
+**(1) DIRECTION — CLOCKWISE:** `spawn()` heading `0 → π` (facing −x) and rows now stack BEHIND the
+line = to its **+x** side (`c.x + back`). Lane offsets/geometry unchanged. Verified: all 8 spawns
+heading π, all 8 on the +x side, 2-wide grid, row pitch 7.69 m (the wheelbase-bound spacing).
+**(2) START/FINISH:** `trackType: 'open' → 'circuit'` (⇒ the editor shows the LAPS panel, 0 =
+free-roam / N = an N-lap race, exactly like the ovals). New `startLine(world)`: a START at
+`CIRCUIT_FINISH` on the flat bottom straight, `radius = CIRCUIT_TRACK_W/2` (13.76 m, spans the band
+so it can't be driven around), `angle = π/2` (across the straight), **`forward = π`** (only a −x
+crossing counts ⇒ clockwise). Drawn on the surface as a checkered stripe — the ovals' treatment
+(9 segments, 1.2 m wide), sized off the track width since the circuit's band is 2/3 of the oval's.
+**(3) LAP LOGIC:** `race.ts` UNTOUCHED — the oval's armed-full-lap path, reused verbatim.
+**⚠️ THE FAR POINT IS NOT WHERE THE BRIEF SAID — measured, and the brief's own goal is why.** The
+spec was "the far point on the FAR side of the lap (top of the track between the two upper sweeps)".
+Computed that way (half a lap by ARC) it lands at **(130.2, 87.1) — the middle dip**. That IS half
+the lap by arc (319 m of 639 m, measured) but the dip hangs back DOWN toward the finish, so it sits
+only **38 m from the line in a straight line** — and this circuit **has NO BARRIERS**. A lap could
+then be farmed by nipping 38 m onto the infield grass and back: **~77 m for a "lap"** vs a real
+639 m one. That defeats the mechanism's stated purpose ("near-line circling counts nothing").
+What a farmer actually pays to reach an arming point is `min(arc along the track, straight line
+across the grass)`, there and back — so `CIRCUIT_FAR` is DERIVED as the centreline point that
+**maximises `min(arc, straight)`**. The distance-from-finish profile is not monotonic (it peaks at
+30% and 70% of the lap and dips at 50%), which is exactly why the arc-midpoint is the wrong pick here:
+```
+  candidate                  point            arc    straight   cheapest fake lap
+  arc-midpoint (50%)         (130.2, 87.1)   319 m     38 m        ~77 m
+ *BEST = argmax min(arc,d)   (226.5, 32.9)   181 m    135 m       ~269 m*   ← shipped (3.5x better)
+```
+That lands on the **top of the right-hand upper sweep** (28.3% of the lap by arc), on asphalt,
+`farRadius` = one track width (27.5 m) as on the oval. **HONEST RESIDUAL:** ~269 m is still under a
+real 639 m lap — with ONE arming point on a barrier-free track that hole cannot be closed, only
+bounded (the ovals close it with barriers, not with the far point). The real fixes are checkpoints
+(race.ts already supports them) or barriers — flagged, not built, since the brief said reuse race.ts
+as-is with no new mechanics. Move it back to the arc-midpoint with one edit if preferred.
+**MEASURED (real race.ts + real maps.ts, headless):** (a) 1 clean CLOCKWISE lap → **finished, 0:39.2**;
+(b) a full COUNTER-CLOCKWISE lap → **phase 'pre'** = a wrong-way crossing does not even START the
+race; (c) 12× back-and-forth over the line → starts but **never finishes**; (d) partial lap (far
+point never reached) → **never finishes**; (e) 3-lap race → **lap 3, finished, 1:59.2** (≈3× the
+39.2 s lap ✓); (f) spawn grid as above. Lap length **638.8 m**; far point is on the ribbon
+(`surfaceAt` = asphalt, **0.000 m** from the centreline). **VERIFIED BY EYE** (PNG harness, the real
+`drawBackground` + the real `startLine`/`spawn` overlaid): the checkered stripe crosses the bottom
+straight, the 8 cars sit to the RIGHT of it with noses pointing LEFT, and the far point's arming
+circle covers the top-right sweep's asphalt.
+**⚠️ A HARNESS TRAP worth remembering:** `hud().lap` is `this.lap || 1` — a DISPLAY value ("lap 1 of
+N"), so it reads 1 even before anything is counted. Checks (b)/(c)/(d) initially looked like
+failures against it; the real signal is `phase`/`finished`. Also: the stored path winds
+counter-clockwise, so clockwise = walking the array backwards (the harness derives this, it isn't
+assumed). **`physics.ts` / `physics4.ts` / `race.ts` / `desktop.ts` all UNTOUCHED** — `maps.ts` only.
+tsc + build clean. **NEXT: boss drives it — spawn faces left, one clockwise lap counts, wrong way
+counts nothing; set laps in the editor (E).**
