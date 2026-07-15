@@ -3434,3 +3434,44 @@ would hit "half top speed" exactly but read as ice. A CONSTANT (real Crr) term w
 targets — NOT added (the design was locked to linear). Also honest: wheelspin does not appear at 0.15
 throttle because 1950 N < the grass longitudinal capacity (~3.2 kN) — correct physics, not a missing
 mechanism. **physics.ts (the retired model) UNTOUCHED** → `step()` 0.0e+0. tsc + build clean.
+
+---
+**CIRCUIT MAP — GRAVEL TRAPS (kačírek) — VISUAL ONLY (no physics this pass):** real-circuit gravel run-offs
+on the circuit, placed from the boss's marked screenshot. **maps.ts ONLY — physics.ts + physics4.ts
+UNTOUCHED, `surfaceAt`/`circuitMask` unchanged ⇒ gravel still reads 'grass' to the car** (the gravel surface
+type + physics is the approved follow-up).
+**(1) PLACEMENT** — authored as a union of overlapping DISCS (`GRAVEL_BLOBS`, 25 discs) in **SKETCH coords**:
+sketch space is the TRACK's own frame, so the traps stay locked to the corners on any display (the world's
+metre size follows `window.screen`; the track's does not). Discs give organic rounded blobs for free. Traced
+from the marks via `sketch = screenPx·0.7509 + [482, 55]` (derived from the new `circuitDebugMapping()`
+export). Covers: both top outer sweeps, the two top-centre lobes, around the left hairpin, both infield
+patches by the bottom kerbs, and the left/right outer perimeter.
+**(2) THE GRASS GAP IS ENFORCED BY CONSTRUCTION** (not by hand-authoring — over-marking is therefore SAFE):
+`marked discs − dilate(asphalt + kerbs, GRAVEL_GRASS_GAP)` → smooth (separable box-blur + threshold) →
+**re-carve the gap** (so smoothing can't eat into it) → flood-fill connected components and **drop fragments
+under GRAVEL_MIN_AREA**. The dilation is done as a canvas STROKE of width 2·gap (a stroke around a shape IS
+its dilation). The narrow sliver between the bottom straights is deliberately unmarked AND would be dropped.
+**(3) LOOK** — real racing gravel is coarse LIGHT GREY-BEIGE crushed stone, so it MUST read granular (the
+boss rejected grain on the ASPHALT, but that is gravel's identity): a `GRAVEL_BASE` tone + fine per-stone
+speckle, generated ONCE (deterministic LCG) into an offscreen tile and cached, reused as a repeating pattern
+⇒ zero per-frame cost. The base is BAKED INTO the tile and each stone shifts it by a symmetric ± ABSOLUTE
+amount, so the tile's mean IS the base (a transparent black/white speckle over a tone is NOT
+brightness-neutral — the lesson from the asphalt-grain pass). Drawn AFTER the grass, BEFORE the tarmac.
+**TUNE BY THESE NUMBERS:** `GRAVEL_GRASS_GAP` = **CAR_WIDTH_M ≈ 1.83 m** (the RENDERED car body width,
+bound to the one ruler: drawCar's native half-width 0.309 × its ART scale wheelbase·0.865/0.75) ·
+`GRAVEL_MIN_AREA` **70** m² · `GRAVEL_SMOOTH_R` **5** mask px (=1.25 m) · `GRAVEL_MASK_PPM` **4** px/m ·
+`GRAVEL_BASE` **#b3ad9b** · `GRAVEL_TILE` **256** · `GRAVEL_STONE_PX` **2** (1 = sand, 3–4 = coarse rock) ·
+`GRAVEL_CONTRAST` **0.10** (±26 levels) · `GRAVEL_EDGE` **#6b6557** · `GRAVEL_EDGE_PX` **3** · plus
+`GRAVEL_BLOBS` for extents.
+**MEASURED:** trap area **8601 m²**; **minimum gap from ANY trap pixel to asphalt = 1.83 m = EXACTLY one car
+width, 0 violations** (nearest-gap histogram bottoms out at 1.83 and never below). VERIFIED BY EYE (PNG
+harness): full map matches the marks, the narrow bottom sliver is grass-only, and 5–6× close-ups read
+`asphalt → green grass strip → darker rim → granular stone`. tsc + build clean.
+**⚠️ TWO BUGS CAUGHT BY MEASURING (worth remembering):** (a) the first verification reported 175 violations
+at 0.17 m — they were the CLASSIFIER's false positives on the kerb-stripe ANTI-ALIASING (the white/red blend
+rgb(228,210,214) matched a loose "pale beige" test); fixed by tightening the range and requiring
+`surfaceAt === 'grass'`. (b) The darker gravel/grass rim was first drawn by DILATING the shape — which
+pushed it TOWARD the asphalt and cut the gap to 1.17 m (400 real violations). The rim is now an **INNER**
+rim (the mask is ERODED via `destination-in` intersection at 8 offsets, dark drawn at full footprint, stone
+inset on top) — nothing is ever painted outside the mask, so the gap cannot be breached. Also note a single
+scaled `drawImage` is a SCALE about the centre, NOT a dilation (the rim would vanish mid-canvas).

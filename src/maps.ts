@@ -1129,6 +1129,239 @@ export function circuitMaskDebug(): { mask: Uint8Array | null; w: number; h: num
   const mask = circuitMask();
   return { mask, w: _maskW, h: _maskH, ppm: CIRCUIT_MASK_PPM };
 }
+/** Debug/authoring: the sketch↔world mapping (lets a harness convert screen px → sketch coords). */
+export function circuitDebugMapping() {
+  return { bcx: CS_BCX, bcy: CS_BCY, scale: CS_SCALE, world: CIRCUIT_LOGICAL };
+}
+
+// ---------- GRAVEL TRAPS (circuit — VISUAL ONLY this pass) ----------
+// Placement is authored as a union of overlapping DISCS in SKETCH coords: sketch space is the
+// TRACK's own frame, so the traps stay locked to the corners on any display (the world's metre
+// size follows window.screen, the track's does not). Discs give organic rounded blobs for free.
+// The final shape is then built BY CONSTRUCTION, so the rules can't be violated by hand-authoring:
+//   marked discs  −  dilate(asphalt + kerbs, GRAVEL_GRASS_GAP)   → the mandatory grass strip
+//   → smooth (box-blur + threshold)                              → rounded organic boundaries
+//   → re-carve the gap                                           → smoothing can't eat into it
+//   → drop connected fragments under GRAVEL_MIN_AREA             → narrow slivers vanish
+// NOTHING here is physics: surfaceAt / circuitMask / physics4 are untouched, gravel still reads
+// 'grass' to the car. The gravel surface type comes in a follow-up once the look is approved.
+//
+// TUNE:
+const CAR_WIDTH_M = CONFIG.wheelbase * (0.309 * 2) * 0.865 / 0.75;  // ≈1.83 m — the RENDERED car
+                                      //   body width (drawCar's native half-width 0.309 × its ART
+                                      //   scale wheelbase·0.865/0.75), bound to the one ruler.
+const GRAVEL_GRASS_GAP = CAR_WIDTH_M; // m — MANDATORY grass strip between any asphalt/kerb and gravel
+const GRAVEL_MIN_AREA = 70;           // m² — a fragment smaller than this doesn't read as a trap → dropped
+const GRAVEL_SMOOTH_R = 5;            // mask px (@4 px/m ⇒ 1.25 m) — boundary rounding radius
+const GRAVEL_MASK_PPM = 4;            // px/m for the trap raster
+// Real racing gravel: coarse LIGHT GREY-BEIGE crushed stone (pale grey-tan pebbles), not paint.
+const GRAVEL_BASE = '#b3ad9b';        // pale grey-beige crushed stone
+const GRAVEL_TILE = 256;              // px — stone speckle tile (repeat period)
+const GRAVEL_STONE_PX = 2;            // px per stone (1 = sand · 3–4 = coarse rock)
+const GRAVEL_CONTRAST = 0.10;         // 0–1 — ± stone speckle as a fraction of full scale (±26 levels).
+                                      //   Gravel MUST read granular — that is its identity.
+const GRAVEL_EDGE = '#6b6557';        // darker transition where gravel meets grass
+const GRAVEL_EDGE_PX = 3;             // px — width of that rim, INSET inside the trap edge (never
+                                      //   outside: the trap edge is the mandatory grass gap)
+// Marked trap areas — [sketchX, sketchY, radius] discs, traced from the boss's beige marks
+// (screen px → sketch = px·0.7509 + [482, 55]). Over-marking is SAFE: anything inside the
+// grass gap is carved off by construction. The narrow sliver between the bottom straights is
+// deliberately NOT marked (and would be dropped anyway).
+const GRAVEL_BLOBS: Array<[number, number, number]> = [
+  // top-LEFT outer sweep + down the left perimeter
+  [572, 100, 98], [707, 96, 90], [820, 108, 68], [512, 220, 75], [505, 310, 64],
+  // top-CENTRE: the two lobes flanking the middle
+  [933, 130, 83], [948, 235, 56], [963, 295, 34],
+  [1030, 123, 75], [1015, 213, 53], [1008, 273, 34],
+  // top-RIGHT outer sweep + down the right perimeter
+  [1270, 100, 90], [1420, 93, 98], [1571, 108, 83], [1608, 220, 68], [1612, 310, 56],
+  // infield LEFT patch (by the left hairpin / bottom-left kerb)
+  [707, 393, 83], [670, 461, 71], [767, 476, 75], [805, 521, 45],
+  // infield RIGHT patch (by the bottom-right kerb)
+  [1233, 393, 83], [1203, 461, 71], [1300, 476, 79], [1345, 521, 53],
+];
+
+const hexRgb = (h: string): [number, number, number] =>
+  [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+const clamp255 = (v: number) => (v < 0 ? 0 : v > 255 ? 255 : Math.round(v));
+
+let _gravelMask: Uint8Array | null | undefined;
+let _gvW = 0, _gvH = 0;
+function gravelMask(): Uint8Array | null {
+  if (_gravelMask !== undefined) return _gravelMask;
+  if (typeof document === 'undefined') { _gravelMask = null; return null; }
+  const P = GRAVEL_MASK_PPM;
+  const W = Math.max(1, Math.round(CIRCUIT_LOGICAL.widthM * P));
+  const H = Math.max(1, Math.round(CIRCUIT_LOGICAL.heightM * P));
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const c = cv.getContext('2d');
+  if (!c) { _gravelMask = null; return null; }
+  const toM = (sx: number, sy: number): Pt => {
+    const w = circuitToWorld(sx, sy); return [w.x * P, w.y * P];
+  };
+  // 1. the MARKED areas — union of discs
+  c.fillStyle = '#fff';
+  for (const [sx, sy, r] of GRAVEL_BLOBS) {
+    const [x, y] = toM(sx, sy);
+    c.beginPath(); c.arc(x, y, r * CS_SCALE * P, 0, Math.PI * 2); c.fill();
+  }
+  // 2. carve the MANDATORY grass gap = erase asphalt+kerbs DILATED by GRAVEL_GRASS_GAP.
+  //    (A stroke of width 2·gap around a shape IS its dilation by gap — round joins/caps.)
+  const carveGap = () => {
+    c.globalCompositeOperation = 'destination-out';
+    c.strokeStyle = '#000'; c.fillStyle = '#000';
+    c.lineJoin = 'round'; c.lineCap = 'round';
+    const pts = CIRCUIT_PATH.map((p) => toM(p[0], p[1]));
+    c.beginPath(); c.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length; i++) c.lineTo(pts[i][0], pts[i][1]);
+    c.closePath();
+    c.lineWidth = (CIRCUIT_TRACK_W + 2 * GRAVEL_GRASS_GAP) * P;   // ribbon + a gap each side
+    c.stroke();
+    for (const q of CIRCUIT_KERBS) {
+      const a = toM(q.a[0], q.a[1]), b = toM(q.b[0], q.b[1]);
+      const d = toM(q.c[0], q.c[1]), e = toM(q.d[0], q.d[1]);
+      c.beginPath();
+      c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.lineTo(d[0], d[1]); c.lineTo(e[0], e[1]);
+      c.closePath();
+      c.fill();
+      c.lineWidth = 2 * GRAVEL_GRASS_GAP * P; c.stroke();          // kerb quad + a gap all round
+    }
+    c.globalCompositeOperation = 'source-over';
+  };
+  carveGap();
+  // 3. read the alpha out
+  const px = c.getImageData(0, 0, W, H).data;
+  let m = new Uint8Array(W * H);
+  for (let i = 0; i < W * H; i++) m[i] = px[i * 4 + 3] > 127 ? 1 : 0;
+  // 4. SMOOTH — separable box blur + threshold ⇒ rounded organic boundaries, thin necks pinched off
+  const blurThreshold = (src: Uint8Array, r: number) => {
+    const tmp = new Float32Array(W * H), dst = new Uint8Array(W * H);
+    for (let y = 0; y < H; y++) {         // horizontal
+      let acc = 0;
+      for (let x = -r; x <= r; x++) acc += src[y * W + Math.min(W - 1, Math.max(0, x))];
+      for (let x = 0; x < W; x++) {
+        tmp[y * W + x] = acc / (2 * r + 1);
+        acc -= src[y * W + Math.min(W - 1, Math.max(0, x - r))];
+        acc += src[y * W + Math.min(W - 1, Math.max(0, x + r + 1))];
+      }
+    }
+    for (let x = 0; x < W; x++) {         // vertical
+      let acc = 0;
+      for (let y = -r; y <= r; y++) acc += tmp[Math.min(H - 1, Math.max(0, y)) * W + x];
+      for (let y = 0; y < H; y++) {
+        dst[y * W + x] = acc / (2 * r + 1) >= 0.5 ? 1 : 0;
+        acc -= tmp[Math.min(H - 1, Math.max(0, y - r)) * W + x];
+        acc += tmp[Math.min(H - 1, Math.max(0, y + r + 1)) * W + x];
+      }
+    }
+    return dst;
+  };
+  m = blurThreshold(m, GRAVEL_SMOOTH_R);
+  // 5. re-carve the gap (smoothing must never eat into the mandatory strip), via the canvas
+  const img = c.createImageData(W, H);
+  for (let i = 0; i < W * H; i++) if (m[i]) { img.data[i * 4 + 3] = 255; img.data[i * 4] = 255; }
+  c.globalCompositeOperation = 'copy'; c.putImageData(img, 0, 0);
+  c.globalCompositeOperation = 'source-over';
+  carveGap();
+  const px2 = c.getImageData(0, 0, W, H).data;
+  for (let i = 0; i < W * H; i++) m[i] = px2[i * 4 + 3] > 127 ? 1 : 0;
+  // 6. DROP small fragments — flood-fill connected components, keep only real traps
+  const minPx = GRAVEL_MIN_AREA * P * P;
+  const seen = new Uint8Array(W * H);
+  const stack: number[] = [];
+  for (let i0 = 0; i0 < W * H; i0++) {
+    if (!m[i0] || seen[i0]) continue;
+    stack.length = 0; stack.push(i0); seen[i0] = 1;
+    const comp: number[] = [];
+    while (stack.length) {
+      const i = stack.pop()!; comp.push(i);
+      const x = i % W, y = (i / W) | 0;
+      if (x > 0 && m[i - 1] && !seen[i - 1]) { seen[i - 1] = 1; stack.push(i - 1); }
+      if (x < W - 1 && m[i + 1] && !seen[i + 1]) { seen[i + 1] = 1; stack.push(i + 1); }
+      if (y > 0 && m[i - W] && !seen[i - W]) { seen[i - W] = 1; stack.push(i - W); }
+      if (y < H - 1 && m[i + W] && !seen[i + W]) { seen[i + W] = 1; stack.push(i + W); }
+    }
+    if (comp.length < minPx) for (const i of comp) m[i] = 0;
+  }
+  _gvW = W; _gvH = H; _gravelMask = m;
+  return m;
+}
+
+// Coarse crushed-stone speckle, generated ONCE (deterministic LCG) into an offscreen tile and
+// cached — reused as a repeating pattern, so per-frame cost is zero. The base tone is BAKED IN
+// and each stone shifts it by a symmetric ± ABSOLUTE amount, so the tile's mean IS the base
+// (blending a transparent black/white speckle over a tone is NOT brightness-neutral).
+let _gravelTile: HTMLCanvasElement | null | undefined;
+function gravelTile(): HTMLCanvasElement | null {
+  if (_gravelTile !== undefined) return _gravelTile;
+  if (typeof document === 'undefined') { _gravelTile = null; return null; }
+  const t = document.createElement('canvas'); t.width = t.height = GRAVEL_TILE;
+  const tc = t.getContext('2d');
+  if (!tc) { _gravelTile = null; return null; }
+  const [br, bg, bb] = hexRgb(GRAVEL_BASE);
+  const img = tc.createImageData(GRAVEL_TILE, GRAVEL_TILE);
+  const px = img.data;
+  let seed = 0x6d2b79f5 >>> 0;
+  const rnd = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296);
+  const cells = Math.ceil(GRAVEL_TILE / GRAVEL_STONE_PX);
+  for (let cy = 0; cy < cells; cy++) {
+    for (let cx = 0; cx < cells; cx++) {
+      const dl = (rnd() * 2 - 1) * GRAVEL_CONTRAST * 255;
+      const r = clamp255(br + dl), g = clamp255(bg + dl), b = clamp255(bb + dl);
+      const y1 = Math.min((cy + 1) * GRAVEL_STONE_PX, GRAVEL_TILE);
+      const x1 = Math.min((cx + 1) * GRAVEL_STONE_PX, GRAVEL_TILE);
+      for (let y = cy * GRAVEL_STONE_PX; y < y1; y++) {
+        for (let x = cx * GRAVEL_STONE_PX; x < x1; x++) {
+          const o = (y * GRAVEL_TILE + x) * 4;
+          px[o] = r; px[o + 1] = g; px[o + 2] = b; px[o + 3] = 255;
+        }
+      }
+    }
+  }
+  tc.putImageData(img, 0, 0);
+  _gravelTile = t;
+  return t;
+}
+
+// Paint the traps: the cached mask upscaled to the target size (the bilinear upscale is what
+// softens the boundary into the grass) ∩ the crushed-stone pattern at FULL target resolution
+// (so the stones stay crisp), over a slightly larger dark rim = the gravel/grass transition.
+function drawGravelTraps(ctx: CanvasRenderingContext2D, wPx: number, hPx: number) {
+  const m = gravelMask(), tile = gravelTile();
+  if (!m || !tile || typeof document === 'undefined') return;
+  const mc = document.createElement('canvas'); mc.width = _gvW; mc.height = _gvH;
+  const mcx = mc.getContext('2d');
+  if (!mcx) return;
+  const img = mcx.createImageData(_gvW, _gvH);
+  for (let i = 0; i < _gvW * _gvH; i++) if (m[i]) img.data[i * 4 + 3] = 255;
+  mcx.putImageData(img, 0, 0);
+  // `erode` px: the shape is the mask, optionally ERODED by intersecting it with itself at 8
+  // offsets (destination-in = intersection). Erosion — never dilation — because the mask edge
+  // IS the mandatory grass gap: nothing may ever be painted outside it, so the darker
+  // gravel/grass transition is an INNER rim. (The bilinear upscale to wPx×hPx is what softens
+  // the boundary into the grass = the organic edge.)
+  const shape = (dst: CanvasRenderingContext2D, erode: number, fill: string | CanvasPattern) => {
+    dst.clearRect(0, 0, wPx, hPx);
+    dst.drawImage(mc, 0, 0, wPx, hPx);
+    if (erode > 0) {
+      dst.globalCompositeOperation = 'destination-in';
+      for (let i = 0; i < 8; i++) {
+        const a = i / 8 * Math.PI * 2;
+        dst.drawImage(mc, Math.round(Math.cos(a) * erode), Math.round(Math.sin(a) * erode), wPx, hPx);
+      }
+    }
+    dst.globalCompositeOperation = 'source-in';
+    dst.fillStyle = fill; dst.fillRect(0, 0, wPx, hPx);
+    dst.globalCompositeOperation = 'source-over';
+  };
+  const t = document.createElement('canvas'); t.width = wPx; t.height = hPx;
+  const tcx = t.getContext('2d');
+  if (!tcx) return;
+  shape(tcx, 0, GRAVEL_EDGE);                     // 1. dark, the FULL footprint …
+  ctx.drawImage(t, 0, 0);
+  const pat = tcx.createPattern(tile, 'repeat');  // 2. … the stone inset, so the dark shows
+  if (pat) { shape(tcx, GRAVEL_EDGE_PX, pat); ctx.drawImage(t, 0, 0); }   //   as a rim around it
+}
 
 // ASPHALT → GRASS SOFT EDGE (circuit only — the ovals keep their own look). The tarmac sits
 // DIRECTLY on the grass: there is NO dark rim / outline, so the track doesn't read as "drawn".
@@ -1164,6 +1397,10 @@ function drawCircuitSurface(ctx: CanvasRenderingContext2D, wPx: number, hPx: num
   const grass = ctx.createLinearGradient(0, 0, 0, hPx);
   grass.addColorStop(0, '#26402f'); grass.addColorStop(1, '#1b3223');
   ctx.fillStyle = grass; ctx.fillRect(0, 0, wPx, hPx);
+
+  // GRAVEL TRAPS — on the grass, UNDER the tarmac (they can never touch it: the shape is
+  // eroded by a full car width from every asphalt/kerb edge by construction). Visual only.
+  drawGravelTraps(ctx, wPx, hPx);
 
   ctx.lineJoin = 'round'; ctx.lineCap = 'round';
   // Asphalt SURFACE — the oval's tarmac gradient, applied vertically for depth. NO dark rim:
