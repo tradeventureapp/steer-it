@@ -881,17 +881,40 @@ const CIRCUIT_KERBS: KerbQuad[] = ((): KerbQuad[] => {
   const quads: KerbQuad[] = [];
   const FULL_W = KERB_WIDTH + KERB_BLUE_WIDTH;   // full kerb reach → the FIXED grass edge
   const avgSeg = (() => { let s = 0; for (let i = 0; i < N; i++) s += Math.hypot(CIRCUIT_PATH[(i + 1) % N][0] - CIRCUIT_PATH[i][0], CIRCUIT_PATH[(i + 1) % N][1] - CIRCUIT_PATH[i][1]); return s / N; })();
-  const TAIL_PTS = Math.max(2, Math.round(KERB_BLUE_TAIL / avgSeg));   // blue tail length in points
+  // The blue tail is ONE CANONICAL wedge measured in KERB_BLUE_TAIL of EDGE-ARC — NOT a
+  // fixed point count. (A fixed count made fat stubs on tight concave ends and slim wedges
+  // on straights, because the edge arc compresses on the concave side of a curve.) Each
+  // side is walked out until its edge-arc reaches KERB_BLUE_TAIL → identical wedge (length
+  // + profile) at every termination; TAIL_PTS_CAP bounds the walk (also the neighbour-clamp
+  // headroom — the arc-length tail self-limits well short of any other kerb here).
+  const TAIL_PTS_CAP = Math.ceil(KERB_BLUE_TAIL / (avgSeg * 0.1)) + 4;
   // Emit ONE kerb over the STRIPE index range [sStart, sEnd] with a side-normal `normFn`:
   //  - red/white = FULL-WIDTH blocks, HARD-CUT ends snapped to the stripe-block grid (no
   //    sliver), skipping an optional blue-only sub-range (outer run);
-  //  - the BLUE runs over [sStart−TAIL_PTS, sEnd+TAIL_PTS]: inner edge = asphalt edge where
-  //    there is NO stripe (else the stripe's outer edge), OUTER edge = the FIXED grass edge
-  //    (band/2 + FULL_W) but tapering to 0 over the TAIL past each stripe end → past the
+  //  - the BLUE runs one canonical edge-arc tail PAST each stripe end: inner edge = asphalt
+  //    edge where there is NO stripe (else the stripe's outer edge), OUTER edge = the FIXED
+  //    grass edge (band/2 + FULL_W) tapering to 0 over KERB_BLUE_TAIL edge-arc → past the
   //    stripes the blue slides onto the asphalt edge and dissolves (a smooth tail, no hard end).
   const emitKerb = (sStart: number, sEnd: number, normFn: (tx: number, ty: number) => Pt, blueOnly: { start: number; end: number } | null) => {
-    const bStart = idx(sStart - TAIL_PTS);
-    const blen = ((sEnd - sStart + N) % N) + 1 + 2 * TAIL_PTS;
+    // Edge point (band/2 along the LOCAL normal) at path index i — the tail follows it.
+    const edgeAt = (i: number): Pt => {
+      const a = CIRCUIT_PATH[idx(i - 1)], c = CIRCUIT_PATH[idx(i + 1)], p = CIRCUIT_PATH[i];
+      let tx = c[0] - a[0], ty = c[1] - a[1]; const tl = Math.hypot(tx, ty) || 1; tx /= tl; ty /= tl;
+      const n = normFn(tx, ty);
+      return [p[0] + n[0] * (CS_BAND / 2), p[1] + n[1] * (CS_BAND / 2)];
+    };
+    // Points needed for the edge-arc from `from` (walking in `dir`) to reach KERB_BLUE_TAIL.
+    const tailPts = (from: number, dir: number): number => {
+      let pts = 0, acc = 0, pe = edgeAt(from);
+      while (pts < TAIL_PTS_CAP && acc < KERB_BLUE_TAIL) {
+        const q = edgeAt(idx(from + dir * (pts + 1)));
+        acc += Math.hypot(q[0] - pe[0], q[1] - pe[1]); pe = q; pts++;
+      }
+      return pts;
+    };
+    const leftPts = tailPts(sStart, -1), rightPts = tailPts(sEnd, 1);
+    const bStart = idx(sStart - leftPts);
+    const blen = ((sEnd - sStart + N) % N) + 1 + leftPts + rightPts;
     const P: Pt[] = [], nrm: Pt[] = [], edge: Pt[] = [], arc: number[] = [0];
     for (let k = 0; k < blen; k++) {
       const i = idx(bStart + k), a = CIRCUIT_PATH[idx(i - 1)], c = CIRCUIT_PATH[idx(i + 1)], p = CIRCUIT_PATH[i];
@@ -901,7 +924,7 @@ const CIRCUIT_KERBS: KerbQuad[] = ((): KerbQuad[] => {
       edge.push([p[0] + n[0] * (CS_BAND / 2), p[1] + n[1] * (CS_BAND / 2)]);
       if (k > 0) arc.push(arc[k - 1] + Math.hypot(edge[k][0] - edge[k - 1][0], edge[k][1] - edge[k - 1][1]));
     }
-    const kSS = TAIL_PTS, kSE = blen - 1 - TAIL_PTS;                          // stripe range indices
+    const kSS = leftPts, kSE = blen - 1 - rightPts;                          // stripe range indices
     const stripeStartArc = Math.ceil(arc[kSS] / KERB_STRIPE) * KERB_STRIPE;   // snap to whole blocks
     const stripeEndArc = Math.floor(arc[kSE] / KERB_STRIPE) * KERB_STRIPE;    //   (no sliver at the edge)
     let boS = Infinity, boE = -Infinity;                                     // optional blue-only sub-range (arc)

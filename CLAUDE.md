@@ -3203,3 +3203,25 @@ scans): STRAIGHT (bottom-extended kerb, meanY 607) + CURVE (right-hump apex, mea
 `asph → R/W → BLUE → grass`; **seam-gap count = 0 across 48 scans** (no grass sandwiched between the stripe
 and blue on straights OR curves). **physics.ts UNTOUCHED** → `step()` 0.0e+0. tsc + build clean. Tunable:
 `KERB_SEAM` (overlap), the `softPx` factor (edge feather).
+
+---
+**CIRCUIT MAP — UNIFORM BLUE WEDGE at every kerb end (was fat-stub-vs-slim variation):** the boss circled
+the middle-dip end as THE reference and flagged that the other kerb-end wedges looked different (fat stubs
+vs slim). ROOT CAUSE (found + fixed): the blue tail buffer was `[sStart−TAIL_PTS, sEnd+TAIL_PTS]` = a FIXED
+POINT COUNT, but the wedge tapers over `KERB_BLUE_TAIL` of EDGE-ARC — and edge-arc COMPRESSES on the concave
+side of a curve (up to ~4× on the tightest apex), so the fixed count covered far less arc there → the wedge
+was TRUNCATED into a fat stub; on straights/convex it fully tapered → slim. FIX (maps.ts `emitKerb` only):
+replaced the fixed `TAIL_PTS` with a per-side WALK — `tailPts(from, dir)` steps outward along the LOCAL edge
+(band/2 offset via `edgeAt`, per-point normals) accumulating edge-arc until it reaches `KERB_BLUE_TAIL`
+(bounded by `TAIL_PTS_CAP`) → `leftPts`/`rightPts` differ per end so the VISIBLE wedge is exactly
+KERB_BLUE_TAIL edge-arc with the identical taper profile at EVERY termination (both ends of every apex kerb
+incl. cut/extended ends, the outer-run ends, and consistent across the blue-only-zone boundaries), following
+the local track-edge direction on straights, curves, and the outer run. The wedge formula (full band at the
+hard cut → linear taper to 0, inner on the asphalt edge) is unchanged; stripes/hard-cuts/blue-only body/
+asphalt/grass all unchanged. Neighbour clamp: the arc-length tail self-limits to ~KERB_BLUE_TAIL and
+`TAIL_PTS_CAP` bounds the walk — no tail reaches another kerb here (apex concave vs outer convex are on
+opposite edges; same-side ends face long straights). **VERIFIED** (pixel harness, width-vs-edge-arc profile
+at all 12 kerb ends — curved meanY 296–367, straight meanY 620, outer-run): every end starts at ~FULL_W
+(18.5–20.0, full band asphalt→grass) and tapers monotonically to ~0 by ~32–35 arc-u; **max deviation from
+the mean profile = 1.05 sketch-u (~1.8 px)** = uniform within a couple px (was fat-stub-vs-slim). **physics.ts
+UNTOUCHED** → `step()` 0.0e+0. tsc + build clean. Tunable: `KERB_BLUE_TAIL` (the one wedge length).
