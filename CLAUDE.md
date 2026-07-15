@@ -3280,3 +3280,19 @@ band's width (tangential, one continuous shape); width ≤ FULL_W always (inside
 s=L (flush, no tip). Arc-length uniformity / hard cut / blue-only body / neighbour clamp all unchanged.
 **physics.ts UNTOUCHED** → `step()` 0.0e+0. tsc + build clean. (Reusable PNG-export harness kept in the
 session scratchpad as `k19.html`.)
+
+---
+**CIRCUIT MAP — REVERTED the kerb blue wedge to the PRE-TIP-FIX state (boss's decision, the protruding
+"ocásky" back):** the boss chose to roll the kerb blue back to when the wedge ends still had the small
+protruding tips. The tip-removal fix was commit **77308d1** ("remove protruding tip on blue wedges"); the
+commit immediately BEFORE it is **a274563** ("uniform blue wedge at every kerb end — arc-length tail").
+Restored via `git checkout a274563 -- src/maps.ts` (NOT hand-edited — exact from history). AUDITED first:
+the ENTIRE a274563→HEAD maps.ts diff is 100% kerb-wedge code (the `KerbQuad.soft` flag, the tail
+`blueEdges` smootherstep/exact-spec rewrite, the conditional soft-stroke) — NO unrelated change to
+re-apply. So the restore loses nothing else. Result: the tail is back to the LINEAR taper
+`[-KERB_SEAM, FULL_W·(1−t)]` (inner pinned at −KERB_SEAM → the ~0.8-wide protruding tip nub) with the
+arc-length-uniform tails + seam fix + soft-stroke-on-all-quads (b6601f8) intact; the smootherstep
+tangential curve (750b29d), the tip removal (77308d1), and the exact-math rewrite (2314937) are all undone.
+**VERIFIED:** working tree `git diff a274563 -- src/maps.ts` = EMPTY (byte-identical to a274563).
+**physics.ts UNTOUCHED** → `step()` 0.0e+0. tsc + build clean. (The pre-tip state also has the smooth
+ribbon / kerbs / cuts / extends / outer run / blue-only zone — only the wedge-END tip behaviour reverted.)

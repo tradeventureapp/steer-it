@@ -840,7 +840,7 @@ const KERB_EXTENDS: Array<{ near: Pt; addPts: number }> = [
   { near: [1345, 620], addPts: 30 },   // BOTTOM-RIGHT — extend left along the straight
 ];
 
-interface KerbQuad { a: Pt; b: Pt; c: Pt; d: Pt; fill: string; z: number; soft: boolean; }  // z: 0 blue (under) · 1 stripes (over); soft: apply the edge-feather stroke (NOT on the tapering tail — its round join would spike past the tip)
+interface KerbQuad { a: Pt; b: Pt; c: Pt; d: Pt; fill: string; z: number; }  // z: 0 blue (under) · 1 stripes (over)
 const CIRCUIT_KERBS: KerbQuad[] = ((): KerbQuad[] => {
   const N = CIRCUIT_PATH.length, idx = (i: number) => ((i % N) + N) % N;
   // smoothed per-point turn magnitude (deg) → "cornerness"
@@ -950,26 +950,16 @@ const CIRCUIT_KERBS: KerbQuad[] = ((): KerbQuad[] => {
         const inStripe = !(arc[k] >= boS && arc[k] < boE);
         return [inStripe ? KERB_WIDTH - KERB_SEAM : -KERB_SEAM, FULL_W];
       }
-      // EXACT SPEC: over arc s past the hard cut, width(s) = FULL_W · smootherstep(1 − s/L),
-      // inner edge EXACTLY on the asphalt edge (offset 0) the whole length, outer edge = asphalt
-      // edge + width(s). smootherstep(t) = 6t⁵−15t⁴+10t³ (t³(t(6t−15)+10)) — derivative 0 at both
-      // ends → at the cut (s=0) width = FULL_W = the kerb band's width (tangential, zero kink, one
-      // continuous shape with the blue band); at s=L width = 0, easing FLUSH onto the asphalt edge
-      // (no protruding tip). width ≤ FULL_W always → stays inside the kerb silhouette.
-      const s = arc[k] < stripeStartArc ? stripeStartArc - arc[k] : arc[k] - stripeEndArc;
-      const u = 1 - Math.min(1, s / KERB_BLUE_TAIL);           // 1 at the cut → 0 at the tail end
-      const width = FULL_W * (u * u * u * (u * (u * 6 - 15) + 10));   // FULL_W · smootherstep(u)
-      return [0, width];
+      const dist = arc[k] < stripeStartArc ? stripeStartArc - arc[k] : arc[k] - stripeEndArc;
+      const t = Math.min(1, dist / KERB_BLUE_TAIL);      // 0 at the cut → 1 at the tail end
+      return [-KERB_SEAM, FULL_W * (1 - t)];             // full band at the cut, steady wedge to 0
     };
-    const inBody = (kk: number) => arc[kk] >= stripeStartArc && arc[kk] < stripeEndArc;   // full-width blue
     for (let k = 0; k < blen - 1; k++) {
       const [bi0, bo0] = blueEdges(k), [bi1, bo1] = blueEdges(k + 1);
-      // Feather only the FULL-WIDTH blue body; the tapering tail is fill-only (a stroke's
-      // round join on the near-zero-width tip would spike a blue speck past the wedge end).
-      quads.push({ a: off(k, bi0), b: off(k, bo0), c: off(k + 1, bo1), d: off(k + 1, bi1), fill: KERB_BLUE, z: 0, soft: inBody(k) || inBody(k + 1) });
+      quads.push({ a: off(k, bi0), b: off(k, bo0), c: off(k + 1, bo1), d: off(k + 1, bi1), fill: KERB_BLUE, z: 0 });
       if (stripeAt(k)) {   // red/white FULL-WIDTH block (hard cut; constant arc-length size),
         const rw = Math.floor(arc[k] / KERB_STRIPE) % 2 === 0 ? KERB_RED : KERB_WHITE;   // inner
-        quads.push({ a: off(k, -KERB_SEAM), b: off(k, KERB_WIDTH), c: off(k + 1, KERB_WIDTH), d: off(k + 1, -KERB_SEAM), fill: rw, z: 1, soft: true });  // pulled under the asphalt rim
+        quads.push({ a: off(k, -KERB_SEAM), b: off(k, KERB_WIDTH), c: off(k + 1, KERB_WIDTH), d: off(k + 1, -KERB_SEAM), fill: rw, z: 1 });  // pulled under the asphalt rim
       }
     }
   };
@@ -1071,7 +1061,7 @@ function drawCircuitSurface(ctx: CanvasRenderingContext2D, wPx: number, hPx: num
     ctx.lineTo(offX + q.d[0] * s, offY + q.d[1] * s);
     ctx.closePath();
     ctx.fillStyle = q.fill; ctx.fill();
-    if (q.soft) { ctx.strokeStyle = q.fill; ctx.lineWidth = softPx; ctx.stroke(); }
+    ctx.strokeStyle = q.fill; ctx.lineWidth = softPx; ctx.stroke();
   }
 }
 
