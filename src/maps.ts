@@ -1139,10 +1139,12 @@ export function circuitDebugMapping() {
 // TRACK's own frame, so the traps stay locked to the corners on any display (the world's metre
 // size follows window.screen, the track's does not). Discs give organic rounded blobs for free.
 // The final shape is then built BY CONSTRUCTION, so the rules can't be violated by hand-authoring:
-//   marked discs  −  dilate(asphalt + kerbs, GRAVEL_GRASS_GAP)   → the mandatory grass strip
-//   → smooth (box-blur + threshold)                              → rounded organic boundaries
-//   → re-carve the gap                                           → smoothing can't eat into it
-//   → drop connected fragments under GRAVEL_MIN_AREA             → narrow slivers vanish
+//   marked discs  −  ( dilate(ribbon, GRAVEL_GRASS_GAP)  ∪  kerbs )   → the ADJACENCY RULE
+//   → smooth (box-blur + threshold)                                   → rounded organic boundaries
+//   → re-carve                                                        → smoothing can't eat into it
+//   → drop connected fragments under GRAVEL_MIN_AREA                  → narrow slivers vanish
+// ADJACENCY RULE: gravel ABUTS a KERB directly (kerbs carved undilated), but keeps a car-width
+// GRASS strip off BARE asphalt (the ribbon is carved dilated by GRAVEL_GRASS_GAP).
 // NOTHING here is physics: surfaceAt / circuitMask / physics4 are untouched, gravel still reads
 // 'grass' to the car. The gravel surface type comes in a follow-up once the look is approved.
 //
@@ -1150,7 +1152,8 @@ export function circuitDebugMapping() {
 const CAR_WIDTH_M = CONFIG.wheelbase * (0.309 * 2) * 0.865 / 0.75;  // ≈1.83 m — the RENDERED car
                                       //   body width (drawCar's native half-width 0.309 × its ART
                                       //   scale wheelbase·0.865/0.75), bound to the one ruler.
-const GRAVEL_GRASS_GAP = CAR_WIDTH_M; // m — MANDATORY grass strip between any asphalt/kerb and gravel
+const GRAVEL_GRASS_GAP = CAR_WIDTH_M; // m — grass strip between BARE ASPHALT and gravel (at a KERB
+                                      //   the gravel abuts directly — see the adjacency rule above)
 const GRAVEL_MIN_AREA = 70;           // m² — a fragment smaller than this doesn't read as a trap → dropped
 const GRAVEL_SMOOTH_R = 5;            // mask px (@4 px/m ⇒ 1.25 m) — boundary rounding radius
 const GRAVEL_MASK_PPM = 4;            // px/m for the trap raster
@@ -1163,22 +1166,25 @@ const GRAVEL_CONTRAST = 0.10;         // 0–1 — ± stone speckle as a fractio
 const GRAVEL_EDGE = '#6b6557';        // darker transition where gravel meets grass
 const GRAVEL_EDGE_PX = 3;             // px — width of that rim, INSET inside the trap edge (never
                                       //   outside: the trap edge is the mandatory grass gap)
-// Marked trap areas — [sketchX, sketchY, radius] discs, traced from the boss's beige marks
-// (screen px → sketch = px·0.7509 + [482, 55]). Over-marking is SAFE: anything inside the
-// grass gap is carved off by construction. The narrow sliver between the bottom straights is
-// deliberately NOT marked (and would be dropped anyway).
+// Marked trap areas — [sketchX, sketchY, radius] discs, traced from the boss's marks
+// (screen px → sketch = px·0.7509 + [482, 55]). Over-marking toward the track is SAFE: the
+// inner boundary is carved off by construction (see carveGap). The narrow sliver between the
+// bottom straights is deliberately NOT marked (and would be dropped anyway).
 const GRAVEL_BLOBS: Array<[number, number, number]> = [
-  // top-LEFT outer sweep + down the left perimeter
+  // top-LEFT outer sweep + down the left perimeter — KEEP (boss's red = leave as-is)
   [572, 100, 98], [707, 96, 90], [820, 108, 68], [512, 220, 75], [505, 310, 64],
-  // top-CENTRE: the two lobes flanking the middle
-  [933, 130, 83], [948, 235, 56], [963, 295, 34],
-  [1030, 123, 75], [1015, 213, 53], [1008, 273, 34],
-  // top-RIGHT outer sweep + down the right perimeter
+  // top-RIGHT outer sweep + down the right perimeter — KEEP (boss's red = leave as-is)
   [1270, 100, 90], [1420, 93, 98], [1571, 108, 83], [1608, 220, 68], [1612, 310, 56],
-  // infield LEFT patch (by the left hairpin / bottom-left kerb)
-  [707, 393, 83], [670, 461, 71], [767, 476, 75], [805, 521, 45],
-  // infield RIGHT patch (by the bottom-right kerb)
-  [1233, 393, 83], [1203, 461, 71], [1300, 476, 79], [1345, 521, 53],
+  // infield RIGHT — the boss X'd the bulk and drew a red line along the track's edge: ONLY the
+  // strip between that line and the track survives (it hugs the track side); the far side is
+  // grass again. Centres trail the infield's track edge as it runs diagonally down-left, spaced
+  // FAR closer than 2r (≈22 vs 2r≈54) so the union is a smooth tube, not a row of lumps, and the
+  // end radii taper down so it eases back into grass instead of stopping on a blunt disc.
+  [1229, 333, 20], [1229, 355, 26], [1229, 378, 28], [1222, 400, 28],
+  [1207, 423, 28], [1188, 445, 26], [1165, 468, 23], [1143, 491, 19],
+  // REMOVED per the boss's black X marks:
+  //   · the top-CENTRE trap above/inside the middle dip
+  //   · the infield LEFT patch inside the hairpin
 ];
 
 const hexRgb = (h: string): [number, number, number] =>
@@ -1211,12 +1217,23 @@ function gravelMask(): Uint8Array | null {
     c.globalCompositeOperation = 'destination-out';
     c.strokeStyle = '#000'; c.fillStyle = '#000';
     c.lineJoin = 'round'; c.lineCap = 'round';
+    // RIBBON, dilated by the gap → where the edge is BARE ASPHALT the gravel is held a full
+    // car width away (the grass strip).
     const pts = CIRCUIT_PATH.map((p) => toM(p[0], p[1]));
     c.beginPath(); c.moveTo(pts[0][0], pts[0][1]);
     for (let i = 1; i < pts.length; i++) c.lineTo(pts[i][0], pts[i][1]);
     c.closePath();
-    c.lineWidth = (CIRCUIT_TRACK_W + 2 * GRAVEL_GRASS_GAP) * P;   // ribbon + a gap each side
+    c.lineWidth = (CIRCUIT_TRACK_W + 2 * GRAVEL_GRASS_GAP) * P;
     c.stroke();
+    // KERBS, carved UNDILATED → the gravel ABUTS a kerb DIRECTLY (no grass between them).
+    // The rule falls straight out of the union: a kerb reaches FULL_W (≈4.3 m) past the ribbon
+    // edge, FURTHER than the gap-dilated ribbon (1.83 m), so on a kerbed stretch the kerb's own
+    // grass edge is what stops the gravel; on a bare stretch the dilated ribbon is. At a wedge
+    // tip the kerb thins away and the dilated ribbon takes over ⇒ the transition from
+    // abutting-the-kerb to grass-strip is automatic and smooth. `KERB_SEAL` only closes the
+    // hairline seams between adjacent kerb quads (they are separate slices) — it is a
+    // quarter-metre, not a gap.
+    const KERB_SEAL = 1;   // mask px
     for (const q of CIRCUIT_KERBS) {
       const a = toM(q.a[0], q.a[1]), b = toM(q.b[0], q.b[1]);
       const d = toM(q.c[0], q.c[1]), e = toM(q.d[0], q.d[1]);
@@ -1224,7 +1241,7 @@ function gravelMask(): Uint8Array | null {
       c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.lineTo(d[0], d[1]); c.lineTo(e[0], e[1]);
       c.closePath();
       c.fill();
-      c.lineWidth = 2 * GRAVEL_GRASS_GAP * P; c.stroke();          // kerb quad + a gap all round
+      c.lineWidth = KERB_SEAL; c.stroke();
     }
     c.globalCompositeOperation = 'source-over';
   };

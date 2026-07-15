@@ -3475,3 +3475,33 @@ pushed it TOWARD the asphalt and cut the gap to 1.17 m (400 real violations). Th
 rim (the mask is ERODED via `destination-in` intersection at 8 offsets, dark drawn at full footprint, stone
 inset on top) — nothing is ever painted outside the mask, so the gap cannot be breached. Also note a single
 scaled `drawImage` is a SCALE about the centre, NOT a dilation (the rim would vanish mid-canvas).
+
+---
+**CIRCUIT MAP — GRAVEL TRAP REVISION (boss's X/red marks) + NEW ADJACENCY RULE:** still VISUAL ONLY
+(maps.ts only; physics.ts + physics4.ts + `surfaceAt`/`circuitMask` untouched — gravel reads 'grass').
+**(1) REMOVED (black X):** the top-CENTRE trap above/inside the middle dip, and the infield-LEFT patch
+inside the hairpin — their `GRAVEL_BLOBS` entries are deleted. **(2) INFIELD RIGHT (X + red line):** the
+bulk is gone; only the strip between the boss's red line and the track survives. Probing the infield showed
+the open area is x≈1000–1240 with the track edge running diagonally (980,360)→(820,600) — the red line hugs
+that edge — so the strip is a narrow band ON the track edge, authored as 8 discs (r 19–28) trailing it,
+spaced ≈22 vs 2r≈54 so the union is a SMOOTH tube (not a row of lumps) with the end radii tapered so it eases
+back into grass. **(3) THE NEW ADJACENCY RULE — and it falls straight out of the union, no special-casing:**
+`carveGap` now carves `dilate(ribbon, GRAVEL_GRASS_GAP) ∪ kerbs(UNDILATED)`. A kerb reaches FULL_W (≈4.3 m)
+past the ribbon edge, FURTHER than the gap-dilated ribbon (1.83 m) — so on a KERBED stretch the kerb's own
+grass edge stops the gravel (they ABUT, no grass between), and on a BARE stretch the dilated ribbon does
+(the car-width grass strip survives). At a wedge tip the kerb thins away and the dilated ribbon takes over ⇒
+the abut→grass-strip transition is automatic and smooth. `KERB_SEAL` (1 mask px) only closes the hairline
+seams between adjacent kerb quads. **(4) LEFT AS-IS (boss's red = keep):** the top-left and top-right outer
+sweep traps + the right-side outer areas — extents unchanged, only their inner edges re-fitted by rule 3.
+**MEASURED:** total trap area **8601 → 3648 m²**; right-infield strip **423 m² in exactly 1 connected piece**
+(was fragmenting into lumps until the discs were packed tighter); **bare-asphalt violations 0, minimum gap to
+BARE asphalt = 1.83 m = exactly one car width**; **351 gravel px abut a kerb**. VERIFIED BY EYE (PNG harness):
+full map + (a) the infield strip smooth/tapered along the track, (b) gravel touching the blue kerb with NO
+grass between, (c) the grass strip retained off bare asphalt. tsc + build clean.
+**⚠️ HONEST NOTES:** (a) the verification check had to be rebuilt — the MASK cannot tell a kerb from the
+ribbon (both are 'asphalt'), so it is used only for "is this track surface" and the RENDER colour decides
+kerb-vs-bare. An earlier looser test also mis-read the gravel→grass ANTI-ALIASED blend (≈108,118,101) as
+"asphalt" and reported 3232 phantom violations. (b) The abut rule has a genuinely SMALL footprint on what
+remains — the traps that heavily bordered kerbs (the infield ones beside the apex kerbs) are exactly the ones
+the boss removed/cut, so the real contacts are where the top-left/top-right traps meet the left/right
+perimeter kerbs and where the strip's top meets the right hump's wedge.
