@@ -905,7 +905,7 @@ phone→desktop `join | color | name | leave | control`; desktop→phone `lobby 
   grass freely). Globally-smooth ribbon (control points → centripetal Catmull-Rom →
   arc-length resample to 1000 pts → box-blur → resample; no sharp edges). Dead-flat
   horizontal FINISH straight near the bottom edge; spawn on it. Fits ONE screen at
-  the standard car size (a follow-camera was tried + REVERTED — §3). **F1-style
+  the standard car size (a follow-camera was tried + REVERTED — §3). **GRAND-PRIX-STYLE
   KERBS** (`CIRCUIT_KERBS`, visual + drivable): red/white striped kerbs on the OUTER
   (grass-side) edge as track EXTENSIONS (asphalt width intact) with a solid BLUE
   strip on the grass side, CONSTANT arc-length stripes, tapered transitions, and
@@ -983,7 +983,10 @@ phone→desktop `join | color | name | leave | control`; desktop→phone `lobby 
 - Browser-first, NOT native/download (zero-friction QR; Steam possibly later as packaged
   Electron, after traction).
 - The fake desktop is drawn art (the browser can't read the real desktop — security).
-- Cars/tracks: may EVOKE a WRC/Impreza look+feel, but NO real logos/names/liveries.
+- Cars/tracks: may EVOKE a 90s rally look+feel, but NO real logos/names/liveries — and that
+  applies to the CODE too: no real make/model/parts/championship/tyre names in comments or
+  strings anywhere in the repo. Public identity is Blitz RS only; describe the physics fact
+  (the number, the spec, the era) instead of naming the car it came from.
 - Spawn on the desktop map = center, multiple cars offset (no overlap).
 - Track type is driven by the presence of a FINISH (finish = sprint A->B; start only = circuit).
 - Success is measured by: "If you show it to three people at school, do they immediately

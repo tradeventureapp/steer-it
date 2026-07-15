@@ -117,13 +117,13 @@ export interface TireProfile {
 }
 
 // D-tunable defaults (the boss tunes these live; mutated in place like CONFIG).
-// GROUP A SIM (E30 M3 Group A / DTM ref — public name Blitz RS): a realistic
-// early-90s circuit race special. High realistic slick grip, decisive breakaway,
-// race brakes, ~1020 kg stripped weight, 370 hp. The honest per-wheel sim
-// benchmark (a separate forgiving ARCADE car is built on top later).
+// THE SIM CAR (Blitz RS): a realistic early-90s circuit race special, built to the
+// touring-car racing homologation spec this car is anchored to. High realistic slick
+// grip, decisive breakaway, race brakes, ~1020 kg stripped weight, 370 hp. The honest
+// per-wheel sim benchmark (a separate forgiving ARCADE car is built on top later).
 export const PHYS4: Physics4Params = {
-  massKg: 1020,            // Group A stripped race weight (was 1200)
-  weightDistFront: 0.53,   // real E30 M3 ~52/48 front + race setup → the STABILITY MARGIN (neutral-steer-point BEHIND the CoM = directionally stable under throttle, no power-oversteer divergence)
+  massKg: 1020,            // stripped homologation-spec race weight (was 1200)
+  weightDistFront: 0.53,   // a real road-going coupe of this layout sits ~52/48 front; race setup adds a touch → the STABILITY MARGIN (neutral-steer-point BEHIND the CoM = directionally stable under throttle, no power-oversteer divergence)
   cgHeight: 0.45,          // lowered race car → less load transfer → planted
   yawInertiaK: 1.20,       // Iz = 1020·1.20² ≈ 1469 (agile; was 1875)
   loadTransferLongGain: 1.5,  // the stable-margin balance plants the rear → trail-braking needs this transfer for the rear to become mobile (subtle real rotation; a dramatic one would need an oversized ~1.65 or a less-stable balance)
@@ -135,7 +135,7 @@ export const PHYS4: Physics4Params = {
   tireEllipseLong: 1.3,    // REAL slick: μ_long ≈ 1.3× μ_lat → the ellipse is elongated longitudinally so throttle on a fast-corner exit doesn't crush the rear's lateral grip to 0 (the power-oversteer spin-out). Normal exit GRIPS, full-throttle-at-the-limit is a CATCHABLE slide (not an uncatchable spin)
   relaxLength: 0.5,
   lowSpeedBlend: 2.5,
-  maxSteer: 0.56,          // 32° front wheel lock — the real E30 M3 lock (washout solved by the broad slick peak, not by cutting the lock)
+  maxSteer: 0.56,          // 32° front wheel lock — the real lock of the period race coupe this is built to (washout solved by the broad slick peak, not by cutting the lock)
   pneumaticTrail: 0.06,    // m — REAL pneumatic trail (~10-15% of the contact patch); the 0.22 band-aid is GONE (stability now comes from the weight-distribution margin, real physics)
   trailPeakSlip: 0.19,     // rad ≈ 11° — trail collapses at the broad-slick force peak (steering goes light at the limit)
   yawDampConst: 150,       // SMALL, physically-legitimate yaw-rate damping = real suspension ROLL DAMPING a point-model omits (NOT the 1100 band-aid)
@@ -158,7 +158,7 @@ export const PHYS4: Physics4Params = {
   engineBrakeSlideFade: 0.9,
   wheelInertiaSlideFactor: 0.55,
   wheelReturnRate: 10,
-  reverseSpeed: 14,       // m/s ≈ 50 km/h — boss's practical choice for reversing out on the oval (real Getrag 265 ceiling is ~40 km/h; slightly above, deliberately, still close to real not arcade)
+  reverseSpeed: 14,       // m/s ≈ 50 km/h — boss's practical choice for reversing out on the oval (a period racing gearbox's reverse ceiling is ~40 km/h; slightly above, deliberately, still close to real not arcade)
   reverseForce: 10000,    // N → ~8.3 m/s² backward = quick pickup, not a crawl
   reverseDelay: 0.5,
   // Blitz RS = race SLICKS: superb on tarmac, hopeless off it. asphalt 1.0 is EXACT so every
