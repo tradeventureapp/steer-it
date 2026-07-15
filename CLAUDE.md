@@ -3368,3 +3368,20 @@ the tarmac reads as one continuous, slightly gritty real surface — no centre b
 tiling; whole-track view confirms it. **SEAMS RE-CHECKED with the new surface underneath:** CURVE 504 quads
 → **0 slivers**, STRAIGHT 67 quads → **0 slivers** (`asph|R/W|BLUE|grass`). The grass-edge feather from the
 previous pass is unchanged. **physics.ts UNTOUCHED** → `step()` 0.0e+0. tsc + build clean.
+
+---
+**CIRCUIT MAP — ASPHALT REVERTED to the plain grey gradient (the grain look was rejected); centre band
+STAYS removed:** the boss's verdict on 8fe8bac was that the grain/texture look is bad. Since **b98bcc4 is
+exactly 8fe8bac's parent**, the surface was restored from history — `git checkout b98bcc4 -- src/maps.ts`
+(NOT hand-edited → the gradient pass is byte-identical to pre-8fe8bac) — and then the ONE thing worth
+keeping from 8fe8bac, the centre-band removal, was re-applied. **REMOVED (entirely, no dead code left):**
+the grain tile + LCG generator + pattern code (`asphaltGrainTile`, `_grainTile`), the weathering patches,
+every `ASPHALT_GRAIN_*` / `ASPHALT_PATCH_*` constant, and the helpers they pulled in (`mixHex`, `hexRgb`,
+`clamp255`, `shiftRgba`) — all of them existed only in 8fe8bac, so the restore took them out cleanly
+(`grep` count for the lot = **0**). **RESTORED:** the original vertical tarmac gradient
+(`asf` = `ringInner` → `ringOuter`, `lineWidth twPx`). **KEPT:** the centre-band removal (the
+`a.lineStroke` at `twPx·0.3` pass is deliberately NOT drawn — `a.lineStroke`'s only remaining user is
+`drawStadiumSurface`, i.e. the ovals), the soft asphalt→grass FEATHER (`CIRCUIT_EDGE_FEATHER` 0.012 /
+alphas 0.15 + 0.30) from b98bcc4, and the kerbs — all byte-identical. **VERIFIED:** `git diff b98bcc4 --
+src/maps.ts` is EXACTLY the racing-line pass removal and nothing else ⇒ gradient + feather + kerbs
+untouched. Circuit only; ovals untouched. **physics.ts UNTOUCHED** → `step()` 0.0e+0. tsc + build clean.
