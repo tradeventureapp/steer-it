@@ -90,11 +90,16 @@ export interface Physics4Params {
   // physics change: per-wheel drive + the friction circle already make AWD-on-loose emerge.
   tire: TireProfile;
   grassDragPerWheel: number;  // N·s/m — GRASS: linear drag on this wheel's CONTACT-POINT velocity
-  // GRAVEL is deep loose stone: the wheel DIGS IN, so the defining term is a CONSTANT plowing
-  // resistance (speed-independent) — that is what actually STOPS the car instead of letting it
-  // glide. The linear term is a small addition on top, not the main effect.
+  // GRAVEL is deep loose stone. Two PHYSICALLY DISTINCT effects, deliberately decoupled — one
+  // number could not serve both (braking and exit fight over it):
+  //   • STATIC DIGGING — the constant. Speed-independent, so it still bites at walking pace.
+  //     This is the term the driver fights when crawling OUT, so it alone sets exit difficulty.
+  //   • MOMENTUM TRANSFER to displaced stones — the quadratic. Plowing at speed throws mass
+  //     aside, and the rate you shovel it scales with v²; this owns the high-speed BRAKING.
+  // So: raise quad to brake harder, lower const to make the exit easier — independently.
   gravelDragConst: number;    // N per wheel, opposing the contact-velocity DIRECTION
   gravelDragLin: number;      // N·s/m per wheel, on top of the constant
+  gravelDragQuad: number;     // N·s²/m² per wheel — the v² stone-displacement term
 }
 
 // How one tyre compound behaves on each ground: a ×scale on that wheel's μ. This lives with
@@ -180,8 +185,9 @@ export const PHYS4: Physics4Params = {
   // and it also overshoots (a) at 1.7 traps. At 600 the drag is 2400 N: feathering (κ near the
   // MF peak → ~3128 N) MOVES it, full throttle (spun → ~1839 N) digs a hole ⇒ exactly the
   // throttle-sensitive escape the brief asks for, and it lands inside the 2–3 trap band.
-  gravelDragConst: 600,
+  gravelDragConst: 300,
   gravelDragLin: 15,
+  gravelDragQuad: 2.5,
 };
 
 const GRAVEL_EPS = 0.5;       // m/s — taper the constant plow drag below this (no rest jitter)
@@ -467,14 +473,18 @@ export function step4(
       fbx -= p.grassDragPerWheel * vwx;
       fby -= p.grassDragPerWheel * vwy;
     } else if (ground === 'gravel') {
-      // DEEP LOOSE STONE — the wheel digs in. A CONSTANT plowing force opposing the contact
-      // velocity's DIRECTION (speed-independent, so it keeps biting at walking pace and
-      // actually brings the car to a STOP), plus a small linear term. It uses the FULL contact
-      // velocity vector, so a sideways slide plows stones exactly as hard as a forward one and
-      // dies — no separate lateral term. Tapered below GRAVEL_EPS so a parked car can't jitter.
+      // DEEP LOOSE STONE — the wheel digs in. Three terms opposing the contact velocity's
+      // DIRECTION: the CONSTANT static digging (bites at walking pace → sets how hard it is to
+      // crawl OUT), a small linear term, and the QUADRATIC stone-displacement term (owns the
+      // high-speed braking). All three use the FULL contact velocity vector, so a sideways
+      // slide plows stones exactly as hard as a forward one and dies — no separate lateral
+      // term. The whole magnitude is tapered below GRAVEL_EPS so a parked car can't jitter:
+      // the taper covers the quad term too, which matters because v² alone would leave a
+      // stiff force gradient at the rest boundary.
       const vc = Math.hypot(vwx, vwy);
       if (vc > 1e-6) {
-        const mag = p.gravelDragConst * Math.min(1, vc / GRAVEL_EPS) + p.gravelDragLin * vc;
+        const taper = Math.min(1, vc / GRAVEL_EPS);
+        const mag = (p.gravelDragConst + p.gravelDragLin * vc + p.gravelDragQuad * vc * vc) * taper;
         fbx -= mag * (vwx / vc);
         fby -= mag * (vwy / vc);
       }

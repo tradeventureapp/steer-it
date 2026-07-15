@@ -3656,3 +3656,54 @@ off-road path is provably DEAD CODE off the traps. `physics.ts` UNTOUCHED (empty
 mapped type, since `PHYS4.tire` is a structured profile). **NEXT: boss drives into a trap (X → PHYSICS4) —
 it should plow to a stop in ~2-3 trap lengths, spray pale stone + gouge wide tracks while digging, sit and
 dig a hole at full throttle, and crawl out on a feathered ~0.4.**
+
+---
+**GRAVEL TUNE — QUADRATIC STONE-DISPLACEMENT TERM (braking and exit DECOUPLED; the boss's physical
+call was right — measured):** the boss drove it and wanted (1) much stronger braking + (2) an easier
+exit; one constant provably could not do both (the earlier sweep: braking and exit fight over the same
+number). FIX per his design = **decouple them physically** — add a QUADRATIC drag term, since granular
+plowing has a strong speed-dependent component (momentum transfer to displaced stones, ∝v²) while the
+near-zero-speed resistance is only the static digging term. `CONFIG.gravelDragQuad` **2.5** N·s²/m² per
+wheel, folded into the SAME vector magnitude + the SAME low-speed taper (`mag = (const + lin·vc +
+quad·vc²) · min(1, vc/GRAVEL_EPS)`; the taper now covers ALL terms — v² alone would leave a stiff force
+gradient at the rest boundary). `gravelDragConst` **600 → 300** (halves the crawl resistance), `gravelDragLin`
+15 unchanged. **THE DECOUPLING IS REAL, MEASURED:** at 1 m/s the quad term contributes 4×2.5×1² = **10 N**
+(crawl resistance 1260 → 1270 N = untouched), while at 41.7 m/s it contributes 4×2.5×1736 = **17 kN** →
+stop 189 → 93 m. So quad = braking, const = exit, independently — exactly the physical claim.
+**FINE GRID (const × quad; * = target hit):**
+```
+  const quad |  stop150  traps | exit@0.4 5s   v      10m | resist | FULL-TH: 5s   v    ws | latDie
+   250    2  |  105 m   1.9 * |  18.2 m  23.9   3.6s |  1068* |  9.1 m 11.1 100%* |  2.17s
+   300    1  |  133 m   2.4   |  16.9 m  22.5   3.8s |  1264* |  7.0 m  8.4 100%* |  2.32s
+   300    2  |  103 m   1.9 * |  16.6 m  21.8   3.8s |  1268* |  7.0 m  8.2 100%* |  2.10s
+  *300   2.5 |   93 m   1.7 * |  16.5 m  21.5   3.8s |  1270* |  6.9 m  8.1 100%* |  2.03s*  ← shipped
+   300    3  |   85 m   1.5 * |  16.4 m  21.2   3.8s |  1272* |  6.9 m  8.1 100%* |  2.00s
+   350    2  |  100 m   1.8 * |  15.1 m  19.7   4.0s |  1468  |  5.0 m  5.3 100%* |  2.07s
+   400    2  |   98 m   1.8 * |  13.5 m  17.5   4.2s |  1668  |  3.3 m  3.0 100%* |  2.02s
+   (quad ≥ 6 overshoots hard: stop collapses to ~55 m = 1.0 trap. quad 0 = the old 160-189 m.)
+```
+Six cells hit all four; **300 / 2.5** is dead centre of the stop window and halves the crawl resistance
+exactly. **TARGETS:** (a) stop from 150 km/h **160 → 93 m = 1.7 trap-lengths** ✓ [target 1.5-2.0] (grass
+254 m = 4.6); (b) exit **~2× easier — crawl resistance 2460 → 1270 N = 0.52×**, 10 m at throttle 0.4 in
+**6.1 → 3.8 s = 0.62×**, 5 s distance **7.2 → 16.5 m** ✓; (d) lateral **2.20 → 2.03 s / 22.3 m** (grass
+4.32) ✓ and the **taper is CLEAN — 0 sign-flips settling from 0.45 m/s inside GRAVEL_EPS, rest |v| exactly
+0.0e+0**, parked 3 s moves 0.0000 m ✓. **THE ESCAPE MECHANIC SHARPENED** (throttle → 5 s distance):
+`0.2 → 0.0 m · 0.3 → 3.4 (3% ws) · 0.35 → 9.5 · 0.4 → 16.5 m (7% ws) · 0.5 → 7.9 (100% ws) · 1.0 → 6.9`
+= a clear BITE POINT at 0.4 and a cliff into wheelspin above it.
+**⚠️ HONEST MISS — target (c) is NOT fully "unchanged", and it's the SAME coupling as before:** full
+throttle now creeps **6.9 m / 8.1 km/h in 5 s (was 1.8 m / 1.3 km/h)**, still at **100% wheelspin**.
+Cause: (b) and (c) BOTH live at crawl speed and are BOTH governed by `const` — the quad term is ~0 there
+by construction, so it cannot separate them. Halving const to make the exit easier necessarily makes the
+full-throttle crawl faster too; the grid shows it monotonically (const 600→300 ⇒ dig 1.8→7.0 m). **The
+mechanic survives intact** — feathering (16.5 m) still beats mashing (6.9 m) by **2.4×**, and full
+throttle is 100% wheelspin throwing stones — but it is a slow crawl, not literally on the spot.
+**THE LEVER IF THE BOSS WANTS (c) BACK — NOT ADDED (reported per the report-before-adding rule):** the
+physically-honest fix is to make the digging term scale with WHEELSPIN — a spinning wheel EXCAVATES and
+sinks, and the deeper it sits the more it plows (`const · (1 + digGain · wheelSpin)`). That is a real
+granular effect and it decouples exactly the right pair: feathered (no spin) keeps the easy 300, full
+spin digs itself into a much higher resistance. One prompt away; NOT built unasked.
+**SAFETY:** ARCADE / desktop / ovals / circuit-on-asphalt **0.0e+0** (absurd off-road params, drag 9e5 /
+μ×1e-4, change NOTHING ⇒ dead code off the traps); **grass byte-identical — top 80 km/h, cornering 0.52 g**;
+μ profile / spray / tracks / mask all untouched. `physics.ts` UNTOUCHED (empty diff). tsc + build clean.
+**TUNABLES (both live on the D tuner, now decoupled):** `gravelDragConst` **300** = how hard it is to crawl
+OUT · `gravelDragQuad` **2.5** = how hard it BRAKES at speed · `gravelDragLin` 15.
