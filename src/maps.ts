@@ -1187,47 +1187,51 @@ const GRAVEL_BLOBS: Array<[number, number, number]> = [
   //   · the infield LEFT patch inside the hairpin
 ];
 
-// Revision-2 additions are authored as STROKES — a centre polyline + radius — rather than
-// hand-placed discs, because hand-spacing them is exactly how you get a string of beads (get
-// the spacing wrong by a few units and 2r < spacing ⇒ the discs stop touching). `strokeDiscs`
-// expands each at r/2 spacing, which guarantees a smooth tube, and tapers the end radii so a
-// trap eases back into grass instead of stopping on a blunt disc.
+// Revision-2/3 additions are authored as STROKES — a centre polyline with a PER-POINT radius —
+// rather than hand-placed discs, because hand-spacing them is exactly how you get a string of
+// beads (get the spacing wrong by a few units and 2r < spacing => the discs stop touching).
+// `strokeDiscs` expands each at rMin/2 spacing, which guarantees a smooth tube.
+// The radius VARIES along the stroke, which is what lets ONE stroke both (a) swell to fill a
+// corner wedge right out to the world edge and (b) start at a neighbouring trap's own local
+// width so the two merge FLUSH (no step/shoulder), then taper away to nothing.
 // The paths deliberately run OVER the kerb where they should ABUT it: the carve only ever
-// REMOVES, so a disc that stops short of the kerb leaves grass between — to abut, the shape
-// must overlap the kerb and let carveGap trim it back to the kerb's own edge.
-const GRAVEL_STROKES: Array<{ pts: Pt[]; r: number }> = [
-  // BOTTOM-LEFT (red hatch) — the open wedge OUTSIDE the lower-left sweep's perimeter kerb.
-  // The centreline runs ALONG the kerb's outer edge (which falls diagonally across the corner)
-  // so the discs straddle it: carveGap trims the inner half off and the gravel ABUTS the kerb.
-  { pts: [[508, 513], [550, 581], [595, 626], [643, 667], [696, 701]], r: 52 },
-  // BOTTOM-RIGHT (red hatch) — the mirror wedge outside the lower-right sweep.
-  { pts: [[1612, 513], [1571, 581], [1526, 626], [1481, 667], [1436, 701]], r: 52 },
-  // TOP-MIDDLE-LEFT (red outline) — a tongue down the middle dip's left flank, so the trap
-  // flows on along the track edge instead of ending abruptly.
-  { pts: [[850, 138], [869, 186], [884, 235], [899, 280], [914, 322]], r: 28 },
-  // TOP-MIDDLE-RIGHT (red outline) — eases the gravel across to the top-right sweep's trap.
-  { pts: [[1195, 78], [1158, 115], [1128, 153], [1102, 190]], r: 24 },
+// REMOVES, so a shape that stops short of the kerb leaves grass between — to abut, it must
+// overlap the kerb and let carveGap trim it back to the kerb's own edge. Over-reaching is
+// always SAFE (the carve + the world bounds clip it); under-reaching is what leaves a gap.
+const GRAVEL_STROKES: Array<Array<[number, number, number]>> = [
+  // BOTTOM-LEFT (red hatch) — the FULL outer edge: down the left perimeter (closing the gap
+  // between the top-left trap and the corner) and out into the bottom-left corner, the radius
+  // SWELLING so the widening wedge is filled right out to the world edges (which clip it).
+  [[490, 340, 34], [491, 408, 34], [497, 476, 38], [518, 543, 52],
+   [548, 603, 76], [578, 656, 98], [598, 704, 124]],
+  // BOTTOM-RIGHT (red hatch) — the mirror.
+  [[1628, 340, 34], [1626, 408, 34], [1620, 476, 38], [1599, 543, 52],
+   [1569, 603, 76], [1539, 656, 98], [1519, 704, 124]],
+  // TOP-MIDDLE-LEFT (red outline) — a tongue down the middle dip's left flank. It STARTS at the
+  // top-left trap's own local radius (66) so the two merge flush instead of leaving a shoulder,
+  // then tapers away down the flank.
+  [[850, 134, 66], [869, 186, 45], [884, 235, 34], [899, 280, 27], [914, 322, 20]],
+  // TOP-MIDDLE-RIGHT (red outline) — same, from the top-right sweep's trap toward the dip.
+  [[1203, 74, 56], [1158, 115, 39], [1128, 153, 29], [1102, 190, 20]],
 ];
 function strokeDiscs(): Array<[number, number, number]> {
   const out: Array<[number, number, number]> = [];
-  for (const s of GRAVEL_STROKES) {
+  for (const pts of GRAVEL_STROKES) {
     const seg: number[] = [];
     let total = 0;
-    for (let i = 0; i < s.pts.length - 1; i++) {
-      const L = Math.hypot(s.pts[i + 1][0] - s.pts[i][0], s.pts[i + 1][1] - s.pts[i][1]);
+    for (let i = 0; i < pts.length - 1; i++) {
+      const L = Math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]);
       seg.push(L); total += L;
     }
     if (total <= 0) continue;
-    const step = Math.max(1, s.r / 2);          // ≤ r/2 ⇒ the union is a tube, not beads
+    const step = Math.max(1, Math.min(...pts.map((p) => p[2])) / 2);   // => a tube, never beads
     for (let t = 0; t <= total; t += step) {
       let d = t, i = 0;
       while (i < seg.length - 1 && d > seg[i]) { d -= seg[i]; i++; }
       const f = seg[i] > 0 ? Math.min(1, d / seg[i]) : 0;
-      const x = s.pts[i][0] + (s.pts[i + 1][0] - s.pts[i][0]) * f;
-      const y = s.pts[i][1] + (s.pts[i + 1][1] - s.pts[i][1]) * f;
-      const u = t / total;                      // taper the last quarter at each end
-      const e = Math.min(Math.min(u, 1 - u) / 0.25, 1);
-      out.push([x, y, s.r * (0.5 + 0.5 * (e * e * (3 - 2 * e)))]);
+      const lerp = (a: number, b: number) => a + (b - a) * f;
+      out.push([lerp(pts[i][0], pts[i + 1][0]), lerp(pts[i][1], pts[i + 1][1]),
+        lerp(pts[i][2], pts[i + 1][2])]);
     }
   }
   return out;

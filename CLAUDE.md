@@ -3538,3 +3538,32 @@ abutting the kerb wedge at its foot); top-mid-right keeps the grass strip. tsc +
 **HONEST NOTE:** top-mid-right reports **0 kerb-touching px — and that is CORRECT**, not a miss: the probe
 shows no kerb anywhere in that area (it is all bare asphalt), so rule 3 says the car-width grass gap applies
 there, which is what it does.
+
+---
+**CIRCUIT MAP — GRAVEL REVISION 3 (fill the bottom corners everywhere + level the top joins):** the boss's
+marks said the bottom corners still had gravel MISSING and the added top gravel didn't line up with the
+pre-existing traps. Still VISUAL ONLY (maps.ts only; physics.ts + physics4.ts + `surfaceAt`/`circuitMask`
+untouched). **ROOT CAUSE — one thing caused all of it: the strokes had a FIXED radius.** A fixed radius
+can't (a) swell to fill a corner wedge that widens from ~20 px at the top to ~290 px at the world corner,
+nor (b) match a neighbouring trap's local width at a junction — so it left an outer band of grass in both
+corners AND a visible step/shoulder where the narrow tongue (r 28) met the wide top-left trap (r 66–98).
+**FIX:** `GRAVEL_STROKES` entries are now `[x, y, r]` per point with the radius INTERPOLATED along the
+stroke (`strokeDiscs` spacing = rMin/2 ⇒ still a tube, never beads; the explicit per-point r replaced the
+old auto-taper). The bottom strokes now run the FULL outer edge — down the left/right perimeter (closing the
+y≈420–560 gap between the top traps and the corner) and out into each corner with the radius SWELLING
+15→124, so the wedge is filled right out to the world edges (which clip it). The top tongues now START at
+the neighbouring trap's own local radius (66 left / 56 right) and taper away ⇒ they merge FLUSH.
+**METHOD — the gaps were FOUND, not guessed:** a per-area ASCII map marking `M` = "the adjacency rules ALLOW
+gravel here but there is none" located every hole: the bottom-left/right outer wedges, the y 420–560 left-edge
+gap, and a y 540–560 right-edge gap. **MEASURED:** total gravel 5674 → **6808 m²**; bottom-left corner
+**1196 m²**, bottom-right **1117 m²** (both were leaving an outer grass band); kerb-touching gravel 376 →
+**515 px**; **bare-asphalt violations 0, min gap to BARE asphalt = 1.83 m = exactly one car width** (the
+rules survived the fill). VERIFIED BY EYE: both corners now fill completely to the world edges while abutting
+the blue kerb, gravel runs continuously down both side edges from the top traps into the corners, and the
+top-left junction's step is gone. tsc + build clean.
+**HONEST NOTES:** (a) a first attempt at the edge strips still dropped out in places — the strip between the
+world edge and the kerb is only ~20–40 px wide and the smoothing pass (blur r=5 ⇒ ~13 mask px) erodes
+anything that thin, so the edge radii were widened to 34–38 (safe: the carve trims them back to the kerb).
+(b) The corner-coverage metric still reports ~450 m² "missing" per corner — that is the lower sweeps' INFIELD,
+which the boss never marked and which correctly stays grass; the box is coarser than the marks, so the render
+is the judge there, not the number.
