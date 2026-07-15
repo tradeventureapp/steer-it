@@ -3296,3 +3296,24 @@ tangential curve (750b29d), the tip removal (77308d1), and the exact-math rewrit
 **VERIFIED:** working tree `git diff a274563 -- src/maps.ts` = EMPTY (byte-identical to a274563).
 **physics.ts UNTOUCHED** → `step()` 0.0e+0. tsc + build clean. (The pre-tip state also has the smooth
 ribbon / kerbs / cuts / extends / outer run / blue-only zone — only the wedge-END tip behaviour reverted.)
+
+---
+**CIRCUIT MAP — WEDGE TIPS TRIMMED + ROUNDED (boss's black mark; ONE tunable):** the reverted wedge ran out
+to a long needle tip; now every wedge ENDS EARLY and is closed with a rounded nose. **THE ONE KNOB:
+`KERB_TIP_CLIP` = 0.40** = a fraction of `KERB_BLUE_WIDTH` — the wedge is clipped where its outer reach from
+the asphalt edge falls to `KERB_TIP_CLIP · KERB_BLUE_WIDTH` (**W_CLIP = 2.23 sketch-u**, ≈0.5 m). HIGHER =
+trims more / blunter nose · LOWER = longer, finer tip (0 = no trim). Because the taper is linear
+(`outer(dist) = FULL_W·(1 − dist/L)`), the clip sits at a CONSTANT arc past every hard cut —
+**DIST_CLIP = 30.94 of KERB_BLUE_TAIL 35 → the last 4.06 arc-u (11.6 % of the tail) is removed** — so all
+12 ends are trimmed identically (canonical, like the arc-length tail itself). Implementation (maps.ts only,
+in `emitKerb`): quads wholly inside the clip are emitted BYTE-IDENTICALLY; the segment straddling the clip
+emits a part-quad to an INTERPOLATED clip cross-section (lerped path point + renormalised normal, so the
+clip lands exactly at W_CLIP, not at a quad boundary); quads beyond it are skipped (the old needle);
+`emitCap` then closes it with a **half-disc** across the end cross-section (`−KERB_SEAM → +W_CLIP`),
+bulging along the outward path direction, swept θ 0→π from the outer edge round to the asphalt edge as a
+12-segment triangle fan (`CAP_SEGS`) → a smooth convex nose, no sharp corner, no straight chop.
+**VERIFIED BY EYE** (the k19/k20 PNG-export harness — canvas → toDataURL → PNG on disk → opened it):
+rendered the circuit + 7×-zoom crops of 4 wedge ends (curved apex ends AND the bottom-straight end) —
+every one ends in a clean rounded nose, needle gone, taper before the clip unchanged. Stripes / hard cuts /
+full width at the cut / blue-only zone / arc-length uniformity / seam fix / soft stroke all untouched.
+**physics.ts UNTOUCHED** → `step()` 0.0e+0. tsc + build clean.

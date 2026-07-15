@@ -813,6 +813,11 @@ const KERB_BLUE_TAIL = 35;            // arc-length (sketch u, ~3.5 stripe block
                                       //   STEADILY inward to the asphalt edge until it vanishes
 const KERB_WIDTH = CS_BAND * 0.11;    // red/white kerb reach into the grass = track WIDENING (≈3 m)
 const KERB_BLUE_WIDTH = CS_BAND * 0.045;  // solid BLUE border strip beyond it (grass side)
+// TIP TRIM — THE ONE TUNABLE (boss's black mark): the wedge is ENDED EARLY, where its reach
+// from the asphalt edge has fallen to this fraction of KERB_BLUE_WIDTH, and closed with a
+// ROUNDED nose instead of running out to a needle point. Everything before the clip is
+// untouched. HIGHER = trims more / blunter nose · LOWER = longer, finer tip (0 = no trim).
+const KERB_TIP_CLIP = 0.40;
 const KERB_STRIPE = 10;               // stripe length in KERB-EDGE arc (sketch units ≈2.2 m,
                                       //   CONSTANT physical size on gentle + sharp corners)
 const KERB_RED = '#c9382f', KERB_WHITE = '#e8e8ee', KERB_BLUE = '#2f6fca';
@@ -954,9 +959,53 @@ const CIRCUIT_KERBS: KerbQuad[] = ((): KerbQuad[] => {
       const t = Math.min(1, dist / KERB_BLUE_TAIL);      // 0 at the cut → 1 at the tail end
       return [-KERB_SEAM, FULL_W * (1 - t)];             // full band at the cut, steady wedge to 0
     };
+    // TIP TRIM — the wedge ENDS where its outer reach has fallen to W_CLIP, closed with a
+    // rounded nose. outer(dist) = FULL_W·(1 − dist/L) ⇒ the clip sits at a CONSTANT arc past
+    // each hard cut, so every end is trimmed identically (canonical, like the tail itself).
+    const W_CLIP = KERB_TIP_CLIP * KERB_BLUE_WIDTH;                 // clip width (sketch u)
+    const DIST_CLIP = KERB_BLUE_TAIL * (1 - W_CLIP / FULL_W);       // arc past the cut where outer == W_CLIP
+    const tailDist = (k: number) => arc[k] < stripeStartArc ? stripeStartArc - arc[k]
+      : (arc[k] >= stripeEndArc ? arc[k] - stripeEndArc : 0);       // 0 inside the body (never clipped)
+    const lerpPt = (p: Pt, q: Pt, f: number): Pt => [p[0] + (q[0] - p[0]) * f, p[1] + (q[1] - p[1]) * f];
+    // ROUNDED NOSE: a half-disc across the blue's end cross-section, bulging along `dir` (the
+    // outward path direction) — a smooth convex arc from the outer edge round to the asphalt
+    // edge, no sharp corner, no straight chop. Emitted as a triangle fan (degenerate quads).
+    const CAP_SEGS = 12;
+    const emitCap = (p: Pt, n: Pt, dir: Pt) => {
+      const inner: Pt = [p[0] + n[0] * (CS_BAND / 2 - KERB_SEAM), p[1] + n[1] * (CS_BAND / 2 - KERB_SEAM)];
+      const outer: Pt = [p[0] + n[0] * (CS_BAND / 2 + W_CLIP), p[1] + n[1] * (CS_BAND / 2 + W_CLIP)];
+      const ctr: Pt = [(inner[0] + outer[0]) / 2, (inner[1] + outer[1]) / 2];
+      const r = Math.hypot(outer[0] - ctr[0], outer[1] - ctr[1]) || 1e-6;
+      const ux = (outer[0] - ctr[0]) / r, uy = (outer[1] - ctr[1]) / r;          // centre → outer
+      const at = (th: number): Pt => [ctr[0] + r * (Math.cos(th) * ux + Math.sin(th) * dir[0]),
+                                      ctr[1] + r * (Math.cos(th) * uy + Math.sin(th) * dir[1])];
+      for (let j = 0; j < CAP_SEGS; j++) {   // θ 0→π sweeps outer → nose → asphalt edge
+        const a = at((j / CAP_SEGS) * Math.PI), b = at(((j + 1) / CAP_SEGS) * Math.PI);
+        quads.push({ a: ctr, b: a, c: b, d: ctr, fill: KERB_BLUE, z: 0 });
+      }
+    };
     for (let k = 0; k < blen - 1; k++) {
+      const d0 = tailDist(k), d1 = tailDist(k + 1);
       const [bi0, bo0] = blueEdges(k), [bi1, bo1] = blueEdges(k + 1);
-      quads.push({ a: off(k, bi0), b: off(k, bo0), c: off(k + 1, bo1), d: off(k + 1, bi1), fill: KERB_BLUE, z: 0 });
+      if (d0 <= DIST_CLIP && d1 <= DIST_CLIP) {          // wholly inside → byte-identical quad
+        quads.push({ a: off(k, bi0), b: off(k, bo0), c: off(k + 1, bo1), d: off(k + 1, bi1), fill: KERB_BLUE, z: 0 });
+      } else if (d0 <= DIST_CLIP || d1 <= DIST_CLIP) {   // straddles the clip → part-quad + nose
+        const kIn = d0 <= DIST_CLIP ? k : k + 1, kOut = d0 <= DIST_CLIP ? k + 1 : k;
+        const dIn = Math.min(d0, d1), dOut = Math.max(d0, d1);
+        const f = dOut > dIn ? (DIST_CLIP - dIn) / (dOut - dIn) : 0;
+        const pc = lerpPt(P[kIn], P[kOut], f);
+        let nx = nrm[kIn][0] + (nrm[kOut][0] - nrm[kIn][0]) * f, ny = nrm[kIn][1] + (nrm[kOut][1] - nrm[kIn][1]) * f;
+        const nl = Math.hypot(nx, ny) || 1; nx /= nl; ny /= nl;
+        const nc: Pt = [nx, ny];
+        const cIn: Pt = [pc[0] + nx * (CS_BAND / 2 - KERB_SEAM), pc[1] + ny * (CS_BAND / 2 - KERB_SEAM)];
+        const cOut: Pt = [pc[0] + nx * (CS_BAND / 2 + W_CLIP), pc[1] + ny * (CS_BAND / 2 + W_CLIP)];
+        const [biI, boI] = blueEdges(kIn);
+        quads.push({ a: off(kIn, biI), b: off(kIn, boI), c: cOut, d: cIn, fill: KERB_BLUE, z: 0 });
+        let dx = P[kOut][0] - P[kIn][0], dy = P[kOut][1] - P[kIn][1];
+        const dl = Math.hypot(dx, dy) || 1; dx /= dl; dy /= dl;
+        emitCap(pc, nc, [dx, dy]);
+      }
+      // else: wholly beyond the clip → TRIMMED (the old needle tip)
       if (stripeAt(k)) {   // red/white FULL-WIDTH block (hard cut; constant arc-length size),
         const rw = Math.floor(arc[k] / KERB_STRIPE) % 2 === 0 ? KERB_RED : KERB_WHITE;   // inner
         quads.push({ a: off(k, -KERB_SEAM), b: off(k, KERB_WIDTH), c: off(k + 1, KERB_WIDTH), d: off(k + 1, -KERB_SEAM), fill: rw, z: 1 });  // pulled under the asphalt rim
