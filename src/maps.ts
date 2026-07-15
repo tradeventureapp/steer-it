@@ -1059,6 +1059,18 @@ function tracePolyline(ctx: CanvasRenderingContext2D, pxPts: Pt[]) {
   ctx.closePath();
 }
 
+// ASPHALT → GRASS SOFT EDGE (circuit only — the ovals keep their own look). The tarmac sits
+// DIRECTLY on the grass: there is NO dark rim / outline, so the track doesn't read as "drawn".
+// To stop that becoming a razor-sharp scissors cut, the edge is FEATHERED — two slightly-wider
+// low-alpha asphalt passes are stroked UNDER the surface, so the tarmac eases into the grass
+// over ~FEATHER px per side. TUNE BY THESE NUMBERS (keep subtle — a visible glow/halo or a
+// re-drawn outline means they are too high):
+const CIRCUIT_EDGE_FEATHER = 0.012;      // soft-edge reach PER SIDE = twPx × this …
+const CIRCUIT_FEATHER_MIN_PX = 1;        //   … clamped to [MIN, MAX] px (≈2.5 px at game scale)
+const CIRCUIT_FEATHER_MAX_PX = 3;
+const CIRCUIT_FEATHER_ALPHA_OUT = 0.15;  // outermost pass (faintest, reaches FEATHER past the edge)
+const CIRCUIT_FEATHER_ALPHA_IN = 0.30;   // inner pass (reaches FEATHER/2 — overlaps → ramps up)
+
 // Surface: GRASS (the oval's green) everywhere, then the ASPHALT ribbon (oval's
 // tarmac tones) + a rubbered-in racing line down the middle. Fits the sketch into
 // whatever canvas size it's given (game world OR the map-select mini-preview),
@@ -1083,15 +1095,20 @@ function drawCircuitSurface(ctx: CanvasRenderingContext2D, wPx: number, hPx: num
   ctx.fillStyle = grass; ctx.fillRect(0, 0, wPx, hPx);
 
   ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-  // Dark asphalt EDGE — a thin darker rim so the track reads against the grass
-  // (cosmetic only — there is NO wall / NO collision here).
-  tracePolyline(ctx, ptsPx);
-  ctx.strokeStyle = '#1d1f24'; ctx.lineWidth = twPx + Math.max(3, twPx * 0.06); ctx.stroke();
-  // Asphalt SURFACE — the oval's tarmac gradient, applied vertically for depth.
+  // Asphalt SURFACE — the oval's tarmac gradient, applied vertically for depth. NO dark rim:
+  // the tarmac sits directly on the grass. Its edge is FEATHERED instead — two wider, low-alpha
+  // passes underneath ramp the tarmac into the grass over featherPx per side (soft + organic,
+  // never a halo or an outline). Kerbs are drawn after, so they cover the feather where they sit.
   const asf = ctx.createLinearGradient(0, 0, 0, hPx);
   asf.addColorStop(0, a.ringInner); asf.addColorStop(1, a.ringOuter);
-  tracePolyline(ctx, ptsPx);
-  ctx.strokeStyle = asf; ctx.lineWidth = twPx; ctx.stroke();
+  const featherPx = Math.max(CIRCUIT_FEATHER_MIN_PX, Math.min(CIRCUIT_FEATHER_MAX_PX, twPx * CIRCUIT_EDGE_FEATHER));
+  ctx.strokeStyle = asf;
+  ctx.globalAlpha = CIRCUIT_FEATHER_ALPHA_OUT;                       // reaches featherPx past the edge
+  tracePolyline(ctx, ptsPx); ctx.lineWidth = twPx + featherPx * 2; ctx.stroke();
+  ctx.globalAlpha = CIRCUIT_FEATHER_ALPHA_IN;                        // reaches featherPx/2 → ramps up
+  tracePolyline(ctx, ptsPx); ctx.lineWidth = twPx + featherPx; ctx.stroke();
+  ctx.globalAlpha = 1;                                               // solid surface
+  tracePolyline(ctx, ptsPx); ctx.lineWidth = twPx; ctx.stroke();
   // Rubbered-in racing line down the middle (the oval's worn-line treatment).
   tracePolyline(ctx, ptsPx);
   ctx.strokeStyle = a.lineStroke; ctx.lineWidth = twPx * 0.3; ctx.stroke();

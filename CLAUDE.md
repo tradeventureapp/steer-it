@@ -3317,3 +3317,24 @@ rendered the circuit + 7×-zoom crops of 4 wedge ends (curved apex ends AND the 
 every one ends in a clean rounded nose, needle gone, taper before the clip unchanged. Stripes / hard cuts /
 full width at the cut / blue-only zone / arc-length uniformity / seam fix / soft stroke all untouched.
 **physics.ts UNTOUCHED** → `step()` 0.0e+0. tsc + build clean.
+
+---
+**CIRCUIT MAP — DARK RIM REMOVED + SOFT ASPHALT→GRASS EDGE (the track no longer reads as "drawn"):** the
+cosmetic dark rim under the ribbon (the `'#1d1f24'` stroke at `twPx + max(3, twPx·0.06)`) is DELETED — the
+tarmac now sits DIRECTLY on the grass, no outline. To stop that becoming a razor "scissors" cut, the edge is
+FEATHERED: **two slightly-wider, low-alpha asphalt passes** (the same tarmac gradient) are stroked UNDER the
+solid surface, ramping the tarmac into the grass. **TUNE BY THESE NUMBERS:** `CIRCUIT_EDGE_FEATHER` **0.012**
+(reach PER SIDE = twPx × this, clamped by `CIRCUIT_FEATHER_MIN_PX` **1** / `CIRCUIT_FEATHER_MAX_PX` **3** →
+**≈2.5 px at game scale**, twPx≈206), `CIRCUIT_FEATHER_ALPHA_OUT` **0.15** (outermost pass, lineWidth
+`twPx + 2·feather` → reaches feather past the edge) and `CIRCUIT_FEATHER_ALPHA_IN` **0.30** (lineWidth
+`twPx + feather` → reaches feather/2, overlaps the outer pass). Net ramp beyond the asphalt edge ≈ **40 % →
+15 % → 0 over ~2.5 px** — soft + organic, NOT a glow/halo, NOT a re-drawn outline. `globalAlpha` is restored
+to 1 before the solid surface/racing line/kerbs. **SEAMS RE-CHECKED after the rim removal** (the kerbs were
+tucked under the old rim via the `KERB_SEAM` inner overlap): perpendicular pixel scans across EVERY stripe
+quad's inner edge — **CURVE 504 quads → 0 slivers (`asph|R|BLUE|grass`)**, **STRAIGHT (finish-straight
+kerbs) 67 quads → 0 slivers (`asph|W|BLUE|grass`)**; the KERB_SEAM overlap still covers the join, no rim
+needed. The feather shows no band under the kerbs either (kerbs draw after and reach FULL_W ≈ 32 px out,
+far past the ~2.5 px feather). **VERIFIED BY EYE** (PNG-export harness, 13× crops of kerb-free edge): the
+dark line is gone and the asphalt blends softly into the grass. **CIRCUIT ONLY** — the ovals
+(`drawStadiumSurface`) are untouched; `grep '1d1f24'` now returns nothing in maps.ts (the rim was its only
+use). **physics.ts UNTOUCHED** → `step()` 0.0e+0. tsc + build clean.
