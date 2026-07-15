@@ -3707,3 +3707,55 @@ spin digs itself into a much higher resistance. One prompt away; NOT built unask
 μ profile / spray / tracks / mask all untouched. `physics.ts` UNTOUCHED (empty diff). tsc + build clean.
 **TUNABLES (both live on the D tuner, now decoupled):** `gravelDragConst` **300** = how hard it is to crawl
 OUT · `gravelDragQuad` **2.5** = how hard it BRAKES at speed · `gravelDragLin` 15.
+
+---
+**GRAVEL — DIG-IN RESISTANCE TIED TO WHEELSPIN (the last coupled pair separated; (c) restored EXACTLY,
+escape mechanic 2.4× → 8.9×):** the approved lever from the previous pass. A SPINNING wheel in gravel
+EXCAVATES — it throws stone out behind it, sinks into the hole it digs, and the deeper it sits the more
+stone it must plow. So the static digging term scales with that wheel's spin:
+`dig = gravelDragConst · (1 + gravelDigGain · spin)`, quad + lin + taper all unchanged.
+**`CONFIG.gravelDigGain` = 2.** `spin` is the SAME 0–1 over-spin measure that gates the spray/smoke
+(`clamp((ω·r − v)/max(v,3), 0, 1)`), read PER WHEEL. Two correctness details: (1) `st.rearOmega` still
+holds the PREVIOUS step's value at the force-loop site (it is integrated ~100 lines further down), so this
+is **prev-frame by construction — no algebraic loop**, the same pattern the load transfer already uses for
+body accel; (2) it is **DRIVEN (rear) wheels only, and a locked (handbrake) rear reads 0** (ω pinned) —
+neither an undriven nor a locked wheel excavates, they only plow, which the constant already covers.
+**WHY THIS SEPARATES WHAT const COULD NOT:** the feathered exit and the full-throttle dig both live at
+crawl speed, so `quad` (~0 there) cannot tell them apart — but they differ *totally* in WHEELSPIN
+(feathered 0.4 = **8 %**, mashed = **100 %**). Spin is the discriminator the geometry actually offers.
+**SWEEP (`gravelDigGain`):**
+```
+  digGain | exit@0.4: 5s     10m   spin | FULL-TH: 5s    v    spin | stop150   | lat   | rest-flips  damp/step
+      0   |  16.5 m   3.8s    7%  |  6.9 m   8.1  100%  |  93 m 1.7 | 2.03s |  0          0.04
+      1   |  16.2 m   3.8s    8%  |  2.3 m   1.7  100%  |  93 m 1.7 | 2.03s |  0          0.06
+     *2   |  15.9 m   3.9s    8%  |  1.8 m   1.3  100%  |  93 m 1.7 | 2.03s |  0          0.08*  ← shipped
+      3   |  15.6 m   3.9s    8%  |  1.5 m   1.1  100%  |  93 m 1.7 | 2.03s |  0          0.10
+      4   |  15.3 m   3.9s    8%  |  1.2 m   0.9  100%  |  93 m 1.7 | 2.03s |  0          0.12
+      8   |  13.9 m   4.2s    8%  |  0.8 m   0.5  100%  |  92 m 1.7 | 2.03s |  0          0.20
+     12   |  12.4 m   4.4s    8%  |  0.5 m   0.4  100%  |  92 m 1.7 | 2.03s |  0          0.27
+```
+**digGain 2 was PREDICTED then CONFIRMED:** the force balance says the old const-600's total (4×600 =
+2400 N) is reproduced by dig-on-rears-only at `1200 + 600·g = 2400` ⇒ **g = 2** — and it measures **1.8 m
+/ 1.3 km/h / 100 % spin = the old const-600 numbers exactly**. **TARGETS BOTH HIT:** (b) feathered exit
+**15.9 m / 3.9 s = 96 % preserved** (the 4 % cost is real and expected — throttle 0.4 carries 8 % spin, so
+it pays 8 %·2 = 16 % extra const on the rears); (c) full throttle **6.9 → 1.8 m, back to digging on the
+spot at 100 % spin** ✓. **THE MECHANIC IS NOW A CLIFF** (throttle → 5 s distance): `0.30 → 3.3 m (3 % spin)
+· 0.35 → 9.1 · 0.40 → 15.9 m (8 % spin) · 0.50 → 1.9 m (100 % spin) · 1.00 → 1.8 m` — **feather-vs-mash
+advantage 2.4× → 8.9×**, i.e. mashing is now catastrophically worse than finding the bite point. That is
+the gameplay loop the gravel trap wanted.
+**STABILITY (the new term's risk, checked):** `damp/step` = the explicit-integration margin at the taper
+boundary — at digGain 2 it is **0.08**, i.e. **12× under the 1.0 overshoot threshold** (it only reaches
+1.0 around digGain ≈ 50, far outside the useful range). MEASURED: **spin at standstill = 0 sign-flips,
+never travels backward**; taper settle from 0.45 m/s inside GRAVEL_EPS = **0 flips, rest |v| exactly
+0.0e+0**; parked 3 s moves 0.0000 m; **handbrake + full throttle in gravel = 0.0000 m, |v| 0.0000** (the
+locked rear reads spin 0 → no dig bonus → nothing to oscillate).
+**NO REGRESSION:** stop from 150 km/h **93 m = 1.7 traps UNCHANGED** (coasting = no spin ⇒ digGain cannot
+touch braking — the terms stay orthogonal), lateral **2.03 s UNCHANGED**, ARCADE / desktop / ovals /
+circuit-on-asphalt **0.0e+0** (absurd params incl. `gravelDigGain` 9e5 change NOTHING ⇒ still dead code off
+the traps), **grass byte-identical — top 80 km/h, cornering 0.52 g, stop 254 m**; μ profile / spray /
+tracks / mask untouched. `physics.ts` UNTOUCHED (empty diff). tsc + build clean.
+**GRAVEL IS NOW FULLY DECOUPLED — three terms, three behaviours, one each (all live on the D tuner):**
+`gravelDragConst` **300** = how hard it is to crawl OUT · `gravelDragQuad` **2.5** = how hard it BRAKES at
+speed · `gravelDigGain` **2** = how deep a SPINNING wheel buries itself (+ `gravelDragLin` 15).
+**NEXT: boss drives it — feather ~0.4 and you crawl out in ~4 s; mash it and you bury the car on the spot
+throwing stone; arrive at 150 and it stops you in ~1.7 trap-lengths.**

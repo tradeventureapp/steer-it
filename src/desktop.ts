@@ -271,10 +271,12 @@ document.body.appendChild(brakeTunerEl);
   pRow('reverseSpeed',      'reverseSpeed',         0.5,  3,   12, 1);
   pRow('reverseForce',      'reverseForce',         500,  2000, 12000, 0);
   pRow('reverseDelay',      'reverseDelay',         0.05, 0.1, 1.5, 2);
-  // GRAVEL — the two decoupled knobs: const = how hard it is to crawl OUT (static digging),
-  // quad = how hard it BRAKES at speed (stone displacement, ∝v²). Tune them independently.
+  // GRAVEL — three decoupled knobs, each owning ONE behaviour: const = how hard it is to
+  // crawl OUT on a feathered throttle, quad = how hard it BRAKES at speed (stone
+  // displacement ∝v²), digGain = how deep a SPINNING wheel buries itself. Tune independently.
   pRow('gravelDragConst',   'gravelDragConst',      25,   100, 900, 0);
   pRow('gravelDragQuad',    'gravelDragQuad',       0.25, 0,   8,   2);
+  pRow('gravelDigGain',     'gravelDigGain',        0.5,  0,   12,  1);
 
   // Show only the active model's rows (+ set the panel title).
   showTunerFor = (mode: DriveMode) => {

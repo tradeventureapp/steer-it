@@ -100,6 +100,12 @@ export interface Physics4Params {
   gravelDragConst: number;    // N per wheel, opposing the contact-velocity DIRECTION
   gravelDragLin: number;      // N·s/m per wheel, on top of the constant
   gravelDragQuad: number;     // N·s²/m² per wheel — the v² stone-displacement term
+  // A SPINNING wheel EXCAVATES: it throws stone out behind it, sinks into the hole it digs,
+  // and the deeper it sits the more stone it has to plow. So the static digging term scales
+  // with how hard that wheel is spinning. This is what separates the last coupled pair —
+  // a FEATHERED exit (no spin) fights only the light constant, while MASHING the throttle
+  // buries the car. Driven (rear) wheels only: an unspun wheel digs no hole.
+  gravelDigGain: number;      // × extra constant drag at 100% wheelspin
 }
 
 // How one tyre compound behaves on each ground: a ×scale on that wheel's μ. This lives with
@@ -188,6 +194,7 @@ export const PHYS4: Physics4Params = {
   gravelDragConst: 300,
   gravelDragLin: 15,
   gravelDragQuad: 2.5,
+  gravelDigGain: 2,
 };
 
 const GRAVEL_EPS = 0.5;       // m/s — taper the constant plow drag below this (no rest jitter)
@@ -483,8 +490,18 @@ export function step4(
       // stiff force gradient at the rest boundary.
       const vc = Math.hypot(vwx, vwy);
       if (vc > 1e-6) {
+        // How hard THIS wheel is spinning, 0..1 — the same over-spin measure that gates the
+        // spray/smoke, read per wheel. st.rearOmega still holds the PREVIOUS step's value here
+        // (it is integrated further down), so this is prev-frame by construction — no
+        // algebraic loop, the same pattern the load transfer already uses for body accel.
+        // Fronts are undriven and a locked (handbrake) rear has ω pinned to 0 → both give 0:
+        // neither excavates, they only plow, which the constant already covers.
+        const spin = i >= 2 && !hb
+          ? clamp((st.rearOmega[i - 2] * rr - v) / Math.max(v, 3), 0, 1)
+          : 0;
+        const dig = p.gravelDragConst * (1 + p.gravelDigGain * spin);
         const taper = Math.min(1, vc / GRAVEL_EPS);
-        const mag = (p.gravelDragConst + p.gravelDragLin * vc + p.gravelDragQuad * vc * vc) * taper;
+        const mag = (dig + p.gravelDragLin * vc + p.gravelDragQuad * vc * vc) * taper;
         fbx -= mag * (vwx / vc);
         fby -= mag * (vwy / vc);
       }
