@@ -950,14 +950,16 @@ const CIRCUIT_KERBS: KerbQuad[] = ((): KerbQuad[] => {
         const inStripe = !(arc[k] >= boS && arc[k] < boE);
         return [inStripe ? KERB_WIDTH - KERB_SEAM : -KERB_SEAM, FULL_W];
       }
-      const dist = arc[k] < stripeStartArc ? stripeStartArc - arc[k] : arc[k] - stripeEndArc;
-      const tt = Math.min(1, dist / KERB_BLUE_TAIL);
-      const w = 1 - tt * tt * tt * (tt * (tt * 6 - 15) + 10);   // SMOOTHERSTEP ease-out (w'=0 at both ends)
-      return [-KERB_SEAM * w, FULL_W * w];
-      // BOTH edges scale by the smootherstep w. Because w' = 0 at tt = 0, the outer (grass-side)
-      // edge leaves the band's grass edge TANGENTIALLY at the hard cut → zero kink, ONE continuous
-      // smooth curve (no facet/triangle); w' = 0 and w = 0 at tt = 1 → it eases FLUSH onto the
-      // asphalt edge, width exactly 0, no protruding tip. Same per-point density as the kerb band.
+      // EXACT SPEC: over arc s past the hard cut, width(s) = FULL_W · smootherstep(1 − s/L),
+      // inner edge EXACTLY on the asphalt edge (offset 0) the whole length, outer edge = asphalt
+      // edge + width(s). smootherstep(t) = 6t⁵−15t⁴+10t³ (t³(t(6t−15)+10)) — derivative 0 at both
+      // ends → at the cut (s=0) width = FULL_W = the kerb band's width (tangential, zero kink, one
+      // continuous shape with the blue band); at s=L width = 0, easing FLUSH onto the asphalt edge
+      // (no protruding tip). width ≤ FULL_W always → stays inside the kerb silhouette.
+      const s = arc[k] < stripeStartArc ? stripeStartArc - arc[k] : arc[k] - stripeEndArc;
+      const u = 1 - Math.min(1, s / KERB_BLUE_TAIL);           // 1 at the cut → 0 at the tail end
+      const width = FULL_W * (u * u * u * (u * (u * 6 - 15) + 10));   // FULL_W · smootherstep(u)
+      return [0, width];
     };
     const inBody = (kk: number) => arc[kk] >= stripeStartArc && arc[kk] < stripeEndArc;   // full-width blue
     for (let k = 0; k < blen - 1; k++) {

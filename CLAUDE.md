@@ -3260,3 +3260,23 @@ SMOOTHERSTEP replaces it with a **gradual ramp, max 9.97°** distributed over ~8
 9.97→7.82→5.05→2.47→…) — no sharp corner, no facet; width profile smooth + monotonic to exactly 0 (near-full
 tangential start 20.0→19.6→18.9 vs linear's steep 20.0→17.4→16.0). **physics.ts UNTOUCHED** → `step()`
 0.0e+0. tsc + build clean.
+
+---
+**CIRCUIT MAP — WEDGE = EXACT SPEC + I ACTUALLY SAW THE RENDER (built a PNG-export "eyes" harness):** the
+boss re-sent the reference (`public/ster it blue.png`, green circle = target) with EXACT math and the
+(correct) point that I had never SEEN my own render (browser screenshots hang; pixel scans can't tell a
+faceted triangle from a smooth wedge). Fixed the blind spot: since the offscreen CANVAS renders fine (only
+the screenshot action hangs), the harness now does `canvas.toDataURL('image/png')` → the base64 is written
+to a PNG on disk → I open it with the image Read tool. Rendered the full circuit (same draw code) + 5×-zoom
+crops of 4 wedge ends and LOOKED at them against the reference. **They match**: each wedge is stripes-hard-
+cut → blue starting at the full band width → a SMOOTH curved ease-out down to a point on the asphalt edge
+(no facet, no kink, no protruding tip). Aligned maps.ts to the EXACT spec (was `[-KERB_SEAM·w, FULL_W·w]`):
+tail inner edge EXACTLY on the asphalt edge (offset 0) the whole length; `width(s) = FULL_W ·
+smootherstep(1 − s/L)`, outer = asphalt edge + width(s). (The outer edge is algebraically identical to the
+prior smootherstep commit — `FULL_W·smootherstep(1−s/L) = FULL_W·(1−smootherstep(s/L))` — so the verified
+no-kink [k18: single 29° facet → gradual ≤10° ramp] and no-tip [k17] results carry over; only the inner
+edge moved from −SEAM·w to 0 per the spec.) FULL_W = KERB_WIDTH + KERB_BLUE_WIDTH → the cut width = the kerb
+band's width (tangential, one continuous shape); width ≤ FULL_W always (inside the silhouette); width 0 at
+s=L (flush, no tip). Arc-length uniformity / hard cut / blue-only body / neighbour clamp all unchanged.
+**physics.ts UNTOUCHED** → `step()` 0.0e+0. tsc + build clean. (Reusable PNG-export harness kept in the
+session scratchpad as `k19.html`.)
