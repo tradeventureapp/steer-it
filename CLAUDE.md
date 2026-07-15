@@ -3505,3 +3505,36 @@ kerb-vs-bare. An earlier looser test also mis-read the gravel→grass ANTI-ALIAS
 remains — the traps that heavily bordered kerbs (the infield ones beside the apex kerbs) are exactly the ones
 the boss removed/cut, so the real contacts are where the top-left/top-right traps meet the left/right
 perimeter kerbs and where the strip's top meets the right hump's wedge.
+
+---
+**CIRCUIT MAP — GRAVEL REVISION 2 (boss's `public/Gravel.png` red marks) + STROKE-BASED AUTHORING:** four
+additions, still VISUAL ONLY (maps.ts only; physics.ts + physics4.ts + `surfaceAt`/`circuitMask` untouched).
+**(1) BOTTOM-LEFT + (2) BOTTOM-RIGHT (red hatch):** the open wedges OUTSIDE both lower sweeps, beyond the
+outer-perimeter kerb. **(3) TOP-MIDDLE-LEFT (red outline):** a tapering tongue down the middle dip's left
+flank, so the trap flows along the track edge instead of stopping dead. **(4) TOP-MIDDLE-RIGHT (red
+outline):** eases the gravel across to the top-right sweep's trap (it overlaps that trap's leftmost disc).
+Existing traps, texture, colours, the adjacency rule and the carve pipeline are all unchanged.
+**NEW: `GRAVEL_STROKES` + `strokeDiscs()`** — the revision-2 areas are authored as a centre POLYLINE +
+radius and expanded into discs at **r/2 spacing**, with the end radii tapered (smootherstep over the last
+quarter). Hand-placing discs is exactly how you get a string of beads: get the spacing wrong by a few units
+and 2r < spacing ⇒ they stop touching (measured: bottom-right spacing 63 vs r+r 58 → visibly separate
+circles). `GRAVEL_DISCS = [...GRAVEL_BLOBS, ...strokeDiscs()]` feeds the mask.
+**THE KEY INSIGHT (cost me a pass):** carveGap only ever REMOVES. So a shape that stops SHORT of a kerb
+leaves grass between them — to ABUT, the stroke must be routed so its discs **straddle the kerb** and let
+the carve trim the inner half back to the kerb's own edge. The bottom strokes therefore run ALONG the
+kerb's outer edge (which falls diagonally across each corner), not outside it. Before the fix bottom-left
+touched the kerb **0×**; after, **151×**.
+**PLACEMENT METHOD:** the geometry was PROBED, not guessed — an ASCII map per area (`#` track · `K` kerb ·
+`k` nearest-track-is-kerb · digits = metres to asphalt) located the kerb's outer edge running (60,600)→
+(290,860) bottom-left and (1480,600)→(1280,830) bottom-right, the dip's left-flank edge x≈480→560 over
+y 140→340, and the top-right wedge narrowing x≈1020→800 over y 40→300.
+**MEASURED:** total trap area 3648 → **5674 m²**; per-area **bottom-left 743 · bottom-right 713 ·
+top-mid-left 467 · top-mid-right 364 m², each exactly 1 connected piece** (no beads); **kerb-touching gravel
+351 → 376 px**, incl. bottom-left 151 / bottom-right 160; **bare-asphalt violations 0, min gap to BARE
+asphalt = 1.83 m = exactly one car width**. VERIFIED BY EYE (PNG harness, vs `public/Gravel.png`): full map
+matches the marks + 4× close-ups of all four areas — bottom-left/right gravel touches the blue kerb with NO
+grass between; the top-mid-left tongue shows BOTH rules in one frame (grass strip on its bare-asphalt side,
+abutting the kerb wedge at its foot); top-mid-right keeps the grass strip. tsc + build clean.
+**HONEST NOTE:** top-mid-right reports **0 kerb-touching px — and that is CORRECT**, not a miss: the probe
+shows no kerb anywhere in that area (it is all bare asphalt), so rule 3 says the car-width grass gap applies
+there, which is what it does.

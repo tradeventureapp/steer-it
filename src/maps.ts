@@ -1187,6 +1187,54 @@ const GRAVEL_BLOBS: Array<[number, number, number]> = [
   //   · the infield LEFT patch inside the hairpin
 ];
 
+// Revision-2 additions are authored as STROKES — a centre polyline + radius — rather than
+// hand-placed discs, because hand-spacing them is exactly how you get a string of beads (get
+// the spacing wrong by a few units and 2r < spacing ⇒ the discs stop touching). `strokeDiscs`
+// expands each at r/2 spacing, which guarantees a smooth tube, and tapers the end radii so a
+// trap eases back into grass instead of stopping on a blunt disc.
+// The paths deliberately run OVER the kerb where they should ABUT it: the carve only ever
+// REMOVES, so a disc that stops short of the kerb leaves grass between — to abut, the shape
+// must overlap the kerb and let carveGap trim it back to the kerb's own edge.
+const GRAVEL_STROKES: Array<{ pts: Pt[]; r: number }> = [
+  // BOTTOM-LEFT (red hatch) — the open wedge OUTSIDE the lower-left sweep's perimeter kerb.
+  // The centreline runs ALONG the kerb's outer edge (which falls diagonally across the corner)
+  // so the discs straddle it: carveGap trims the inner half off and the gravel ABUTS the kerb.
+  { pts: [[508, 513], [550, 581], [595, 626], [643, 667], [696, 701]], r: 52 },
+  // BOTTOM-RIGHT (red hatch) — the mirror wedge outside the lower-right sweep.
+  { pts: [[1612, 513], [1571, 581], [1526, 626], [1481, 667], [1436, 701]], r: 52 },
+  // TOP-MIDDLE-LEFT (red outline) — a tongue down the middle dip's left flank, so the trap
+  // flows on along the track edge instead of ending abruptly.
+  { pts: [[850, 138], [869, 186], [884, 235], [899, 280], [914, 322]], r: 28 },
+  // TOP-MIDDLE-RIGHT (red outline) — eases the gravel across to the top-right sweep's trap.
+  { pts: [[1195, 78], [1158, 115], [1128, 153], [1102, 190]], r: 24 },
+];
+function strokeDiscs(): Array<[number, number, number]> {
+  const out: Array<[number, number, number]> = [];
+  for (const s of GRAVEL_STROKES) {
+    const seg: number[] = [];
+    let total = 0;
+    for (let i = 0; i < s.pts.length - 1; i++) {
+      const L = Math.hypot(s.pts[i + 1][0] - s.pts[i][0], s.pts[i + 1][1] - s.pts[i][1]);
+      seg.push(L); total += L;
+    }
+    if (total <= 0) continue;
+    const step = Math.max(1, s.r / 2);          // ≤ r/2 ⇒ the union is a tube, not beads
+    for (let t = 0; t <= total; t += step) {
+      let d = t, i = 0;
+      while (i < seg.length - 1 && d > seg[i]) { d -= seg[i]; i++; }
+      const f = seg[i] > 0 ? Math.min(1, d / seg[i]) : 0;
+      const x = s.pts[i][0] + (s.pts[i + 1][0] - s.pts[i][0]) * f;
+      const y = s.pts[i][1] + (s.pts[i + 1][1] - s.pts[i][1]) * f;
+      const u = t / total;                      // taper the last quarter at each end
+      const e = Math.min(Math.min(u, 1 - u) / 0.25, 1);
+      out.push([x, y, s.r * (0.5 + 0.5 * (e * e * (3 - 2 * e)))]);
+    }
+  }
+  return out;
+}
+/** Every marked disc: the hand-placed traps + the expanded revision-2 strokes. */
+const GRAVEL_DISCS: Array<[number, number, number]> = [...GRAVEL_BLOBS, ...strokeDiscs()];
+
 const hexRgb = (h: string): [number, number, number] =>
   [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
 const clamp255 = (v: number) => (v < 0 ? 0 : v > 255 ? 255 : Math.round(v));
@@ -1207,7 +1255,7 @@ function gravelMask(): Uint8Array | null {
   };
   // 1. the MARKED areas — union of discs
   c.fillStyle = '#fff';
-  for (const [sx, sy, r] of GRAVEL_BLOBS) {
+  for (const [sx, sy, r] of GRAVEL_DISCS) {
     const [x, y] = toM(sx, sy);
     c.beginPath(); c.arc(x, y, r * CS_SCALE * P, 0, Math.PI * 2); c.fill();
   }
