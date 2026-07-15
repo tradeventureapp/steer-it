@@ -3338,3 +3338,33 @@ far past the ~2.5 px feather). **VERIFIED BY EYE** (PNG-export harness, 13× cro
 dark line is gone and the asphalt blends softly into the grass. **CIRCUIT ONLY** — the ovals
 (`drawStadiumSurface`) are untouched; `grep '1d1f24'` now returns nothing in maps.ts (the rim was its only
 use). **physics.ts UNTOUCHED** → `step()` 0.0e+0. tsc + build clean.
+
+---
+**CIRCUIT MAP — DARK CENTRE BAND REMOVED + REAL GRAINED ASPHALT (circuit only):** two changes to
+`drawCircuitSurface`. **(1) The "rubbered-in racing line"** (`a.lineStroke` at `twPx·0.3`) read as a dark
+stripe down the middle of the tarmac — the whole pass is DELETED. (`lineStroke` now has exactly one user
+left: `drawStadiumSurface` = the ovals, untouched.) **(2) REAL TARMAC** instead of a flat vector band: the
+plain vertical gradient is replaced by a **NEAR-UNIFORM mid tone** `base = mixHex(ringInner, ringOuter)` =
+**`#33353b`** (the exact midpoint of the oval's tarmac family `#3b3e44`→`#2a2c31`, so the colour family AND
+the average brightness carry over), + a **FINE GRAIN** speckle, + an extremely subtle large-scale
+weathering. **TUNE BY THESE NUMBERS:** `ASPHALT_GRAIN_TILE` **256** px (repeat period) · `ASPHALT_GRAIN_PX`
+**2** (px per speckle cell — 1 = finest dust, 3–4 = coarse gravel) · `ASPHALT_GRAIN_CONTRAST` **0.05**
+(max ± speckle shift as a fraction of full scale = ±13 levels; measured grain std-dev **7.3**) ·
+`ASPHALT_PATCH_DELTA` **3** (± luminance levels of weathering, 0 = perfectly even) · `ASPHALT_PATCH_ALPHA`
+**0.12** (gradient alpha; the tones are offset ±DELTA/ALPHA from base so the shift is exactly ±DELTA).
+**PERFORMANCE:** the grain tile is generated ONCE at first draw into an offscreen canvas via a deterministic
+LCG (identical every load, cached in `_grainTile`, guarded for off-DOM tests) and reused as a repeating
+`CanvasPattern` — no per-frame noise; the tile is cached (not the pattern) so it is safe across the game
+layer and the map-select mini-preview. Pure per-pixel noise ⇒ no visible tiling. Weathering is two big
+radial gradients STROKED along the ribbon (a stroke, not a tile ⇒ confined to the tarmac, no repeat
+artifact possible). **⚠️ BRIGHTNESS BUG CAUGHT BY MEASUREMENT (the real finding):** the first attempt used
+a transparent black/white speckle blended over the base — that is NOT brightness-neutral, because from a
+dark base (≈53) a white speckle lifts by `a·202` while a black one only drops by `a·53` → **measured mean
+luminance +4.97 (washed lighter)**. FIX = the base tone is **BAKED INTO** the tile and each speckle shifts
+it by a symmetric ± ABSOLUTE amount (opaque tile) → mean = base exactly; the weathering tones were made
+symmetric the same way. **RE-MEASURED: mean luminance 51.99 vs the old gradient's 52.88 → Δ −0.89** (was
++4.97) ⇒ kerbs/cars/smoke read exactly as before. **VERIFIED BY EYE** (PNG-export harness): at 1:1 native
+the tarmac reads as one continuous, slightly gritty real surface — no centre band, no bands/stripes, no
+tiling; whole-track view confirms it. **SEAMS RE-CHECKED with the new surface underneath:** CURVE 504 quads
+→ **0 slivers**, STRAIGHT 67 quads → **0 slivers** (`asph|R/W|BLUE|grass`). The grass-edge feather from the
+previous pass is unchanged. **physics.ts UNTOUCHED** → `step()` 0.0e+0. tsc + build clean.

@@ -1071,6 +1071,72 @@ const CIRCUIT_FEATHER_MAX_PX = 3;
 const CIRCUIT_FEATHER_ALPHA_OUT = 0.15;  // outermost pass (faintest, reaches FEATHER past the edge)
 const CIRCUIT_FEATHER_ALPHA_IN = 0.30;   // inner pass (reaches FEATHER/2 — overlaps → ramps up)
 
+// ASPHALT TEXTURE (circuit only) — real tarmac instead of a flat vector band: a NEAR-UNIFORM
+// mid-dark tone from the oval's tarmac family, grained with a FINE SPECKLE built ONCE into an
+// offscreen tile (reused as a repeating pattern → ~zero per-frame cost), plus an extremely
+// subtle large-scale weathering. Speckle is symmetric (lighten/darken) so it does not shift the
+// overall brightness — kerbs/cars/smoke read exactly as before. TUNE BY THESE NUMBERS:
+const ASPHALT_GRAIN_TILE = 256;       // px — noise tile (repeat period; per-pixel noise ⇒ no visible tiling)
+const ASPHALT_GRAIN_PX = 2;           // px per speckle cell (1 = finest dust · 3–4 = coarse gravel)
+const ASPHALT_GRAIN_CONTRAST = 0.05;  // 0–1 — max ± speckle shift as a fraction of full scale (±13 levels)
+const ASPHALT_PATCH_DELTA = 3;        // ± luminance LEVELS of large-scale weathering (0 = perfectly even)
+const ASPHALT_PATCH_ALPHA = 0.12;     // gradient alpha — the tones are offset so the shift is exactly ±DELTA
+
+// Mid-point of two #rrggbb colours (keeps the tarmac colour family + its average brightness).
+function mixHex(h1: string, h2: string, t = 0.5): string {
+  const ch = (h: string, i: number) => parseInt(h.slice(1 + i * 2, 3 + i * 2), 16);
+  const m = (i: number) => Math.round(ch(h1, i) + (ch(h2, i) - ch(h1, i)) * t).toString(16).padStart(2, '0');
+  return `#${m(0)}${m(1)}${m(2)}`;
+}
+const hexRgb = (h: string): [number, number, number] =>
+  [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+const clamp255 = (v: number) => (v < 0 ? 0 : v > 255 ? 255 : Math.round(v));
+// `hex` shifted by ±d LEVELS on every channel, as an rgba() string at alpha `al`.
+function shiftRgba(hex: string, d: number, al: number): string {
+  const [r, g, b] = hexRgb(hex);
+  return `rgba(${clamp255(r + d)},${clamp255(g + d)},${clamp255(b + d)},${al})`;
+}
+
+// Fine asphalt grain, generated ONCE into an offscreen tile and cached (deterministic LCG → the
+// texture is identical every load; NO per-frame noise). The base tone is BAKED IN and each speckle
+// shifts it by a symmetric ± ABSOLUTE amount, so the tile's mean is exactly the base tone — i.e.
+// the grain adds texture WITHOUT changing overall brightness. (Blending a transparent black/white
+// speckle over a dark base does NOT do this: from base≈53, white lifts by a·202 while black only
+// drops by a·53 → it washes the tarmac lighter. Measured +5 luminance; hence the baked tile.)
+// `undefined` = not built · `null` = unavailable (off-DOM tests).
+let _grainTile: HTMLCanvasElement | null | undefined;
+function asphaltGrainTile(base: string): HTMLCanvasElement | null {
+  if (_grainTile !== undefined) return _grainTile;
+  if (typeof document === 'undefined') { _grainTile = null; return null; }
+  const tile = document.createElement('canvas');
+  tile.width = tile.height = ASPHALT_GRAIN_TILE;
+  const tc = tile.getContext('2d');
+  if (!tc) { _grainTile = null; return null; }
+  const [br, bg, bb] = hexRgb(base);
+  const img = tc.createImageData(ASPHALT_GRAIN_TILE, ASPHALT_GRAIN_TILE);
+  const px = img.data;
+  let seed = 0x9e3779b9 >>> 0;
+  const rnd = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296);
+  const cells = Math.ceil(ASPHALT_GRAIN_TILE / ASPHALT_GRAIN_PX);
+  for (let cy = 0; cy < cells; cy++) {
+    for (let cx = 0; cx < cells; cx++) {
+      const dl = (rnd() * 2 - 1) * ASPHALT_GRAIN_CONTRAST * 255;    // ± ABSOLUTE levels ⇒ mean = base
+      const r = clamp255(br + dl), g = clamp255(bg + dl), b = clamp255(bb + dl);
+      const y1 = Math.min((cy + 1) * ASPHALT_GRAIN_PX, ASPHALT_GRAIN_TILE);
+      const x1 = Math.min((cx + 1) * ASPHALT_GRAIN_PX, ASPHALT_GRAIN_TILE);
+      for (let y = cy * ASPHALT_GRAIN_PX; y < y1; y++) {
+        for (let x = cx * ASPHALT_GRAIN_PX; x < x1; x++) {
+          const o = (y * ASPHALT_GRAIN_TILE + x) * 4;
+          px[o] = r; px[o + 1] = g; px[o + 2] = b; px[o + 3] = 255;
+        }
+      }
+    }
+  }
+  tc.putImageData(img, 0, 0);
+  _grainTile = tile;
+  return _grainTile;
+}
+
 // Surface: GRASS (the oval's green) everywhere, then the ASPHALT ribbon (oval's
 // tarmac tones) + a rubbered-in racing line down the middle. Fits the sketch into
 // whatever canvas size it's given (game world OR the map-select mini-preview),
@@ -1095,23 +1161,39 @@ function drawCircuitSurface(ctx: CanvasRenderingContext2D, wPx: number, hPx: num
   ctx.fillStyle = grass; ctx.fillRect(0, 0, wPx, hPx);
 
   ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-  // Asphalt SURFACE — the oval's tarmac gradient, applied vertically for depth. NO dark rim:
-  // the tarmac sits directly on the grass. Its edge is FEATHERED instead — two wider, low-alpha
-  // passes underneath ramp the tarmac into the grass over featherPx per side (soft + organic,
-  // never a halo or an outline). Kerbs are drawn after, so they cover the feather where they sit.
-  const asf = ctx.createLinearGradient(0, 0, 0, hPx);
-  asf.addColorStop(0, a.ringInner); asf.addColorStop(1, a.ringOuter);
+  // Asphalt SURFACE — real tarmac: a NEAR-UNIFORM mid-dark tone (no dark rim, no centre band, no
+  // vertical banding). Its edge is FEATHERED — two wider, low-alpha passes underneath ramp the
+  // tarmac into the grass over featherPx per side (soft + organic, never a halo or an outline).
+  // Kerbs are drawn after, so they cover the feather where they sit.
+  const base = mixHex(a.ringInner, a.ringOuter);                     // mid tarmac tone (same family + brightness)
   const featherPx = Math.max(CIRCUIT_FEATHER_MIN_PX, Math.min(CIRCUIT_FEATHER_MAX_PX, twPx * CIRCUIT_EDGE_FEATHER));
-  ctx.strokeStyle = asf;
+  ctx.strokeStyle = base;
   ctx.globalAlpha = CIRCUIT_FEATHER_ALPHA_OUT;                       // reaches featherPx past the edge
   tracePolyline(ctx, ptsPx); ctx.lineWidth = twPx + featherPx * 2; ctx.stroke();
   ctx.globalAlpha = CIRCUIT_FEATHER_ALPHA_IN;                        // reaches featherPx/2 → ramps up
   tracePolyline(ctx, ptsPx); ctx.lineWidth = twPx + featherPx; ctx.stroke();
   ctx.globalAlpha = 1;                                               // solid surface
   tracePolyline(ctx, ptsPx); ctx.lineWidth = twPx; ctx.stroke();
-  // Rubbered-in racing line down the middle (the oval's worn-line treatment).
-  tracePolyline(ctx, ptsPx);
-  ctx.strokeStyle = a.lineStroke; ctx.lineWidth = twPx * 0.3; ctx.stroke();
+  // FINE GRAIN — the cached speckle tile (built once at load, base tone baked in), stroked along
+  // the ribbon so the tarmac reads as a real, slightly gritty surface, not a flat vector band.
+  const tile = asphaltGrainTile(base);
+  if (tile) {
+    const pat = ctx.createPattern(tile, 'repeat');
+    if (pat) { ctx.strokeStyle = pat; tracePolyline(ctx, ptsPx); ctx.lineWidth = twPx; ctx.stroke(); }
+  }
+  // Large-scale WEATHERING — one big radial lightening + one darkening, stroked ALONG the ribbon
+  // (a stroke, not a tile ⇒ confined to the tarmac, and no repeat artifact is possible). The two
+  // tones are offset ±(DELTA/ALPHA) from the base, so at full strength they shift it by exactly
+  // ±ASPHALT_PATCH_DELTA levels — equal and opposite, so the average brightness is unchanged.
+  if (ASPHALT_PATCH_DELTA > 0) {
+    const R = Math.max(wPx, hPx), off = Math.round(ASPHALT_PATCH_DELTA / ASPHALT_PATCH_ALPHA);
+    const lift = ctx.createRadialGradient(wPx * 0.32, hPx * 0.26, 0, wPx * 0.32, hPx * 0.26, R * 0.6);
+    lift.addColorStop(0, shiftRgba(base, off, ASPHALT_PATCH_ALPHA)); lift.addColorStop(1, shiftRgba(base, off, 0));
+    tracePolyline(ctx, ptsPx); ctx.strokeStyle = lift; ctx.lineWidth = twPx; ctx.stroke();
+    const dim = ctx.createRadialGradient(wPx * 0.74, hPx * 0.72, 0, wPx * 0.74, hPx * 0.72, R * 0.55);
+    dim.addColorStop(0, shiftRgba(base, -off, ASPHALT_PATCH_ALPHA)); dim.addColorStop(1, shiftRgba(base, -off, 0));
+    tracePolyline(ctx, ptsPx); ctx.strokeStyle = dim; ctx.lineWidth = twPx; ctx.stroke();
+  }
 
   // KERBS — red/white striped curbs + blue border, drawn ON TOP of the asphalt (each
   // quad is a perpendicular slice). Blue first (underneath), stripes over (CIRCUIT_KERBS is
