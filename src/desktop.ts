@@ -9,10 +9,10 @@ import {
 import { collideCars, applyInputs } from './cars';
 import {
   getMap, listMaps, DEFAULT_MAP_ID,
-  type MapDefinition, type MapWorld, type MapObstacle,
+  type MapDefinition, type MapWorld, type MapObstacle, type Surface,
 } from './maps';
 import { SoundEngine } from './sound';
-import { Effects, FX_CONFIG, GRASS_DUST_RGB } from './effects';
+import { Effects, FX_CONFIG, GRASS_DUST_RGB, GRAVEL_SPRAY_RGB } from './effects';
 import {
   PLAYER_CAP, LOBBY_SYNC_MS, RESILIENCE, EV, colorName, LobbyState,
 } from './lobby';
@@ -229,7 +229,9 @@ document.body.appendChild(brakeTunerEl);
 
   // ---------- PHYSICS4 knobs (group 'phys4', Fase 0 per-wheel) ----------
   curGroup = 'phys4';
-  const pRow = (label: string, key: keyof Physics4Params,
+  // only the NUMERIC params are steppable (PHYS4.tire is a structured tyre profile)
+  type NumKey<T> = { [K in keyof T]: T[K] extends number ? K : never }[keyof T];
+  const pRow = (label: string, key: NumKey<Physics4Params>,
                 stp: number, lo: number, hi: number, d = 2) =>
     mkRow(label, () => PHYS4[key], (v) => { PHYS4[key] = v; }, stp, lo, hi, (v) => v.toFixed(d));
   pRow('massKg',            'massKg',               25,   800, 1800, 0);
@@ -1521,30 +1523,37 @@ function drawSkidSegment(
   }
 }
 
-// ---------- GRASS: per-wheel ground (physics4 + a masked map only) ----------
+// ---------- SURFACE: per-wheel ground (physics4 + a masked map only) ----------
 // physics4's wheel order is 0 FL 1 FR 2 RL 3 RR with ry = [−T/2, +T/2, −T/2, +T/2], and
 // bodyToWorld's `by` IS ry — so desktop's L (by = +halfTrack) is physics4's +y index, i.e.
-// its "R". Hence the crossed mapping below. Returns all-false unless we're in physics4 on a
-// map that has a surface mask ⇒ every grass visual stays dead code elsewhere.
-const NO_GRASS = { fL: false, fR: false, rL: false, rR: false, any: false };
-function wheelGrass(car: Car) {
-  if (driveMode !== 'physics4' || !currentMap.surfaceAt) return NO_GRASS;
-  const g = wheelDebug(car.state)?.onGrass;
-  if (!g) return NO_GRASS;
-  return { fL: g[1], fR: g[0], rL: g[3], rR: g[2], any: g[0] || g[1] || g[2] || g[3] };
+// its "R". Hence the crossed mapping below. Returns all-asphalt unless we're in physics4 on a
+// map that has a surface mask ⇒ every off-road visual stays dead code elsewhere.
+const ALL_ASPHALT: Surface[] = ['asphalt', 'asphalt', 'asphalt', 'asphalt'];
+/** Ground under each wheel in DESKTOP L/R order: [fL, fR, rL, rR]. */
+function wheelSurfaces(car: Car): Surface[] {
+  if (driveMode !== 'physics4' || !currentMap.surfaceAt) return ALL_ASPHALT;
+  const g = wheelDebug(car.state)?.surface;
+  return g ? [g[1], g[0], g[3], g[2]] : ALL_ASPHALT;
 }
 // Per-wheel LATERAL slip, same crossed mapping (front L/R, rear L/R).
 function wheelSlips(car: Car): [number, number, number, number] {
   const sl = wheelDebug(car.state)?.slip;
   return sl ? [sl[1], sl[0], sl[3], sl[2]] : [0, 0, 0, 0];
 }
-// DIG TRACKS — dug-up turf. Wider than the 3 px rubber skid, and the opacity is jittered
-// per segment so the track reads as patchy dirt rather than a clean drawn line. TUNE:
-const DIG_TRACK_WIDTH = 5;      // px (rubber skid is 3)
-const DIG_TRACK_ALPHA = 0.5;    // mean opacity (jittered ×0.65–1.35 per segment)
-const DIG_TRACK_RGB = '96,68,40';
-const digStyle = () =>
-  `rgba(${DIG_TRACK_RGB},${(DIG_TRACK_ALPHA * (0.65 + Math.random() * 0.7)).toFixed(3)})`;
+// DIG TRACKS — gouged ground. Wider than the 3 px rubber skid, and the opacity is jittered
+// per segment so the track reads as patchy dug material rather than a clean drawn line.
+// GRAVEL gouges deeper than turf: darker (the stone's own shadow tone) and a touch wider. TUNE:
+const DIG_TRACK_WIDTH = 5;         // px — grass (rubber skid is 3)
+const DIG_TRACK_ALPHA = 0.5;       // mean opacity (jittered ×0.65–1.35 per segment)
+const DIG_TRACK_RGB = '96,68,40';  // dug turf — brown
+const GRAVEL_TRACK_WIDTH = 7;      // px — gravel gouges are wider
+const GRAVEL_TRACK_ALPHA = 0.55;
+const GRAVEL_TRACK_RGB = '74,70,60';   // gouged stone — the gravel's darker tone
+const digStyle = (surf: Surface) => {
+  const [rgb, al] = surf === 'gravel'
+    ? [GRAVEL_TRACK_RGB, GRAVEL_TRACK_ALPHA] : [DIG_TRACK_RGB, DIG_TRACK_ALPHA];
+  return `rgba(${rgb},${((al as number) * (0.65 + Math.random() * 0.7)).toFixed(3)})`;
+};
 // A wheel is DIGGING when it's spinning up or scrubbing sideways — the SAME thresholds the
 // smoke uses. Rolling calmly over grass digs nothing (→ no track, no dust).
 function digging(car: Car, slip: number, rear: boolean) {
@@ -1556,22 +1565,23 @@ function recordSkids(car: Car) {
   const s = car.state;
   const driftingRear =
     s.isRearSliding || Math.abs(s.rearSlip) > CONFIG.slipThresholdForSkid;
-  const g = wheelGrass(car);
+  const surf = wheelSurfaces(car);
   const { L, R } = rearWheelPositions(s);
-  // Rubber skid — rear only, and only for a rear wheel actually ON asphalt (a wheel on
-  // grass leaves dug turf, not a rubber mark). Off the grass path g.rL/g.rR are false ⇒
-  // identical to before.
-  drawSkidSegment(car.skidL, L.x, L.y, driftingRear && !g.rL, car.skidStyle);
-  drawSkidSegment(car.skidR, R.x, R.y, driftingRear && !g.rR, car.skidStyle);
-  if (!g.any) { for (const d of car.dig) d.active = false; return; }
-  // GRASS DIG TRACKS — every wheel that is digging into turf, world-anchored like skids.
+  // Rubber skid — rear only, and only for a rear wheel actually ON asphalt (a wheel off the
+  // tarmac gouges the ground, it doesn't lay rubber). Off a masked map every wheel is
+  // 'asphalt' ⇒ identical to before.
+  drawSkidSegment(car.skidL, L.x, L.y, driftingRear && surf[2] === 'asphalt', car.skidStyle);
+  drawSkidSegment(car.skidR, R.x, R.y, driftingRear && surf[3] === 'asphalt', car.skidStyle);
+  if (surf.every((v) => v === 'asphalt')) { for (const d of car.dig) d.active = false; return; }
+  // DIG TRACKS — every wheel digging into grass/gravel, world-anchored like skids.
   const f = frontWheelPositions(s);
   const sl = wheelSlips(car);
   const pos = [f.L, f.R, L, R];
-  const grass = [g.fL, g.fR, g.rL, g.rR];
   for (let i = 0; i < 4; i++) {
-    const dug = grass[i] && digging(car, sl[i], i >= 2);
-    drawSkidSegment(car.dig[i], pos[i].x, pos[i].y, dug, digStyle(), DIG_TRACK_WIDTH);
+    const off = surf[i] !== 'asphalt';
+    const dug = off && digging(car, sl[i], i >= 2);
+    drawSkidSegment(car.dig[i], pos[i].x, pos[i].y, dug, digStyle(surf[i]),
+      surf[i] === 'gravel' ? GRAVEL_TRACK_WIDTH : DIG_TRACK_WIDTH);
   }
 }
 
@@ -1598,13 +1608,20 @@ function emitCarSmoke(car: Car, realDt: number) {
   const tint = currentMap.smokeColor;   // undefined ⇒ default white smoke
   const sizeScale = 0.55 + 0.45 * Math.min(1, s.speed / 6);
   const slideFull = CONFIG.slipThresholdForSkid * 2.5;   // lateral slip → full slide intensity
-  const g = wheelGrass(car);
-  // A wheel digging into GRASS throws a small BROWN puff instead of rubber smoke: the dirt
-  // oval's mechanism + colour, dialled to grassDustScale (grass doesn't billow like a
-  // flattrack). World-anchored (inheritVel 0) like slide smoke, so it marks where it dug.
-  const dust = (x: number, y: number, intensity: number) =>
-    fx.emitSmoke(x, y, s.vx, s.vy, intensity, realDt, sizeScale * FX_CONFIG.grassDustSize,
-      GRASS_DUST_RGB, 0, FX_CONFIG.grassDustAlpha, FX_CONFIG.grassDustScale);
+  const surf = wheelSurfaces(car);
+  // A wheel digging OFF the tarmac throws the ground's own material instead of rubber smoke,
+  // via the dirt-oval mechanism, world-anchored (inheritVel 0) so it marks where it dug:
+  //   GRASS  → a small BROWN puff (turf doesn't billow like a flattrack)
+  //   GRAVEL → a STONE SPRAY in the trap's light grey-beige, more pronounced than the dust
+  //            (loose stone is genuinely thrown), and bigger/denser per gravelSpray*.
+  const spray = (x: number, y: number, intensity: number, ground: Surface) => {
+    const gravel = ground === 'gravel';
+    fx.emitSmoke(x, y, s.vx, s.vy, intensity, realDt,
+      sizeScale * (gravel ? FX_CONFIG.gravelSpraySize : FX_CONFIG.grassDustSize),
+      gravel ? GRAVEL_SPRAY_RGB : GRASS_DUST_RGB, 0,
+      gravel ? FX_CONFIG.gravelSprayAlpha : FX_CONFIG.grassDustAlpha,
+      gravel ? FX_CONFIG.gravelSprayScale : FX_CONFIG.grassDustScale);
+  };
 
   // ---- BURNOUT smoke — LONGITUDINAL wheelspin (launch / full throttle). Dense,
   // spawned slightly BEHIND the rear wheels and BILLOWS with the car (inheritVel
@@ -1614,10 +1631,10 @@ function emitCarSmoke(car: Car, realDt: number) {
     const back = 0.45;
     const bx = -Math.cos(s.heading) * back, by = -Math.sin(s.heading) * back;
     const { L, R } = rearWheelPositions(s);
-    // a rear wheel spinning up on GRASS digs turf → brown dust, at the contact point
-    if (g.rL) dust(L.x, L.y, burnoutInt);
+    // a rear wheel spinning up OFF the tarmac digs the ground → its own spray, at the contact point
+    if (surf[2] !== 'asphalt') spray(L.x, L.y, burnoutInt, surf[2]);
     else fx.emitSmoke(L.x + bx, L.y + by, s.vx, s.vy, burnoutInt, realDt, sizeScale, tint);
-    if (g.rR) dust(R.x, R.y, burnoutInt);
+    if (surf[3] !== 'asphalt') spray(R.x, R.y, burnoutInt, surf[3]);
     else fx.emitSmoke(R.x + bx, R.y + by, s.vx, s.vy, burnoutInt, realDt, sizeScale, tint);
   }
 
@@ -1630,17 +1647,17 @@ function emitCarSmoke(car: Car, realDt: number) {
   const rearSlide = Math.min(1, Math.abs(s.rearSlip) / slideFull);
   if (rearSlide > 0.4) {
     const { L, R } = rearWheelPositions(s);
-    if (g.rL) dust(L.x, L.y, rearSlide);
+    if (surf[2] !== 'asphalt') spray(L.x, L.y, rearSlide, surf[2]);
     else fx.emitSmoke(L.x, L.y, s.vx, s.vy, rearSlide, realDt, sizeScale, tint, SL_INHERIT, SL_ALPHA, SL_RATE);
-    if (g.rR) dust(R.x, R.y, rearSlide);
+    if (surf[3] !== 'asphalt') spray(R.x, R.y, rearSlide, surf[3]);
     else fx.emitSmoke(R.x, R.y, s.vx, s.vy, rearSlide, realDt, sizeScale, tint, SL_INHERIT, SL_ALPHA, SL_RATE);
   }
   const frontSlide = Math.min(1, Math.abs(s.frontSlip) / slideFull);
   if (frontSlide > 0.4) {
     const { L, R } = frontWheelPositions(s);
-    if (g.fL) dust(L.x, L.y, frontSlide);
+    if (surf[0] !== 'asphalt') spray(L.x, L.y, frontSlide, surf[0]);
     else fx.emitSmoke(L.x, L.y, s.vx, s.vy, frontSlide, realDt, sizeScale, tint, SL_INHERIT, SL_ALPHA, SL_RATE);
-    if (g.fR) dust(R.x, R.y, frontSlide);
+    if (surf[1] !== 'asphalt') spray(R.x, R.y, frontSlide, surf[1]);
     else fx.emitSmoke(R.x, R.y, s.vx, s.vy, frontSlide, realDt, sizeScale, tint, SL_INHERIT, SL_ALPHA, SL_RATE);
   }
 }

@@ -56,8 +56,9 @@ export interface SurfaceGroup {
   isDefault?: boolean; // this member is the group's default-selected surface
 }
 
-// Ground under a world point. Drives PER-WHEEL grip + rolling drag in physics4.
-export type Surface = 'asphalt' | 'grass';
+// Ground under a world point. Drives PER-WHEEL grip + drag in physics4: the tyre profile
+// (PHYS4.tire.muScale) keys its μ off this, and each surface adds its own resistance.
+export type Surface = 'asphalt' | 'grass' | 'gravel';
 
 export interface MapDefinition {
   id: string;
@@ -1113,12 +1114,19 @@ function circuitMask(): Uint8Array | null {
   _circuitMask = mask;
   return mask;
 }
+// Ground lookup: ASPHALT (ribbon + kerbs) wins, else GRAVEL (the traps), else grass. Both
+// masks are baked on the SAME grid (CIRCUIT_MASK_PPM === GRAVEL_MASK_PPM over the same world),
+// so one index serves both — asserted below so a future ppm change can't silently desync them.
 function circuitSurfaceAt(x: number, y: number): Surface {
   const m = circuitMask();
   if (!m) return 'asphalt';        // no raster available (off-DOM) → never penalise
   const mx = (x * CIRCUIT_MASK_PPM) | 0, my = (y * CIRCUIT_MASK_PPM) | 0;
   if (mx < 0 || my < 0 || mx >= _maskW || my >= _maskH) return 'grass';   // outside the world = surround
-  return m[my * _maskW + mx] ? 'asphalt' : 'grass';
+  const i = my * _maskW + mx;
+  if (m[i]) return 'asphalt';      // the ribbon + every kerb (kerbs are rideable asphalt)
+  const g = gravelMask();
+  if (g && _gvW === _maskW && _gvH === _maskH && g[i]) return 'gravel';
+  return 'grass';
 }
 /** Ground under a world point for `map`. Maps with no mask (desktop, ovals) are all asphalt. */
 export function surfaceAt(map: MapDefinition, x: number, y: number): Surface {

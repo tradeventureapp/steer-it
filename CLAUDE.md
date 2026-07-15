@@ -3587,3 +3587,72 @@ tongue fills the marked bay. tsc + build clean.
 sub-10 px sliver of grass BELOW the bottom kerb at the very image edge — thinner than the smoothing kernel
 (blur r=5 ⇒ ~7.5 px), so it gets eroded away. It is outside the boss's marked area, ~1.5 m at the frame
 edge and largely hidden by the kerb; not worth widening the whole bottom strip for.
+
+---
+**CIRCUIT MAP — GRAVEL PHYSICS + TIRE SURFACE PROFILES (the μ-per-surface architecture prep + real
+gravel; the boss's 1800 N start value MEASURED to fail its own target — shipped 600):** gravel traps
+are now real physics on physics4, and μ-per-surface moved from a global constant onto the TYRE.
+**(1) TIRE PROFILE — where it lives + WHY (reported per the brief):** the global `grassMuScale` is
+replaced by `PHYS4.tire: TireProfile` = `{ muScale: Record<Surface, number> }`, Blitz RS slicks =
+**`{ asphalt: 1.0, grass: 0.28, gravel: 0.35 }`**, read per wheel as `mu = …loadSens… *
+p.tire.muScale[ground]`. It lives in **physics4.ts, NOT vehicles.ts**: vehicles.ts documents itself as
+the pure DISPLAY identity that "does NOT have to equal the physics 1:1" and must never reach into the
+force model, whereas PHYS4 *is* the car's physics profile (the `physicsProfile` link vehicles.ts already
+anticipates). A future AWD rallycross car = one more `Physics4Params` object with its own `tire` — **zero
+further physics changes**. `type Surface` is imported type-only from maps.ts (no runtime cycle — maps.ts
+never imports physics4). **IDENTITY PROVEN:** `tire.muScale.asphalt` is EXACT 1.0 ⇒ on-asphalt μ
+unchanged; `tire.muScale.grass` 0.28 reproduces the shipped grass numbers **byte-for-byte — grass top
+speed 80 km/h, peak cornering 0.52 g** (the values from the grass-physics pass).
+**(2) MASK** — `Surface = 'asphalt' | 'grass' | 'gravel'`; `circuitSurfaceAt` resolves asphalt → gravel →
+grass off the SHARED 4 px/m index (`circuitMask` and `gravelMask` are baked over the same world ⇒ one
+`i`). Kerbs stay asphalt. VERIFIED BY EYE (PNG overlay, three distinct tints): **asphalt 55.1 % (ribbon +
+every kerb) · gravel 19.5 % = 7192 m² · grass 25.4 %** (incl. the mandatory strips).
+**(3) GRAVEL FORCES (per wheel, no lateral hack):** a CONSTANT plowing drag + a smaller linear term,
+applied to the **full contact-velocity VECTOR** (`mag = gravelDragConst·min(1, vc/GRAVEL_EPS) +
+gravelDragLin·vc`, opposing `vwx,vwy`) ⇒ lateral plowing falls out of the same term; `GRAVEL_EPS` 0.5 m/s
+tapers it to 0 at rest (parked 3 s: |v| 0.0000, moved 0.0000 — no jitter/creep). μ comes from the profile.
+**⚠️ THE SUGGESTED 1800 N MEASURES AS BROKEN — reported, not shipped:** it fails target (b) **truly stuck**
+(0.8 m in 5 s at EVERY throttle) and overshoots (a) at 1.7 traps. FORCE ANALYSIS (why, not a vibe):
+4 wheels × 1800 = **7200 N** of drag vs the best drive the car can make on gravel — rear grip budget
+μ·Fz ≈ **3128 N**, ≈4066 N through the ellipse, and only ≈**1839 N** once the wheel spins past the MF
+longitudinal peak (κ≈1.48/Bx=0.123 → past-peak force decays to 0.588·D). Drive can never exceed drag ⇒
+stuck by construction. **SHIPPED `gravelDragConst` 600** (+ `gravelDragLin` **15**), the only value hitting
+all three LOCKED targets. **SWEEP (stop from 150 km/h | best feathered exit in 5 s | full throttle |
+sideways-die; trap = 55 m):**
+```
+   300 → 189 m 3.4t | 17.2 m 23 km/h | 7.1 m | 2.70 s
+   450 → 174 m 3.2t | 12.2 m 16 km/h | 2.3 m | 2.42 s
+  *600 → 160 m 2.9t |  7.2 m  9 km/h | 1.8 m | 2.20 s*   ← shipped
+   700 → 153 m 2.8t |  2.5 m  1 km/h | 1.5 m | 2.08 s
+   800 → 146 m 2.7t |  1.7 m (stuck) | 1.4 m | 1.98 s
+  1000 → 133 m 2.4t |  1.4 m         | 1.1 m | 1.83 s
+  1400 → 112 m 2.0t |  1.0 m         | 0.8 m | 1.60 s
+  1800 →  94 m 1.7t |  0.8 m (STUCK) | 0.6 m | 1.40 s     ← the suggested start value
+```
+**TARGETS ALL PASS at 600:** (a) 150 km/h → full stop in **160 m = 2.9 trap-lengths** (grass 254 m = 4.6);
+(b) exit always possible + **throttle-sensitive, never stuck** — th 0.2 → 0.0 m (bogs), **th 0.4 → 7.2 m,
+8.8 km/h, 10 % wheelspin (the feathered exit)**, th 0.7/1.0 → 1.8 m at **100 % wheelspin = digging a hole**;
+(c) no ice-slide — sideways 20 m/s dies in **2.20 s / 26.1 m** vs grass 4.32 s / 53.2 m vs asphalt 20 s /
+314 m ⇒ visibly faster than grass. **THE DIG EMERGES** (nothing added): low μ + the power limit alone make
+full throttle spin and go nowhere while a feathered 0.4 crawls out — exactly the brief's requirement.
+**(4) VISUALS (render-only):** per-wheel ground reaches the renderer via `wheelDebug().surface` +
+`wheelSurfaces()` (**note the crossed order** — physics4 is [FL,FR,RL,RR] on `ry`, desktop wants L/R ⇒
+`[g[1],g[0],g[3],g[2]]`). STONE SPRAY `gravelSprayScale` **0.6** (vs grass 0.28) / `gravelSpraySize` 0.95 /
+`gravelSprayAlpha` 0.85. DUG TRACKS `GRAVEL_TRACK_WIDTH` **7** px (grass 5, rubber skid 3) /
+`GRAVEL_TRACK_ALPHA` 0.55 / `GRAVEL_TRACK_RGB` '74,70,60'. Both keep the strict dig gate (wheelspin > 0.2
+OR |slip| > threshold) ⇒ **calm rolling through a trap leaves nothing**; a rear wheel off-asphalt lays no
+rubber skid. **⚠️ SPRAY-COLOUR BUG CAUGHT BY LOOKING (the real finding):** `GRAVEL_SPRAY_RGB` was set to
+the trap's own `GRAVEL_BASE` [179,173,155] — and a plume **saturates to its own tint**, so over its own bed
+it measured **peak Δ = 0: mathematically INVISIBLE, and alpha cannot rescue it** (0.85 vs 1.2 → identical).
+Fixed to the AIRBORNE value **[216, 210, 191]** (+37/channel — fine dust scatters light and carries none of
+the bed's inter-stone shadow) ⇒ peak Δ over gravel **0 → 110**, over grass 421 → 475, over asphalt 344 →
+454, while staying clearly light grey-beige stone (+53 was measured too, but reads as cream smoke).
+**(5) SAFETY:** ARCADE / desktop / both ovals / circuit-on-asphalt **byte-identical 0.0e+0** — proven the
+strong way: no sampler == all-asphalt sampler == **ABSURD off-road params** (drag 9e5, μ×1e-4) ⇒ the
+off-road path is provably DEAD CODE off the traps. `physics.ts` UNTOUCHED (empty diff). tsc + build clean.
+**TUNABLES:** `tire.muScale` {asphalt 1.0, grass 0.28, gravel 0.35} · `gravelDragConst` **600** ·
+`gravelDragLin` **15** · `gravelSprayScale` 0.6 / Size 0.95 / Alpha 0.85 · `GRAVEL_TRACK_WIDTH` 7 /
+`_ALPHA` 0.55 — the physics ones live on the D tuner (which now steps only NUMERIC params via a `NumKey<T>`
+mapped type, since `PHYS4.tire` is a structured profile). **NEXT: boss drives into a trap (X → PHYSICS4) —
+it should plow to a stop in ~2-3 trap lengths, spray pale stone + gouge wide tracks while digging, sit and
+dig a hole at full throttle, and crawl out on a feathered ~0.4.**

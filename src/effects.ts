@@ -30,6 +30,14 @@ export const FX_CONFIG = {
   grassDustSize: 0.8,      // × particle size (slightly smaller than rubber smoke)
   grassDustAlpha: 0.7,     // × opacity (slightly more transparent)
 
+  // ---------- GRAVEL stone spray (circuit traps, dig-gated) ----------
+  // Loose stone is genuinely THROWN, so the spray is more pronounced than the grass dust:
+  // ~2× the rate, bigger, less transparent. Same strict dig gate — rolling calmly through
+  // a trap sprays NOTHING. TUNE:
+  gravelSprayScale: 0.6,   // × the dirt oval's emission rate (vs grass 0.28)
+  gravelSpraySize: 0.95,   // × particle size
+  gravelSprayAlpha: 0.85,  // × opacity
+
   // ---------- Impact sparks ----------
   sparkImpactMin: 4,       // m/s normal impact needed to spawn sparks
   sparkCount: 10,          // at full impact (scaled down for lighter hits)
@@ -48,6 +56,12 @@ export const FX_CONFIG = {
 export const DEFAULT_SMOKE_RGB: [number, number, number] = [248, 248, 251];
 // Dug-up turf — the dirt oval's brown dust family, used by a wheel digging into grass.
 export const GRASS_DUST_RGB: [number, number, number] = [170, 126, 84];
+// Thrown stone — the gravel trap's light grey-beige crushed-stone family, but the AIRBORNE
+// value, not the bed's: fine dust scatters light and carries none of the bed's inter-stone
+// shadow, so it reads ~+37/channel lighter than GRAVEL_BASE (#b3ad9b). That gap is the whole
+// point — a plume saturates to its own tint, so tinting it exactly GRAVEL_BASE made the spray
+// mathematically INVISIBLE over its own bed (measured peak Δ 0; alpha cannot rescue it).
+export const GRAVEL_SPRAY_RGB: [number, number, number] = [216, 210, 191];
 
 interface Particle {
   kind: 'smoke' | 'spark';
