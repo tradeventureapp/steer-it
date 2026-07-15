@@ -951,10 +951,13 @@ const CIRCUIT_KERBS: KerbQuad[] = ((): KerbQuad[] => {
         return [inStripe ? KERB_WIDTH - KERB_SEAM : -KERB_SEAM, FULL_W];
       }
       const dist = arc[k] < stripeStartArc ? stripeStartArc - arc[k] : arc[k] - stripeEndArc;
-      const w = 1 - Math.min(1, dist / KERB_BLUE_TAIL);  // 1 at the cut → 0 at the tail end
-      return [-KERB_SEAM * w, FULL_W * w];               // BOTH edges scale by w → the wedge
-      // converges to a single POINT exactly ON the asphalt edge (width 0, no residual tip/nub;
-      // the −SEAM overlap also fades to 0 so nothing protrudes past the asphalt edge at the end).
+      const tt = Math.min(1, dist / KERB_BLUE_TAIL);
+      const w = 1 - tt * tt * tt * (tt * (tt * 6 - 15) + 10);   // SMOOTHERSTEP ease-out (w'=0 at both ends)
+      return [-KERB_SEAM * w, FULL_W * w];
+      // BOTH edges scale by the smootherstep w. Because w' = 0 at tt = 0, the outer (grass-side)
+      // edge leaves the band's grass edge TANGENTIALLY at the hard cut → zero kink, ONE continuous
+      // smooth curve (no facet/triangle); w' = 0 and w = 0 at tt = 1 → it eases FLUSH onto the
+      // asphalt edge, width exactly 0, no protruding tip. Same per-point density as the kerb band.
     };
     const inBody = (kk: number) => arc[kk] >= stripeStartArc && arc[kk] < stripeEndArc;   // full-width blue
     for (let k = 0; k < blen - 1; k++) {

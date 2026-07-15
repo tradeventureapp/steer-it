@@ -3243,3 +3243,20 @@ rendering the real fill+conditional-stroke, all 12 kerb ends): **0 blue pixels b
 of path points past the buffer end) and **0 tail scans with blue outside the kerb silhouette** (blue never
 exceeds the grass edge FULL_W=19.2 anywhere along a tail). **physics.ts UNTOUCHED** → `step()` 0.0e+0. tsc
 + build clean.
+
+---
+**CIRCUIT MAP — BLUE WEDGE IS NOW A SMOOTH TANGENTIAL CURVE (was an angular facet/kink at the cut):** the
+previous LINEAR taper `w = 1 − dist/KERB_BLUE_TAIL` made the outer edge leave the flat blue body (offset
+FULL_W, slope 0) at a constant slope −FULL_W/TAIL → a SLOPE DISCONTINUITY = a visible ~29° KINK at the
+stripe cut (the wedge read as a separate straight-edged triangle). FIX (maps.ts `blueEdges` tail, one line):
+`w = 1 − smootherstep(min(1, dist/KERB_BLUE_TAIL))` (smootherstep `t³(t(6t−15)+10)`, whose derivative is 0
+at BOTH ends). Now the outer edge leaves the band's grass edge TANGENTIALLY at the cut (w′=0 → zero kink,
+one continuous curve, same offset FULL_W at the shared joint point) and eases FLUSH onto the asphalt edge
+(w′=0, w=0 at the end → width exactly 0, the no-protruding-tip fix preserved). Both edges still scale by w
+(converge to a point); per-point density unchanged (as smooth as the kerb band); stripes/hard-cut/blue-only
+body/arc-length uniformity/soft-stroke-flag all unchanged. **VERIFIED** (pixel harness, outer-edge world
+polyline turn-angle across the joint): LINEAR had a single **29.05° spike** at the cut (ambient ~0.8°);
+SMOOTHERSTEP replaces it with a **gradual ramp, max 9.97°** distributed over ~8 vertices (0.84→6.35→9.89→
+9.97→7.82→5.05→2.47→…) — no sharp corner, no facet; width profile smooth + monotonic to exactly 0 (near-full
+tangential start 20.0→19.6→18.9 vs linear's steep 20.0→17.4→16.0). **physics.ts UNTOUCHED** → `step()`
+0.0e+0. tsc + build clean.
