@@ -3893,3 +3893,50 @@ widths `wAsphalt`/`wKerb` **3**, `wGrass` **5**, `wGravel` **7** px.
 **NEXT: boss drives the circuit for a while (X → PHYSICS4) — clean laps should leave the tarmac clean,
 slides should lay a rubbered line that darkens and then stops, kerbs should scuff without losing their
 stripes, and grass/gravel should show dug tracks.**
+
+---
+**TYRE MARKS — KERB SCUFFS NOW CLEARLY VISIBLE (`mulKerb` ×0.83 → ×0.50; ONE value, one file):**
+the boss drove it and the kerb rubber was near-invisible. He is right, and the reasoning is sound —
+black rubber on a WHITE block is the highest-contrast mark on the whole track, and real race kerbs
+get visibly blackened; ×0.83 only took the white stripe 232 → 193, which reads as nothing.
+**THE UNTESTED CASE, NOW SCRIPTED:** the previous pass never proved this because the scripted lap
+driver stays on the racing line and never touches a kerb (its `n=356` "kerb marks" turned out to be
+brown dug-turf marks on the grass BESIDE the kerb). This time the harness locates the densest kerb
+cell from the map's own mask and drives REAL drifted crossings over it (handbrake + steer + throttle
+through the REAL physics4 + REAL TyreMarks), varying the approach only slightly the way a driver
+riding the same kerb actually would.
+**SWEEP (fully saturated stripe = stripe × factor — the multiply layer converges to exactly this):**
+```
+  mulKerb            WHITE 232,232,238   RED 201,56,47   BLUE 47,111,202   white-red separation
+  x0.83 (was)        193,193,198         167,46,39       39,92,168         332
+  x0.59 (=asphalt)   137,137,140         119,33,28       28,65,119         234
+ *x0.50 (SHIPPED)    116,116,119         101,28,24       24,56,101         198*
+  x0.45              104,104,107          90,25,21       21,50,91          179
+  x0.40               93,93,95            80,22,19       19,44,81          160
+```
+**MEASURED end-to-end on the real render (most-marked pixel per stripe, grass boundary excluded):**
+```
+  stripe   clean         5 crossings   full saturation   theoretical cap
+  white    232,232,238   170,170,175   112,112,115       116,116,119
+  red      201,56,47     145,40,34     104,29,25         101,28,24
+  blue     47,111,202    35,84,154     24,58,105         24,56,101
+```
+measured == the theoretical cap ⇒ the multiply model does exactly what it says.
+**IDENTITY CONSTRAINT HOLDS (point 2):** at FULL saturation the pattern separations are **white↔red
+181 · white↔blue 152 · red↔blue 189** — the three stripes stay obviously distinct. VERIFIED BY EYE
+(clean | 5 crossings | full, side by side): red is still RED, the white block is still clearly the
+light one, blue is still blue — a scuffed kerb, NOT a black band.
+**PASS CALIBRATION (point 3) — no change needed:** at ×0.50 **5 drifted crossings already take the
+white block 232 → 170** (Δ62, a clear grey scuff visible in the render), and sustained abuse settles
+at 112. So `rate` 0.055 stays as-is, which also keeps the other surfaces' tuning untouched as the
+brief required.
+**SCOPE:** ONE value in `marks.ts` — `mulAsphalt` / `mulGravel` / `grassRgb` / `grassCap` /
+`slideMargin` / `energyMin` / `energyFull` / `rate` / widths all byte-unchanged; `physics.ts` and
+`physics4.ts` UNTOUCHED (empty diffs); desktop/maps/effects untouched. tsc + build clean.
+**⚠️ HONEST NOTE (a real artifact, minor):** the mark CLASS is picked per SEGMENT from the wheel's
+position, but the stroke has width — so within ~2 px of a kerb/grass boundary a dug-turf stamp can
+bleed brown onto the kerb (and an asphalt-factor stamp onto kerb pixels). It reads as dirt dragged
+onto the kerb edge, which is plausible; it only misled the MEASUREMENT (the first sample picked those
+boundary pixels and reported blue as grey-brown), so the final sample excludes them.
+**TUNABLE:** `MARK.mulKerb` **'128,128,131'** (×0.50) — lower = blacker kerbs (×0.45 = white 104),
+higher = subtler (×0.59 = white 137, the asphalt level).

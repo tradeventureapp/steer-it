@@ -53,7 +53,11 @@ export const MARK = {
   // ---- TUNE: per-surface saturation caps ----
   // MULTIPLY factors (rgb): a fully saturated pixel = surface × factor/255. Lower = darker.
   mulAsphalt: '150,150,154',   // ×0.59 — a real circuit's rubbered-in racing line
-  mulKerb:    '212,212,214',   // ×0.83 — a scuff; the stripes ALWAYS read through
+  // Kerbs get the STRONGEST rubber on the track, not the weakest: black rubber on a WHITE
+  // block is the highest-contrast mark anywhere, and race kerbs get visibly blackened. ×0.83
+  // was near-invisible (white 232 -> 193). ×0.50 blackens the white to 116 while the pattern
+  // stays obvious — red 101,28,24 vs white 116,116,119 vs blue 24,56,101 (see the sweep).
+  mulKerb:    '128,128,131',   // ×0.50 — scuffed kerb, NOT a black band
   mulGravel:  '184,181,172',   // ×0.72 — disturbed stone, grain intact
   // SOURCE-OVER (grass): dug turf brown, and the alpha cap it approaches (1.0 = a decal).
   grassRgb:   '96,68,40',
