@@ -4053,3 +4053,33 @@ keep it), so their grid-to-line metres count into lap 1, which is what a standin
 **`physics.ts` / `physics4.ts` / `marks.ts` / `phone.ts` UNTOUCHED** (empty diffs ⇒ step() 0.0e+0).
 tsc + build clean. **NEXT: boss drives it — set laps in the editor (E), grid holds through 3-2-1,
 GO unlocks everyone at once and the clock starts there; 1 lap = one lap.**
+
+---
+**GRID BACK BEFORE THE LINE (real-world placement; `maps.ts` only, one sign):** the "just past
+the line" spawn was an artifact of the pre-countdown flying start and is wrong now that the
+standing start exists. The circuit grid moves back to the **+x side** — BEFORE the line in the
+racing direction, where a real grid is: the line is **4.44 m AHEAD of P1** and the rows stack
+back from it (7.69 m pitch). Ovals **confirmed already correct and unchanged** (their grid is −x
+of a `forward = 0` line ⇒ also before it). The clock still starts at GO, so the few grid-to-line
+metres are simply part of lap 1 — correct for a standing start.
+**THE POST-GO CROSSING — WHY IT IS SAFE, AND THE NUANCE THAT MADE IT WORTH TESTING PROPERLY:**
+the two ends of the grid hit the start gate in *different* ways, so both were tested rather than
+assumed. **P1 spawns INSIDE the gate** (4.44 m from a 13.8 m radius): its `inside[]` is latched
+true through the countdown, so driving out through the line fires **no enter event at all**.
+**The BACK ROW spawns OUTSIDE it** (27.5 m > 13.8 — and equally on the oval, 27.5 > 20.6): it
+really does fire `onEnter` on the way past. That is harmless because completion needs
+`isForward && lapArmed()`, and the lap only arms at the far point half a track away — so the
+enter is simply ignored, and `armed` is not touched either. **MEASURED: lap stays 1 right after
+the crossing for P1 AND P8, on BOTH maps** — no completion, no double count.
+**MEASURED (real race.ts + real maps.ts, full re-run, both maps):** grid — all 8 spawns BEFORE
+the line on both, nobody straddling, P1 4.44 m back; laps from the grid — **circuit 1-lap = 0.99
+laps of track driven / 3-lap = 2.99, oval 1-lap = 0.97** (the shortfall is the gate radius: the
+finish trips on ENTERING the gate, not at its centre); anti-cheat — full wrong-way lap, 12× spam
+and a partial lap all **fail to finish on both maps**; countdown — mashing the throttle right
+through it never leaks (`phase` stays `countdown`, `locked`), `locked()` true at 2999 ms / false
+at 3000; free-roam (laps 0 ⇒ no elements) → `hud.active` false, never armed.
+**VERIFIED BY EYE** (both maps, real `drawBackground` + real `startLine`/`spawn` overlaid): the
+checkered line with the grid BEFORE it, noses pointing at it, P1 closest, and the racing-direction
+arrow pointing the opposite way from the grid — a real rost on both.
+**`physics.ts` / `physics4.ts` / `race.ts` / `desktop.ts` / `marks.ts` UNTOUCHED** (empty diffs ⇒
+step() 0.0e+0). The whole change is one sign in the circuit's spawn. tsc + build clean.
