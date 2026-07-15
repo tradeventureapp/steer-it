@@ -3791,3 +3791,26 @@ handbrake + full throttle both **0.0000 m**. **NO REGRESSION:** ARCADE / desktop
 / mask / const / digGain / lin all untouched. `physics.ts` UNTOUCHED (empty diff). tsc + build clean.
 **GRAVEL TUNE (all live on the D tuner):** `gravelDragConst` **300** (crawl out) · `gravelDragQuad` **3.5**
 (brakes at speed) · `gravelDigGain` **2** (spinning wheel buries itself) · `gravelDragLin` 15.
+
+---
+**GRAVEL — EVEN MORE BRAKING (`gravelDragQuad` 3.5 → 4.0; actuals match the sweep prediction EXACTLY):**
+one value, straight off the previous mini-sweep's measured cell. **ACTUALS vs the prediction (72 m /
+1.32 traps / 3.3 g): stop from 150 km/h = 72 m = 1.32 trap-lengths in 5.5 s, peak arrival decel 3.30 g** —
+identical, so the sweep is trustworthy for further dialling. (was 78 m / 1.42 / 2.96 g; grass 254 m = 4.6).
+**ORTHOGONALITY HELD AGAIN (re-verified, not assumed):** full-throttle dig **1.78 m / 100 % spin —
+byte-identical**; feathered exit 15.7 → **15.5 m / 3.9 s = 99 % preserved**; the escape cliff intact
+(`0.40 → 15.5 m / 8 % spin · 0.50 → 1.9 m / 100 % spin`), feather-vs-mash **8.7×**; lateral **1.93 → 1.92 s**
+(already saturated). The quad term contributes **16 N of ~1270 N at 1 m/s = 1.3 %** — that 1.3 % IS why the
+crawl-speed behaviour cannot move.
+**STOP-DISTANCE CURVE (added — 150 is the worst case; a realistic off is slower):** `60 km/h → 28 m
+(0.51 traps) · 90 → 47 m (0.85) · 120 → 61 m (1.11) · 150 → 72 m (1.32)` — so a typical off is swallowed
+in well under one trap length.
+**STABILITY (quad is the term that bites at speed — checked hardest here):** explicit-integration overshoot
+checked at **150, 200 AND 248 km/h (the car's top speed) → 0 sign-flips at every one** (the drag never
+reverses the car within a step); spin at standstill 0 flips / never backward; taper settle 0 flips, rest |v|
+**0.0e+0**; parked 3 s and handbrake + full throttle both **0.0000 m**.
+**NO REGRESSION:** ARCADE / desktop / ovals / circuit-on-asphalt **0.0e+0**; **grass byte-identical — top
+80 km/h, cornering 0.52 g, stop 254 m**; μ profile / spray / tracks / mask / const / digGain / lin untouched.
+`physics.ts` UNTOUCHED (empty diff). tsc + build clean.
+**GRAVEL TUNE (all live on the D tuner):** `gravelDragConst` **300** (crawl out) · `gravelDragQuad` **4.0**
+(brakes at speed) · `gravelDigGain` **2** (spinning wheel buries itself) · `gravelDragLin` 15.
