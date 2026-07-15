@@ -52,6 +52,10 @@
       <div id="race-finish-time">0:00.0</div>
     </div>
 
+    <!-- STANDING START: one shared 3-2-1-GO over the grid. Screen-space HTML (like the
+         XP HUD) so it stays crisp and matches the HUD's type; the cars are held by
+         race.ts's countdown phase, not by this. -->
+    <div id="countdown" hidden><span id="countdown-n">3</span></div>
     <!-- XP MODE HUD (circuit + XP mode only): big score top-centre + drift
          multiplier. Blinks red under the slow-speed warning. -->
     <div id="xp-hud" hidden>

@@ -74,6 +74,8 @@ const raceFinishEl    = document.getElementById('race-finish')      as HTMLEleme
 const finishFeedEl    = document.getElementById('finish-feed')      as HTMLElement | null;
 const raceResultsEl   = document.getElementById('race-results')     as HTMLElement | null;
 const resultsRestEl   = document.getElementById('results-rest')     as HTMLElement | null;
+const countdownEl   = document.getElementById('countdown')     as HTMLElement | null;
+const countdownNEl  = document.getElementById('countdown-n')   as HTMLElement | null;
 const xpHudEl       = document.getElementById('xp-hud')        as HTMLElement | null;
 const xpScoreEl     = document.getElementById('xp-score')      as HTMLDivElement | null;
 const xpMultEl      = document.getElementById('xp-mult')       as HTMLDivElement | null;
@@ -618,6 +620,7 @@ function restartRace() {
     car.lastInputAt = performance.now();
   }
   raceManager.reset();   // every car's laps/time/phase → zero
+  armStandingStart();    // ...and line them up again for a fresh 3-2-1-GO
   resetRaceFeed();       // clear finish feed + podium + raceResultsOpen
   userPaused = false;
   refreshFreeze();
@@ -1142,7 +1145,51 @@ function rebuildRace() {
     }
   }
   raceManager = new RaceManager(raceElements, { ...RACE_CONFIG, laps: Math.max(1, editorLaps) });
+  armStandingStart();
   resetRaceFeed();
+}
+
+// STANDING START: a lap race begins with the grid held for a 3-2-1-GO countdown, and the
+// clock starts at GO. Only for a CIRCUIT-type track with a real lap race — free-roam
+// (laps 0 ⇒ no elements) and sprint tracks (which keep their flying start off the first
+// crossing) never arm it, so their behaviour is untouched.
+// Armed here, STARTED on the next frame: the countdown must run on the pause-adjusted game
+// clock (which only exists inside the loop, and freezes while paused so a pause can't burn
+// the countdown), and restartRace can be called while still paused.
+let pendingStandingStart = false;
+function armStandingStart() {
+  pendingStandingStart = isRaceLive() && isCircuitMap();
+  if (!pendingStandingStart) hideCountdown();
+}
+
+// How long "GO!" lingers after the grid unlocks. Display only — the cars are already free
+// (race.ts flipped to 'racing' at the GO instant, which is also when the clock started).
+const GO_HOLD_MS = 800;
+let countdownShown = '';
+function hideCountdown() {
+  if (countdownEl) countdownEl.hidden = true;
+  countdownShown = '';
+}
+function updateCountdown(now: number) {
+  if (!countdownEl || !countdownNEl) return;
+  const left = isRaceLive() ? raceManager.countdownMs(now) : 0;
+  let label = '';
+  if (left > 0) label = String(Math.ceil(left / 1000));          // 3 → 2 → 1
+  else if (isRaceLive() && raceManager.locked(now) === false) {
+    // GO lingers briefly after unlock, then the HUD is clear for the race.
+    const h = raceManager.hud(primaryCar()?.slot ?? -1, now);
+    if (h.phase === 'racing' && h.elapsedMs < GO_HOLD_MS) label = 'GO!';
+  }
+  if (label === countdownShown) return;                          // only touch the DOM on a change
+  countdownShown = label;
+  if (!label) { countdownEl.hidden = true; return; }
+  countdownEl.hidden = false;
+  countdownEl.classList.toggle('go', label === 'GO!');
+  // Re-trigger the punch animation for each new beat.
+  countdownNEl.textContent = label;
+  countdownNEl.style.animation = 'none';
+  void countdownNEl.offsetWidth;
+  countdownNEl.style.animation = '';
 }
 
 // ---------- Track editor (key E) — place/drag/delete into raceElements ----------
@@ -1769,8 +1816,22 @@ function frame(now: number) {
       // Advance every car: smooth its inputs, integrate, then resolve obstacle
       // collisions. The smoothing/step is IDENTICAL to the old single-car path,
       // so each car drives exactly as the solo car always did.
+      // STANDING START: while the shared countdown runs, the grid is HELD. Phone inputs
+      // keep arriving and keep updating car.target (so the connection lifecycle is
+      // untouched) — they are simply not applied, and the car is pinned, so nobody can
+      // creep or jump the start. On GO this goes false for every car in the same frame.
+      if (pendingStandingStart) { raceManager.beginCountdown(gameNow); pendingStandingStart = false; }
+      const gridLocked = isRaceLive() && raceManager.locked(gameNow);
       for (const car of cars.values()) {
         const { current, target } = car;
+        if (gridLocked) {
+          // Ignore inputs + pin the car exactly where it was spawned.
+          current.steer = current.throttle = current.brake = 0;
+          current.handbrake = false;
+          car.state.vx = car.state.vy = 0;
+          car.state.angularVel = 0;
+          continue;   // the per-car raceManager.update below still runs (it ticks the countdown)
+        }
         // Smooth incoming inputs inside the fixed step so the smoothing rate is
         // frame-rate independent. Steer gets the heaviest smoothing. Throttle /
         // brake get a light lerp so 30Hz network steps don't visibly jump the
@@ -1859,6 +1920,7 @@ function frame(now: number) {
   // Render ALWAYS (paused frame still draws the frozen car + overlay on top).
   render();
   updateRaceHud(raceManager.hud(primaryCar()?.slot ?? -1, gameNow));
+  updateCountdown(gameNow);
   updateXpHud();
   requestAnimationFrame(frame);
 }

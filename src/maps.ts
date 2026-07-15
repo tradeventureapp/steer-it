@@ -1652,15 +1652,19 @@ export const circuitMap: MapDefinition = {
   },
 
   // Grid spawn on the flat finish straight (the nearest-to-bottom, levelled run), facing
-  // −x: the circuit runs CLOCKWISE, so the bottom straight is driven right→left. Rows
-  // therefore stack BEHIND the line = to its +x side.
+  // −x: the circuit runs CLOCKWISE, so the bottom straight is driven right→left.
+  //
+  // The grid sits JUST PAST the line (−x of it, the side the cars are heading for) — it is
+  // a STANDING start, so from GO a car drives exactly ONE lap of track to get back to the
+  // line and complete lap 1. Every car is fully clear of the line at spawn (the nearest
+  // row's nose is ~2.2 m past it), so nobody straddles it on the grid.
   spawn(slot, world) {
     void world;
     const c = circuitToWorld(CIRCUIT_FINISH.x, CIRCUIT_FINISH.y);
     const col = slot % 2, row = Math.floor(slot / 2);
     const laneOff = (col === 0 ? -1 : 1) * CIRCUIT_TRACK_W * 0.18;   // heading π ⇒ perp is y
-    const back = CONFIG.wheelbase * 1.73 + row * CONFIG.wheelbase * 3.0;
-    return { x: c.x + back, y: c.y + laneOff, heading: Math.PI };
+    const ahead = CONFIG.wheelbase * 1.73 + row * CONFIG.wheelbase * 3.0;
+    return { x: c.x - ahead, y: c.y + laneOff, heading: Math.PI };
   },
 
   // No walls: just a soft clamp at the (far-out) world edge so a car can't leave

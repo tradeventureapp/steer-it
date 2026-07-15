@@ -51,15 +51,20 @@ export interface RaceConfig {
   laps: number;            // 1..10 (clamped)
   maxCheckpoints: number;  // cap the editor will honour
   gateRadius: number;      // default trigger radius (m) — forgiving
+  countdownMs: number;     // STANDING START: how long the grid is held before GO
 }
 
 export const RACE_CONFIG: RaceConfig = {
   laps: 1,
   maxCheckpoints: 5,
   gateRadius: 5.03,   // m — real metres on the Stage-C1 ruler (was 1.7 for the 1/3 car; ×2.96)
+  countdownMs: 3000,  // 3 → 2 → 1 → GO
 };
 
-export type RacePhase = 'pre' | 'racing' | 'finished';
+// 'countdown' = a STANDING START: the grid is held, inputs are ignored, and the race
+// clock has not begun. It is entered ONLY via beginCountdown(); a host that never calls
+// it sees the original pre → racing → finished flow, unchanged.
+export type RacePhase = 'pre' | 'countdown' | 'racing' | 'finished';
 
 // Snapshot for the HUD (no internal state leaks).
 export interface RaceHud {
@@ -72,6 +77,9 @@ export interface RaceHud {
   laps: number;
   finished: boolean;
   finishMs: number;      // total time once finished (else 0)
+  // --- standing start ---
+  locked: boolean;       // hold the car + ignore its inputs (true only during the countdown)
+  countdownMs: number;   // ms left until GO (0 unless counting down)
 }
 
 function clampLaps(n: number): number {
@@ -100,6 +108,7 @@ export class RaceState {
   // lap; reverse over the line ⇒ not forward ⇒ no lap.
   private readonly startEl: RaceElement | null;
   private armed = false;
+  private cdStartMs = 0;   // when the standing-start countdown began
 
   constructor(elements: RaceElement[], cfg: RaceConfig = RACE_CONFIG) {
     this.elements = elements;
@@ -119,7 +128,29 @@ export class RaceState {
     this.lap = 0;
     this.collected.clear();
     this.armed = false;
+    this.cdStartMs = 0;
     this.inside = this.elements.map(() => false);
+  }
+
+  /**
+   * STANDING START. Hold the grid for `countdownMs`, then GO: the clock starts at the GO
+   * instant (not at a line crossing) and lap 1 is already running, so ONE armed forward
+   * crossing completes a 1-lap race.
+   *
+   * This also fixes the flying start's real bug: the grid sits INSIDE the start gate (a few
+   * m from the line, which has a band-wide radius), and on the stationary first frame the
+   * crossing is not "forward" (v = 0), so the enter-edge was consumed with the race still
+   * in 'pre'. The race then only STARTED on the next pass — a whole lap later — which is
+   * why a 1-lap race took ~2 laps to finish. Holding `inside[]` across the countdown and
+   * entering 'racing' at GO removes that entirely.
+   *
+   * OPT-IN: never call this and the flow is exactly as before (a sprint keeps its flying
+   * start off the first crossing).
+   */
+  beginCountdown(now: number) {
+    this.reset();
+    this.phase = 'countdown';
+    this.cdStartMs = now;
   }
 
   // Feed the car position (world metres), a timestamp (ms), and OPTIONALLY the
@@ -128,6 +159,28 @@ export class RaceState {
   // direction (legacy / checkpoint races are unaffected).
   update(x: number, y: number, now: number, vx = 0, vy = 0) {
     if (this.phase === 'finished' || this.elements.length === 0) return;
+
+    if (this.phase === 'countdown') {
+      // Held on the grid: no gate may trigger. But DO keep `inside[]` current — the grid
+      // sits inside the start gate, so at GO that overlap must already be latched or the
+      // car's first metre would read as a fresh crossing.
+      for (let i = 0; i < this.elements.length; i++) {
+        const e = this.elements[i];
+        const r = e.radius ?? this.cfg.gateRadius;
+        const dx = x - e.x, dy = y - e.y;
+        this.inside[i] = dx * dx + dy * dy < r * r;
+      }
+      if (now - this.cdStartMs < this.cfg.countdownMs) return;
+      // GO. The clock starts at the exact GO instant, not at this frame, so the elapsed
+      // time is independent of the frame rate. Lap 1 is already running and UNARMED, so
+      // the car must go round before its next crossing can complete it.
+      this.phase = 'racing';
+      this.startMs = this.cdStartMs + this.cfg.countdownMs;
+      this.lap = 1;
+      this.collected.clear();
+      this.armed = false;
+      // fall through — this frame is already racing
+    }
 
     // Arm the lap once the car reaches the circuit's far side (anti-shortcut).
     const f = this.startEl;
@@ -220,6 +273,10 @@ export class RaceState {
       laps: this.cfg.laps,
       finished: this.phase === 'finished',
       finishMs: this.phase === 'finished' ? this.finishMs - this.startMs : 0,
+      locked: this.phase === 'countdown',
+      countdownMs: this.phase === 'countdown'
+        ? Math.max(0, this.cfg.countdownMs - (now - this.cdStartMs))
+        : 0,
     };
   }
 }
@@ -255,10 +312,26 @@ export class RaceManager {
     this.cfg = cfg;
   }
 
+  // When a standing start is running, the SAME instant is handed to every car — including
+  // one that joins mid-countdown — so the whole grid unlocks on one shared GO.
+  private cdAt: number | null = null;
+
   private state(slot: number): RaceState {
     let rs = this.cars.get(slot);
-    if (!rs) { rs = new RaceState(this.elements, this.cfg); this.cars.set(slot, rs); }
+    if (!rs) {
+      rs = new RaceState(this.elements, this.cfg);
+      if (this.cdAt !== null) rs.beginCountdown(this.cdAt);
+      this.cars.set(slot, rs);
+    }
     return rs;
+  }
+
+  /** STANDING START for the whole grid: one countdown, everyone unlocks on the same GO. */
+  beginCountdown(now: number): void {
+    this.cdAt = now;
+    this.order = [];
+    this.finished.clear();
+    for (const rs of this.cars.values()) rs.beginCountdown(now);
   }
 
   // Register a car so it exists before it moves (optional; update() also creates).
@@ -292,6 +365,21 @@ export class RaceManager {
     for (const rs of this.cars.values()) rs.reset();
     this.order = [];
     this.finished.clear();
+    this.cdAt = null;   // drop the standing start; the host re-arms it if it wants one
+  }
+
+  /**
+   * The SHARED standing-start countdown: ms until GO, or 0 when not counting down. Read
+   * this for the on-screen countdown rather than any one car's HUD — it is one countdown
+   * for the whole grid, and it exists even before a car has been fed a frame.
+   */
+  countdownMs(now: number): number {
+    if (this.cdAt === null) return 0;
+    return Math.max(0, this.cfg.countdownMs - (now - this.cdAt));
+  }
+  /** True while the grid is held (inputs must be ignored + cars kept stationary). */
+  locked(now: number): boolean {
+    return this.cdAt !== null && now - this.cdAt < this.cfg.countdownMs;
   }
 
   // Per-car HUD (lap/time) for a readout. Unknown slot ⇒ an inactive HUD.

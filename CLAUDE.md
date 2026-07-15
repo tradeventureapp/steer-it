@@ -3995,3 +3995,61 @@ counter-clockwise, so clockwise = walking the array backwards (the harness deriv
 assumed). **`physics.ts` / `physics4.ts` / `race.ts` / `desktop.ts` all UNTOUCHED** — `maps.ts` only.
 tsc + build clean. **NEXT: boss drives it — spawn faces left, one clockwise lap counts, wrong way
 counts nothing; set laps in the editor (E).**
+
+---
+**STANDING GRID START + 3-2-1-GO COUNTDOWN (both circuit-type maps; race.ts owns the phase,
+physics untouched):** lap timing used to start at the first line crossing (a flying start).
+**⚠️ THE ROOT OF "set 1 lap, drive ~2" — FOUND AND REPRODUCED (1.98 laps, measured):** it was not
+just the flying-start semantics, it was a real bug. The grid sits **6.7 m from the line but the
+gate radius is 13.8 m** — so the car SPAWNS INSIDE the start gate. On the stationary first frame
+`isForward` is false (v = 0), so the race did NOT start, but the gate's ENTER EDGE was consumed
+(`inside[] = true`). The car then drove a whole lap and only STARTED the race on its next pass —
+needing a second lap to arm and cross. Hence ~2 laps for a 1-lap race. The ovals shared it exactly
+(their grid is 4.4 m from a 20.6 m gate). The standing start removes it at the root: at GO the
+phase is already `racing` with lap 1 running and UNARMED, so the next armed forward crossing —
+one lap later — finishes it.
+**WHAT CHANGED IN race.ts (minimal, and OPT-IN):** `RacePhase` gains **`'countdown'`** (kept
+`'racing'` as the running phase rather than renaming it to `'running'` — renaming would have
+churned every consumer for nothing; the brief's pre→countdown→running→finished is exactly this
+flow). New `RACE_CONFIG.countdownMs` **3000**. New `RaceState.beginCountdown(now)` and, in
+`update()`, one `phase === 'countdown'` block that (a) keeps `inside[]` current so the grid's
+overlap with the gate is already latched at GO — this is what stops the first metre reading as a
+crossing — (b) fires no gates, and (c) at GO sets `phase='racing'`, `lap=1`, `armed=false` and
+**`startMs = cdStart + countdownMs`** (the exact GO instant, so the clock is frame-rate
+independent). `hud()` gains `locked` + `countdownMs`. `RaceManager` gains `beginCountdown(now)`
+(shared — a car that joins MID-countdown gets the same instant, so the whole grid unlocks on one
+GO), `countdownMs(now)` / `locked(now)` (read the SHARED countdown, not one car's HUD), and
+`reset()` now drops it. **A host that never calls `beginCountdown` sees the original flow byte for
+byte** — so sprint tracks keep their flying start off the first crossing, untouched.
+**DESKTOP:** `armStandingStart()` is armed on `rebuildRace()` + `restartRace()`, but STARTED on
+the next frame — the countdown must run on the pause-adjusted game clock (which only exists inside
+the loop, and freezes while paused so a pause can't burn the countdown), and `restartRace` can be
+called while still paused. Only a CIRCUIT-type map with a live race arms it. In the step loop,
+`gridLocked` zeroes the applied inputs and pins `vx/vy/angularVel`, so nobody creeps or jumps the
+start; on GO it goes false for every car in the same frame. Countdown renders as screen-space HTML
+(`#countdown`, like the XP HUD) in the HUD's own tokens: numbers in `--grad-accent` with a
+punch-in, **GO! bigger + gold with its own faster punch = a distinct beat**; `prefers-reduced-motion`
+honoured; the DOM is touched only when the label changes.
+**PHONE: CONFIRMED NO CHANGES NEEDED.** `handleControl` writes `car.target` + `lastInputAt` outside
+the physics loop, so during the lock the phone keeps sending, the connection lifecycle is
+completely unaffected, and the inputs are simply never applied. `phone.ts` diff is empty.
+**maps.ts:** the circuit grid moved to the **−x side** (just PAST the line, the side the cars are
+heading for) — from GO a car drives exactly ONE lap of track back to the line. All 8 spawns are
+past it, slot 0 by 4.44 m, and nobody straddles (nearest nose ~2.2 m clear). Ovals unchanged.
+**MEASURED (real race.ts + real maps.ts, both map types):** (a) circuit **1-lap = 0.97 laps of
+track driven, 3-lap = 2.97** ✓ (the 0.03 is the 13.8 m gate radius — the finish trips on entering
+the gate, not at its centre — not an error); (b) **oval 1-lap = 0.97** ✓; (c) mashing the throttle
+through the whole countdown → **0 crept frames, phase never leaks out of 'countdown'**,
+`locked()` true at 2999 ms / false at 3000, countdown 3000/1500/1 at t=0/1500/2999; (d) wrong-way
+full lap → not finished (both maps), 12× spam → not finished, partial lap → not finished; (e)
+free-roam = laps 0 ⇒ no elements ⇒ `hud.active` false and `isRaceLive()` false, so it is never
+even armed — and a circuit map LOADS at laps 0, so free-roam is the default and sees no countdown.
+**VERIFIED BY EYE:** the countdown rasterised through the REAL `style.css` (SVG foreignObject —
+browser screenshots hang here) over a real frame: "3" centred in the sunset gradient, "GO!" bigger
+and gold, and the 8-car grid sitting just left of the checkered line with noses pointing left.
+**⚠️ HONEST NOTE:** one harness line reads `flat: all 8 spawns PAST the line → false` — that is
+CORRECT, not a failure: the ovals' grid is deliberately left BEHIND their line (the brief said
+keep it), so their grid-to-line metres count into lap 1, which is what a standing start should do.
+**`physics.ts` / `physics4.ts` / `marks.ts` / `phone.ts` UNTOUCHED** (empty diffs ⇒ step() 0.0e+0).
+tsc + build clean. **NEXT: boss drives it — set laps in the editor (E), grid holds through 3-2-1,
+GO unlocks everyone at once and the clock starts there; 1 lap = one lap.**

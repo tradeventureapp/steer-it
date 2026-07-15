@@ -528,6 +528,43 @@ body.circuit-xp.circuit-edit #editor-laps { display: none; }
 body.desktop.editing #game { cursor: crosshair; }
 
 /* ===== XP MODE HUD — big score top-centre + drift multiplier ============== */
+/* STANDING START countdown — one shared 3-2-1-GO centred over the grid. Each number
+   punches in and settles (countIn), so the beat is readable without a sound. GO gets its
+   own, bigger, gold treatment + a faster punch = a distinct beat off the numbers. */
+#countdown {
+  position: fixed; inset: 0; z-index: 40; pointer-events: none;
+  display: flex; align-items: center; justify-content: center;
+}
+#countdown-n {
+  font-family: var(--font-display);
+  font-weight: 900; font-size: clamp(90px, 18vw, 240px); line-height: 1;
+  letter-spacing: 6px;
+  background: var(--grad-accent); -webkit-background-clip: text; background-clip: text;
+  color: transparent; -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 0 18px rgba(255, 45, 149, 0.75))
+          drop-shadow(0 0 46px rgba(255, 138, 61, 0.5));
+  animation: countIn 0.42s cubic-bezier(0.2, 1.4, 0.4, 1) both;
+}
+#countdown.go #countdown-n {
+  font-size: clamp(110px, 22vw, 300px); letter-spacing: 10px;
+  background: linear-gradient(180deg, #fff6c2 0%, var(--gold) 45%, #ff8a3d 100%);
+  -webkit-background-clip: text; background-clip: text;
+  filter: drop-shadow(0 0 22px rgba(255, 194, 74, 0.95))
+          drop-shadow(0 0 60px rgba(255, 138, 61, 0.7));
+  animation: goIn 0.3s cubic-bezier(0.2, 1.6, 0.35, 1) both;
+}
+@keyframes countIn {
+  from { transform: scale(1.85); opacity: 0; }
+  to   { transform: scale(1);    opacity: 1; }
+}
+@keyframes goIn {
+  from { transform: scale(0.55); opacity: 0; }
+  to   { transform: scale(1);    opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #countdown-n, #countdown.go #countdown-n { animation: none; }
+}
+
 #xp-hud {
   position: fixed; top: 18px; left: 50%; transform: translateX(-50%);
   z-index: 30; pointer-events: none; text-align: center;
