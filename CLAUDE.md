@@ -3567,3 +3567,23 @@ anything that thin, so the edge radii were widened to 34–38 (safe: the carve t
 (b) The corner-coverage metric still reports ~450 m² "missing" per corner — that is the lower sweeps' INFIELD,
 which the boss never marked and which correctly stays grass; the box is coarser than the marks, so the render
 is the judge there, not the number.
+
+---
+**CIRCUIT MAP — GRAVEL REVISION 4 (the last three red marks):** boss: gravel still missing in BOTH bottom
+corners, and the top-left-middle needed filling. Visual only (maps.ts; physics.ts + physics4.ts +
+`surfaceAt`/`circuitMask` untouched). Found each hole with the `M` map ("rules allow gravel here but there
+is none") rather than guessing: **(1)+(2) the bottom corners** were filled, but a strip at the very bottom
+EDGE (y≈860) was still grass — between where the corner gravel ended (x≈320) and where the bottom straight's
+kerb reaches the image edge (x≈400), mirrored at x 1160–1220. Fixed by extending both bottom strokes one
+point ALONG the bottom edge (`[707,704,83]` / `[1410,704,83]`). **(3) the top-left-middle tongue** was too
+narrow — its right edge sat at x≈565–590 while the boss's red stroke ran x≈575–612; radii widened
+66→79 / 45→66 / 34→54 / 27→41 / 20→29 so it now reaches x≈580–620. The `M` further right is the top-centre
+trap the boss X'd in revision 1 and correctly stays grass. **MEASURED:** total gravel 6808 → **7062 m²**;
+kerb-touching 515 → **610 px**; **bare-asphalt violations 0, min gap to BARE asphalt = 1.83 m = exactly one
+car width** (unchanged — the carve enforces the rules however far the strokes over-reach). VERIFIED BY EYE:
+both bottom corners now run gravel right up to the blue kerb with none of the red-marked grass left, and the
+tongue fills the marked bay. tsc + build clean.
+**HONEST NOTE:** 1–2 probe cells still read `M` at the extreme bottom edge (x≈380 / x≈1160). That is a
+sub-10 px sliver of grass BELOW the bottom kerb at the very image edge — thinner than the smoothing kernel
+(blur r=5 ⇒ ~7.5 px), so it gets eroded away. It is outside the boss's marked area, ~1.5 m at the frame
+edge and largely hidden by the kerb; not worth widening the whole bottom strip for.

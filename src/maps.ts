@@ -1203,14 +1203,14 @@ const GRAVEL_STROKES: Array<Array<[number, number, number]>> = [
   // between the top-left trap and the corner) and out into the bottom-left corner, the radius
   // SWELLING so the widening wedge is filled right out to the world edges (which clip it).
   [[490, 340, 34], [491, 408, 34], [497, 476, 38], [518, 543, 52],
-   [548, 603, 76], [578, 656, 98], [598, 704, 124]],
+   [548, 603, 76], [578, 656, 98], [598, 704, 124], [707, 704, 83]],
   // BOTTOM-RIGHT (red hatch) — the mirror.
   [[1628, 340, 34], [1626, 408, 34], [1620, 476, 38], [1599, 543, 52],
-   [1569, 603, 76], [1539, 656, 98], [1519, 704, 124]],
+   [1569, 603, 76], [1539, 656, 98], [1519, 704, 124], [1410, 704, 83]],
   // TOP-MIDDLE-LEFT (red outline) — a tongue down the middle dip's left flank. It STARTS at the
   // top-left trap's own local radius (66) so the two merge flush instead of leaving a shoulder,
   // then tapers away down the flank.
-  [[850, 134, 66], [869, 186, 45], [884, 235, 34], [899, 280, 27], [914, 322, 20]],
+  [[850, 134, 79], [869, 186, 66], [884, 235, 54], [899, 280, 41], [914, 322, 29]],
   // TOP-MIDDLE-RIGHT (red outline) — same, from the top-right sweep's trap toward the dip.
   [[1203, 74, 56], [1158, 115, 39], [1128, 153, 29], [1102, 190, 20]],
 ];
