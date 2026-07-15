@@ -193,7 +193,7 @@ export const PHYS4: Physics4Params = {
   // throttle-sensitive escape the brief asks for, and it lands inside the 2–3 trap band.
   gravelDragConst: 300,
   gravelDragLin: 15,
-  gravelDragQuad: 2.5,
+  gravelDragQuad: 3.5,
   gravelDigGain: 2,
 };
 

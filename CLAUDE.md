@@ -3759,3 +3759,35 @@ tracks / mask untouched. `physics.ts` UNTOUCHED (empty diff). tsc + build clean.
 speed · `gravelDigGain` **2** = how deep a SPINNING wheel buries itself (+ `gravelDragLin` 15).
 **NEXT: boss drives it — feather ~0.4 and you crawl out in ~4 s; mash it and you bury the car on the spot
 throwing stone; arrive at 150 and it stops you in ~1.7 trap-lengths.**
+
+---
+**GRAVEL — MORE BRAKING (`gravelDragQuad` 2.5 → 3.5; ORTHOGONALITY PROVEN by the sweep itself):** the
+boss drove it and wanted the high-speed braking a notch stronger. ONE value changed, nothing else.
+**MINI-SWEEP (* = target 1.3-1.5 traps = 71-82 m):**
+```
+   quad |  stop150   traps  time | peakG | exit@0.4: 5s   10m  spin | FULL-TH 5s  spin | quad@1m/s | lat
+   2.5  |   93 m  1.68    6.4s | 2.26g |  15.9 m  3.9s   8% |  1.78 m 100% |   10 N | 2.03s   ← was
+   3    |   85 m  1.54    6.1s | 2.61g |  15.8 m  3.9s   8% |  1.78 m 100% |   12 N | 2.00s
+   3.25 |   81 m  1.47 *  5.9s | 2.78g |  15.7 m  3.9s   8% |  1.78 m 100% |   13 N | 1.97s
+  *3.5  |   78 m  1.42 *  5.8s | 2.96g |  15.7 m  3.9s   8% |  1.78 m 100% |   14 N | 1.93s*  ← shipped
+   4    |   72 m  1.32 *  5.5s | 3.30g |  15.5 m  3.9s   8% |  1.78 m 100% |   16 N | 1.92s
+   4.5  |   68 m  1.23    5.3s | 3.65g |  15.4 m  3.9s   8% |  1.78 m 100% |   18 N | 1.88s
+   5    |   64 m  1.16    5.1s | 4.00g |  15.3 m  3.9s   8% |  1.78 m 100% |   20 N | 1.85s
+```
+Three cells hit the window; **3.5 = dead centre (1.42 traps)** and keeps the peak arrival hit under 3 g.
+Stayed well under the quad ≥ 6 overshoot the earlier sweep found (there the stop collapses to ~1.0 trap).
+**THE SWEEP IS ITS OWN ORTHOGONALITY PROOF — the crawl-speed columns literally do not move:** FULL-throttle
+dig is **1.78 m / 100 % spin at EVERY quad value 2.5→5** (identical), and exit@0.4 moves 15.9 → 15.7 m
+(**98 % preserved**, 10 m in 3.9 s unchanged) — because at 1 m/s the quad term contributes **14 N of the
+~1270 N total = 1.1 %**. **RESULT:** stop from 150 km/h **93 → 78 m = 1.68 → 1.42 trap-lengths** ✓ (grass
+254 m = 4.6); peak decel on arrival **2.26 → 2.96 g** (the thing the boss will FEEL — a harder hit, flagged);
+lateral **2.03 → 1.93 s** (a free bonus — the quad term brakes a sideways plow too); the escape mechanic
+keeps its cliff (`0.40 → 15.7 m / 8 % spin · 0.50 → 1.9 m / 100 % spin`), feather-vs-mash **8.8×**.
+**STABILITY:** the quad term is the one that could bite at HIGH speed, so the 150 km/h entry was checked
+for explicit-integration overshoot — **0 sign-flips (the drag never reverses the car within a step)**;
+spin at standstill 0 flips / never backward; taper settle 0 flips, rest |v| **0.0e+0**; parked 3 s and
+handbrake + full throttle both **0.0000 m**. **NO REGRESSION:** ARCADE / desktop / ovals / circuit-on-asphalt
+**0.0e+0**; **grass byte-identical — top 80 km/h, cornering 0.52 g, stop 254 m**; μ profile / spray / tracks
+/ mask / const / digGain / lin all untouched. `physics.ts` UNTOUCHED (empty diff). tsc + build clean.
+**GRAVEL TUNE (all live on the D tuner):** `gravelDragConst` **300** (crawl out) · `gravelDragQuad` **3.5**
+(brakes at speed) · `gravelDigGain` **2** (spinning wheel buries itself) · `gravelDragLin` 15.
