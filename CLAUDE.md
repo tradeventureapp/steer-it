@@ -3225,3 +3225,21 @@ at all 12 kerb ends — curved meanY 296–367, straight meanY 620, outer-run): 
 (18.5–20.0, full band asphalt→grass) and tapers monotonically to ~0 by ~32–35 arc-u; **max deviation from
 the mean profile = 1.05 sketch-u (~1.8 px)** = uniform within a couple px (was fat-stub-vs-slim). **physics.ts
 UNTOUCHED** → `step()` 0.0e+0. tsc + build clean. Tunable: `KERB_BLUE_TAIL` (the one wedge length).
+
+---
+**CIRCUIT MAP — REMOVED THE PROTRUDING TIP ON THE BLUE WEDGES (boss close-up: a blue spike past the wedge
+end):** every wedge ended with a small blue tip sticking out past the kerb silhouette. TWO causes, both
+fixed (maps.ts only): **(1) geometry residual** — the tail's inner edge stayed at `−KERB_SEAM` while the
+outer reached 0, leaving a ~0.8-wide blue nub at the tip. Fix: BOTH tail edges now scale by the same `w =
+1 − min(1, dist/KERB_BLUE_TAIL)` → `[−KERB_SEAM·w, FULL_W·w]`, so the wedge (incl. the −SEAM overlap)
+converges to a single POINT exactly ON the asphalt edge — width EXACTLY 0, no residual, no overshoot.
+**(2) the soft-edge STROKE** — `softPx = max(0.8, twPx·0.02)` is ~4 px at game scale, and its round join on
+the near-zero-width tail-tip quads spiked a blue speck past the geometry (and thickened the tail's outer
+edge outward). Fix: `KerbQuad.soft` flag — the feather stroke is applied ONLY to the FULL-WIDTH blue body +
+the stripe blocks (`soft: inBody(k) || inBody(k+1)` for blue, `true` for stripes); the tapering tail is
+FILL-ONLY, so nothing strokes past its converging point. Arc-length tail uniformity (previous pass) intact;
+stripes/hard-cuts/blue-only body/asphalt/grass unchanged. **VERIFIED** (pixel harness at GAME scale,
+rendering the real fill+conditional-stroke, all 12 kerb ends): **0 blue pixels beyond any tail tip** (scans
+of path points past the buffer end) and **0 tail scans with blue outside the kerb silhouette** (blue never
+exceeds the grass edge FULL_W=19.2 anywhere along a tail). **physics.ts UNTOUCHED** → `step()` 0.0e+0. tsc
++ build clean.
