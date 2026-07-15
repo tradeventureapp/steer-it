@@ -3814,3 +3814,82 @@ reverses the car within a step); spin at standstill 0 flips / never backward; ta
 `physics.ts` UNTOUCHED (empty diff). tsc + build clean.
 **GRAVEL TUNE (all live on the D tuner):** `gravelDragConst` **300** (crawl out) · `gravelDragQuad` **4.0**
 (brakes at speed) · `gravelDigGain` **2** (spinning wheel buries itself) · `gravelDragLin` 15.
+
+---
+**CIRCUIT — TYRE MARKS OVERHAUL: threshold + per-surface SATURATION, no fading (`src/marks.ts`;
+render-only, both physics files byte-identical):** the track painted solid after ~20 min. Fixed with
+ZERO decay — marks never fade, never get removed — via two mechanisms, in a new `TyreMarks` module
+(extracted so the whole thing is bundleable and testable against the REAL code, not a replica).
+**(1) THE GATE — ⚠️ THE BRIEF'S ENERGY-ONLY THRESHOLD DOES NOT WORK, MEASURED:** the spec was
+"below an energy threshold, no mark". Calibrating against real manoeuvres proved energy CANNOT
+separate gripping from sliding, because energy scales with speed and load — **a gripped limit corner
+is FASTER, so it dissipates MORE power than a drift**:
+```
+  manoeuvre                   E p50    E p90    E max    slip med  slip max  rearSliding  marks?
+  cruise straight 100 km/h    436      446      449      0.0°      0.0°      0%           0%
+  gentle corner 60 km/h       4005     5966     6875     3.9°      4.8°      0%           13%
+  hard corner 90 km/h         8223     26545 <- 30778    11.3°     14.4°     0%  GRIPS    0%
+  max-grip corner 70 km/h     5144     17625    24553    5.8°      14.8°     0%  GRIPS    0%
+  braking hard 120->0         0        247      295      0.0°      0.0°      0%           0%
+  committed drift             9853 <-  61159    61913    29.5°     29.9°     0%           75%
+  handbrake slide             3420     9182     20713    9.9°      68.3°     100%         56%
+  locked-brake skid           0        8523     13596    0.0°      0.0°      51%          26%
+```
+(the gripped corner's p90 26.5 kW EXCEEDS the drift's p50 9.9 kW ⇒ no energy threshold exists that
+passes one and blocks the other). The clean separator is **SLIP ANGLE** — and that is the physically
+real thing anyway: rubber is deposited when a tyre goes PAST its friction peak and slides, not when
+it scrubs at peak grip. So the gate is `|α| > αpeak · slideMargin` **OR** `|κ| > κpeak · slideMargin`
+(longitudinal too — a wheel locked dead straight has ZERO slip angle but is very much laying rubber),
+with the peaks DERIVED from the car's own Magic-Formula coefficients (`tan(π/2C)/B` = 10.7° here) so a
+tyre retune moves the gate instead of silently invalidating a hardcoded angle. `slideMargin` **1.5**
+(⇒ gate 16.0°) clears the measured 14.8° worst case of a legitimate max-grip corner. Energy then only
+decides how DARK it goes, exactly as the brief asked. **RESULT: every gripped manoeuvre marks 0%;
+drift 75% at full strength.** Slip energy = load × contact slip speed, rebuilt per wheel from the
+wheel's OWN contact velocity (`v_body + ω × r`) — using the car's total speed inflated it wildly once
+sideways (vlong collapses, speed does not) and read a nonsense 2.3 MW peak.
+**(2) SATURATION, not accumulation:** stamping alpha `a` source-over gives `A' = A + a(1−A)` — each
+pass adds less, A → 1 asymptotically, for free. The per-surface CAP is baked into HOW the layer
+composites, which is why there are exactly **TWO layers**: a **MULTIPLY** layer (asphalt/kerb/gravel)
+where the stamp colour IS the multiply factor, so a saturated pixel = surface × factor — it DARKENS
+while preserving what is underneath (this is what keeps kerb stripes readable, the racing line
+reading as tarmac not black, and gravel reading as gravel with its grain); and a **SOURCE-OVER**
+layer for grass, because dug turf is a HUE change (green → brown) that multiply cannot do.
+**MEASURED SATURATION (colour at one spot after N passes — the gap to final shrinks monotonically
+and then STOPS DEAD):**
+```
+  asphalt  clean 59,61,67    -> n40:36,37,41  n80:34,35,38  n160:34,35,38  n320:34,35,38   (x0.58)
+  kerb     clean 232,232,238 -> n40:201..     n80:199,199,204 = n160 = n320                (x0.86)
+  grass    clean 72,82,66    -> n80:93,73,46  n160:93,72,46  n320:93,72,46   green->BROWN
+  gravel   clean 174,168,150 -> n80:130,123,103 n160/320:130,123,102                       (x0.74)
+  gap-to-final, asphalt: n0:80 n1:76 n2:71 n5:61 n10:46 n20:26 n40:7 n80:0 n160:0 n320:0
+```
+**(3) IMPLEMENTATION:** the layers live at the **LOGICAL pixel grid** — the same grid the track is
+pre-rendered at, so 1 layer px = 1 on-screen px at fullscreen and a 3 px rubber line is exactly as
+crisp as the skid line it replaces, with no resampling. (The surface MASK stays a coarse 4 px/m — it
+only answers a yes/no question; marks are SEEN.) **Two RGBA bitmaps ≈ 16 MB at 1920×1080 — FIXED,
+allocated ONLY for a masked map on physics4** (desktop + both ovals pay nothing and keep the legacy
+skid path untouched), rebuilt on resize/map-switch. **PERF: this also retires the unbounded skid-line
+list** — nothing accumulates in an array, there is no per-frame growth, and the composite is 2
+drawImage calls between the surface and the cars. Per-car wheel trails live in a WeakMap keyed by
+CarState (a respawn = a new object = a fresh trail), same pattern as physics4.
+**KERB SPLIT (render-only):** the mask now stores 3 tones (grass/ribbon/kerb) in the one raster so
+kerbs can have their own cap. **PROVEN BEHAVIOURALLY IDENTICAL: `surfaceAt` sweep over the whole
+world at a 0.2 m grid = 922,320 samples, 0 DISAGREEMENTS** (RIBBON|KERB both → 'asphalt' exactly as
+before), and asphalt 47.5% + kerb 7.6% = **55.1% = the exact figure the old single-tone mask measured**.
+**VERIFIED BY EYE (PNG harness, a scripted 17-minute session — 26 clean laps + 8 drift sets +
+burnouts/lock-ups + 5 off-track excursions, driven by a real look-ahead/brake-for-curvature driver
+through the REAL physics4 + REAL TyreMarks):** asphalt still reads as ASPHALT with dark scrub arcs at
+the corners and no solid painting; kerb stripes fully readable (and the dedicated 320-pass saturation
+render shows the scuff clearly while red stays red and white stays a white stripe); grass reads as
+brown dug tracks; gravel gouges read as depth while still reading as gravel. Crop locations were
+found by DIFFING against a clean render and picking the densest cell per class, not by eyeballing
+coordinates. **REGRESSION: `physics.ts` AND `physics4.ts` UNTOUCHED (empty diffs)**; effects/cars/race
+untouched; desktop + ovals keep the legacy path. tsc + build clean.
+**TUNABLES (all in `MARK`, marks.ts):** `slideMargin` **1.5** (× the tyre's own peak = the gate) ·
+`energyMin` **1500 W** · `energyFull` **30000 W** · `rate` **0.055** (alpha/frame at full intensity =
+how fast it saturates) · `mulAsphalt` **'150,150,154'** (×0.59 racing line) · `mulKerb` **'212,212,214'**
+(×0.83 scuff) · `mulGravel` **'184,181,172'** (×0.72) · `grassRgb` **'96,68,40'** + `grassCap` **0.82** ·
+widths `wAsphalt`/`wKerb` **3**, `wGrass` **5**, `wGravel` **7** px.
+**NEXT: boss drives the circuit for a while (X → PHYSICS4) — clean laps should leave the tarmac clean,
+slides should lay a rubbered line that darkens and then stops, kerbs should scuff without losing their
+stripes, and grass/gravel should show dug tracks.**

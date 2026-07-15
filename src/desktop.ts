@@ -7,8 +7,9 @@ import {
   type CarState, type Inputs,
 } from './physics';
 import { collideCars, applyInputs } from './cars';
+import { TyreMarks } from './marks';
 import {
-  getMap, listMaps, DEFAULT_MAP_ID,
+  getMap, listMaps, DEFAULT_MAP_ID, markClassAt,
   type MapDefinition, type MapWorld, type MapObstacle, type Surface,
 } from './maps';
 import { SoundEngine } from './sound';
@@ -607,6 +608,7 @@ function restartRace() {
   // XP mode: RESTART = a fresh score run (respawn + zero XP), not a lap reset.
   if (isXpMode()) { startXpRun(); userPaused = false; refreshFreeze(); return; }
   skidCtx.clearRect(0, 0, logicalPxW, logicalPxH);
+  clearMarkLayers();
   for (const car of cars.values()) {
     const pose = currentMap.spawn(car.slot, world);
     car.state = makeCar(pose.x, pose.y, pose.heading);
@@ -644,6 +646,11 @@ const canvas = document.getElementById('game') as HTMLCanvasElement;
 const ctx = canvas.getContext('2d')!;
 const skidCanvas = document.createElement('canvas');
 const skidCtx = skidCanvas.getContext('2d')!;
+// TYRE MARKS — threshold + per-surface saturation (see marks.ts). Live only for a masked
+// map on physics4; the desktop + both ovals keep the legacy skid path below and pay nothing.
+const tyreMarks = new TyreMarks();
+let marksLive = false;
+const marksEnabled = () => driveMode === 'physics4' && !!currentMap.surfaceAt;
 const wallpaperCanvas = document.createElement('canvas');
 const wallpaperCtx = wallpaperCanvas.getContext('2d')!;
 const overlayCanvas = document.createElement('canvas');
@@ -742,10 +749,11 @@ function syncCanvasesAndView(): boolean {
 
   if (lpW === logicalPxW && lpH === logicalPxH && layerDprEff === layerDpr) return false;
   logicalPxW = lpW; logicalPxH = lpH; layerDpr = layerDprEff;
-  for (const [cv, cx] of [
+  const layers: Array<[HTMLCanvasElement, CanvasRenderingContext2D]> = [
     [skidCanvas, skidCtx],
     [wallpaperCanvas, wallpaperCtx], [overlayCanvas, overlayCtx],
-  ] as Array<[HTMLCanvasElement, CanvasRenderingContext2D]>) {
+  ];
+  for (const [cv, cx] of layers) {
     cv.width = Math.floor(lpW * layerDprEff);
     cv.height = Math.floor(lpH * layerDprEff);
     cx.setTransform(layerDprEff, 0, 0, layerDprEff, 0, 0);
@@ -753,12 +761,29 @@ function syncCanvasesAndView(): boolean {
   return true;
 }
 
+// The mark layers live at the LOGICAL pixel size — the same grid the track is pre-rendered
+// at, so 1 layer px = 1 on-screen px at fullscreen and a 3 px rubber line is exactly as crisp
+// as the skid line it replaces, with no resampling. (The surface MASK is a coarse 4 px/m
+// because it only answers a yes/no question; marks are SEEN, so they need render resolution.)
+// Two RGBA bitmaps ~= 2 x logicalPx x 4 B ~= 16 MB at 1920x1080 — fixed, and only for a masked map.
+function ensureMarkLayers() {
+  if (marksLive || !marksEnabled()) return;
+  tyreMarks.resize(logicalPxW, logicalPxH, layerDpr);
+  marksLive = true;
+}
+function clearMarkLayers() { tyreMarks.clear(); }
+/** Force a rebuild at the next map's logical size (map switch / resize). */
+function releaseMarkLayers() { tyreMarks.clear(); marksLive = false; }
+
 function resize() {
   // Layers are only rebuilt when their logical size/dpr changed: every time for
   // the desktop (logical = viewport), but for the fixed oval only on first build,
   // a map switch, or a dpr change — so a plain resize keeps its skids + race.
   if (syncCanvasesAndView()) {
     draggedObstacle = null;
+    // The logical grid changed, so the mark layers are the wrong size: drop them and let
+    // ensureMarkLayers() rebuild at the new one (same as every other layer being cleared).
+    releaseMarkLayers();
     const { wM, hM } = logicalMeters();
     world = currentMap.createWorld(wM, hM);
     currentMap.drawBackground(wallpaperCtx, logicalPxW, logicalPxH);
@@ -1089,6 +1114,7 @@ function startXpRun() {
     car.lastInputAt = performance.now();
   }
   skidCtx.clearRect(0, 0, logicalPxW, logicalPxH);
+  clearMarkLayers();
   if (xpEndEl) xpEndEl.hidden = true;
 }
 
@@ -1568,6 +1594,14 @@ function digging(car: Car, slip: number, rear: boolean) {
 }
 
 function recordSkids(car: Car) {
+  if (marksEnabled()) {
+    // ALL FOUR wheels mark by slip energy, saturating per surface — see marks.ts.
+    tyreMarks.record(car.state, wheelSurfaces(car), wheelSlips(car),
+      (x, y) => markClassAt(currentMap, x, y), PX());
+    car.skidL.active = car.skidR.active = false;   // legacy trails stay idle here
+    return;
+  }
+  // ---- LEGACY skid path (desktop + both ovals) — untouched ----
   const s = car.state;
   const driftingRear =
     s.isRearSliding || Math.abs(s.rearSlip) > CONFIG.slipThresholdForSkid;
@@ -1591,6 +1625,7 @@ function recordSkids(car: Car) {
   }
 }
 
+
 // ---------- World wrap (per car) — delegated to the active map ----------
 // The map owns its bounds + wrap behaviour (the desktop wraps L/R/top and
 // re-enters above the taskbar). Returns true when the car teleported, so we
@@ -1600,6 +1635,7 @@ function wrap(car: Car) {
 }
 function invalidateSkidTrails(car: Car) {
   // After wrapping/respawning we don't want a long streak across the screen.
+  tyreMarks.cut(car.state);
   car.skidL.active = false;
   car.skidR.active = false;
   for (const d of car.dig) d.active = false;
@@ -1853,6 +1889,7 @@ function render() {
   const H = window.innerHeight;
 
   if (currentMap.followCam) updateCamera();
+  ensureMarkLayers();   // no-op unless a masked map on physics4 needs them and has none
 
   // Fill the whole viewport first so the letterbox/pillarbox margins of a fixed-
   // world map are clean. The desktop world fully overdraws this.
@@ -1869,6 +1906,9 @@ function render() {
   const dw = logicalPxW * viewScale, dh = logicalPxH * viewScale;
   ctx.drawImage(wallpaperCanvas, viewOffX, viewOffY, dw, dh);
   ctx.drawImage(skidCanvas, viewOffX, viewOffY, dw, dh);
+  // TYRE MARKS (masked maps) — dug turf, then a multiply pass that darkens
+  // asphalt/kerb/gravel without hiding what is under it. Both sit under the cars.
+  if (marksLive) tyreMarks.draw(ctx, viewOffX, viewOffY, dw, dh);
   ctx.drawImage(overlayCanvas, viewOffX, viewOffY, dw, dh);
 
   // Dynamic layers draw in LOGICAL pixel space; the same uniform scale + offset
@@ -2362,6 +2402,7 @@ function switchMap(id: string): boolean {
   logicalPxW = logicalPxH = 0;
   resize();
   skidCtx.clearRect(0, 0, logicalPxW, logicalPxH);   // drop the previous map's skids
+  releaseMarkLayers();          // and its tyre marks (freed outright for an unmasked map)
 
   // Reset the (per-map) race track and leave the editor if it was open. Lap
   // default per type: OPEN → 1 lap (RACE_CONFIG); CIRCUIT → 0 = free-roam (just

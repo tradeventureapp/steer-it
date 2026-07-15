@@ -1075,6 +1075,12 @@ function tracePolyline(ctx: CanvasRenderingContext2D, pxPts: Pt[]) {
 // everything else is GRASS. Per-frame cost is then a plain array index — no geometry maths
 // per wheel per frame. It reuses circuitToWorld, so mask and render agree by construction.
 const CIRCUIT_MASK_PPM = 4;              // mask px per metre → 0.25 m resolution (kerb ≈3 m = 12 px)
+// Mask class codes. The physics only distinguishes asphalt/gravel/grass (RIBBON and KERB are
+// BOTH asphalt — a kerb is rideable at full grip); the split exists purely so the render can
+// give kerbs their own rubber cap and never black out the stripes.
+const MASK_GRASS = 0, MASK_ASPHALT = 1, MASK_KERB = 2;
+/** Render-only surface class: 'kerb' is split out of 'asphalt'. Physics never sees this. */
+export type MarkClass = 'asphalt' | 'kerb' | 'grass' | 'gravel';
 let _circuitMask: Uint8Array | null | undefined;
 let _maskW = 0, _maskH = 0;
 function circuitMask(): Uint8Array | null {
@@ -1090,8 +1096,11 @@ function circuitMask(): Uint8Array | null {
     const w = circuitToWorld(sx, sy);
     return [w.x * CIRCUIT_MASK_PPM, w.y * CIRCUIT_MASK_PPM];
   };
+  // Painted in three tones so ONE raster carries the class: grass 0, ribbon MID, kerb HIGH.
+  // The PHYSICS only ever asks "is this asphalt" (RIBBON|KERB both → asphalt, exactly as
+  // before); the RENDER asks for the class, to give kerbs their own rubber-scuff cap.
   c.fillStyle = '#000'; c.fillRect(0, 0, W, H);                 // grass everywhere
-  c.strokeStyle = '#fff'; c.fillStyle = '#fff';
+  c.strokeStyle = c.fillStyle = '#505050';                      // the ribbon = MID tone
   c.lineJoin = 'round'; c.lineCap = 'round';
   const pts = CIRCUIT_PATH.map((p) => toMask(p[0], p[1]));      // the ribbon, full band width
   c.beginPath();
@@ -1100,7 +1109,8 @@ function circuitMask(): Uint8Array | null {
   c.closePath();
   c.lineWidth = CIRCUIT_TRACK_W * CIRCUIT_MASK_PPM;
   c.stroke();
-  for (const q of CIRCUIT_KERBS) {                              // every kerb quad = rideable asphalt
+  c.fillStyle = '#f0f0f0';                                      // every kerb quad = HIGH tone
+  for (const q of CIRCUIT_KERBS) {                              // (rideable asphalt to physics)
     const a = toMask(q.a[0], q.a[1]), b = toMask(q.b[0], q.b[1]);
     const d = toMask(q.c[0], q.c[1]), e = toMask(q.d[0], q.d[1]);
     c.beginPath();
@@ -1109,7 +1119,12 @@ function circuitMask(): Uint8Array | null {
   }
   const img = c.getImageData(0, 0, W, H).data;
   const mask = new Uint8Array(W * H);
-  for (let i = 0; i < W * H; i++) mask[i] = img[i * 4] > 127 ? 1 : 0;   // white = asphalt
+  // Thresholds sit midway between the painted tones, so an anti-aliased edge resolves to
+  // whichever side covers it more — the same half-coverage rule the single-tone mask used.
+  for (let i = 0; i < W * H; i++) {
+    const t = img[i * 4];
+    mask[i] = t > 160 ? MASK_KERB : t > 40 ? MASK_ASPHALT : MASK_GRASS;
+  }
   _maskW = W; _maskH = H;
   _circuitMask = mask;
   return mask;
@@ -1118,12 +1133,18 @@ function circuitMask(): Uint8Array | null {
 // masks are baked on the SAME grid (CIRCUIT_MASK_PPM === GRAVEL_MASK_PPM over the same world),
 // so one index serves both — asserted below so a future ppm change can't silently desync them.
 function circuitSurfaceAt(x: number, y: number): Surface {
+  const c = circuitClassAt(x, y);
+  return c === 'kerb' ? 'asphalt' : c;   // a kerb IS asphalt to the physics (rideable, full grip)
+}
+/** RENDER-ONLY: the same lookup, but with kerbs split out of asphalt. */
+function circuitClassAt(x: number, y: number): MarkClass {
   const m = circuitMask();
   if (!m) return 'asphalt';        // no raster available (off-DOM) → never penalise
   const mx = (x * CIRCUIT_MASK_PPM) | 0, my = (y * CIRCUIT_MASK_PPM) | 0;
   if (mx < 0 || my < 0 || mx >= _maskW || my >= _maskH) return 'grass';   // outside the world = surround
   const i = my * _maskW + mx;
-  if (m[i]) return 'asphalt';      // the ribbon + every kerb (kerbs are rideable asphalt)
+  if (m[i] === MASK_KERB) return 'kerb';
+  if (m[i] === MASK_ASPHALT) return 'asphalt';
   const g = gravelMask();
   if (g && _gvW === _maskW && _gvH === _maskH && g[i]) return 'gravel';
   return 'grass';
@@ -1131,6 +1152,14 @@ function circuitSurfaceAt(x: number, y: number): Surface {
 /** Ground under a world point for `map`. Maps with no mask (desktop, ovals) are all asphalt. */
 export function surfaceAt(map: MapDefinition, x: number, y: number): Surface {
   return map.surfaceAt ? map.surfaceAt(x, y) : 'asphalt';
+}
+/**
+ * RENDER-ONLY mark class at a world point — 'kerb' split out of 'asphalt' so tyre marks can
+ * cap kerb scuffing separately. Maps without a mask report 'asphalt' (their marks are the
+ * untouched legacy skid path). NEVER read by the physics.
+ */
+export function markClassAt(map: MapDefinition, x: number, y: number): MarkClass {
+  return map.surfaceAt === circuitSurfaceAt ? circuitClassAt(x, y) : 'asphalt';
 }
 /** Debug/verification: the baked mask + its dims (builds it on first call). */
 export function circuitMaskDebug(): { mask: Uint8Array | null; w: number; h: number; ppm: number } {
@@ -1140,6 +1169,13 @@ export function circuitMaskDebug(): { mask: Uint8Array | null; w: number; h: num
 /** Debug/authoring: the sketch↔world mapping (lets a harness convert screen px → sketch coords). */
 export function circuitDebugMapping() {
   return { bcx: CS_BCX, bcy: CS_BCY, scale: CS_SCALE, world: CIRCUIT_LOGICAL };
+}
+/** Debug: the circuit centreline in world METRES (lets a harness drive the real racing line). */
+export function circuitCentreline(): Array<[number, number]> {
+  return CIRCUIT_PATH.map((p) => {
+    const w = circuitToWorld(p[0], p[1]);
+    return [w.x, w.y] as [number, number];
+  });
 }
 
 // ---------- GRAVEL TRAPS (circuit — VISUAL ONLY this pass) ----------
