@@ -9,7 +9,7 @@ import {
 import { collideCars, applyInputs } from './cars';
 import { TyreMarks } from './marks';
 import {
-  getMap, listMaps, DEFAULT_MAP_ID, markClassAt,
+  getMap, listMaps, DEFAULT_MAP_ID, markClassAt, setCircuitGrassReady,
   type MapDefinition, type MapWorld, type MapObstacle, type Surface,
 } from './maps';
 import { SoundEngine } from './sound';
@@ -804,6 +804,14 @@ function redrawOverlay() {
   overlayCtx.clearRect(0, 0, logicalPxW, logicalPxH);
   currentMap.drawObstacles(overlayCtx, world, CONFIG.pxPerMeter, draggedObstacle);
 }
+
+// The circuit's grass bitmap loads async; when it arrives, repaint the (static) wallpaper
+// layer once so the grass swaps in without needing a resize. Cheap + one-shot per load.
+setCircuitGrassReady(() => {
+  if (logicalPxW > 0 && logicalPxH > 0) {
+    currentMap.drawBackground(wallpaperCtx, logicalPxW, logicalPxH);
+  }
+});
 
 canvas.addEventListener('pointerdown', (e) => {
   if (editorMode) { editorPointerDown(e); return; }  // editor owns the mouse

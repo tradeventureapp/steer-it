@@ -1558,6 +1558,26 @@ function grassNoise(x: number, y: number, scale: number): number {
   const c = grassHash(x0, y0 + 1), d = grassHash(x0 + 1, y0 + 1);
   return (a * (1 - fx) + b * fx) * (1 - fy) + (c * (1 - fx) + d * fx) * fy;
 }
+// THE DESIGNER'S EXACT GRASS: a finished bitmap (`public/circuit-grass.png`, the reference at
+// 1536×864 aligned 1:1 to this layout). Loaded async; drawn as the BOTTOM layer scaled to the
+// canvas, then our gravel/asphalt/kerbs cover their baked counterparts, leaving only the
+// designer's grass visible. Until it loads (and off-DOM in unit tests) the procedural two-tone
+// grass below is the fallback, so the field is never bare. A ready-callback lets the host
+// redraw its static wallpaper layer once the image arrives.
+let _circuitGrassImg: HTMLImageElement | null = null;
+let _onCircuitGrassReady: (() => void) | null = null;
+export function setCircuitGrassReady(cb: () => void): void { _onCircuitGrassReady = cb; }
+function circuitGrassImg(): HTMLImageElement | null {
+  if (typeof document === 'undefined') return null;
+  if (!_circuitGrassImg) {
+    const img = new Image();
+    img.onload = () => { if (_onCircuitGrassReady) _onCircuitGrassReady(); };
+    img.src = 'circuit-grass.png';
+    _circuitGrassImg = img;
+  }
+  return _circuitGrassImg.complete && _circuitGrassImg.naturalWidth > 0 ? _circuitGrassImg : null;
+}
+
 let _grassCanvas: HTMLCanvasElement | null = null;
 let _grassKey = '';
 function grassLayer(wPx: number, hPx: number, pxPerM: number): HTMLCanvasElement | null {
@@ -1604,11 +1624,17 @@ function drawCircuitSurface(ctx: CanvasRenderingContext2D, wPx: number, hPx: num
   const twPx = CS_BAND * s;                             // = CIRCUIT_TRACK_W · pxPerM
   const a = SURFACE_STYLES.asphalt;
 
-  // Grass — the two-tone cartoon field (see grassLayer). Cached per canvas size; off-DOM
-  // (unit tests) it's null, so fall back to a flat DARK fill.
-  const gl = grassLayer(wPx, hPx, pxPerM);
-  if (gl) ctx.drawImage(gl, 0, 0);
-  else { ctx.fillStyle = `rgb(${GRASS_DARK.join(',')})`; ctx.fillRect(0, 0, wPx, hPx); }
+  // Grass — the designer's exact bitmap if it has loaded, else the procedural two-tone
+  // fallback (cached per canvas size), else a flat DARK fill off-DOM. The bitmap is drawn
+  // stretched to the canvas: it aligns 1:1 with this layout, so our gravel/asphalt/kerbs
+  // drawn below cover its baked track exactly, leaving only its grass showing.
+  const gImg = circuitGrassImg();
+  if (gImg) ctx.drawImage(gImg, 0, 0, wPx, hPx);
+  else {
+    const gl = grassLayer(wPx, hPx, pxPerM);
+    if (gl) ctx.drawImage(gl, 0, 0);
+    else { ctx.fillStyle = `rgb(${GRASS_DARK.join(',')})`; ctx.fillRect(0, 0, wPx, hPx); }
+  }
 
   // GRAVEL TRAPS — on the grass, UNDER the tarmac (they can never touch it: the shape is
   // eroded by a full car width from every asphalt/kerb edge by construction). Visual only.

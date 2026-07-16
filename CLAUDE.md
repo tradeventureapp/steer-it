@@ -4109,3 +4109,20 @@ the reference — same 2-tone cartoon field). The reference `public/grass anime.
 image only (the grass is procedural) — left untracked. Tunables: `GRASS_LIGHT`/`GRASS_DARK`,
 `GRASS_PATCH_M`/`GRASS_MID_M` (blob size), `GRASS_THRESH` (how much is light), `GRASS_SOFT`
 (edge softness). tsc + build clean.
+
+---
+**CIRCUIT — GRASS = THE DESIGNER'S EXACT BITMAP (`public/circuit-grass.png`; render only, physics
+untouched):** the boss wanted the designer's asset exactly, not the procedural lookalike. The grass
+is now the finished bitmap drawn as the BOTTOM layer, stretched to the canvas — it aligns 1:1 with
+this layout, so our gravel/asphalt/kerbs draw on top and cover their baked counterparts, leaving
+only the designer's grass showing. **PROVEN clean (harness): our composite vs the raw reference
+differs on only 2.1 % of pixels** — the start/finish line we add + anti-aliased track edges; NO dark
+ring / no baked-track bleed through the grass (verified by eye, ours stacked under the reference =
+identical field). Loaded async (`circuitGrassImg()`); a `setCircuitGrassReady` callback repaints the
+static wallpaper layer once the image arrives (one-shot, cheap) so it swaps in without a resize.
+Until it loads — and off-DOM in unit tests — the **procedural two-tone grass from the previous pass
+is the FALLBACK**, so the field is never bare (no flash of missing grass). Vite copies the asset to
+`dist/`. The duplicate `public/grass anime.png` (same content, space in the name) was removed so it
+isn't shipped twice. **ONLY grass changed**; the surface mask is geometry-based so `surfaceAt`/marks/
+gravel/lap-counting are unaffected. `physics.ts` / `physics4.ts` / `race.ts` / `marks.ts` UNTOUCHED
+(desktop.ts gained only the async-redraw hook). tsc + build clean.
