@@ -1528,7 +1528,65 @@ const CIRCUIT_FEATHER_MAX_PX = 3;
 const CIRCUIT_FEATHER_ALPHA_OUT = 0.15;  // outermost pass (faintest, reaches FEATHER past the edge)
 const CIRCUIT_FEATHER_ALPHA_IN = 0.30;   // inner pass (reaches FEATHER/2 — overlaps → ramps up)
 
-// Surface: GRASS (the oval's green) everywhere, then the ASPHALT ribbon (oval's
+// CARTOON GRASS — TWO flat green tones in big soft organic patches (no grain, no blades),
+// in the hand-drawn indie style. Faithful to the grass-anime reference (its exact tones,
+// measured): DARK dominates, LIGHT is scattered lighter patches (~16% of the field). The
+// tone is chosen by smooth value-noise; a narrow soft band around the threshold gives the
+// blob edges a clean anti-aliased cartoon feel (not a hard pixel step, not a gradient).
+// Computed ONCE per canvas size onto an offscreen buffer (the circuit background is a
+// pre-render layer, not a per-frame draw) via a DETERMINISTIC hash → identical every load.
+// PHYSICS never reads this (the surface mask is geometry-based, not colour-based).
+const GRASS_LIGHT: [number, number, number] = [116, 164, 72];   // measured from the reference
+const GRASS_DARK:  [number, number, number] = [92, 138, 58];
+const GRASS_PATCH_M = 25;      // big blob lattice (m) — handoff scale 150 @ ref 1536px/256m
+const GRASS_MID_M   = 10;      // smaller organic detail (m) — handoff scale 60
+const GRASS_THRESH  = 0.655;   // value-noise cutoff → ~16% LIGHT (calibrated to the reference)
+const GRASS_SOFT    = 0.05;    // half-width of the soft blend band around the threshold
+
+function grassHash(ix: number, iy: number): number {
+  let h = (Math.imul(ix, 374761393) ^ Math.imul(iy, 668265263)) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967295;   // 0..1
+}
+function grassSmooth(t: number) { return t * t * (3 - 2 * t); }
+// Smooth (bilinear + smoothstep) value noise on a hashed integer lattice, mean ≈ 0.5.
+function grassNoise(x: number, y: number, scale: number): number {
+  const gx = x / scale, gy = y / scale;
+  const x0 = Math.floor(gx), y0 = Math.floor(gy);
+  const fx = grassSmooth(gx - x0), fy = grassSmooth(gy - y0);
+  const a = grassHash(x0, y0),     b = grassHash(x0 + 1, y0);
+  const c = grassHash(x0, y0 + 1), d = grassHash(x0 + 1, y0 + 1);
+  return (a * (1 - fx) + b * fx) * (1 - fy) + (c * (1 - fx) + d * fx) * fy;
+}
+let _grassCanvas: HTMLCanvasElement | null = null;
+let _grassKey = '';
+function grassLayer(wPx: number, hPx: number, pxPerM: number): HTMLCanvasElement | null {
+  if (typeof document === 'undefined') return null;   // off-DOM tests draw no grass
+  const key = wPx + 'x' + hPx;
+  if (_grassCanvas && _grassKey === key) return _grassCanvas;
+  const cv = document.createElement('canvas'); cv.width = wPx; cv.height = hPx;
+  const c = cv.getContext('2d'); if (!c) return null;
+  const img = c.createImageData(wPx, hPx), d = img.data;
+  const sPatch = GRASS_PATCH_M * pxPerM, sMid = GRASS_MID_M * pxPerM;
+  for (let y = 0; y < hPx; y++) {
+    for (let x = 0; x < wPx; x++) {
+      const patch = grassNoise(x, y, sPatch) * 0.7 + grassNoise(x, y, sMid) * 0.3;
+      // soft blend around the cutoff → anti-aliased blob edges, still two flat tones
+      const m = Math.max(0, Math.min(1,
+        (patch - (GRASS_THRESH - GRASS_SOFT)) / (2 * GRASS_SOFT)));
+      const o = (y * wPx + x) * 4;
+      d[o]     = GRASS_DARK[0] + (GRASS_LIGHT[0] - GRASS_DARK[0]) * m;
+      d[o + 1] = GRASS_DARK[1] + (GRASS_LIGHT[1] - GRASS_DARK[1]) * m;
+      d[o + 2] = GRASS_DARK[2] + (GRASS_LIGHT[2] - GRASS_DARK[2]) * m;
+      d[o + 3] = 255;
+    }
+  }
+  c.putImageData(img, 0, 0);
+  _grassCanvas = cv; _grassKey = key;
+  return cv;
+}
+
+// Surface: GRASS (two-tone cartoon green) everywhere, then the ASPHALT ribbon (oval's
 // tarmac tones) + a rubbered-in racing line down the middle. Fits the sketch into
 // whatever canvas size it's given (game world OR the map-select mini-preview),
 // preserving aspect + centring — so world coords and the render always agree.
@@ -1546,10 +1604,11 @@ function drawCircuitSurface(ctx: CanvasRenderingContext2D, wPx: number, hPx: num
   const twPx = CS_BAND * s;                             // = CIRCUIT_TRACK_W · pxPerM
   const a = SURFACE_STYLES.asphalt;
 
-  // Grass — the oval's infield green (day-grass), the whole field.
-  const grass = ctx.createLinearGradient(0, 0, 0, hPx);
-  grass.addColorStop(0, '#26402f'); grass.addColorStop(1, '#1b3223');
-  ctx.fillStyle = grass; ctx.fillRect(0, 0, wPx, hPx);
+  // Grass — the two-tone cartoon field (see grassLayer). Cached per canvas size; off-DOM
+  // (unit tests) it's null, so fall back to a flat DARK fill.
+  const gl = grassLayer(wPx, hPx, pxPerM);
+  if (gl) ctx.drawImage(gl, 0, 0);
+  else { ctx.fillStyle = `rgb(${GRASS_DARK.join(',')})`; ctx.fillRect(0, 0, wPx, hPx); }
 
   // GRAVEL TRAPS — on the grass, UNDER the tarmac (they can never touch it: the shape is
   // eroded by a full car width from every asphalt/kerb edge by construction). Visual only.

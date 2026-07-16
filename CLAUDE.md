@@ -4083,3 +4083,29 @@ checkered line with the grid BEFORE it, noses pointing at it, P1 closest, and th
 arrow pointing the opposite way from the grid — a real rost on both.
 **`physics.ts` / `physics4.ts` / `race.ts` / `desktop.ts` / `marks.ts` UNTOUCHED** (empty diffs ⇒
 step() 0.0e+0). The whole change is one sign in the circuit's spawn. tsc + build clean.
+
+---
+**CIRCUIT — CARTOON 2-TONE GRASS (`maps.ts` render only; physics + mask byte-untouched):** the
+flat dark-green gradient surround is replaced by the hand-drawn indie look from the boss's
+`grass anime.png` reference — TWO flat green tones in big soft organic patches (no grain, no
+blades). **Tones MEASURED from the reference** (k-means over its grass pixels): LIGHT
+**rgb(116,164,72)** / DARK **rgb(92,138,58)** — exactly the handoff values — with DARK dominant
+and LIGHT scattered (~16% of the field). Implemented procedurally in the project's style (like
+the gravel grain): a cached offscreen buffer filled ONCE per canvas size via a DETERMINISTIC
+hash value-noise (`grassNoise` = smooth bilinear+smoothstep on a hashed lattice, mean ≈ 0.5),
+two lattice scales (`GRASS_PATCH_M` 25 m / `GRASS_MID_M` 10 m, in METRES so the blob size is
+constant regardless of window/px), tone chosen by `patch > GRASS_THRESH` with a narrow soft
+blend band (`GRASS_SOFT` 0.05) for anti-aliased cartoon blob edges — no hard pixel step, no
+gradient. **THRESHOLD CALIBRATED to the reference by measuring OUR output**: 0.60 gave 30% light,
+**0.655 gives 22%** (measured full-canvas; the reference's 16% is over only the visible grass
+between the asphalt, so the eyeball match — side-by-side vs the reference — is what settled it,
+and it reads the same). Drawn as the BOTTOM layer exactly as before, so gravel/asphalt/kerbs draw
+on top UNCHANGED; off-DOM (unit tests) it falls back to a flat DARK fill. **ONLY grass changed** —
+asphalt, kerbs, gravel, blue, start line all byte-identical. **NOT read by physics**: the surface
+mask is geometry-based (ribbon MID / kerb HIGH painted from the path), not colour-based, so
+`surfaceAt`/`markClassAt`/gravel/lap-counting are all unaffected. `physics.ts` / `physics4.ts` /
+`race.ts` / `desktop.ts` / `marks.ts` UNTOUCHED. Verified by eye (PNG harness, ours stacked under
+the reference — same 2-tone cartoon field). The reference `public/grass anime.png` is a handoff
+image only (the grass is procedural) — left untracked. Tunables: `GRASS_LIGHT`/`GRASS_DARK`,
+`GRASS_PATCH_M`/`GRASS_MID_M` (blob size), `GRASS_THRESH` (how much is light), `GRASS_SOFT`
+(edge softness). tsc + build clean.
