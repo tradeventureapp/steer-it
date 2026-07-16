@@ -4171,3 +4171,46 @@ tsc + build clean. **HONEST NOTE:** the surface itself is the designer's polishe
 were no surface defects for me to "fix" — the production-readiness here is the verified alignment +
 correct start line + the flash removal; the fallback still lacks the baked racing-line strip (it's
 a <1 s pre-load frame, not worth baking).
+
+---
+**GAME-WIDE SURFACE-TRANSITION QUALITY PASS (the boss's oval refs = the bar; the circuit's ragged
+sand↔grass edges = the one FAIL, now rebuilt; `maps.ts` render-only):**
+**STEP 0 (looked first):** the OVAL's boundaries are clean geometric curves — flat confident colours,
+one consistent ~1 px AA edge, no noise touching the boundary (they are vector strokes). The CIRCUIT's
+sand/gravel↔grass boundary is baked RAGGED **in the designer's bitmap itself** (confirmed by cropping
+`track-surfaces.png` at the boss's screenshot region): the mask behind it came from a noisy speckled
+source, so the outline wobbles at 2–4 px scale, the speckle bleeds across the edge, and a dirty dark
+rim ((55,83,52)/(112,106,92), ~5 px wide) runs along it.
+**STEP 1 — INVENTORY (graded with close-up renders):** circuit sand↔grass (tongue) **FAIL** ·
+gravel↔grass (infield) **FAIL** · asphalt↔grass strip PASS · kerb stripes↔blue↔asphalt PASS · start
+line PASS (our vector checker) · racing-line internal edge PASS · ovals ring/infield/barriers/checker
+PASS (the standard itself) · desktop icons/taskbar PASS · marks/skids PASS (vector lines).
+**STEP 2 — THE FIX (`refineCircuitSurface`, load-time, once):** rebuilds ONLY the failing boundary:
+(1) classify pixels by nearest swatch into SAND/GRASS/OTHER(track); (2) box-blur the class masks
+into smooth fields (`REFINE_BLURS [4,3,2]`) — the blurred field's level set IS the smooth organic
+curve; (3) inside a narrow zone around the sand↔grass boundary (`min(fs,fg)` ramp 0.14→0.30, guarded
+off near the track by `fo` 0.45→0.68), replace pixels with a clean two-class blend: colours = each
+class's LOCAL mean sampled from CONFIDENT interiors only (rim/edge-speckle excluded), edge = one
+consistent ~2 px AA (`REFINE_AA` 0.10), plus the designer's dark rim REDRAWN clean along the new
+boundary (uniform width/darkness, `REFINE_RIM_DARK` 0.28 / `REFINE_RIM_W` 0.16). Outside the zone
+the asset stays byte-original. Bake ~200–500 ms ONCE at load (cached canvas) — zero per-frame cost.
+**MEASURED (surgical):** boundary band 23.4 % rebuilt · tongue interior **0.0 %** changed · kerb area
+**0.0 %** · asphalt **0.0 %** · whole image 1.0 % (= the boundaries). Strip across the edge: the dirty
+rim steps (101,98,83)/(55,83,52) → clean blend (124,123,103)/(69,102,57).
+**STEP 3 — VERIFIED BY EYE** (before/after 4.8× vs the oval refs + 1.2× game scale + full map): the
+wobble is gone, the curve is smooth, the rim is thin and even, speckle ends exactly at the boundary,
+interiors untouched; at game scale it reads as clean as the oval. All other inventory items unchanged
+(PASS as before).
+**⚠️ TWO MEASURED PITFALLS (cost 3 iterations, worth remembering):** (1) the field reach must SPAN
+the ~5 px OTHER-classified rim — with blurs [3,2] (5 px reach) both fields are ~0 in the rim's middle
+and the pass is a silent NO-OP (measured: 0 % change at the edge); [4,3,2] (9 px) bridges it, while
+staying ≪ the 20 px half-width of the narrowest sand tongue so interiors keep their speckle. (2) the
+asset's LIGHT asphalt tones must be swatched into OTHER — without them they classify as sand and the
+sand field leaks onto the track (measured: blurred kerb/asphalt edges). Also: the earlier "mushy"
+verification renders were the PROCEDURAL FALLBACK racing the async bitmap load, not the refinement —
+the harness now polls until the baked output matches the asset interior before judging.
+**TUNABLES (maps.ts):** `REFINE_BLURS [4,3,2]` (curve roundness) · `REFINE_AA 0.10` (edge softness) ·
+`REFINE_ZONE_LO/HI 0.14/0.30` (rebuild band width) · `REFINE_GUARD_LO/HI 0.45/0.68` (track
+protection) · `REFINE_RIM_DARK 0.28` / `REFINE_RIM_W 0.16` (the clean rim) · `REFINE_COLOR_BLUR 5` ·
+swatches `REFINE_SW_GRASS/SAND/OTHER`. **NOT read by physics** (geometry masks); `physics.ts` /
+`physics4.ts` / `race.ts` / `desktop.ts` / `marks.ts` / `effects.ts` UNTOUCHED. tsc + build clean.

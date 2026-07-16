@@ -1563,6 +1563,144 @@ function circuitSurfaceImg(): HTMLImageElement | null {
   return _circuitSurfaceImg.complete && _circuitSurfaceImg.naturalWidth > 0 ? _circuitSurfaceImg : null;
 }
 
+// ---------- SURFACE-BITMAP BOUNDARY REFINEMENT (load-time, once) ----------
+// The asset's SAND/GRAVEL ↔ GRASS boundaries are baked RAGGED: the mask behind them came from
+// a noisy speckled source, so the outline wobbles at 2–4 px scale, the sand speckle bleeds
+// across the edge, and a dirty dark rim runs along it — far below the ovals' clean-vector bar.
+// This pass rebuilds ONLY that boundary, at load time, once:
+//   1. classify each pixel (nearest swatch) into SAND / GRASS / OTHER(track+kerbs),
+//   2. box-blur the class masks into smooth fields (the level set of the blurred field is a
+//      smooth organic curve — the same trick the track ribbon uses for its geometry),
+//   3. inside a narrow zone around the sand↔grass boundary, replace the pixels with a clean
+//      two-class blend: colours = the classes' LOCAL means (confident interiors only, so the
+//      rim and edge speckle are excluded), edge = one consistent ~1.5 px AA — the oval look.
+// Everything OUTSIDE the zone keeps the designer's original pixels byte-for-byte, and the
+// zone fades to nothing near the track (fo guard), so asphalt/kerb/racing-line edges — which
+// already pass — are untouched. PHYSICS never reads any of this (geometry-based masks).
+// NOTE the asphalt swatch spread: the asset's tarmac spans dark shading (57,64,66) → the
+// racing line (79,83,92) → base (92,96,104) → LIGHT braking-zone grey (≈120,124,132). The
+// light tones MUST be swatched, else they classify as sand and the sand field leaks onto the
+// track (measured: it blurred the kerb/asphalt edges). The dirty sand↔grass RIM pixels
+// classify as OTHER too — that is fine, because the guard below only reacts to THICK other
+// regions (the real track), not a 2-px rim, so the rim still falls inside the rebuild zone.
+const REFINE_SW_GRASS: number[][] = [[116, 164, 72], [92, 138, 58]];
+const REFINE_SW_SAND:  number[][] = [[162, 156, 138], [131, 125, 110], [175, 167, 149], [195, 189, 173]];
+const REFINE_SW_OTHER: number[][] = [
+  [92, 96, 104], [79, 83, 92], [57, 64, 66], [108, 112, 120], [122, 126, 134],
+  [47, 111, 202], [196, 52, 46], [232, 232, 238],
+];
+// Sizing note (both bounds MEASURED): the field reach must SPAN the dirty rim — it is ~5 px
+// wide and classifies as OTHER, so with a short blur ([3,2] = 5 px reach) both the sand and
+// grass fields are ~0 in the rim's middle and the zone never fires (a no-op). [4,3,2] = 9 px
+// reach bridges it. The other bound: the sand tongue is ~40 px wide with grass on BOTH sides
+// — 9 px reach ≪ its 20 px half-width, so its interior speckle stays byte-original.
+const REFINE_BLURS = [4, 3, 2];      // mask→field smoothing radii (px @1536) — sets curve roundness
+const REFINE_COLOR_BLUR = 5;         // local class-colour sampling radius (px)
+const REFINE_AA = 0.10;              // edge softness in t-units (≈2 px spatially — the oval bar)
+const REFINE_ZONE_LO = 0.14;         // min(fieldGrass, fieldSand) ramp → how wide the rebuild zone is
+const REFINE_ZONE_HI = 0.30;
+const REFINE_GUARD_LO = 0.45;        // fieldOther above this fades the zone out. High on purpose:
+const REFINE_GUARD_HI = 0.68;        //   a THICK other region (the track) guards its edges, but a
+                                     //   2-px dirty rim blurs to fo≈0.3 and is NOT protected —
+                                     //   it falls in the zone and gets rebuilt away.
+// The designer outlines every sand↔grass boundary with a darker rim (drawn-cartoon style —
+// kept), REDRAWN clean along the rebuilt boundary: uniform width, uniform darkness.
+const REFINE_RIM_DARK = 0.28;        // rim darkening at its centre (×(1−this) ≈ the asset's rim)
+const REFINE_RIM_W = 0.16;           // rim half-width in t-units (≈2 px spatially)
+
+function boxBlurField(src: Float32Array, w: number, h: number, r: number): Float32Array {
+  const tmp = new Float32Array(src.length), out = new Float32Array(src.length);
+  const n = 2 * r + 1;
+  for (let y = 0; y < h; y++) {          // horizontal running sum
+    const row = y * w;
+    let acc = 0;
+    for (let x = -r; x <= r; x++) acc += src[row + Math.min(w - 1, Math.max(0, x))];
+    for (let x = 0; x < w; x++) {
+      tmp[row + x] = acc / n;
+      acc += src[row + Math.min(w - 1, x + r + 1)] - src[row + Math.max(0, x - r)];
+    }
+  }
+  for (let x = 0; x < w; x++) {          // vertical running sum
+    let acc = 0;
+    for (let y = -r; y <= r; y++) acc += tmp[Math.min(h - 1, Math.max(0, y)) * w + x];
+    for (let y = 0; y < h; y++) {
+      out[y * w + x] = acc / n;
+      acc += tmp[Math.min(h - 1, y + r + 1) * w + x] - tmp[Math.max(0, y - r) * w + x];
+    }
+  }
+  return out;
+}
+
+function refineCircuitSurface(img: HTMLImageElement): HTMLCanvasElement | null {
+  const W = img.naturalWidth, H = img.naturalHeight, N = W * H;
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const ctx = cv.getContext('2d'); if (!ctx) return null;
+  ctx.drawImage(img, 0, 0);
+  const id = ctx.getImageData(0, 0, W, H), d = id.data;
+
+  // 1. classify by nearest swatch
+  const SW: Array<[number, number, number, number]> = [];   // [r,g,b,class]
+  REFINE_SW_SAND.forEach((s) => SW.push([s[0], s[1], s[2], 0]));
+  REFINE_SW_GRASS.forEach((s) => SW.push([s[0], s[1], s[2], 1]));
+  REFINE_SW_OTHER.forEach((s) => SW.push([s[0], s[1], s[2], 2]));
+  const ms = new Float32Array(N), mg = new Float32Array(N);
+  for (let i = 0; i < N; i++) {
+    const r = d[i * 4], g = d[i * 4 + 1], b = d[i * 4 + 2];
+    let best = 0, bd = Infinity;
+    for (const [sr, sg, sb, c] of SW) {
+      const dd = (r - sr) * (r - sr) + (g - sg) * (g - sg) + (b - sb) * (b - sb);
+      if (dd < bd) { bd = dd; best = c; }
+    }
+    if (best === 0) ms[i] = 1; else if (best === 1) mg[i] = 1;
+  }
+
+  // 2. smooth fields (fo = 1 − fs − fg since the three masks partition the image)
+  let fs: Float32Array = ms, fg: Float32Array = mg;
+  for (const r of REFINE_BLURS) { fs = boxBlurField(fs, W, H, r); fg = boxBlurField(fg, W, H, r); }
+
+  // 3. local class colours from CONFIDENT interiors only (excludes the rim + edge speckle)
+  const csr = new Float32Array(N), csg = new Float32Array(N), csb = new Float32Array(N), csw = new Float32Array(N);
+  const cgr = new Float32Array(N), cgg = new Float32Array(N), cgb = new Float32Array(N), cgw = new Float32Array(N);
+  for (let i = 0; i < N; i++) {
+    if (ms[i] && fs[i] > 0.72) { csr[i] = d[i * 4]; csg[i] = d[i * 4 + 1]; csb[i] = d[i * 4 + 2]; csw[i] = 1; }
+    if (mg[i] && fg[i] > 0.72) { cgr[i] = d[i * 4]; cgg[i] = d[i * 4 + 1]; cgb[i] = d[i * 4 + 2]; cgw[i] = 1; }
+  }
+  const blur2 = (a: Float32Array) => boxBlurField(boxBlurField(a, W, H, REFINE_COLOR_BLUR), W, H, REFINE_COLOR_BLUR);
+  const bsr = blur2(csr), bsg = blur2(csg), bsb = blur2(csb), bsw = blur2(csw);
+  const bgr = blur2(cgr), bgg = blur2(cgg), bgb = blur2(cgb), bgw = blur2(cgw);
+
+  // 4. rebuild the sand↔grass boundary zone
+  const ramp = (v: number, lo: number, hi: number) => Math.max(0, Math.min(1, (v - lo) / (hi - lo)));
+  for (let i = 0; i < N; i++) {
+    const zone = ramp(Math.min(fs[i], fg[i]), REFINE_ZONE_LO, REFINE_ZONE_HI)
+      * (1 - ramp(1 - fs[i] - fg[i], REFINE_GUARD_LO, REFINE_GUARD_HI));
+    if (zone <= 0) continue;
+    if (bsw[i] < 1e-4 || bgw[i] < 1e-4) continue;   // no confident colour nearby → keep original
+    const t = fg[i] / (fs[i] + fg[i]);              // 0 = sand, 1 = grass
+    const a = ramp(t, 0.5 - REFINE_AA, 0.5 + REFINE_AA);
+    const sr = bsr[i] / bsw[i], sg = bsg[i] / bsw[i], sb = bsb[i] / bsw[i];
+    const gr = bgr[i] / bgw[i], gg = bgg[i] / bgw[i], gb = bgb[i] / bgw[i];
+    // the clean rim: a smooth even darkening centred exactly on the rebuilt boundary
+    const band = Math.max(0, 1 - Math.abs(t - 0.5) / REFINE_RIM_W);
+    const rim = 1 - REFINE_RIM_DARK * band * band * (3 - 2 * band);
+    const o = i * 4;
+    d[o]     = d[o]     + ((sr + (gr - sr) * a) * rim - d[o])     * zone;
+    d[o + 1] = d[o + 1] + ((sg + (gg - sg) * a) * rim - d[o + 1]) * zone;
+    d[o + 2] = d[o + 2] + ((sb + (gb - sb) * a) * rim - d[o + 2]) * zone;
+  }
+  ctx.putImageData(id, 0, 0);
+  return cv;
+}
+
+// The refined surface, baked once when the image is first available.
+let _circuitBaked: HTMLCanvasElement | null = null;
+function circuitSurfaceCanvas(): HTMLCanvasElement | HTMLImageElement | null {
+  const img = circuitSurfaceImg();
+  if (!img) return null;
+  if (!_circuitBaked) _circuitBaked = refineCircuitSurface(img);
+  return _circuitBaked ?? img;   // refinement failed (no 2d ctx) → the raw asset
+}
+
 let _grassCanvas: HTMLCanvasElement | null = null;
 let _grassKey = '';
 function grassLayer(wPx: number, hPx: number, pxPerM: number): HTMLCanvasElement | null {
@@ -1609,10 +1747,11 @@ function drawCircuitSurface(ctx: CanvasRenderingContext2D, wPx: number, hPx: num
   const twPx = CS_BAND * s;                             // = CIRCUIT_TRACK_W · pxPerM
 
   // THE DESIGNER'S FINISHED SURFACES: if the bitmap has loaded, it IS the whole surface
-  // (grass + gravel + asphalt + kerbs, smooth edges) — draw it and add only the start line.
-  const surfImg = circuitSurfaceImg();
-  if (surfImg) {
-    ctx.drawImage(surfImg, 0, 0, wPx, hPx);
+  // (grass + gravel + asphalt + kerbs) — with its ragged sand↔grass boundaries REFINED to the
+  // ovals' clean-edge bar at load time (see refineCircuitSurface). Draw it + the start line.
+  const surf = circuitSurfaceCanvas();
+  if (surf) {
+    ctx.drawImage(surf, 0, 0, wPx, hPx);
     drawCircuitStartLine(ctx, offX, offY, s, twPx, pxPerM);
     return;
   }
