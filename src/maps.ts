@@ -1502,6 +1502,9 @@ function drawGravelTraps(ctx: CanvasRenderingContext2D, wPx: number, hPx: number
 // low-alpha asphalt passes are stroked UNDER the surface, so the tarmac eases into the grass
 // over ~FEATHER px per side. TUNE BY THESE NUMBERS (keep subtle — a visible glow/halo or a
 // re-drawn outline means they are too high):
+// Light-grey tarmac for the procedural FALLBACK (matches the finished asset's asphalt, so the
+// brief pre-load fallback doesn't flash the old dark tarmac). [top, bottom] of a subtle gradient.
+const CIRCUIT_ASPHALT_FALLBACK: [string, string] = ['#63676f', '#565a62'];   // ≈ rgb(92,96,104)
 const CIRCUIT_EDGE_FEATHER = 0.012;      // soft-edge reach PER SIDE = twPx × this …
 const CIRCUIT_FEATHER_MIN_PX = 1;        //   … clamped to [MIN, MAX] px (≈2.5 px at game scale)
 const CIRCUIT_FEATHER_MAX_PX = 3;
@@ -1604,7 +1607,6 @@ function drawCircuitSurface(ctx: CanvasRenderingContext2D, wPx: number, hPx: num
     (p) => [offX + p[0] * s, offY + p[1] * s] as [number, number],
   );
   const twPx = CS_BAND * s;                             // = CIRCUIT_TRACK_W · pxPerM
-  const a = SURFACE_STYLES.asphalt;
 
   // THE DESIGNER'S FINISHED SURFACES: if the bitmap has loaded, it IS the whole surface
   // (grass + gravel + asphalt + kerbs, smooth edges) — draw it and add only the start line.
@@ -1628,12 +1630,13 @@ function drawCircuitSurface(ctx: CanvasRenderingContext2D, wPx: number, hPx: num
   drawGravelTraps(ctx, wPx, hPx);
 
   ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-  // Asphalt SURFACE — the oval's tarmac gradient, applied vertically for depth. NO dark rim:
-  // the tarmac sits directly on the grass. Its edge is FEATHERED instead — two wider, low-alpha
-  // passes underneath ramp the tarmac into the grass over featherPx per side (soft + organic,
-  // never a halo or an outline). Kerbs are drawn after, so they cover the feather where they sit.
+  // Asphalt SURFACE — the LIGHT-GREY tarmac of the finished asset (so the <1 s pre-load
+  // fallback doesn't flash the old dark tarmac before the bitmap swaps in). NO dark rim: the
+  // tarmac sits directly on the grass; its edge is FEATHERED (two wider, low-alpha passes
+  // ramp it into the grass over featherPx per side). Kerbs drawn after cover the feather.
   const asf = ctx.createLinearGradient(0, 0, 0, hPx);
-  asf.addColorStop(0, a.ringInner); asf.addColorStop(1, a.ringOuter);
+  asf.addColorStop(0, CIRCUIT_ASPHALT_FALLBACK[0]);
+  asf.addColorStop(1, CIRCUIT_ASPHALT_FALLBACK[1]);
   const featherPx = Math.max(CIRCUIT_FEATHER_MIN_PX, Math.min(CIRCUIT_FEATHER_MAX_PX, twPx * CIRCUIT_EDGE_FEATHER));
   ctx.strokeStyle = asf;
   ctx.globalAlpha = CIRCUIT_FEATHER_ALPHA_OUT;                       // reaches featherPx past the edge

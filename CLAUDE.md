@@ -4148,3 +4148,26 @@ still land on the asset's asphalt/kerb/gravel correctly (same layout, proven ~2 
 Vite copies the asset to `dist/`. `physics.ts` / `physics4.ts` / `race.ts` / `desktop.ts` /
 `marks.ts` UNTOUCHED (desktop.ts keeps only its earlier async-redraw hook). Verified by eye: the
 render is the designer's asset + our start line. tsc + build clean.
+
+---
+**CIRCUIT — PRODUCTION-READY PASS (correctness verified + pre-load flash removed; `maps.ts`
+render only):** the circuit surface is now 100 % the designer's finished bitmap
+(`track-surfaces.png`), so "graphical imperfections" came down to CORRECTNESS (does the
+physics/marks/lap-line geometry match what you SEE) + the one thing we still draw (the start line)
++ the pre-load fallback. **AUDITED:** (1) **ALIGNMENT — geometry mask vs the visible bitmap: 2.16 %
+of pixels disagree, ALL thin edge-AA** (a pixel-overlay harness confirmed no solid mis-registered
+region) → tyre marks, gravel physics and the lap/start line all land on the visible track. (2)
+**START/FINISH LINE — MEASURED against the bitmap's bottom-straight asphalt band** (scan of the
+column at the line): visible band y 669..831, the line draws y 670..835 → **top ±1 px, bottom +4 px
+into the blue kerb** = spans the full band correctly (an earlier "it's too short" read was a harness
+mistake — the naive column scan crossed two track sections). **FIX (the one real polish): the
+pre-load FALLBACK no longer flashes the old DARK tarmac** — the procedural fallback's asphalt is now
+the asset's LIGHT grey (`CIRCUIT_ASPHALT_FALLBACK` ≈ rgb(92,96,104)), so the <1 s before the bitmap
+loads matches (light asphalt + two-tone grass + tan gravel), verified side-by-side vs the loaded
+asset. Removed the now-unused `const a = SURFACE_STYLES.asphalt` (the fallback no longer uses the
+oval's tarmac tones). **NOT read by physics** — surfaceAt/marks/gravel/lap-counting are geometry-
+based, unaffected. `physics.ts` / `physics4.ts` / `race.ts` / `desktop.ts` / `marks.ts` UNTOUCHED.
+tsc + build clean. **HONEST NOTE:** the surface itself is the designer's polished asset, so there
+were no surface defects for me to "fix" — the production-readiness here is the verified alignment +
+correct start line + the flash removal; the fallback still lacks the baked racing-line strip (it's
+a <1 s pre-load frame, not worth baking).
