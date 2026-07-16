@@ -4126,3 +4126,25 @@ is the FALLBACK**, so the field is never bare (no flash of missing grass). Vite 
 isn't shipped twice. **ONLY grass changed**; the surface mask is geometry-based so `surfaceAt`/marks/
 gravel/lap-counting are unaffected. `physics.ts` / `physics4.ts` / `race.ts` / `marks.ts` UNTOUCHED
 (desktop.ts gained only the async-redraw hook). tsc + build clean.
+
+---
+**CIRCUIT — SURFACES = THE DESIGNER'S FULL BITMAP (`public/track-surfaces.png`; render only,
+physics/mask untouched):** the boss placed the finished cartoon-surfaces asset (two-tone grass +
+light-tan POSTERIZED gravel + asphalt + blue + red/white kerbs, all with SMOOTH rounded edges) in
+public and asked for the gravel + all surface transitions exactly like it. Since the whole surface
+is baked, the circuit now draws that ONE bitmap as the entire surface layer (scaled to canvas) and
+adds only the checkered start/finish line on top — no procedural gravel/asphalt/kerbs drawn over it
+(they're in the asset). Replaces the earlier grass-only bitmap (`circuit-grass.png`, removed). The
+start-line draw was extracted to `drawCircuitStartLine` and is shared by both paths.
+**FALLBACK (before the async image loads / off-DOM unit tests):** a full PROCEDURAL surface — the
+two-tone grass from the previous pass PLUS a reworked cartoon gravel (light-tan `[168,160,142]`
+gently posterized ±7 via smooth value-noise, big soft patches, **smooth blurred edges via a canvas
+`blur()` on the trap mask — no grain, no dark rim, no chewed/stepped boundary**, per the handoff).
+So the field is never bare, and the fallback already matches the asset's style. Removed the old
+grainy-stone gravel tile (`gravelTile`, `GRAVEL_STONE_PX/CONTRAST/TILE/EDGE`, `hexRgb`/`clamp255`).
+**NOT read by physics**: the surface mask (circuitMask + gravelMask) is geometry-based, so
+`surfaceAt` / `markClassAt` / gravel / lap-counting are all independent of the bitmap — tyre marks
+still land on the asset's asphalt/kerb/gravel correctly (same layout, proven ~2 % align earlier).
+Vite copies the asset to `dist/`. `physics.ts` / `physics4.ts` / `race.ts` / `desktop.ts` /
+`marks.ts` UNTOUCHED (desktop.ts keeps only its earlier async-redraw hook). Verified by eye: the
+render is the designer's asset + our start line. tsc + build clean.

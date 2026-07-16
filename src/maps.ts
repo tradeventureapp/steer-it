@@ -1241,15 +1241,16 @@ const GRAVEL_GRASS_GAP = CAR_WIDTH_M; // m — grass strip between BARE ASPHALT 
 const GRAVEL_MIN_AREA = 70;           // m² — a fragment smaller than this doesn't read as a trap → dropped
 const GRAVEL_SMOOTH_R = 5;            // mask px (@4 px/m ⇒ 1.25 m) — boundary rounding radius
 const GRAVEL_MASK_PPM = 4;            // px/m for the trap raster
-// Real racing gravel: coarse LIGHT GREY-BEIGE crushed stone (pale grey-tan pebbles), not paint.
-const GRAVEL_BASE = '#b3ad9b';        // pale grey-beige crushed stone
-const GRAVEL_TILE = 256;              // px — stone speckle tile (repeat period)
-const GRAVEL_STONE_PX = 2;            // px per stone (1 = sand · 3–4 = coarse rock)
-const GRAVEL_CONTRAST = 0.10;         // 0–1 — ± stone speckle as a fraction of full scale (±26 levels).
-                                      //   Gravel MUST read granular — that is its identity.
-const GRAVEL_EDGE = '#6b6557';        // darker transition where gravel meets grass
-const GRAVEL_EDGE_PX = 3;             // px — width of that rim, INSET inside the trap edge (never
-                                      //   outside: the trap edge is the mandatory grass gap)
+// CARTOON GRAVEL (indie style): a flat light-tan run-off, gently POSTERIZED into two close
+// tones (not grainy stone) via smooth value-noise — big soft patches, subtle. Its edge into
+// the grass is SMOOTH + rounded (a blurred mask), with no dark rim. Measured/handoff tones.
+const GRAVEL_BASE: [number, number, number] = [168, 160, 142];   // light tan
+const GRAVEL_POSTER = 7;              // ± this from the base → the two flat posterized tones
+const GRAVEL_PATCH_M = 15;            // big posterization blob lattice (m) — handoff scale 90
+const GRAVEL_MID_M   = 6;             // smaller organic detail (m) — handoff scale 38
+const GRAVEL_THRESH  = 0.5;           // value-noise cutoff between the two tones (≈50/50)
+const GRAVEL_EDGE_SOFT_M = 0.55;      // m — gravel→grass edge softness (blur radius) = smooth,
+                                      //   rounded transition with NO chewed/stepped boundary
 // Marked trap areas — [sketchX, sketchY, radius] discs, traced from the boss's marks
 // (screen px → sketch = px·0.7509 + [482, 55]). Over-marking toward the track is SAFE: the
 // inner boundary is carved off by construction (see carveGap). The narrow sliver between the
@@ -1322,10 +1323,6 @@ function strokeDiscs(): Array<[number, number, number]> {
 }
 /** Every marked disc: the hand-placed traps + the expanded revision-2 strokes. */
 const GRAVEL_DISCS: Array<[number, number, number]> = [...GRAVEL_BLOBS, ...strokeDiscs()];
-
-const hexRgb = (h: string): [number, number, number] =>
-  [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
-const clamp255 = (v: number) => (v < 0 ? 0 : v > 255 ? 255 : Math.round(v));
 
 let _gravelMask: Uint8Array | null | undefined;
 let _gvW = 0, _gvH = 0;
@@ -1440,80 +1437,63 @@ function gravelMask(): Uint8Array | null {
   return m;
 }
 
-// Coarse crushed-stone speckle, generated ONCE (deterministic LCG) into an offscreen tile and
-// cached — reused as a repeating pattern, so per-frame cost is zero. The base tone is BAKED IN
-// and each stone shifts it by a symmetric ± ABSOLUTE amount, so the tile's mean IS the base
-// (blending a transparent black/white speckle over a tone is NOT brightness-neutral).
-let _gravelTile: HTMLCanvasElement | null | undefined;
-function gravelTile(): HTMLCanvasElement | null {
-  if (_gravelTile !== undefined) return _gravelTile;
-  if (typeof document === 'undefined') { _gravelTile = null; return null; }
-  const t = document.createElement('canvas'); t.width = t.height = GRAVEL_TILE;
-  const tc = t.getContext('2d');
-  if (!tc) { _gravelTile = null; return null; }
-  const [br, bg, bb] = hexRgb(GRAVEL_BASE);
-  const img = tc.createImageData(GRAVEL_TILE, GRAVEL_TILE);
-  const px = img.data;
-  let seed = 0x6d2b79f5 >>> 0;
-  const rnd = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296);
-  const cells = Math.ceil(GRAVEL_TILE / GRAVEL_STONE_PX);
-  for (let cy = 0; cy < cells; cy++) {
-    for (let cx = 0; cx < cells; cx++) {
-      const dl = (rnd() * 2 - 1) * GRAVEL_CONTRAST * 255;
-      const r = clamp255(br + dl), g = clamp255(bg + dl), b = clamp255(bb + dl);
-      const y1 = Math.min((cy + 1) * GRAVEL_STONE_PX, GRAVEL_TILE);
-      const x1 = Math.min((cx + 1) * GRAVEL_STONE_PX, GRAVEL_TILE);
-      for (let y = cy * GRAVEL_STONE_PX; y < y1; y++) {
-        for (let x = cx * GRAVEL_STONE_PX; x < x1; x++) {
-          const o = (y * GRAVEL_TILE + x) * 4;
-          px[o] = r; px[o + 1] = g; px[o + 2] = b; px[o + 3] = 255;
-        }
-      }
+// Full-canvas GRAVEL COLOUR: two flat light-tan tones in big soft posterized patches (same
+// smooth value-noise as the grass, subtler). Cached per canvas size; deterministic. Only the
+// COLOUR — the shape/edge is applied separately by the blurred mask in drawGravelTraps.
+let _gravelColor: HTMLCanvasElement | null = null;
+let _gravelColorKey = '';
+function gravelColorLayer(wPx: number, hPx: number, pxPerM: number): HTMLCanvasElement | null {
+  if (typeof document === 'undefined') return null;
+  const key = wPx + 'x' + hPx;
+  if (_gravelColor && _gravelColorKey === key) return _gravelColor;
+  const cv = document.createElement('canvas'); cv.width = wPx; cv.height = hPx;
+  const c = cv.getContext('2d'); if (!c) return null;
+  const img = c.createImageData(wPx, hPx), d = img.data;
+  const [br, bg, bb] = GRAVEL_BASE;
+  const sPatch = GRAVEL_PATCH_M * pxPerM, sMid = GRAVEL_MID_M * pxPerM, soft = 0.05;
+  for (let y = 0; y < hPx; y++) {
+    for (let x = 0; x < wPx; x++) {
+      const patch = grassNoise(x + 1000, y + 1000, sPatch) * 0.7   // offset origin ≠ the grass noise
+        + grassNoise(x + 1000, y + 1000, sMid) * 0.3;
+      const m = Math.max(0, Math.min(1, (patch - (GRAVEL_THRESH - soft)) / (2 * soft)));
+      const dl = (m * 2 - 1) * GRAVEL_POSTER;   // −POSTER (dark) … +POSTER (light)
+      const o = (y * wPx + x) * 4;
+      d[o] = br + dl; d[o + 1] = bg + dl; d[o + 2] = bb + dl; d[o + 3] = 255;
     }
   }
-  tc.putImageData(img, 0, 0);
-  _gravelTile = t;
-  return t;
+  c.putImageData(img, 0, 0);
+  _gravelColor = cv; _gravelColorKey = key;
+  return cv;
 }
 
-// Paint the traps: the cached mask upscaled to the target size (the bilinear upscale is what
-// softens the boundary into the grass) ∩ the crushed-stone pattern at FULL target resolution
-// (so the stones stay crisp), over a slightly larger dark rim = the gravel/grass transition.
+// Paint the traps: the coarse trap mask, upscaled to full res and BLURRED (canvas filter) into
+// a soft alpha → SMOOTH rounded edges with no chewed/stepped boundary, then the posterized-tan
+// colour clipped into that alpha. No dark rim: the gravel eases straight into the grass.
 function drawGravelTraps(ctx: CanvasRenderingContext2D, wPx: number, hPx: number) {
-  const m = gravelMask(), tile = gravelTile();
-  if (!m || !tile || typeof document === 'undefined') return;
+  const m = gravelMask();
+  if (!m || typeof document === 'undefined') return;
+  const pxPerM = wPx / CIRCUIT_LOGICAL.widthM;
+  const colour = gravelColorLayer(wPx, hPx, pxPerM);
+  if (!colour) return;
+  // 1. the mask as a hard alpha at its own coarse resolution
   const mc = document.createElement('canvas'); mc.width = _gvW; mc.height = _gvH;
-  const mcx = mc.getContext('2d');
-  if (!mcx) return;
+  const mcx = mc.getContext('2d'); if (!mcx) return;
   const img = mcx.createImageData(_gvW, _gvH);
   for (let i = 0; i < _gvW * _gvH; i++) if (m[i]) img.data[i * 4 + 3] = 255;
   mcx.putImageData(img, 0, 0);
-  // `erode` px: the shape is the mask, optionally ERODED by intersecting it with itself at 8
-  // offsets (destination-in = intersection). Erosion — never dilation — because the mask edge
-  // IS the mandatory grass gap: nothing may ever be painted outside it, so the darker
-  // gravel/grass transition is an INNER rim. (The bilinear upscale to wPx×hPx is what softens
-  // the boundary into the grass = the organic edge.)
-  const shape = (dst: CanvasRenderingContext2D, erode: number, fill: string | CanvasPattern) => {
-    dst.clearRect(0, 0, wPx, hPx);
-    dst.drawImage(mc, 0, 0, wPx, hPx);
-    if (erode > 0) {
-      dst.globalCompositeOperation = 'destination-in';
-      for (let i = 0; i < 8; i++) {
-        const a = i / 8 * Math.PI * 2;
-        dst.drawImage(mc, Math.round(Math.cos(a) * erode), Math.round(Math.sin(a) * erode), wPx, hPx);
-      }
-    }
-    dst.globalCompositeOperation = 'source-in';
-    dst.fillStyle = fill; dst.fillRect(0, 0, wPx, hPx);
-    dst.globalCompositeOperation = 'source-over';
-  };
+  // 2. upscale + BLUR it into a full-res soft alpha (the blur is what rounds the edge). The
+  //    blur only SOFTENS inward/outward symmetrically, so the mandatory grass gap is preserved
+  //    (the mask was already carved a full car-width off the asphalt).
   const t = document.createElement('canvas'); t.width = wPx; t.height = hPx;
-  const tcx = t.getContext('2d');
-  if (!tcx) return;
-  shape(tcx, 0, GRAVEL_EDGE);                     // 1. dark, the FULL footprint …
+  const tcx = t.getContext('2d'); if (!tcx) return;
+  tcx.filter = `blur(${Math.max(1, GRAVEL_EDGE_SOFT_M * pxPerM).toFixed(2)}px)`;
+  tcx.drawImage(mc, 0, 0, wPx, hPx);
+  tcx.filter = 'none';
+  // 3. clip the posterized-tan colour into that soft alpha
+  tcx.globalCompositeOperation = 'source-in';
+  tcx.drawImage(colour, 0, 0);
+  tcx.globalCompositeOperation = 'source-over';
   ctx.drawImage(t, 0, 0);
-  const pat = tcx.createPattern(tile, 'repeat');  // 2. … the stone inset, so the dark shows
-  if (pat) { shape(tcx, GRAVEL_EDGE_PX, pat); ctx.drawImage(t, 0, 0); }   //   as a rim around it
 }
 
 // ASPHALT → GRASS SOFT EDGE (circuit only — the ovals keep their own look). The tarmac sits
@@ -1558,24 +1538,26 @@ function grassNoise(x: number, y: number, scale: number): number {
   const c = grassHash(x0, y0 + 1), d = grassHash(x0 + 1, y0 + 1);
   return (a * (1 - fx) + b * fx) * (1 - fy) + (c * (1 - fx) + d * fx) * fy;
 }
-// THE DESIGNER'S EXACT GRASS: a finished bitmap (`public/circuit-grass.png`, the reference at
-// 1536×864 aligned 1:1 to this layout). Loaded async; drawn as the BOTTOM layer scaled to the
-// canvas, then our gravel/asphalt/kerbs cover their baked counterparts, leaving only the
-// designer's grass visible. Until it loads (and off-DOM in unit tests) the procedural two-tone
-// grass below is the fallback, so the field is never bare. A ready-callback lets the host
-// redraw its static wallpaper layer once the image arrives.
-let _circuitGrassImg: HTMLImageElement | null = null;
+// THE DESIGNER'S EXACT SURFACES: a finished bitmap (`public/track-surfaces.png`, 1536×864
+// aligned 1:1 to this layout) that bakes the WHOLE cartoon surface — two-tone grass, light-tan
+// posterized gravel, asphalt + blue + red/white kerbs, all with smooth rounded edges. Loaded
+// async; drawn as the entire surface layer scaled to the canvas (only the start/finish line is
+// added on top). Until it loads (and off-DOM in unit tests) the procedural surfaces below are
+// the fallback, so the field is never bare. A ready-callback lets the host redraw its static
+// wallpaper layer once the image arrives. PHYSICS never reads this — the surface mask is
+// geometry-based, so surfaceAt / marks / gravel / lap-counting are independent of the bitmap.
+let _circuitSurfaceImg: HTMLImageElement | null = null;
 let _onCircuitGrassReady: (() => void) | null = null;
 export function setCircuitGrassReady(cb: () => void): void { _onCircuitGrassReady = cb; }
-function circuitGrassImg(): HTMLImageElement | null {
+function circuitSurfaceImg(): HTMLImageElement | null {
   if (typeof document === 'undefined') return null;
-  if (!_circuitGrassImg) {
+  if (!_circuitSurfaceImg) {
     const img = new Image();
     img.onload = () => { if (_onCircuitGrassReady) _onCircuitGrassReady(); };
-    img.src = 'circuit-grass.png';
-    _circuitGrassImg = img;
+    img.src = 'track-surfaces.png';
+    _circuitSurfaceImg = img;
   }
-  return _circuitGrassImg.complete && _circuitGrassImg.naturalWidth > 0 ? _circuitGrassImg : null;
+  return _circuitSurfaceImg.complete && _circuitSurfaceImg.naturalWidth > 0 ? _circuitSurfaceImg : null;
 }
 
 let _grassCanvas: HTMLCanvasElement | null = null;
@@ -1624,13 +1606,18 @@ function drawCircuitSurface(ctx: CanvasRenderingContext2D, wPx: number, hPx: num
   const twPx = CS_BAND * s;                             // = CIRCUIT_TRACK_W · pxPerM
   const a = SURFACE_STYLES.asphalt;
 
-  // Grass — the designer's exact bitmap if it has loaded, else the procedural two-tone
-  // fallback (cached per canvas size), else a flat DARK fill off-DOM. The bitmap is drawn
-  // stretched to the canvas: it aligns 1:1 with this layout, so our gravel/asphalt/kerbs
-  // drawn below cover its baked track exactly, leaving only its grass showing.
-  const gImg = circuitGrassImg();
-  if (gImg) ctx.drawImage(gImg, 0, 0, wPx, hPx);
-  else {
+  // THE DESIGNER'S FINISHED SURFACES: if the bitmap has loaded, it IS the whole surface
+  // (grass + gravel + asphalt + kerbs, smooth edges) — draw it and add only the start line.
+  const surfImg = circuitSurfaceImg();
+  if (surfImg) {
+    ctx.drawImage(surfImg, 0, 0, wPx, hPx);
+    drawCircuitStartLine(ctx, offX, offY, s, twPx, pxPerM);
+    return;
+  }
+
+  // ---- PROCEDURAL FALLBACK (before the bitmap loads / off-DOM unit tests) ----
+  // Grass — the procedural two-tone field, else a flat DARK fill off-DOM.
+  {
     const gl = grassLayer(wPx, hPx, pxPerM);
     if (gl) ctx.drawImage(gl, 0, 0);
     else { ctx.fillStyle = `rgb(${GRASS_DARK.join(',')})`; ctx.fillRect(0, 0, wPx, hPx); }
@@ -1676,9 +1663,15 @@ function drawCircuitSurface(ctx: CanvasRenderingContext2D, wPx: number, hPx: num
     ctx.strokeStyle = q.fill; ctx.lineWidth = softPx; ctx.stroke();
   }
 
-  // START/FINISH — a checkered stripe across the bottom straight, drawn on top of the
-  // asphalt at CIRCUIT_FINISH. Same visual treatment as the ovals (9 segments, 1.2 m wide),
-  // sized off the TRACK WIDTH here since the circuit's band is 2/3 of the oval's.
+  drawCircuitStartLine(ctx, offX, offY, s, twPx, pxPerM);
+}
+
+// START/FINISH — a checkered stripe across the bottom straight at CIRCUIT_FINISH, on top of
+// the surface. Same treatment as the ovals (9 segments, 1.2 m wide), sized off the track width
+// since the circuit's band is 2/3 of the oval's. Shared by the bitmap + procedural paths.
+function drawCircuitStartLine(
+  ctx: CanvasRenderingContext2D, offX: number, offY: number, s: number, twPx: number, pxPerM: number,
+) {
   const fx = offX + CIRCUIT_FINISH.x * s, fy = offY + CIRCUIT_FINISH.y * s;
   const segs = 9, half = twPx / 2, segH = twPx / segs;
   const lw = 1.2 * pxPerM;
