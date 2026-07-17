@@ -863,6 +863,10 @@ window.addEventListener('resize', resize);
 // ---------- Cars — one per connected lobby slot (built for N) ----------
 const PX = () => CONFIG.pxPerMeter;
 
+// Half the car's rendered length, centre → nose. Bound to the same wheelbase × art-ratio
+// drawCar builds the body from, so the point we time laps at is exactly the nose you see.
+const CAR_NOSE_M = CONFIG.wheelbase * 0.865;   // m ≈ 2.22
+
 // A skid trail remembers a rear wheel's last pixel position so we can draw a
 // continuous line while it slides. One pair per car.
 type WheelTrail = { px: number; py: number; active: boolean };
@@ -1876,9 +1880,17 @@ function frame(now: number) {
       for (const car of cars.values()) { recordSkids(car); wrap(car); }
       // Each car races independently — velocity drives the directional start-line
       // crossing (circuit anti-cheat). The manager records finishing order.
+      //
+      // TIMING IS ON THE NOSE, as a real transponder/beam is: what we feed the race is the
+      // car's FRONT-MOST point, not its centre, so a lap trips the instant the nose reaches
+      // the line. race.ts itself is untouched — armed/far-point/wrong-way all run exactly as
+      // before, just on that point. (The far point is a whole track width across, so reading
+      // it at the nose rather than the centre is nothing.)
       if (isRaceLive()) {
         for (const [slot, car] of cars) {
-          raceManager.update(slot, car.state.x, car.state.y, gameNow, car.state.vx, car.state.vy);
+          const s = car.state;
+          raceManager.update(slot, s.x + Math.cos(s.heading) * CAR_NOSE_M,
+            s.y + Math.sin(s.heading) * CAR_NOSE_M, gameNow, s.vx, s.vy);
         }
       }
 

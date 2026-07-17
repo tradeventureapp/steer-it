@@ -1611,8 +1611,10 @@ function drawCircuitSurface(ctx: CanvasRenderingContext2D, wPx: number, hPx: num
 
   ctx.lineJoin = 'round'; ctx.lineCap = 'round';
 
-  // 4. WHITE EDGE LINES — track paint, so they go under the kerbs (which lap over them).
+  // 4. WHITE EDGE LINES + the painted starting grid — track paint, so they go under the
+  //    kerbs (which lap over them) and under the cars/skids.
   drawCircuitEdgeLines(ctx, offX, offY, s, pxPerM);
+  drawCircuitGrid(ctx, offX, offY, s, pxPerM);
 
   // 5. KERBS — red/white striped curbs + blue border, drawn ON TOP of the asphalt (each
   // quad is a perpendicular slice). Blue first (underneath), stripes over (CIRCUIT_KERBS is
@@ -1635,19 +1637,79 @@ function drawCircuitSurface(ctx: CanvasRenderingContext2D, wPx: number, hPx: num
   drawCircuitStartLine(ctx, offX, offY, s, twPx, pxPerM);
 }
 
-// START/FINISH — a checkered stripe across the bottom straight at CIRCUIT_FINISH, on top of
-// the surface. Same treatment as the ovals (9 segments, 1.2 m wide), sized off the track width
-// since the circuit's band is 2/3 of the oval's. Shared by the bitmap + procedural paths.
+// START/FINISH — one plain white line across the bottom straight at CIRCUIT_FINISH, in the
+// same paint family and weight as the edge lines and the grid boxes.
 function drawCircuitStartLine(
   ctx: CanvasRenderingContext2D, offX: number, offY: number, s: number, twPx: number, pxPerM: number,
 ) {
   const fx = offX + CIRCUIT_FINISH.x * s, fy = offY + CIRCUIT_FINISH.y * s;
-  const segs = 9, half = twPx / 2, segH = twPx / segs;
-  const lw = 1.2 * pxPerM;
-  for (let i = 0; i < segs; i++) {
-    ctx.fillStyle = i % 2 ? '#0c0c0c' : '#eef0f2';
-    ctx.fillRect(fx - lw / 2, fy - half + i * segH, lw, segH);
+  ctx.save();
+  ctx.strokeStyle = `rgba(${WHITE_LINE_RGB},${WHITE_LINE_ALPHA})`;
+  ctx.lineWidth = Math.max(1, WHITE_LINE_W_M * pxPerM);
+  ctx.lineCap = 'butt';
+  ctx.beginPath();
+  ctx.moveTo(fx, fy - twPx / 2);
+  ctx.lineTo(fx, fy + twPx / 2);
+  ctx.stroke();
+  ctx.restore();
+}
+
+// ---------- PAINTED STARTING GRID ----------
+// 12 boxes, 3 rows × 4 columns, behind the line (+x) on the flat bottom straight, which is
+// driven −x. P1 = row 1 on the INNER side (the infield/kerb side = −y here, the side the apex
+// kerbs point to); P2..P4 step OUTWARD; row 2 = P5..P8, row 3 = P9..P12. Every distance is
+// wheelbase-derived, so the grid stays on the one ruler and 12 cars fit with no overlap.
+const GRID_COLS = 4;
+const GRID_ROWS = 3;                              // painted boxes = COLS × ROWS = 12
+const GRID_COL_PITCH = CONFIG.wheelbase * 2.4;    // m ≈ 6.16 — lateral pitch across the track
+const GRID_ROW_PITCH = CONFIG.wheelbase * 3.0;    // m ≈ 7.70 — car is 4.44 long ⇒ 3.3 m clear
+const GRID_STAGGER = CONFIG.wheelbase * 0.75;     // m ≈ 1.92 — echelon: each column sits this far back
+const GRID_FRONT_GAP = CONFIG.wheelbase * 1.73;   // m ≈ 4.44 — line → P1 (one car length)
+const GRID_BOX_W = CONFIG.wheelbase * 1.2;        // m ≈ 3.08 — box across (car is 1.83 wide)
+const GRID_BOX_L = CONFIG.wheelbase * 2.0;        // m ≈ 5.13 — box along (car is 4.44 long)
+const GRID_BOX_ARM = CONFIG.wheelbase * 1.5;      // m ≈ 3.85 — arms run alongside ~¾ of the car
+
+/**
+ * Where a 0-based slot starts, relative to the line: `back` = metres AGAINST the racing
+ * direction (+x), `lane` = metres across (+y = OUTWARD, so slot 0 is the inner-most).
+ * Rows are unbounded on purpose — see circuitMap.spawn for what happens past the 12th box.
+ */
+function circuitGridPose(slot: number): { back: number; lane: number } {
+  const col = slot % GRID_COLS;
+  const row = Math.floor(slot / GRID_COLS);
+  return {
+    back: GRID_FRONT_GAP + row * GRID_ROW_PITCH + col * GRID_STAGGER,
+    lane: (col - (GRID_COLS - 1) / 2) * GRID_COL_PITCH,
+  };
+}
+
+// The 12 painted positions: a half-frame per box, OPEN toward the racing direction (−x) —
+// closed bar at the back, two arms reaching forward alongside the car, so the nose sits at
+// the open end. Paint, so it uses the edge line's colour/alpha/weight and goes under the
+// cars + skids. (The boss's sketch drew the bracket mirrored; the spec's "open toward racing
+// direction" wins, and it is what a real grid box does — flip ARM's sign to mirror it.)
+function drawCircuitGrid(ctx: CanvasRenderingContext2D, offX: number, offY: number,
+  s: number, pxPerM: number) {
+  const u = (m: number) => m / CS_SCALE;   // metres → sketch units (the straight is flat + horizontal)
+  ctx.save();
+  ctx.strokeStyle = `rgba(${WHITE_LINE_RGB},${WHITE_LINE_ALPHA})`;
+  ctx.lineWidth = Math.max(1, WHITE_LINE_W_M * pxPerM);
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  for (let i = 0; i < GRID_COLS * GRID_ROWS; i++) {
+    const g = circuitGridPose(i);
+    const cx = CIRCUIT_FINISH.x + u(g.back), cy = CIRCUIT_FINISH.y + u(g.lane);
+    const bx = cx + u(GRID_BOX_L / 2);         // the closed back bar
+    const ax = bx - u(GRID_BOX_ARM);           // …arms reach this far forward
+    const hy = u(GRID_BOX_W / 2);
+    const px = (x: number) => offX + x * s, py = (y: number) => offY + y * s;
+    ctx.beginPath();
+    ctx.moveTo(px(ax), py(cy - hy));
+    ctx.lineTo(px(bx), py(cy - hy));
+    ctx.lineTo(px(bx), py(cy + hy));
+    ctx.lineTo(px(ax), py(cy + hy));
+    ctx.stroke();
   }
+  ctx.restore();
 }
 
 export const circuitMap: MapDefinition = {
@@ -1706,13 +1768,16 @@ export const circuitMap: MapDefinition = {
   // STANDING start, so those grid-to-line metres are simply part of lap 1. The crossing a
   // few seconds after GO does NOT complete a lap — completion needs an ARMED forward
   // crossing, and the lap only arms at the far point, half a track away.
+  // Slot i starts on P(i+1), so join order fills P1 → P12 (see circuitGridPose /
+  // drawCircuitGrid — the same function places the car and paints its box, so they cannot
+  // disagree). PLAYER_CAP is 8, so only P1..P8 are reachable today; the 12 boxes are painted
+  // regardless. Past the 12th box the row index simply keeps counting, as it always has:
+  // slot 12 lands on a 4th (unpainted) row, still correctly spaced and non-overlapping.
   spawn(slot, world) {
     void world;
     const c = circuitToWorld(CIRCUIT_FINISH.x, CIRCUIT_FINISH.y);
-    const col = slot % 2, row = Math.floor(slot / 2);
-    const laneOff = (col === 0 ? -1 : 1) * CIRCUIT_TRACK_W * 0.18;   // heading π ⇒ perp is y
-    const back = CONFIG.wheelbase * 1.73 + row * CONFIG.wheelbase * 3.0;
-    return { x: c.x + back, y: c.y + laneOff, heading: Math.PI };
+    const g = circuitGridPose(slot);
+    return { x: c.x + g.back, y: c.y + g.lane, heading: Math.PI };   // heading π ⇒ +y is outward
   },
 
   // No walls: just a soft clamp at the (far-out) world edge so a car can't leave

@@ -97,6 +97,16 @@ export class RaceState {
   readonly isCircuit: boolean;
 
   private inside: boolean[];     // per-element overlap (for enter-edge detect)
+  // TIMING IS ON THE LINE, not near it. A DIRECTIONAL element (one with `forward` — the
+  // start/finish lines) is a real LINE PLANE: it triggers on the step the fed point crosses
+  // from behind it to past it, within the line's half-width. So a lap completes exactly as
+  // the car reaches the line, which is what a transponder does. Non-directional elements
+  // (checkpoints — a point you drive near, with no orientation) keep the proximity gate.
+  //
+  // Signed distance along the racing direction, per element: <0 behind the line, ≥0 past it.
+  // Held across steps so the sign CHANGE is what fires. NaN = no reading yet (first step, or
+  // reset) ⇒ nothing can fire until we have two samples to compare.
+  private prevSd: number[];
   private phase: RacePhase = 'pre';
   private startMs = 0;
   private finishMs = 0;
@@ -119,6 +129,7 @@ export class RaceState {
     this.isCircuit = hasStart && !hasFinish;
     this.startEl = elements.find((e) => e.type === 'start') ?? null;
     this.inside = elements.map(() => false);
+    this.prevSd = elements.map(() => NaN);
   }
 
   reset() {
@@ -130,6 +141,15 @@ export class RaceState {
     this.armed = false;
     this.cdStartMs = 0;
     this.inside = this.elements.map(() => false);
+    this.prevSd = this.elements.map(() => NaN);
+  }
+
+  /** Signed distance past element `e`'s line plane (<0 behind, ≥0 past), and the offset
+   *  ACROSS it. Only meaningful for a directional element. */
+  private planeCoords(e: RaceElement, x: number, y: number): { sd: number; lat: number } {
+    const c = Math.cos(e.forward!), s = Math.sin(e.forward!);
+    const dx = x - e.x, dy = y - e.y;
+    return { sd: dx * c + dy * s, lat: -dx * s + dy * c };
   }
 
   /**
@@ -161,14 +181,15 @@ export class RaceState {
     if (this.phase === 'finished' || this.elements.length === 0) return;
 
     if (this.phase === 'countdown') {
-      // Held on the grid: no gate may trigger. But DO keep `inside[]` current — the grid
-      // sits inside the start gate, so at GO that overlap must already be latched or the
-      // car's first metre would read as a fresh crossing.
+      // Held on the grid: no gate may trigger. But DO keep the per-element state current —
+      // the grid sits behind the line and inside its old radius, so at GO that must already
+      // be latched or the car's first metre would read as a fresh crossing.
       for (let i = 0; i < this.elements.length; i++) {
         const e = this.elements[i];
         const r = e.radius ?? this.cfg.gateRadius;
         const dx = x - e.x, dy = y - e.y;
         this.inside[i] = dx * dx + dy * dy < r * r;
+        if (e.forward !== undefined) this.prevSd[i] = this.planeCoords(e, x, y).sd;
       }
       if (now - this.cdStartMs < this.cfg.countdownMs) return;
       // GO. The clock starts at the exact GO instant, not at this frame, so the elapsed
@@ -192,10 +213,22 @@ export class RaceState {
     for (let i = 0; i < this.elements.length; i++) {
       const e = this.elements[i];
       const r = e.radius ?? this.cfg.gateRadius;
-      const dx = x - e.x, dy = y - e.y;
-      const now2 = dx * dx + dy * dy < r * r;
-      if (now2 && !this.inside[i]) this.onEnter(i, now, vx, vy);  // enter edge only
-      this.inside[i] = now2;
+      if (e.forward !== undefined) {
+        // LINE PLANE: fire on the step the point goes from behind the line to past it,
+        // within the line's half-width. Sweeping the sign change also means a step can
+        // never tunnel through the line, however fast the car is going.
+        const { sd, lat } = this.planeCoords(e, x, y);
+        const prev = this.prevSd[i];
+        if (!Number.isNaN(prev) && prev < 0 && sd >= 0 && Math.abs(lat) < r) {
+          this.onEnter(i, now, vx, vy);
+        }
+        this.prevSd[i] = sd;
+      } else {
+        const dx = x - e.x, dy = y - e.y;
+        const now2 = dx * dx + dy * dy < r * r;
+        if (now2 && !this.inside[i]) this.onEnter(i, now, vx, vy);  // enter edge only
+        this.inside[i] = now2;
+      }
     }
   }
 
