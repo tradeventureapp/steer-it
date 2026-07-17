@@ -4382,3 +4382,54 @@ LINE hugs the merged span automatically (its ease reads `CIRCUIT_KERB_EASE`, whi
 over the whole run) — verified. Ovals + desktop untouched; tsc + build clean. **VERIFIED BY EYE**
 (PNG harness, full map + 7× close-ups of BOTH former gaps): continuous stripes, no seam, no wedge,
 constant block size, line hugging through.
+
+---
+**CIRCUIT — PAINTED 12-BOX STARTING GRID + PLAIN FINISH LINE + NOSE-CROSSING TIMING (race.ts's
+gate becomes a real LINE PLANE — the boss's call after a measured finding):**
+**(A) GRID** — 12 boxes, **3 rows × 4 cols**, behind the line (+x) on the flat bottom straight
+(driven −x). **P1 = row 1 INNER — MEASURED, not assumed:** a surface cross-section at the line reads
+**grass 14 m to −y** and kerb/asphalt to +y ⇒ **−y is the infield side**; P2..P4 step OUTWARD, row 2
+= P5..P8, row 3 = P9..P12. Each column sits `GRID_STAGGER` further back than the one inside it (real
+echelon). **`circuitGridPose(slot)` both PLACES the car and PAINTS its box** ⇒ spawn and paint can't
+disagree. Boxes = a half-frame **OPEN toward the racing direction** (closed back bar, arms alongside
+the car, nose at the open end) in the edge line's colour/alpha/weight, drawn with the paint (under
+kerbs/cars/skids). **⚠️ The boss's sketch drew the bracket MIRRORED (ASCII-verified: bar on the LEFT,
+arms RIGHT = open backward); the SPEC text "open toward racing direction" won — it's also the real F1
+convention. Flip `GRID_BOX_ARM`'s sign to mirror.** **⚠️ First attempt had `GRID_BOX_ARM` 2.31 m ⇒ the
+box wrapped only the rear 2 m and the car poked out — caught BY LOOKING, fixed to 3.85 m (arms run
+alongside ~¾ of the car).**
+**TUNABLES (all wheelbase-derived):** `GRID_COLS` 4 · `GRID_ROWS` 3 · `GRID_COL_PITCH` **6.16 m** ·
+`GRID_ROW_PITCH` **7.70 m** · `GRID_STAGGER` **1.92 m** · `GRID_FRONT_GAP` **4.44 m** (line→P1) ·
+`GRID_BOX_W` **3.08** · `GRID_BOX_L` **5.13** · `GRID_BOX_ARM` **3.85**. Verified: all 12 on asphalt,
+**2.4 m clear of the white edge line**, no overlap (row pitch 7.70 vs 4.44 m car; col pitch 6.16 vs
+1.83 m car).
+**SLOT POLICY:** slot i → P(i+1) (join order fills P1→P12). **`PLAYER_CAP` is 8 ⇒ only P1..P8 are
+reachable today**; the 12 boxes paint regardless. **Past the 12th box the row index just keeps
+counting, as it always has** — slot 12 = a 4th unpainted row, still spaced + non-overlapping.
+**(B) FINISH LINE** — the checkered band is replaced by ONE plain white line (same paint family/weight).
+**(C) ⚠️ THE KEY FINDING — feeding the nose alone does the OPPOSITE of the ask, so I measured and
+ASKED:** the gate was a **PROXIMITY CIRCLE** (`dx²+dy² < r²`, r = half the track width) firing on
+ENTRY ⇒ a lap already completed **13.75 m BEFORE the line**, and feeding the nose moved that to
+**15.95 m** (further out). The boss's own test couldn't discriminate (both points are deep inside the
+circle). **BOSS CHOSE: plane crossing.** Now a **directional** element (one with `forward` — the
+start/finish lines) is a real LINE PLANE: fires on the step the fed point goes **behind → past**,
+within the line's half-width (`planeCoords` + `prevSd[]`, NaN = no reading yet). **Checkpoints have no
+orientation ⇒ keep the proximity gate.** Sweeping the SIGN CHANGE also means a step can never TUNNEL
+the line at any speed. desktop.ts feeds the **nose** (`CAR_NOSE_M` = `wheelbase × 0.865` ≈ **2.22 m**
+= drawCar's own art half-length ⇒ the timed point IS the nose you see). The countdown latch now holds
+`prevSd[]` as well as `inside[]`.
+**MEASURED:** fed CENTRE → fires with the centre AT the line but the **nose already 2.27 m PAST** it;
+fed NOSE → fires with the **nose AT the line (−0.02 m)**, centre 2.20 m short ✓.
+**SUITE (circuit + oval):** nose-on-line fires the lap with the centre still 2.22 m short ✓;
+**1-lap = 0.998 laps of track, 3-lap = 2.998 (was 0.97 / 2.97 — the long-standing early-trip quirk is
+GONE)**; wrong-way lap / 12× spam / partial lap all still fail to finish ✓; countdown holds (0 leaks),
+locked @2999 ms free @3000, crossing right after GO does NOT complete lap 1 (unarmed) ✓.
+**⚠️ OVAL EFFECT (measured):** oval gate half-width **20.64 m** ⇒ oval laps fired with the nose
+**18.4 m PAST** the line. **Each oval lap is now 18.40 m LONGER (~0.66 s at 100 km/h); circuit laps
+11.55 m longer.** Lap times rise slightly across the board — they are now honest. (XP best is a SCORE,
+not a lap time ⇒ unaffected; race times are in-memory only ⇒ no stale records.)
+**MASKS byte-identical: 922,320 samples @ 0.2 m — `surfaceAt` 0 diffs, `markClassAt` 0 diffs** (the
+boxes are PAINT, not geometry). **physics.ts + physics4.ts untouched (empty diff) ⇒ step() 0.0e+0.**
+tsc + build clean. **VERIFIED BY EYE** (PNG harness, cars overlaid, nose marked): P1 inner + nearest
+the line, echelon stagger, boxes framing the cars with the nose at the open end, all clear of the edge
+line, plain single finish line (checkers gone).
