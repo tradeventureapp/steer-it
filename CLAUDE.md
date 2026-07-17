@@ -4507,3 +4507,41 @@ the gap to the lines grows, which is fine: "alespoň ½ šířky auta" is a FLOO
 band at all, no overlap, floor met with room to spare. **PIXEL-MEASURED @1920:** pitch 10.21 →
 **7.65 m (×0.75)**; inner line → P1 inner arm **3.60 m**, P3 outer arm → outer line **3.47 m**.
 Box size / row pitch / stagger / orientation unchanged; physics/race/desktop untouched.
+
+---
+**CIRCUIT — KERBS NARROWED BY 1/3 (+ the gravel REGROW that the abutment required):**
+**WIDTH:** `KERB_NARROW` **2/3** scales both bands together — `KERB_WIDTH` 3.03 → **2.02 m**,
+`KERB_BLUE_WIDTH` 1.24 → **0.83 m**, `KERB_FULL_W` 4.27 → **2.84 m** (also hoisted to module scope;
+the IIFE's local `FULL_W` now reads it). **The INNER edge does NOT move** (`KERB_SEAM` untouched);
+only the grass-side reach shrinks. Lengths / merges / positions / `KERB_STRIPE` / wedge arc-lengths
+are independent of these, and the wedge + tip-trim maths is relative to `FULL_W` (`W_CLIP/FULL_W` is
+unchanged since both scale) ⇒ **the wedge keeps its shape at 2/3 size.**
+**⚠️ THE ABUTMENT DID *NOT* RE-FIT AUTOMATICALLY — the boss's "make it so" was needed.** The discs
+are hand-marked to the OLD kerb edge, so narrowing left an **orphan grass strip** between kerb and
+trap: **14 rays regressed, worst 1.4 → 2.9 m**, and the **+1.43 m delta = FULL_W_old − FULL_W_new
+EXACTLY** (the tell). Confirmed by eye in the render.
+**FIX (in `gravelMask`, before `carveGap`):** grow every marked disc by the vacated width
+(`REGROW_U = KERB_FULL_W·(1/KERB_NARROW − 1)`) — **dilating a UNION of discs is EXACTLY the union of
+the grown discs** (Minkowski sum distributes over union) so NO raster dilation is needed — then
+**CLIP the growth** to `originalDiscs ∪ ribbon dilated by the kerbs' PRE-narrowing reach`
+(`destination-in`), so the traps' OUTER grass-side silhouettes (the boss's marks) **cannot move**.
+The carve then trims the growth to the true boundary (kerb's NEW edge, or the car-width strip off
+bare asphalt) ⇒ it can only ever fill what the narrowing vacated, never overrun a rule.
+**RESULT: regressions 14 → 7, worst 2.9 → 0.6 m, >2 m gaps GONE, traps reclaimed +357 m²**; both
+worst spots verified BY EYE (gravel meets the blue again).
+**MASK A/B (0.2 m grid, whole world) — `surfaceAt` (physics-relevant):** `asphalt→grass` **677.8 m²**
+(vacated third, off a trap) · `asphalt→gravel` **324.8 m²** (vacated third where a trap abuts =
+re-fitted) · `grass→gravel` 16.7 · `grass→asphalt` 1.0. Physics intent holds (narrower ride width).
+**⚠️ `markClassAt` ALSO shows `kerb→asphalt` 60.2 + `asphalt→grass` 54.8 m² in ~29 tiny clusters —
+NOT a defect and NOT new:** the 3-tone mask threshold reads the kerb's **anti-aliased outer edge** as
+ASPHALT, so a **1-cell fringe rings every kerb** — **verified present in the committed build too**
+— and it is physics-neutral (kerb + asphalt both fold to `'asphalt'` in `surfaceAt`). It just moved
+inward with the kerb.
+**KNOCK-ONS VERIFIED:** WHITE LINE untouched (its kerb-side inset reads `KERB_SEAM` + soft stroke +
+half line width — **not** the kerb width): pixel-scanned, still meets the inner edge at full width,
+kerb-free stretch unchanged. GRID untouched (`GRID_COL_PITCH` reads `WHITE_LINE_REACH_M`, likewise
+kerb-width-independent): pitch still 7.65 m, all 12 on asphalt.
+**HONEST RESIDUAL:** *"no orphan gap ANYWHERE"* is **not fully reachable** at the mask's 0.25 m cells
+with a 1.25 m smoothing radius — **and it was never true**: the committed build already had **116
+rays with gaps up to 1.5 m**. This pass leaves **7 rays up to 0.6 m** (2–3 mask cells).
+physics.ts / physics4.ts / race.ts / desktop.ts untouched; tsc + build clean.
