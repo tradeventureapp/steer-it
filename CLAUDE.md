@@ -4496,3 +4496,14 @@ arm on asphalt at all. **PIXEL-MEASURED @1920:** inner line → P1 inner arm **1
 pitch is sized off the worse/kerbed side). Also: reused the existing **`CAR_WIDTH_M`** instead of
 adding a duplicate, and fixed a **TDZ order bug** (the pitch referenced `GRID_BOX_W` before its
 declaration). Box size / row pitch / stagger / orientation unchanged; physics/race/desktop untouched.
+
+---
+**CIRCUIT GRID — COLUMNS SQUEEZED ¼ TIGHTER:** new **`GRID_COL_TIGHTEN` = 0.75** multiplies the
+band-derived ceiling ⇒ the columns sit a quarter closer together. **The ceiling stays derived from
+`CIRCUIT_TRACK_W`** — the screen-size fix is untouched; this only pulls the columns IN from it (so
+the gap to the lines grows, which is fine: "alespoň ½ šířky auta" is a FLOOR, not a target).
+**MEASURED ACROSS SCREEN WIDTHS** (the lesson from the previous round — never trust one):
+`1920 → pitch 7.65 m` · `1536 → 5.65` · `1366 → 4.73` · `2560 → 10.98`; every box AND arm on the
+band at all, no overlap, floor met with room to spare. **PIXEL-MEASURED @1920:** pitch 10.21 →
+**7.65 m (×0.75)**; inner line → P1 inner arm **3.60 m**, P3 outer arm → outer line **3.47 m**.
+Box size / row pitch / stagger / orientation unchanged; physics/race/desktop untouched.
