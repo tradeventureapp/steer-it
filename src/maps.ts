@@ -1659,15 +1659,19 @@ function drawCircuitStartLine(
 // driven −x. P1 = row 1 on the INNER side (the infield/kerb side = −y here, the side the apex
 // kerbs point to); P2..P4 step OUTWARD; row 2 = P5..P8, row 3 = P9..P12. Every distance is
 // wheelbase-derived, so the grid stays on the one ruler and 12 cars fit with no overlap.
-const GRID_COLS = 4;
-const GRID_ROWS = 3;                              // painted boxes = COLS × ROWS = 12
-const GRID_COL_PITCH = CONFIG.wheelbase * 2.4;    // m ≈ 6.16 — lateral pitch across the track
-const GRID_ROW_PITCH = CONFIG.wheelbase * 3.0;    // m ≈ 7.70 — car is 4.44 long ⇒ 3.3 m clear
-const GRID_STAGGER = CONFIG.wheelbase * 0.75;     // m ≈ 1.92 — echelon: each column sits this far back
+const GRID_COLS = 3;
+const GRID_ROWS = 4;                              // painted boxes = COLS × ROWS = 12
+const GRID_COL_PITCH = CONFIG.wheelbase * 3.4;    // m ≈ 8.72 — 3 columns spread evenly across the band
+const GRID_ROW_PITCH = CONFIG.wheelbase * 3.0;    // m ≈ 7.70 — box is 5.13 long ⇒ 2.6 m between rows
+const GRID_STAGGER = CONFIG.wheelbase * 1.0;      // m ≈ 2.57 — echelon: each column sits this far back
 const GRID_FRONT_GAP = CONFIG.wheelbase * 1.73;   // m ≈ 4.44 — line → P1 (one car length)
-const GRID_BOX_W = CONFIG.wheelbase * 1.2;        // m ≈ 3.08 — box across (car is 1.83 wide)
+const GRID_BOX_W = CONFIG.wheelbase * 1.44;       // m ≈ 3.69 — box across (car is 1.83 wide)
 const GRID_BOX_L = CONFIG.wheelbase * 2.0;        // m ≈ 5.13 — box along (car is 4.44 long)
 const GRID_BOX_ARM = CONFIG.wheelbase * 1.5;      // m ≈ 3.85 — arms run alongside ~¾ of the car
+// Which way the half-frame opens. +1 = arms forward with the bar behind the car (the real-grid
+// convention); −1 = MIRRORED — bar ahead of the nose, open end facing backward. −1 is the boss's
+// call, matching his original sketch; he confirmed it knowing the bar lands in front of the nose.
+const GRID_BOX_OPEN_FORWARD = -1;
 
 /**
  * Where a 0-based slot starts, relative to the line: `back` = metres AGAINST the racing
@@ -1698,8 +1702,9 @@ function drawCircuitGrid(ctx: CanvasRenderingContext2D, offX: number, offY: numb
   for (let i = 0; i < GRID_COLS * GRID_ROWS; i++) {
     const g = circuitGridPose(i);
     const cx = CIRCUIT_FINISH.x + u(g.back), cy = CIRCUIT_FINISH.y + u(g.lane);
-    const bx = cx + u(GRID_BOX_L / 2);         // the closed back bar
-    const ax = bx - u(GRID_BOX_ARM);           // …arms reach this far forward
+    const o = GRID_BOX_OPEN_FORWARD;           // +1 opens −x (racing dir), −1 mirrors it
+    const bx = cx + o * u(GRID_BOX_L / 2);     // the closed back bar
+    const ax = bx - o * u(GRID_BOX_ARM);       // …arms reach this far toward the open end
     const hy = u(GRID_BOX_W / 2);
     const px = (x: number) => offX + x * s, py = (y: number) => offY + y * s;
     ctx.beginPath();
