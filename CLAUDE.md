@@ -4204,12 +4204,10 @@ spacing, one direction per trap, grooves end at the trap boundary). **GRAIN: jud
 1:1 and blown up → shipped OFF** (`speckle` **0**, knob retained): a speckle fine enough to read as
 sand is SUB-PIXEL here (0.22 m ≈ 1.65 px), so it only aliased into a faint dither — and a blocky
 checkerboard when zoomed. The raking alone carries the surface and reads DRAWN, not photographic.
-**(C) WHITE EDGE LINES** (`drawCircuitEdgeLines`): thin off-white inside BOTH asphalt edges,
+**(C) WHITE EDGE LINES** (`drawCircuitEdgeLines`): thin off-white inside BOTH track edges,
 `WHITE_LINE_INSET_M` **0.55** / `WHITE_LINE_W_M` **0.34** / `WHITE_LINE_RGB` '238,240,242' /
-`WHITE_LINE_ALPHA` **0.7** / `WHITE_LINE_MIN_PTS` **3** (no slivers). BREAKS at kerbs + resumes
-after each wedge via **`CIRCUIT_KERB_COVER`** — two per-path-point Uint8Arrays filled inside
-`emitKerb`, the side recovered as `normFn(1,0)[1]` (so NO call-site change). Painted on the asphalt
-⇒ under the kerbs + under the skid layer.
+`WHITE_LINE_ALPHA` **0.7**. (Initially it BROKE at each kerb; superseded one pass later — see the
+WRAP entry below.)
 **TWO REAL DEFECTS FOUND BY MEASURING + LOOKING (the useful findings):** **(1) the bitmap's own
 baked rim.** The designer asset is a finished PICTURE, so its tarmac carries a dark AA rim; our
 ribbon's edge is not the image's edge, so that rim landed just INSIDE our boundary as a dark
@@ -4250,3 +4248,40 @@ gradient body collapse into the library. Barriers/grandstands/floodlights/start 
 (decor, not surfaces). The factory already guarantees both twins share geometry, so the migration is
 per-surface, not per-map — and the per-surface GRIP difference (deferred, dirt side) then lands as
 one `tire.muScale` entry rather than a map override.
+
+---
+**CIRCUIT — WHITE EDGE LINE WRAPS THE KERBS (continuous; the break/resume version is gone):** the
+boss's verdict on the first pass — the line must not stop at a kerb. It now leaves the asphalt
+edge, rides the kerb's OUTER (grass-side) silhouette, and returns: **ONE CLOSED POLYLINE PER SIDE,
+no gaps by construction.** **THE KEY: the wrap needs NO special case and NO join logic** — the line
+simply holds a constant `WHITE_LINE_INSET_M` inside **whatever the outermost edge is at each path
+point**, and the kerbs' own wedges ramp that 0 → full → 0. The wedges ARE the on/off ramps (they
+already taper back to the asphalt edge), so entry/exit fall out for free.
+**GEOMETRY (from `emitKerb`, never re-derived):** `CIRCUIT_KERB_COVER` (boolean "is there a kerb")
+→ **`CIRCUIT_KERB_OUTER`** (a `Float32Array` per side = how far past the asphalt edge the rim
+reaches), recorded from **the very offset the blue is drawn with — `blueEdges(k)[1]`** ⇒ the line
+can NEVER disagree with the kerb it rides. Side still read back as `normFn(1,0)[1]` (no call-site
+change). Deliberately the **UNCLIPPED** wedge (tapers to 0 rather than stopping at the tip trim) so
+the profile runs all the way back down onto the asphalt edge with **no step**; overlapping kerbs →
+outermost wins (`Math.max`). Line offset per point = `CS_BAND/2 + rim[i] − insetU` (rim 0 ⇒ the
+asphalt edge). Since inset (0.55 m ≈ 2.48 sketch u) < `KERB_BLUE_WIDTH` (5.58 u), the line always
+sits ON the blue rim, never over the stripes.
+**THE ONE CORNER + ITS FIX:** the raw rim has exactly one — the wedge leaves the body's constant
+`FULL_W` on a straight taper, so its SLOPE steps at the hard cut. Measured: **the same ~29° facet
+the kerb's own blue has always had** (the k18 log's finding, re-confirmed). Fixed with a short
+circular box blur → **`CIRCUIT_KERB_RIM`** (`KERB_RIM_SMOOTH_R` **3** pts, `KERB_RIM_SMOOTH_PASSES`
+**2**, baked once — the path never changes); everywhere else the profile is flat or a long ramp so
+it barely moves, and the line is inset far more than the blur shifts it.
+**MEASURED A/B on the REAL stroked polylines** (via a new `circuitEdgeLinePts(ci)` helper the
+renderer itself uses + a `circuitDebugEdgeLine(ci)` harness hook, so no duplicated maths), 1000
+verts/side: **raw rim max turn 29.45° / 29.46°, 13 / 22 verts >5°, 8 / 16 >15° → SMOOTHED 4.48° /
+4.87°, 0 / 0 >5°, 0 / 0 >15°.** Closed loops ⇒ no gaps.
+**ORDER:** stack is now grass → gravel → asphalt → **KERBS → WHITE LINES** → start line (the line
+is paint on the kerb's rim, so it draws AFTER them; still under the skid layer). `tracePolylineOpen`
++ the break/resume walk + `WHITE_LINE_MIN_PTS` are DELETED with the gaps.
+**PHYSICS re-proven** (the kerb builder feeds `circuitMask`, so this was NOT assumed): **922,320
+samples over the whole world at a 0.2 m grid — `surfaceAt` 0 diffs, `markClassAt` 0 diffs vs HEAD**
+(asphalt 55.1 %). Render-only; ovals + desktop untouched; tsc + build clean. **VERIFIED BY EYE**
+(PNG harness, 2×/3×/4×): kerb entry (line ramps off the asphalt edge onto the rim via the wedge),
+mid-kerb (rides the blue, apex AND outer-perimeter incl. the blue-only stretch), and the exit
+ramp-off — a clean S-curve back onto the edge line, no corner, no gap.
