@@ -4461,3 +4461,15 @@ the sketch's shape). **ONE constant flips it back to +1** (the real-grid convent
 **VERIFIED BY EYE** (PNG harness, all 12 cars overlaid + nose marked): 3 lane-columns × 4 rows, P1
 inner + nearest the line, stagger visibly stronger, boxes mirrored per the boss's pick, nothing over
 the start line or the edge lines.
+
+---
+**CIRCUIT GRID — COLUMNS SPREAD TO ½ CAR WIDTH OFF THE SIDE LINES:** `GRID_COL_PITCH` **8.72 →
+10.26 m** (`wheelbase × 4.0`) ⇒ the grid uses the band's width instead of huddling mid-track.
+**MEASURED FROM THE RENDER'S PIXELS** (not a formula): car width 1.83 ⇒ target **0.91 m**; **inner
+line → P1 box 0.93 m · P3 box → outer line 0.93 m** (symmetric); lateral gap between boxes 5.03 →
+**6.57 m**; all 12 still on asphalt. **⚠️ THE ASK PULLED TWO WAYS** — "zmenšit rozestupy… aby se
+v pohodě vešli" reads as TIGHTENING (which would have GROWN the gap to ~5.2 m), while "cca ½ šířky
+auta" is a SPREAD; a pixel scan proved the boxes already cleared the lines by **2.53 m each side**
+(nothing was overflowing), so I asked instead of guessing → boss picked the SPREAD. Box size / row
+pitch / stagger / orientation unchanged. Paint + spawn only: **masks 0 diffs (922,320 samples)**;
+physics/race/desktop untouched. tsc + build clean.
