@@ -4317,3 +4317,35 @@ diffs, `markClassAt` 0 diffs vs HEAD** (asphalt 55.1 %). Render-only; ovals + de
 tsc + build clean. **VERIFIED BY EYE** (PNG harness at 5×/10×/20×): kerb entry (line runs straight
 under the wedge), mid-kerb (hidden, no sliver either side), exit (the blue tip ends and the line
 emerges right there, continuing along the edge — no gap).
+
+---
+**CIRCUIT — WHITE LINE FINAL²: ON THE ASPHALT, ABUTTING THE KERB'S INNER EDGE EXACTLY, VISIBLE THE
+WHOLE LAP (the "under the kerbs" pass corrected):** the previous pass HID the line — **and my own
+measurement had said so and I misread it**: the x=600 scan showed NO white at all, which I reported
+as "clean overlap" when it actually meant the ENTIRE line was buried (at 0.25 m inset the kerb's
+fill + its ~4 px soft stroke reaches ~0.45 m onto the asphalt = wider than the whole 0.34 m line).
+**TWO STATES, EASED:** no kerb → `WHITE_LINE_INSET_M` back to **0.55** m from the grass edge (the
+original look, a strip of asphalt outside the paint); a kerb → the line's OUTER edge lands EXACTLY
+on the kerb's **VISIBLE** inner edge = its fill boundary at `KERB_SEAM` **plus half the soft
+stroke** that feathers it (`kerbInset = KERB_SEAM + softU/2 + halfW` ≈ 2.81 sketch u ≈ 0.62 m) → they
+abut with **no asphalt sliver and no white lost beneath**.
+**THE TWO CAN'T DRIFT:** the soft stroke is now **`kerbSoftPx(twPx)`** (= `max(0.8, twPx·0.02)`),
+read by BOTH the kerb draw AND the line. Note it is authored in PIXELS, so `circuitEdgeLinePts(ci, s)`
+now takes the scale (at any normal zoom `softU` = `CS_BAND·0.02` = 2.48 u, constant).
+**`CIRCUIT_KERB_EASE`** (per side, per path point) = the kerb's own outer reach NORMALISED (1 under
+the body, tapering to 0 across the wedges) → blends the two insets with no special case, exactly
+where the kerb tapers away anyway. Recorded in `emitKerb` from `blueEdges(k)[1]/FULL_W`; side via
+`normFn(1,0)[1]`; overlapping kerbs → strongest wins.
+**MEASURED perpendicular scans:** **mid-kerb (x=600): kerb-red [201,56,47] → 1 AA px → LINE
+[191,193,197] at FULL WIDTH → asphalt** = zero asphalt between line and kerb, zero white hidden ✓;
+kerb-free (x=800): grass → asphalt strip → LINE [194,197,201] → asphalt = the original look ✓.
+**NO KINKS — measured on the real polylines: max turn 1.92° / 1.96° per side, 0 verts >2°** = the
+ribbon's OWN smoothness (`CIRCUIT_PATH` ≈1.9°/pt), so the ease adds NOTHING measurable. **Why no
+smoothing pass is needed here (unlike the wrap version's 29° facet):** the two insets differ by only
+**0.33 sketch u**, far too small for the wedge's slope step to register (the wrap version rode the
+FULL 19 u rim, hence the facet). Line stays UNDER the kerbs (it is paint) — at exact abutment only
+the kerb's AA edge laps the line's. **PHYSICS re-proven: 922,320 samples @ 0.2 m — `surfaceAt` 0
+diffs, `markClassAt` 0 diffs vs HEAD** (asphalt 55.1 %). Render-only; ovals + desktop untouched; tsc
++ build clean. **VERIFIED BY EYE** (PNG harness 10×/15×): kerb-free stretch = the original look;
+entry ease-in; mid-kerb = full line width visible, its edge meeting the kerb's with no sliver; exit
+ease-out smooth.
