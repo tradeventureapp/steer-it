@@ -1661,7 +1661,11 @@ function drawCircuitStartLine(
 // wheelbase-derived, so the grid stays on the one ruler and 12 cars fit with no overlap.
 const GRID_COLS = 3;
 const GRID_ROWS = 4;                              // painted boxes = COLS × ROWS = 12
-const GRID_COL_PITCH = CONFIG.wheelbase * 3.4;    // m ≈ 8.72 — 3 columns spread evenly across the band
+// Lateral pitch: the 3 columns spread so the OUTER boxes stop ~half a car width short of the white
+// edge lines — the grid uses the band's width instead of huddling in the middle. Sized off the
+// tighter of the two lines (the outer one sits a fraction further in, where the perimeter kerb
+// pushes it), so both sides clear.
+const GRID_COL_PITCH = CONFIG.wheelbase * 4.0;    // m ≈ 10.26
 const GRID_ROW_PITCH = CONFIG.wheelbase * 3.0;    // m ≈ 7.70 — box is 5.13 long ⇒ 2.6 m between rows
 const GRID_STAGGER = CONFIG.wheelbase * 1.0;      // m ≈ 2.57 — echelon: each column sits this far back
 const GRID_FRONT_GAP = CONFIG.wheelbase * 1.73;   // m ≈ 4.44 — line → P1 (one car length)
