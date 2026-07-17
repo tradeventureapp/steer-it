@@ -128,11 +128,16 @@ export function listVehicles(): VehicleIdentity[] {
 //  Type-only import of `Config` → no runtime dependency on physics (no cycle).
 // =============================================================================
 import type { Config } from './vehicle-core';
+import type { SteerexSkin } from './steerex-sprite';
 
 export interface VehicleSpec {
   name: string;                    // internal codename (NO real brand strings)
   liveryColor?: string;            // fixed body hex; falls back to the slot colour
   overrides: Partial<Config>;      // partial CONFIG override (physics4 per-car feel, NOT scale)
+  // A pre-authored SVG sprite instead of the vector-drawn Blitz RS body. When set,
+  // drawCar blits the cached bitmap; the slot colour / livery are ignored (the skin
+  // is a fixed design). VISUAL ONLY — the physics still uses the global PHYS4.
+  sprite?: { car: 'steerex'; skin: SteerexSkin };
 }
 
 // ROAD — the base Blitz RS (grippy asphalt Sport-class coupe). NO overrides →
@@ -147,4 +152,19 @@ export const ROAD_SPEC: VehicleSpec = {
 // here (with physics4 overrides once Fase 0+ exposes per-car params) to bring a
 // second car back.
 
-export const VEHICLE_SPECS: VehicleSpec[] = [ROAD_SPEC];
+// STEE-REX — the designer's arcade widebody (working title "Rascal RX"). VISUAL ONLY:
+// a sprite skin with NO physics tune yet, so it borrows Blitz RS's physics4 params
+// (the global PHYS4) as a placeholder — clearly to be replaced with the real arcade
+// tune next. Two fixed skins.
+export const STEEREX_SILVER: VehicleSpec = {
+  name: 'Stee-Rex Silver',
+  overrides: {},
+  sprite: { car: 'steerex', skin: 'silver' },
+};
+export const STEEREX_BLACK: VehicleSpec = {
+  name: 'Stee-Rex Black',
+  overrides: {},
+  sprite: { car: 'steerex', skin: 'black' },
+};
+
+export const VEHICLE_SPECS: VehicleSpec[] = [ROAD_SPEC, STEEREX_SILVER, STEEREX_BLACK];

@@ -17,7 +17,8 @@ import { Effects, FX_CONFIG, GRASS_DUST_RGB, GRAVEL_SPRAY_RGB } from './effects'
 import {
   PLAYER_CAP, LOBBY_SYNC_MS, RESILIENCE, EV, colorName, LobbyState,
 } from './lobby';
-import { ROAD_SPEC, type VehicleSpec } from './vehicles';
+import { ROAD_SPEC, STEEREX_SILVER, STEEREX_BLACK, type VehicleSpec } from './vehicles';
+import { steerexSprite, preloadSteerex, STEEREX_LEN_SVG, STEEREX_RASTER, type SteerexSkin } from './steerex-sprite';
 import { step4, PHYS4, wheelDebug, type Physics4Params } from './physics4';
 
 // physics4 (the per-wheel sim — Blitz RS) is THE drive model: every car, every
@@ -274,6 +275,11 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'q' || e.key === 'Q') {
     qrOn = !qrOn;
     updateQrVisibility();
+  }
+  if (e.key === 'v' || e.key === 'V') {
+    // Cycle the VEHICLE for every car + new spawns: Blitz RS → Stee-Rex Silver →
+    // Stee-Rex Black. VISUAL ONLY (all share the global PHYS4 physics for now).
+    setVehicle(VEHICLE_CYCLE[(VEHICLE_CYCLE.indexOf(currentVariant) + 1) % VEHICLE_CYCLE.length]);
   }
   if (e.key === 'p' || e.key === 'P' || e.key === 'Escape') {
     if (e.key === 'Escape') e.preventDefault();   // just toggle the menu, nothing else
@@ -865,8 +871,15 @@ function applyVariant(car: Car, spec: VehicleSpec) {
 // Keyed by slot so routing/lookup is O(1) and nothing is hardcoded to 2 cars.
 const cars = new Map<number, Car>();
 const DEFAULT_CAR_COLOR = '#1d3fa0';
-// Only ROAD remains (rally retired). New cars spawn in it.
+// The active vehicle for new spawns. Cycled by the V key / steerSetVehicle() so the
+// boss can switch between Blitz RS and the two Stee-Rex skins and SEE them in game.
 let currentVariant: VehicleSpec = ROAD_SPEC;
+const VEHICLE_CYCLE: VehicleSpec[] = [ROAD_SPEC, STEEREX_SILVER, STEEREX_BLACK];
+// Set the active vehicle: applies it to every live car AND makes new spawns use it.
+function setVehicle(spec: VehicleSpec) {
+  currentVariant = spec;
+  for (const c of cars.values()) applyVariant(c, spec);
+}
 // Input behaviour through a packet gap is governed by the UNIFIED lifecycle —
 // hold (coast) → ramp to neutral → parked-in-place — all keyed off RESILIENCE
 // (lobby.ts), the single source of truth. See the per-frame block in the loop.
@@ -2191,8 +2204,29 @@ function updateXpHud() {
 // grille, chrome window/bumper trim, boxy door mirrors, a ducktail, and dark
 // tyre-tops (no rim shows from straight above). +x = front. All marks ORIGINAL:
 // it evokes the era and copies no real car.
+// Blit the cached Stee-Rex sprite: scaled so its nose→tail length matches Blitz RS's
+// drawn length (same one-ruler in-world size, so it sits right on the track/grid),
+// rotated about its centre by heading. The bitmap's nose points UP, so +90° aligns it
+// with +x (the heading direction) exactly like the Blitz RS vector.
+function drawSteerex(car: Car, skin: SteerexSkin) {
+  const cv = steerexSprite(skin);
+  if (!cv) return;   // not decoded yet — preloaded at startup, so this is momentary
+  const s = car.state;
+  const LEN_M = CONFIG.wheelbase * 0.865 * 2;   // = Blitz RS drawn length (1.5 art-units × ART)
+  const scale = (LEN_M * PX()) / (STEEREX_LEN_SVG * STEEREX_RASTER);
+  ctx.save();
+  ctx.translate(s.x * PX(), s.y * PX());
+  ctx.rotate(s.heading + Math.PI / 2);
+  ctx.scale(scale, scale);
+  ctx.drawImage(cv, -cv.width / 2, -cv.height / 2);
+  ctx.restore();
+}
+
 function drawCar(car: Car) {
   const s = car.state;
+  // Stee-Rex is a pre-rendered SVG sprite (VISUAL ONLY) — blit it instead of the
+  // Blitz RS vector body. Everything else (physics, collision, HUD) is unchanged.
+  if (car.spec.sprite?.car === 'steerex') { drawSteerex(car, car.spec.sprite.skin); return; }
   const base = car.liveryColor ?? car.color;   // rally livery overrides the slot colour
   const crown   = shadeHex(base, 1.28);   // lit spine
   const edge    = shadeHex(base, 0.52);   // dark flanks / AO
@@ -2503,3 +2537,14 @@ function switchMap(id: string): boolean {
     if (markMode === 'race') ensureMarkLayers();
     return markMode;
   };
+// DEV hook: switch the vehicle so the boss can SEE Stee-Rex in game (no picker UI yet).
+//   steerSetVehicle('blitz' | 'steerex-silver' | 'steerex-black')  — or press V to cycle.
+(window as unknown as { steerSetVehicle: (id: string) => string }).steerSetVehicle =
+  (id: string) => {
+    const spec = id === 'steerex-silver' ? STEEREX_SILVER
+      : id === 'steerex-black' ? STEEREX_BLACK : ROAD_SPEC;
+    setVehicle(spec);
+    return spec.name;
+  };
+// Warm both Stee-Rex skins so a switch shows the sprite immediately (never a blank car).
+preloadSteerex();

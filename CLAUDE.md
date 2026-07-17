@@ -4736,3 +4736,41 @@ saturation/asphalt(grey rubber); asphalt oval → saturation/asphalt; flat (dirt
 turf). **The MarkMode flag lives in desktop.ts** (routes the two mark paths); the saturation SYSTEM +
 per-surface caps live in `marks.ts` (`MARK`). Flip to the future drawing mode with
 `steerSetMarkMode('paint')`.
+
+---
+**NEW CAR — STEE-REX sprite added as a selectable vehicle (VISUAL ONLY; physics reuses Blitz RS's
+PHYS4 as a placeholder; physics/masks 0.0e+0):** the designer's arcade widebody (working title
+"Rascal RX" in the source files — the IN-GAME name is **Stee-Rex**) is now a switchable vehicle so the
+boss can SEE it. **WHERE IT LIVES:** new `src/steerex-sprite.ts` — the designer's SVG car group `#carG`
+(from the Silver handoff file, the more-detailed geometry) + shared defs, built into a per-skin SVG
+string, rasterised ONCE per skin (`data:image/svg+xml` → `img.decode()` → offscreen canvas, cached) and
+returned by `steerexSprite(skin)`; `preloadSteerex()` warms both at startup so a car is never blank.
+Rendered as JUST `#carG` (no light background, no ground-shadow filter), transparent, nose UP, viewBox
+padded symmetrically about the geometry centre (330,472) so the bitmap centre = the rotation pivot.
+**SKINS:** `SILVER` (brushed steel) + `BLACK` (graphite) differ ONLY in the `#body`/`#roof`/`#fenderL`/
+`#fenderR` gradients (per the handoff) — stripes/glass/tyres/flares/wing/lights identical. Wired as
+`VehicleSpec.sprite = { car:'steerex', skin }` (`STEEREX_SILVER`/`STEEREX_BLACK` in `vehicles.ts`).
+**RENDER:** `drawCar` early-returns to `drawSteerex(car, skin)` for sprite cars (the Blitz RS vector path
+is byte-unchanged for non-sprite cars); `drawSteerex` blits the cached bitmap rotated by
+`heading + π/2` (bitmap nose is UP → +90° aligns it with +x, exactly like the Blitz vector) and scaled
+so its nose→tail length matches Blitz RS. **SCALE (reported):** basis = **Stee-Rex length == Blitz RS
+drawn length = 2 × wheelbase × 0.865 = 4.437 m** (the one ruler); sprite geometry 532 svg → 4.437 m
+(0.00834 m/svg); **rasterised at 3 px/svg → a 1176×1776 cached bitmap.** Resulting **width 332 svg →
+2.77 m** — the car is length-matched to Blitz but ~1.5× WIDER (Blitz ≈1.80 m): the designer's widebody
+styling. ⚠️ FLAGGED: 2.77 m is wide vs the 1.80 m grid basis, so on a start grid it overhangs its lane
+a little; it's a one-line tweak (drop the `LEN_M` basis) if a narrower car is wanted — left length-matched
+per "same real dimensions basis as Blitz RS." **PHYSICS = PLACEHOLDER:** Stee-Rex has NO physics tune; it
+uses the global `PHYS4` like every car (there is no per-car physics), so `overrides:{}` and it drives
+exactly like Blitz RS for now — to be replaced with the real arcade tune next. **HOW TO SWITCH:** press
+**V** (cycles Blitz RS → Stee-Rex Silver → Stee-Rex Black, applied to every live car + new spawns) or
+`window.steerSetVehicle('blitz'|'steerex-silver'|'steerex-black')`. **VERIFIED BY EYE** (PNG harness on
+asphalt, nose-up, cyan-dashed Blitz footprint box behind each): both skins read cleanly at zoom AND at
+in-game 7.5 px/m — stripes/flares/tyres/wing/engine-cover/glass all crisp, no clipping; the length
+exactly fills the Blitz box, width overhangs (the widebody). **REGRESSION:** only `desktop.ts` +
+`vehicles.ts` changed + the new `steerex-sprite.ts` — `physics4.ts`/`vehicle-core.ts`/`cars.ts`/`race.ts`/
+`maps.ts`/`marks.ts` byte-identical (empty diffs) ⇒ step() 0.0e+0, masks unchanged, and Blitz RS renders
+byte-identically (the sprite branch is gated on `car.spec.sprite`). tsc + build clean. **KNOWN CAVEATS
+(placeholder):** no ground shadow (per the handoff's "just #carG"); no roof slot-number on Stee-Rex (the
+skin is a fixed design — cars are told apart by skin, not number, for this visual pass); width 2.77 m as
+above. **NEXT: the real arcade physics4 tune for Stee-Rex (per-car params), and a proper vehicle picker
+UI (the V-key/console hook is the temporary switch).**
