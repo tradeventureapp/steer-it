@@ -114,18 +114,45 @@ const ASPHALT_FILL_INSET_M = 0.9;   // m — how far inside the shape the fill i
 const ASPHALT_PRELOAD: [string, string] = ['#63676f', '#565a62'];   // ≈rgb(92,96,104) until it loads
 
 let _asphaltImg: HTMLImageElement | null = null;
+let _asphaltReady = false;   // true ONLY once the bitmap has DECODED (i.e. is canvas-paintable)
 let _onReady: (() => void) | null = null;
-/** Called once the async surface assets are in, so a host can repaint its static layers. */
-export function onSurfaceAssetsReady(cb: () => void): void { _onReady = cb; }
+
+/**
+ * Register a host repaint for when the async surface assets become paintable. If the asset
+ * has ALREADY decoded (the callback lost the race), fire immediately so the host never misses
+ * the one-shot invalidation.
+ */
+export function onSurfaceAssetsReady(cb: () => void): void {
+  _onReady = cb;
+  if (_asphaltReady) cb();
+}
+
+function markAsphaltReady(): void {
+  _asphaltReady = true;
+  if (_onReady) _onReady();   // invalidate + repaint the host's static layers, now that it decoded
+}
+
 function asphaltFill(): HTMLImageElement | null {
   if (typeof document === 'undefined') return null;
   if (!_asphaltImg) {
     const img = new Image();
-    img.onload = () => { if (_onReady) _onReady(); };
+    // `img.complete`/`onload` is NOT enough. On WebKit (Safari/Mac) the bitmap fires `load`
+    // BEFORE it is decoded, and drawing an undecoded image composites TRANSPARENT pixels —
+    // cleanFill uses source-in, so a transparent source CLEARS the ribbon and the grass below
+    // shows through (and, because the wallpaper is a one-shot static layer, it sticks and
+    // survives a cached restart). Gate readiness on decode(): only expose the image once it is
+    // genuinely paintable; until then — and FOREVER on a load/decode failure — asphaltFill
+    // returns null so the flat preload tarmac tone fills the ribbon, never transparent-to-grass.
     img.src = ASPHALT_FILL_SRC;
+    if (typeof img.decode === 'function') {
+      img.decode().then(markAsphaltReady).catch(() => { /* failed → keep the preload tone */ });
+    } else {
+      // Ancient engines without decode(): fall back to onload + a natural-size check.
+      img.onload = () => { if (img.naturalWidth > 0) markAsphaltReady(); };
+    }
     _asphaltImg = img;
   }
-  return _asphaltImg.complete && _asphaltImg.naturalWidth > 0 ? _asphaltImg : null;
+  return _asphaltReady ? _asphaltImg : null;
 }
 
 // ------------------------------------------------------------------ helpers ---

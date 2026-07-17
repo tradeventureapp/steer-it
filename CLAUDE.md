@@ -4576,3 +4576,36 @@ gravel** directly against the blue. Outer trap shapes / other traps / `GRAVEL_GR
 / `surfaces.ts` / `effects.ts` / `cars.ts` UNTOUCHED (empty diffs ⇒ step() 0.0e+0)** — `maps.ts` only,
 and the surface mask is geometry-based so `surfaceAt`/marks/lap-counting are unaffected outside the
 strip. tsc + build clean.
+
+---
+**CIRCUIT — ASPHALT BITMAP GRASS-THROUGH ON WEBKIT/MAC FIXED (onload-before-decode race; `surfaces.ts`
+only, physics/masks 0.0e+0):** a friend's Mac showed the circuit asphalt MISSING (grass through the
+ribbon) a few seconds after first load, sticking across hard restarts; kerbs/white line/gravel (all
+procedural) rendered fine. **ROOT CAUSE (diagnosed + reproduced headlessly, not guessed):** the asphalt
+is the ONLY bitmap. `ASPHALT.texture()` returned the shared `_asphaltImg` as soon as
+`img.complete && naturalWidth>0` — but **`.complete` ≠ decoded/canvas-paintable.** On WebKit/Safari the
+image fires `load` BEFORE it is decoded; drawing an undecoded image composites TRANSPARENT pixels, and
+`cleanFill` uses `source-in`, so a transparent source CLEARS the ribbon → the grass below shows through.
+Because the wallpaper is a ONE-SHOT static layer (`drawBackground` runs once + once on `_onReady`), the
+broken frame is baked and never repaints; a hard restart reloads the PNG from cache so `.complete` is
+true almost immediately → the same race → stays broken. "Breaks a few seconds AFTER load" = cold cache
+shows the grey preload while downloading (fine), then `onload` fires `_onReady` → repaints with the
+still-undecoded image → grass-through appears. **REPRODUCED headlessly on the REAL path** (patched
+`drawImage` so the undecoded bitmap draws transparent, faithful to WebKit): ribbon GOOD `79,83,92` tarmac
+→ undecoded-onReady repaint `116,164,72`/`98,143,62` = **GRASS, 25607/25607** = the photo exactly →
+decoded repaint restores tarmac. **FIX (`surfaces.ts` only):** gate readiness on **`img.decode()`** — a
+new `_asphaltReady` flag is set only when decode RESOLVES; `asphaltFill()` returns the image only when
+ready (else null → the flat grey preload tone fills the ribbon, never transparent-to-grass). `markAsphaltReady()`
+fires the host repaint on decode (not on `onload`); `onSurfaceAssetsReady(cb)` now ALSO fires immediately
+if the asset already decoded (closes the lost-callback race where decode/onload beat the host
+registration). `decode()` REJECT (network/decode failure) → `_asphaltReady` stays false → grey preload
+FOREVER, never grass-through even offline. `img.decode` absent (ancient engines) → falls back to
+`onload + naturalWidth>0`. **VERIFIED (3 scenarios on the real load path, decode gated to the same signal
+as paintability):** (A) image delayed 5 s → grey during load (grass 0), tarmac after decode; (B) network
+FAIL → grey preload forever (grass 0, transp 0), 0 repaints; (C) cached/fast → tarmac, NO transient
+grass-through (even an instant `.complete` now waits for decode). **VERIFIED BY EYE** (PNG harness, bottom
+straight crop): while loading = flat grey ribbon (no grass), after decode = tarmac; kerbs/lines/grid
+intact. **REGRESSION:** ONLY `src/surfaces.ts` changed — `physics.ts`/`physics4.ts`/`maps.ts`/`race.ts`/
+`desktop.ts`/`marks.ts` byte-identical (empty diffs) ⇒ step() 0.0e+0 and the geometry masks
+(`surfaceAt`/`markClassAt`) unchanged; desktop + both ovals don't use the asphalt bitmap surface
+(their own `drawWallpaper`/`drawStadiumSurface`) so they're untouched. tsc + build clean.
