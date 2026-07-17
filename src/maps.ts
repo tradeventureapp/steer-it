@@ -897,6 +897,17 @@ const KERB_EXTENDS: Array<{ near: Pt; addPts: number }> = [
   { near: [780, 620], addPts: 24 },    // BOTTOM-LEFT — extend right along the straight
   { near: [1345, 620], addPts: 30 },   // BOTTOM-RIGHT — extend left along the straight
 ];
+// The four INNER kerbs merge into TWO continuous ones (the boss marked the two gaps). Each
+// entry joins the region ENDING near `from` to the one STARTING near `to` into a SINGLE
+// region, so the bridge is emitted by the same run as the rest — that is what keeps the
+// stripes arc-length-perfect across the join and the blue one unbroken band, and it leaves
+// wedges only at the merged kerb's two extreme ends. Refs are the regions' own post-cut/
+// extend endpoints, so they match exactly (and clear every KERB_CUTS/KERB_EXTENDS ref by
+// well over nearRef's 55). All four share turnSign −1, so the normal cannot flip mid-run.
+const KERB_MERGES: Array<{ from: Pt; to: Pt }> = [
+  { from: [570, 299], to: [685, 581] },    // LEFT — hairpin → bottom-left, down the loop's inner edge
+  { from: [1516, 501], to: [1553, 346] },  // RIGHT — bottom-right → right loop, up the inner edge
+];
 
 interface KerbQuad { a: Pt; b: Pt; c: Pt; d: Pt; fill: string; z: number; }  // z: 0 blue (under) · 1 stripes (over)
 // Each kerb quad is FILLED and lightly STROKED in its own colour, so its VISIBLE inner edge sits
@@ -949,6 +960,17 @@ const CIRCUIT_KERBS: KerbQuad[] = ((): KerbQuad[] => {
     }
     return [s, e];
   });
+  // …then MERGE the marked pairs into single regions (see KERB_MERGES). Each join swallows
+  // the gap between the two kerbs into ONE index range, so the run that follows emits the
+  // whole span — bridge included — as one kerb.
+  const kerbRegions: Array<[number, number]> = cutRegions.map((r) => [r[0], r[1]]);
+  for (const mg of KERB_MERGES) {
+    const ai = kerbRegions.findIndex((r) => nearRef(CIRCUIT_PATH[r[1]], mg.from));
+    const bi = kerbRegions.findIndex((r) => nearRef(CIRCUIT_PATH[r[0]], mg.to));
+    if (ai < 0 || bi < 0 || ai === bi) continue;
+    kerbRegions[ai] = [kerbRegions[ai][0], kerbRegions[bi][1]];   // span the gap
+    kerbRegions.splice(bi, 1);
+  }
   const quads: KerbQuad[] = [];
   const FULL_W = KERB_WIDTH + KERB_BLUE_WIDTH;   // full kerb reach → the FIXED grass edge
   const avgSeg = (() => { let s = 0; for (let i = 0; i < N; i++) s += Math.hypot(CIRCUIT_PATH[(i + 1) % N][0] - CIRCUIT_PATH[i][0], CIRCUIT_PATH[(i + 1) % N][1] - CIRCUIT_PATH[i][1]); return s / N; })();
@@ -1087,7 +1109,7 @@ const CIRCUIT_KERBS: KerbQuad[] = ((): KerbQuad[] => {
     }
   };
   // APEX kerbs — concave (turnSign) normal (robust on the straight extensions).
-  for (const [s, e] of cutRegions) {
+  for (const [s, e] of kerbRegions) {
     const len = ((e - s + N) % N) + 1;
     let turnSum = 0; for (let k = 0; k < len; k++) turnSum += raw[idx(s + k)];
     const ts = turnSum >= 0 ? 1 : -1;
