@@ -4349,3 +4349,36 @@ diffs, `markClassAt` 0 diffs vs HEAD** (asphalt 55.1 %). Render-only; ovals + de
 + build clean. **VERIFIED BY EYE** (PNG harness 10×/15×): kerb-free stretch = the original look;
 entry ease-in; mid-kerb = full line width visible, its edge meeting the kerb's with no sliver; exit
 ease-out smooth.
+
+---
+**CIRCUIT — INNER KERBS MERGED 4 → 2 (two long continuous kerbs; boss's `kerby spojeni levo/pravo`
+marks):** the LEFT hairpin + bottom-left straight → ONE kerb (down the left loop's inner edge); the
+RIGHT loop + bottom-right straight → ONE kerb (up the right loop's inner edge). **Wedges remain ONLY
+at each merged kerb's two extreme ends** — the four former interior ends are gone (continuous stripes
+through). The middle dip kerb is UNTOUCHED (it's the opposite side).
+**IMPLEMENTATION = region merge, NOT pasted quads** (per the brief): new **`KERB_MERGES: Array<{from:
+Pt; to: Pt}>`** joins the region ENDING near `from` to the one STARTING near `to` into a SINGLE index
+range (`kerbRegions`, built from `cutRegions` after the cuts/extends, then fed to the apex loop) ⇒ the
+bridge is emitted by the SAME `emitKerb` run ⇒ **stripes stay arc-length-perfect across the join and
+the blue is one unbroken band** (pasting quads could do neither).
+**⚠️ THE REGIONS WERE PROBED, NOT GUESSED** (a temporary `__dbgRegions` export, removed after) —
+5 apex regions exist; **the four inner ones ALL share turnSign −1 ⇒ the normal can't flip mid-run**
+(the merge would have been unsafe otherwise), and the two gaps match the marks exactly:
+`#2 (813,276)..(570,299) —112pts→ #3 (685,581)..(849,620)` = LEFT ·
+`#4 (1259,620)..(1516,501) —56pts→ #0 (1553,346)..(1144,301)` = RIGHT ·
+`#1 (1133,357)..(829,341) turnSign +1` = the middle dip, NOT merged.
+Merge refs are the regions' OWN post-cut/extend endpoints ⇒ match at distance 0, and clear every
+`KERB_CUTS`/`KERB_EXTENDS` ref by well over `nearRef`'s 55 (checked).
+**MASK A/B vs HEAD — 922,320 samples @ 0.2 m, change confined to the bridges + their knock-ons:**
+**`grass->asphalt` 302.8 m² = THE NEW KERB AREA** (106.5 + 100.5 m² = the left span, 93.7 m² = the
+right); `gravel->grass` 0.6 + `gravel->asphalt` 1.1 m² @ (163,60) = **the gravel abutment rule
+re-fitting** where a trap meets the new span (expected, point 5); **`asphalt->grass` 1.2 m² @
+(85,109) = the merged LEFT kerb's far END, not a bridge** — one continuous arc-length grid across
+the join RE-PHASES the stripe blocks, so the snapped hard cut lands under a block (2.2 m) earlier =
+the direct consequence of the arc-length-perfect requirement, not a defect. `markClassAt` 8089
+samples (same regions, kerb class).
+**physics.ts + physics4.ts BYTE-IDENTICAL (empty diff) ⇒ step() 0.0e+0** by construction. The WHITE
+LINE hugs the merged span automatically (its ease reads `CIRCUIT_KERB_EASE`, which `emitKerb` fills
+over the whole run) — verified. Ovals + desktop untouched; tsc + build clean. **VERIFIED BY EYE**
+(PNG harness, full map + 7× close-ups of BOTH former gaps): continuous stripes, no seam, no wedge,
+constant block size, line hugging through.
