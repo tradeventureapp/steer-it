@@ -9,7 +9,7 @@ import {
 import { collideCars, applyInputs } from './cars';
 import { TyreMarks } from './marks';
 import {
-  getMap, listMaps, DEFAULT_MAP_ID, markClassAt, setCircuitGrassReady,
+  getMap, listMaps, DEFAULT_MAP_ID, markClassAt, setCircuitSurfaceReady,
   type MapDefinition, type MapWorld, type MapObstacle, type Surface,
 } from './maps';
 import { SoundEngine } from './sound';
@@ -805,9 +805,9 @@ function redrawOverlay() {
   currentMap.drawObstacles(overlayCtx, world, CONFIG.pxPerMeter, draggedObstacle);
 }
 
-// The circuit's grass bitmap loads async; when it arrives, repaint the (static) wallpaper
-// layer once so the grass swaps in without needing a resize. Cheap + one-shot per load.
-setCircuitGrassReady(() => {
+// A surface's fill asset loads async; when it arrives, repaint the (static) wallpaper layer
+// once so it swaps in without needing a resize. Cheap + one-shot per load.
+setCircuitSurfaceReady(() => {
   if (logicalPxW > 0 && logicalPxH > 0) {
     currentMap.drawBackground(wallpaperCtx, logicalPxW, logicalPxH);
   }

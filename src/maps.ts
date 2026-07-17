@@ -18,6 +18,10 @@ import { CONFIG, type CarState, type ObstacleRect } from './physics';
 import { spawnPose } from './cars';
 import type { RaceElement } from './race';
 import {
+  SURFACES, onSurfaceAssetsReady,
+  type SurfaceRC, type SurfaceShape,
+} from './surfaces';
+import {
   layoutDesktop, drawWallpaper, drawOverlay, drawClock,
   rebuildRects, iconAt, clampIconToBounds, resolveIconDrop,
   type DesktopWorld, type DesktopIcon,
@@ -895,6 +899,13 @@ const KERB_EXTENDS: Array<{ near: Pt; addPts: number }> = [
 ];
 
 interface KerbQuad { a: Pt; b: Pt; c: Pt; d: Pt; fill: string; z: number; }  // z: 0 blue (under) · 1 stripes (over)
+// Per path index + side: does a kerb cover this stretch (stripes AND blue tails)? The white
+// edge lines read it to BREAK where a kerb sits and resume after its wedge. Filled by the
+// kerb builder below, which is the only thing that knows each kerb's true extent.
+//   [0] = side +1 (normal (−ty, tx)) · [1] = side −1
+const CIRCUIT_KERB_COVER: [Uint8Array, Uint8Array] = [
+  new Uint8Array(CIRCUIT_PATH.length), new Uint8Array(CIRCUIT_PATH.length),
+];
 const CIRCUIT_KERBS: KerbQuad[] = ((): KerbQuad[] => {
   const N = CIRCUIT_PATH.length, idx = (i: number) => ((i % N) + N) % N;
   // smoothed per-point turn magnitude (deg) → "cornerness"
@@ -969,6 +980,11 @@ const CIRCUIT_KERBS: KerbQuad[] = ((): KerbQuad[] => {
     const leftPts = tailPts(sStart, -1), rightPts = tailPts(sEnd, 1);
     const bStart = idx(sStart - leftPts);
     const blen = ((sEnd - sStart + N) % N) + 1 + leftPts + rightPts;
+    // Record this kerb's FULL extent (stripes + both blue tails) on ITS side, so the white
+    // edge line breaks over exactly the stretch the kerb occupies. The side is read back out
+    // of the caller's normal: normFn(1,0) = [0, side] ⇒ its y component IS the sign.
+    const cover = CIRCUIT_KERB_COVER[normFn(1, 0)[1] >= 0 ? 0 : 1];
+    for (let k = 0; k < blen; k++) cover[idx(bStart + k)] = 1;
     const P: Pt[] = [], nrm: Pt[] = [], edge: Pt[] = [], arc: number[] = [0];
     for (let k = 0; k < blen; k++) {
       const i = idx(bStart + k), a = CIRCUIT_PATH[idx(i - 1)], c = CIRCUIT_PATH[idx(i + 1)], p = CIRCUIT_PATH[i];
@@ -1108,6 +1124,13 @@ function tracePolyline(ctx: CanvasRenderingContext2D, pxPts: Pt[]) {
   ctx.closePath();
 }
 
+// Same, but OPEN — for a run that starts and ends somewhere (an edge line broken by a kerb).
+function tracePolylineOpen(ctx: CanvasRenderingContext2D, pxPts: Pt[]) {
+  ctx.beginPath();
+  ctx.moveTo(pxPts[0][0], pxPts[0][1]);
+  for (let i = 1; i < pxPts.length; i++) ctx.lineTo(pxPts[i][0], pxPts[i][1]);
+}
+
 // ---------- SURFACE MASK (circuit) ----------
 // The ground lookup is a bitmap baked ONCE at first use: the track ribbon (the FULL-width
 // stroked CIRCUIT_PATH band) + EVERY kerb quad (stripes + blue incl. the wedges — kerbs are
@@ -1241,16 +1264,8 @@ const GRAVEL_GRASS_GAP = CAR_WIDTH_M; // m — grass strip between BARE ASPHALT 
 const GRAVEL_MIN_AREA = 70;           // m² — a fragment smaller than this doesn't read as a trap → dropped
 const GRAVEL_SMOOTH_R = 5;            // mask px (@4 px/m ⇒ 1.25 m) — boundary rounding radius
 const GRAVEL_MASK_PPM = 4;            // px/m for the trap raster
-// CARTOON GRAVEL (indie style): a flat light-tan run-off, gently POSTERIZED into two close
-// tones (not grainy stone) via smooth value-noise — big soft patches, subtle. Its edge into
-// the grass is SMOOTH + rounded (a blurred mask), with no dark rim. Measured/handoff tones.
-const GRAVEL_BASE: [number, number, number] = [168, 160, 142];   // light tan
-const GRAVEL_POSTER = 7;              // ± this from the base → the two flat posterized tones
-const GRAVEL_PATCH_M = 15;            // big posterization blob lattice (m) — handoff scale 90
-const GRAVEL_MID_M   = 6;             // smaller organic detail (m) — handoff scale 38
-const GRAVEL_THRESH  = 0.5;           // value-noise cutoff between the two tones (≈50/50)
-const GRAVEL_EDGE_SOFT_M = 0.55;      // m — gravel→grass edge softness (blur radius) = smooth,
-                                      //   rounded transition with NO chewed/stepped boundary
+// The gravel LOOK lives in the surface library (GRAVEL_LOOK in surfaces.ts) — a map only says
+// WHERE a trap is, never what one looks like. What stays here is the trap SHAPE's own tuning:
 // Marked trap areas — [sketchX, sketchY, radius] discs, traced from the boss's marks
 // (screen px → sketch = px·0.7509 + [482, 55]). Over-marking toward the track is SAFE: the
 // inner boundary is carved off by construction (see carveGap). The narrow sliver between the
@@ -1437,163 +1452,97 @@ function gravelMask(): Uint8Array | null {
   return m;
 }
 
-// Full-canvas GRAVEL COLOUR: two flat light-tan tones in big soft posterized patches (same
-// smooth value-noise as the grass, subtler). Cached per canvas size; deterministic. Only the
-// COLOUR — the shape/edge is applied separately by the blurred mask in drawGravelTraps.
-let _gravelColor: HTMLCanvasElement | null = null;
-let _gravelColorKey = '';
-function gravelColorLayer(wPx: number, hPx: number, pxPerM: number): HTMLCanvasElement | null {
-  if (typeof document === 'undefined') return null;
-  const key = wPx + 'x' + hPx;
-  if (_gravelColor && _gravelColorKey === key) return _gravelColor;
-  const cv = document.createElement('canvas'); cv.width = wPx; cv.height = hPx;
-  const c = cv.getContext('2d'); if (!c) return null;
-  const img = c.createImageData(wPx, hPx), d = img.data;
-  const [br, bg, bb] = GRAVEL_BASE;
-  const sPatch = GRAVEL_PATCH_M * pxPerM, sMid = GRAVEL_MID_M * pxPerM, soft = 0.05;
-  for (let y = 0; y < hPx; y++) {
-    for (let x = 0; x < wPx; x++) {
-      const patch = grassNoise(x + 1000, y + 1000, sPatch) * 0.7   // offset origin ≠ the grass noise
-        + grassNoise(x + 1000, y + 1000, sMid) * 0.3;
-      const m = Math.max(0, Math.min(1, (patch - (GRAVEL_THRESH - soft)) / (2 * soft)));
-      const dl = (m * 2 - 1) * GRAVEL_POSTER;   // −POSTER (dark) … +POSTER (light)
-      const o = (y * wPx + x) * 4;
-      d[o] = br + dl; d[o + 1] = bg + dl; d[o + 2] = bb + dl; d[o + 3] = 255;
-    }
-  }
-  c.putImageData(img, 0, 0);
-  _gravelColor = cv; _gravelColorKey = key;
-  return cv;
-}
+// GRAVEL TRAP SHAPE — the trap geometry, handed to the gravel SURFACE (surfaces.ts) to fill.
+// It comes from the physics mask, so what you SEE is exactly where the car plows — but that
+// mask is a 4 px/m raster, and blowing it up to the screen would show its staircase (the old
+// "chewed" edge). Cured by BLUR + THRESHOLD, the same rounding the mask itself is built with:
+// blur wide enough to average the steps into the curve they approximate, then re-sharpen that
+// curve back to a vector-clean AA edge. Reads like the asphalt's stroke; the physics mask is
+// only READ (never modified), and the blur is symmetric so the mandatory car-width grass gap
+// survives untouched.
+const GRAVEL_EDGE_SMOOTH_PX = 6;   // screen px — blur that averages the raster's step away
+const GRAVEL_EDGE_AA_PX = 1.4;     // screen px — the AA ramp left on the re-sharpened curve
 
-// Paint the traps: the coarse trap mask, upscaled to full res and BLURRED (canvas filter) into
-// a soft alpha → SMOOTH rounded edges with no chewed/stepped boundary, then the posterized-tan
-// colour clipped into that alpha. No dark rim: the gravel eases straight into the grass.
-function drawGravelTraps(ctx: CanvasRenderingContext2D, wPx: number, hPx: number) {
-  const m = gravelMask();
-  if (!m || typeof document === 'undefined') return;
-  const pxPerM = wPx / CIRCUIT_LOGICAL.widthM;
-  const colour = gravelColorLayer(wPx, hPx, pxPerM);
-  if (!colour) return;
-  // 1. the mask as a hard alpha at its own coarse resolution
+const gravelShape: SurfaceShape = (m, rc) => {
+  const mask = gravelMask();
+  if (!mask || typeof document === 'undefined') return;
   const mc = document.createElement('canvas'); mc.width = _gvW; mc.height = _gvH;
   const mcx = mc.getContext('2d'); if (!mcx) return;
   const img = mcx.createImageData(_gvW, _gvH);
-  for (let i = 0; i < _gvW * _gvH; i++) if (m[i]) img.data[i * 4 + 3] = 255;
+  for (let i = 0; i < _gvW * _gvH; i++) if (mask[i]) img.data[i * 4 + 3] = 255;
   mcx.putImageData(img, 0, 0);
-  // 2. upscale + BLUR it into a full-res soft alpha (the blur is what rounds the edge). The
-  //    blur only SOFTENS inward/outward symmetrically, so the mandatory grass gap is preserved
-  //    (the mask was already carved a full car-width off the asphalt).
-  const t = document.createElement('canvas'); t.width = wPx; t.height = hPx;
-  const tcx = t.getContext('2d'); if (!tcx) return;
-  tcx.filter = `blur(${Math.max(1, GRAVEL_EDGE_SOFT_M * pxPerM).toFixed(2)}px)`;
-  tcx.drawImage(mc, 0, 0, wPx, hPx);
-  tcx.filter = 'none';
-  // 3. clip the posterized-tan colour into that soft alpha
-  tcx.globalCompositeOperation = 'source-in';
-  tcx.drawImage(colour, 0, 0);
-  tcx.globalCompositeOperation = 'source-over';
-  ctx.drawImage(t, 0, 0);
-}
 
-// ASPHALT → GRASS SOFT EDGE (circuit only — the ovals keep their own look). The tarmac sits
-// DIRECTLY on the grass: there is NO dark rim / outline, so the track doesn't read as "drawn".
-// To stop that becoming a razor-sharp scissors cut, the edge is FEATHERED — two slightly-wider
-// low-alpha asphalt passes are stroked UNDER the surface, so the tarmac eases into the grass
-// over ~FEATHER px per side. TUNE BY THESE NUMBERS (keep subtle — a visible glow/halo or a
-// re-drawn outline means they are too high):
-// Light-grey tarmac for the procedural FALLBACK (matches the finished asset's asphalt, so the
-// brief pre-load fallback doesn't flash the old dark tarmac). [top, bottom] of a subtle gradient.
-const CIRCUIT_ASPHALT_FALLBACK: [string, string] = ['#63676f', '#565a62'];   // ≈ rgb(92,96,104)
-const CIRCUIT_EDGE_FEATHER = 0.012;      // soft-edge reach PER SIDE = twPx × this …
-const CIRCUIT_FEATHER_MIN_PX = 1;        //   … clamped to [MIN, MAX] px (≈2.5 px at game scale)
-const CIRCUIT_FEATHER_MAX_PX = 3;
-const CIRCUIT_FEATHER_ALPHA_OUT = 0.15;  // outermost pass (faintest, reaches FEATHER past the edge)
-const CIRCUIT_FEATHER_ALPHA_IN = 0.30;   // inner pass (reaches FEATHER/2 — overlaps → ramps up)
+  m.filter = `blur(${GRAVEL_EDGE_SMOOTH_PX}px)`;             // destination px
+  m.drawImage(mc, 0, 0, rc.wPx, rc.hPx);
+  m.filter = 'none';
 
-// CARTOON GRASS — TWO flat green tones in big soft organic patches (no grain, no blades),
-// in the hand-drawn indie style. Faithful to the grass-anime reference (its exact tones,
-// measured): DARK dominates, LIGHT is scattered lighter patches (~16% of the field). The
-// tone is chosen by smooth value-noise; a narrow soft band around the threshold gives the
-// blob edges a clean anti-aliased cartoon feel (not a hard pixel step, not a gradient).
-// Computed ONCE per canvas size onto an offscreen buffer (the circuit background is a
-// pre-render layer, not a per-frame draw) via a DETERMINISTIC hash → identical every load.
-// PHYSICS never reads this (the surface mask is geometry-based, not colour-based).
-const GRASS_LIGHT: [number, number, number] = [116, 164, 72];   // measured from the reference
-const GRASS_DARK:  [number, number, number] = [92, 138, 58];
-const GRASS_PATCH_M = 25;      // big blob lattice (m) — handoff scale 150 @ ref 1536px/256m
-const GRASS_MID_M   = 10;      // smaller organic detail (m) — handoff scale 60
-const GRASS_THRESH  = 0.655;   // value-noise cutoff → ~16% LIGHT (calibrated to the reference)
-const GRASS_SOFT    = 0.05;    // half-width of the soft blend band around the threshold
-
-function grassHash(ix: number, iy: number): number {
-  let h = (Math.imul(ix, 374761393) ^ Math.imul(iy, 668265263)) | 0;
-  h = Math.imul(h ^ (h >>> 13), 1274126177);
-  return ((h ^ (h >>> 16)) >>> 0) / 4294967295;   // 0..1
-}
-function grassSmooth(t: number) { return t * t * (3 - 2 * t); }
-// Smooth (bilinear + smoothstep) value noise on a hashed integer lattice, mean ≈ 0.5.
-function grassNoise(x: number, y: number, scale: number): number {
-  const gx = x / scale, gy = y / scale;
-  const x0 = Math.floor(gx), y0 = Math.floor(gy);
-  const fx = grassSmooth(gx - x0), fy = grassSmooth(gy - y0);
-  const a = grassHash(x0, y0),     b = grassHash(x0 + 1, y0);
-  const c = grassHash(x0, y0 + 1), d = grassHash(x0 + 1, y0 + 1);
-  return (a * (1 - fx) + b * fx) * (1 - fy) + (c * (1 - fx) + d * fx) * fy;
-}
-// THE DESIGNER'S EXACT SURFACES: a finished bitmap (`public/track-surfaces.png`, 1536×864
-// aligned 1:1 to this layout) that bakes the WHOLE cartoon surface — two-tone grass, light-tan
-// posterized gravel, asphalt + blue + red/white kerbs, all with smooth rounded edges. Loaded
-// async; drawn as the entire surface layer scaled to the canvas (only the start/finish line is
-// added on top). Until it loads (and off-DOM in unit tests) the procedural surfaces below are
-// the fallback, so the field is never bare. A ready-callback lets the host redraw its static
-// wallpaper layer once the image arrives. PHYSICS never reads this — the surface mask is
-// geometry-based, so surfaceAt / marks / gravel / lap-counting are independent of the bitmap.
-let _circuitSurfaceImg: HTMLImageElement | null = null;
-let _onCircuitGrassReady: (() => void) | null = null;
-export function setCircuitGrassReady(cb: () => void): void { _onCircuitGrassReady = cb; }
-function circuitSurfaceImg(): HTMLImageElement | null {
-  if (typeof document === 'undefined') return null;
-  if (!_circuitSurfaceImg) {
-    const img = new Image();
-    img.onload = () => { if (_onCircuitGrassReady) _onCircuitGrassReady(); };
-    img.src = 'track-surfaces.png';
-    _circuitSurfaceImg = img;
+  // Re-sharpen: smoothstep the blurred alpha about 0.5 over a band narrow enough to leave
+  // ~GRAVEL_EDGE_AA_PX of ramp (the blur's ramp spans ≈GRAVEL_EDGE_SMOOTH_PX, so the band
+  // is that ratio of it). Alpha only — the fill is composited in later, source-in.
+  const big = m.getImageData(0, 0, rc.wPx, rc.hPx), d = big.data;
+  const w = Math.max(0.01, 0.5 * GRAVEL_EDGE_AA_PX / GRAVEL_EDGE_SMOOTH_PX);
+  for (let i = 3; i < d.length; i += 4) {
+    let t = (d[i] / 255 - (0.5 - w)) / (2 * w);
+    t = t < 0 ? 0 : t > 1 ? 1 : t;
+    d[i] = 255 * t * t * (3 - 2 * t);
   }
-  return _circuitSurfaceImg.complete && _circuitSurfaceImg.naturalWidth > 0 ? _circuitSurfaceImg : null;
-}
+  m.putImageData(big, 0, 0);
+};
 
-let _grassCanvas: HTMLCanvasElement | null = null;
-let _grassKey = '';
-function grassLayer(wPx: number, hPx: number, pxPerM: number): HTMLCanvasElement | null {
-  if (typeof document === 'undefined') return null;   // off-DOM tests draw no grass
-  const key = wPx + 'x' + hPx;
-  if (_grassCanvas && _grassKey === key) return _grassCanvas;
-  const cv = document.createElement('canvas'); cv.width = wPx; cv.height = hPx;
-  const c = cv.getContext('2d'); if (!c) return null;
-  const img = c.createImageData(wPx, hPx), d = img.data;
-  const sPatch = GRASS_PATCH_M * pxPerM, sMid = GRASS_MID_M * pxPerM;
-  for (let y = 0; y < hPx; y++) {
-    for (let x = 0; x < wPx; x++) {
-      const patch = grassNoise(x, y, sPatch) * 0.7 + grassNoise(x, y, sMid) * 0.3;
-      // soft blend around the cutoff → anti-aliased blob edges, still two flat tones
-      const m = Math.max(0, Math.min(1,
-        (patch - (GRASS_THRESH - GRASS_SOFT)) / (2 * GRASS_SOFT)));
-      const o = (y * wPx + x) * 4;
-      d[o]     = GRASS_DARK[0] + (GRASS_LIGHT[0] - GRASS_DARK[0]) * m;
-      d[o + 1] = GRASS_DARK[1] + (GRASS_LIGHT[1] - GRASS_DARK[1]) * m;
-      d[o + 2] = GRASS_DARK[2] + (GRASS_LIGHT[2] - GRASS_DARK[2]) * m;
-      d[o + 3] = 255;
+// One surface (asphalt) fills from an image asset, which arrives async. Re-export the library's
+// hook so desktop.ts can repaint the static wallpaper layer once it lands (one-shot, cheap).
+// Until then the asphalt surface fills with its own preload tone — a texture fallback, NOT a
+// second render path (the layer stack below is the only one).
+export function setCircuitSurfaceReady(cb: () => void): void { onSurfaceAssetsReady(cb); }
+
+// WHITE TRACK EDGE LINES — a thin off-white line just inside BOTH asphalt edges, real-circuit
+// style. Soft alpha so it never glares; it BREAKS wherever a kerb sits (CIRCUIT_KERB_COVER) and
+// resumes after the kerb's wedge. Skid marks composite on TOP of it (rubber covers paint).
+const WHITE_LINE_INSET_M = 0.55;   // m — from the asphalt edge inward to the line's centre
+const WHITE_LINE_W_M = 0.34;       // m — line width
+const WHITE_LINE_RGB = '238,240,242';
+const WHITE_LINE_ALPHA = 0.7;
+const WHITE_LINE_MIN_PTS = 3;      // drop slivers shorter than this (no dashes at a kerb end)
+
+function drawCircuitEdgeLines(ctx: CanvasRenderingContext2D, offX: number, offY: number,
+  s: number, twPx: number, pxPerM: number) {
+  const N = CIRCUIT_PATH.length, idx = (i: number) => ((i % N) + N) % N;
+  const insetPx = WHITE_LINE_INSET_M * pxPerM;
+  ctx.save();
+  ctx.strokeStyle = `rgba(${WHITE_LINE_RGB},${WHITE_LINE_ALPHA})`;
+  ctx.lineWidth = Math.max(1, WHITE_LINE_W_M * pxPerM);
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  for (const [ci, side] of [[0, 1], [1, -1]] as Array<[number, number]>) {
+    const cover = CIRCUIT_KERB_COVER[ci];
+    // the line's own polyline: the ribbon offset to (band/2 − inset) on this side
+    const off = (i: number): [number, number] => {
+      const a = CIRCUIT_PATH[idx(i - 1)], c = CIRCUIT_PATH[idx(i + 1)], p = CIRCUIT_PATH[i];
+      let tx = c[0] - a[0], ty = c[1] - a[1];
+      const tl = Math.hypot(tx, ty) || 1; tx /= tl; ty /= tl;
+      const nx = side * -ty, ny = side * tx;
+      return [offX + p[0] * s + nx * (twPx / 2 - insetPx), offY + p[1] * s + ny * (twPx / 2 - insetPx)];
+    };
+    // walk the loop, emitting each contiguous kerb-free run as one smooth stroke
+    let run: Array<[number, number]> = [];
+    const flush = () => {
+      if (run.length >= WHITE_LINE_MIN_PTS) { tracePolylineOpen(ctx, run); ctx.stroke(); }
+      run = [];
+    };
+    for (let k = 0; k <= N; k++) {
+      const i = idx(k);
+      if (cover[i]) flush();
+      else run.push(off(i));
     }
+    flush();
   }
-  c.putImageData(img, 0, 0);
-  _grassCanvas = cv; _grassKey = key;
-  return cv;
+  ctx.restore();
 }
 
-// Surface: GRASS (two-tone cartoon green) everywhere, then the ASPHALT ribbon (oval's
-// tarmac tones) + a rubbered-in racing line down the middle. Fits the sketch into
-// whatever canvas size it's given (game world OR the map-select mini-preview),
+// THE CIRCUIT SURFACE — an ordered stack of independent baked layers. Every boundary is cut by
+// GEOMETRY (the spline ribbon / the disc-union trap shape), and each layer's own anti-aliased
+// path IS its edge — that is what makes every transition oval-grade. The surfaces themselves
+// (look + grip + marks + dust) come from the game-wide library; this map only says WHERE.
+// Fits the sketch into whatever canvas it is given (game world OR the map-select preview),
 // preserving aspect + centring — so world coords and the render always agree.
 function drawCircuitSurface(ctx: CanvasRenderingContext2D, wPx: number, hPx: number) {
   // Map the sketch at the FIXED 2/3-oval scale (never scale-to-fit — that would
@@ -1607,49 +1556,29 @@ function drawCircuitSurface(ctx: CanvasRenderingContext2D, wPx: number, hPx: num
     (p) => [offX + p[0] * s, offY + p[1] * s] as [number, number],
   );
   const twPx = CS_BAND * s;                             // = CIRCUIT_TRACK_W · pxPerM
+  const rc: SurfaceRC = { wPx, hPx, pxPerM };
 
-  // THE DESIGNER'S FINISHED SURFACES: if the bitmap has loaded, it IS the whole surface
-  // (grass + gravel + asphalt + kerbs, smooth edges) — draw it and add only the start line.
-  const surfImg = circuitSurfaceImg();
-  if (surfImg) {
-    ctx.drawImage(surfImg, 0, 0, wPx, hPx);
-    drawCircuitStartLine(ctx, offX, offY, s, twPx, pxPerM);
-    return;
-  }
+  // 1. GRASS — the whole field (everything else is laid on top of it).
+  SURFACES.grass.paint(ctx, (m, r) => { m.fillRect(0, 0, r.wPx, r.hPx); }, rc);
 
-  // ---- PROCEDURAL FALLBACK (before the bitmap loads / off-DOM unit tests) ----
-  // Grass — the procedural two-tone field, else a flat DARK fill off-DOM.
-  {
-    const gl = grassLayer(wPx, hPx, pxPerM);
-    if (gl) ctx.drawImage(gl, 0, 0);
-    else { ctx.fillStyle = `rgb(${GRASS_DARK.join(',')})`; ctx.fillRect(0, 0, wPx, hPx); }
-  }
+  // 2. GRAVEL — the trap shapes (disc union, carved a car-width off the track, soft edge).
+  SURFACES.gravel.paint(ctx, gravelShape, rc);
 
-  // GRAVEL TRAPS — on the grass, UNDER the tarmac (they can never touch it: the shape is
-  // eroded by a full car width from every asphalt/kerb edge by construction). Visual only.
-  drawGravelTraps(ctx, wPx, hPx);
+  // 3. ASPHALT — the ribbon. The GEOMETRY cuts (a CIRCUIT_PATH stroke at the band width);
+  //    the surface's approved tarmac fill (light tone + worn ideal line) fills it.
+  SURFACES.asphalt.paint(ctx, (m) => {
+    tracePolyline(m, ptsPx);
+    m.lineWidth = twPx;
+    m.stroke();
+  }, rc);
 
   ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-  // Asphalt SURFACE — the LIGHT-GREY tarmac of the finished asset (so the <1 s pre-load
-  // fallback doesn't flash the old dark tarmac before the bitmap swaps in). NO dark rim: the
-  // tarmac sits directly on the grass; its edge is FEATHERED (two wider, low-alpha passes
-  // ramp it into the grass over featherPx per side). Kerbs drawn after cover the feather.
-  const asf = ctx.createLinearGradient(0, 0, 0, hPx);
-  asf.addColorStop(0, CIRCUIT_ASPHALT_FALLBACK[0]);
-  asf.addColorStop(1, CIRCUIT_ASPHALT_FALLBACK[1]);
-  const featherPx = Math.max(CIRCUIT_FEATHER_MIN_PX, Math.min(CIRCUIT_FEATHER_MAX_PX, twPx * CIRCUIT_EDGE_FEATHER));
-  ctx.strokeStyle = asf;
-  ctx.globalAlpha = CIRCUIT_FEATHER_ALPHA_OUT;                       // reaches featherPx past the edge
-  tracePolyline(ctx, ptsPx); ctx.lineWidth = twPx + featherPx * 2; ctx.stroke();
-  ctx.globalAlpha = CIRCUIT_FEATHER_ALPHA_IN;                        // reaches featherPx/2 → ramps up
-  tracePolyline(ctx, ptsPx); ctx.lineWidth = twPx + featherPx; ctx.stroke();
-  ctx.globalAlpha = 1;                                               // solid surface
-  tracePolyline(ctx, ptsPx); ctx.lineWidth = twPx; ctx.stroke();
-  // NO centre band: the oval's "rubbered-in racing line" pass (a.lineStroke at twPx·0.3) read as
-  // a dark stripe down the middle of the tarmac and is deliberately NOT drawn here. (The ovals
-  // keep it — a.lineStroke's only remaining user is drawStadiumSurface.)
 
-  // KERBS — red/white striped curbs + blue border, drawn ON TOP of the asphalt (each
+  // 4. WHITE EDGE LINES — painted on the asphalt, so they go UNDER the kerbs (which are
+  //    physical blocks sitting on the track edge) and under the skid layer.
+  drawCircuitEdgeLines(ctx, offX, offY, s, twPx, pxPerM);
+
+  // 5. KERBS — red/white striped curbs + blue border, drawn ON TOP of the asphalt (each
   // quad is a perpendicular slice). Blue first (underneath), stripes over (CIRCUIT_KERBS is
   // z-sorted). Each quad is FILLED and lightly STROKED in its own colour (round joins,
   // ~1 px) → subtly softened edges (not knife-edged) + the stroke overlaps neighbours so no
@@ -1666,6 +1595,7 @@ function drawCircuitSurface(ctx: CanvasRenderingContext2D, wPx: number, hPx: num
     ctx.strokeStyle = q.fill; ctx.lineWidth = softPx; ctx.stroke();
   }
 
+  // 6. START LINE. (7. the SKID layer composites on top of all of this, in desktop.ts.)
   drawCircuitStartLine(ctx, offX, offY, s, twPx, pxPerM);
 }
 
