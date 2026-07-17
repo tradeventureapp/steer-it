@@ -476,7 +476,7 @@ function renderMapPreview(c: CanvasRenderingContext2D, def: MapDefinition, RW: n
 function buildMapTiles() {
   if (!mapTilesEl) return;
   mapTilesEl.innerHTML = '';
-  const dpr = window.devicePixelRatio || 1;
+  const dpr = backingDpr();
   const RW = 440, RH = 240, DW = 220, DH = 120;   // render 2×, display 1× (crisp)
   const renderedGroups = new Set<string>();
 
@@ -659,7 +659,19 @@ const wallpaperCtx = wallpaperCanvas.getContext('2d')!;
 const overlayCanvas = document.createElement('canvas');
 const overlayCtx = overlayCanvas.getContext('2d')!;
 
-let dpr = window.devicePixelRatio || 1;
+// The canvas art is a flat cartoon (no fine text — the HUD/menus are HTML DOM and
+// stay crisp at the display's real DPR regardless). Rendering the game canvas at a
+// full 2–3× retina backing store is pure fill-rate cost with no benefit for this
+// style — and on a HiDPI Mac it's the whole-game stall (every full-canvas blit +
+// fillRect + car/fx/shadow pass scales with dpr²). So CAP the backing store: at
+// dpr>1.5 the scene is drawn at 1.5× and the browser upscales to the panel (a hair
+// softer, still supersampled). dpr≤1.5 displays (the boss's non-retina panel = 1.0)
+// are UNTOUCHED — Math.min(1, 1.5) = 1 ⇒ byte-identical. Fill cost at native 2.0 →
+// 1.5 is ×(1.5/2)² = 0.56. Tunable in one place.
+const MAX_BACKING_DPR = 1.5;
+const backingDpr = () => Math.min(window.devicePixelRatio || 1, MAX_BACKING_DPR);
+
+let dpr = backingDpr();
 
 // ---------- The active MAP (background, obstacles, spawn, bounds, wrap) ------
 // Everything below reads through `currentMap` rather than hardcoding the
@@ -712,7 +724,7 @@ function screenToWorld(clientX: number, clientY: number): { x: number; y: number
 // and needing a redraw). A pure window-resize of a fixed-world map returns false,
 // so the oval keeps its world, skids and race progress; only the view updates.
 function syncCanvasesAndView(): boolean {
-  dpr = window.devicePixelRatio || 1;
+  dpr = backingDpr();
   const W = window.innerWidth, H = window.innerHeight;
 
   canvas.width = Math.floor(W * dpr);

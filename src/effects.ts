@@ -63,6 +63,36 @@ export const GRASS_DUST_RGB: [number, number, number] = [170, 126, 84];
 // mathematically INVISIBLE over its own bed (measured peak Δ 0; alpha cannot rescue it).
 export const GRAVEL_SPRAY_RGB: [number, number, number] = [216, 210, 191];
 
+// A soft radial smoke puff, baked ONCE per tint (opaque core → transparent rim,
+// the same 1 / 0.5 / 0 alpha profile the old per-particle gradient used). draw()
+// blits it at globalAlpha = the puff's opacity, so it's one drawImage per puff
+// instead of a fresh createRadialGradient + arc + fill (allocation + fill-rate hog
+// on HiDPI). Keyed by tint; the palette is a tiny discrete set (rubber / dust /
+// stone), so at most a handful ever bake. Null off-DOM (unit tests never draw).
+const SMOKE_SPRITE_R = 64;   // baked radius in px; scaled per puff via drawImage
+const _smokeSprites = new Map<string, HTMLCanvasElement>();
+function smokeSprite(tint: [number, number, number]): HTMLCanvasElement | null {
+  if (typeof document === 'undefined') return null;
+  const [tr, tg, tb] = tint;
+  const key = tr + ',' + tg + ',' + tb;
+  let cv = _smokeSprites.get(key);
+  if (!cv) {
+    const R = SMOKE_SPRITE_R;
+    cv = document.createElement('canvas');
+    cv.width = R * 2; cv.height = R * 2;
+    const c = cv.getContext('2d');
+    if (!c) return null;
+    const g = c.createRadialGradient(R, R, 0, R, R, R);
+    g.addColorStop(0,    `rgba(${tr}, ${tg}, ${tb}, 1)`);
+    g.addColorStop(0.55, `rgba(${tr}, ${tg}, ${tb}, 0.5)`);
+    g.addColorStop(1,    `rgba(${tr}, ${tg}, ${tb}, 0)`);
+    c.fillStyle = g;
+    c.beginPath(); c.arc(R, R, R, 0, Math.PI * 2); c.fill();
+    _smokeSprites.set(key, cv);
+  }
+  return cv;
+}
+
 interface Particle {
   kind: 'smoke' | 'spark';
   x: number; y: number;     // meters
@@ -179,21 +209,21 @@ export class Effects {
     for (const p of this.particles) {
       const t = p.age / p.life;
       if (p.kind === 'smoke') {
-        // Airy, see-through surface smoke/dust: a SOFT radial gradient per puff
-        // (opaque core fading to fully transparent at the rim) keeps the car
-        // visible THROUGH it. Colour is the emitting map's surface tint (white
-        // rubber smoke on the desktop, brown dust on the dirt oval, …).
+        // Airy, see-through surface smoke/dust: a SOFT radial puff (opaque core
+        // fading to fully transparent at the rim) keeps the car visible THROUGH
+        // it. Colour is the emitting map's surface tint (white rubber smoke on the
+        // desktop, brown dust on the dirt oval, …). The radial profile is BAKED
+        // ONCE per tint into a sprite (smokeSprite) and blitted here — a fresh
+        // createRadialGradient per puff every frame (up to maxParticles) was an
+        // allocation + fill-rate hog on HiDPI; the sprite is one drawImage.
         const a = FX_CONFIG.smokeAlpha * (1 - t) * p.alphaMul;
-        const cx = p.x * px, cy = p.y * px, r = p.size * px;
-        const [tr, tg, tb] = p.tint;
-        const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
-        g.addColorStop(0,    `rgba(${tr}, ${tg}, ${tb}, ${a.toFixed(3)})`);
-        g.addColorStop(0.55, `rgba(${tr}, ${tg}, ${tb}, ${(a * 0.5).toFixed(3)})`);
-        g.addColorStop(1,    `rgba(${tr}, ${tg}, ${tb}, 0)`);
-        ctx.fillStyle = g;
-        ctx.beginPath();
-        ctx.arc(cx, cy, r, 0, Math.PI * 2);
-        ctx.fill();
+        const r = p.size * px;
+        const sprite = smokeSprite(p.tint);
+        if (sprite) {
+          ctx.globalAlpha = a;
+          ctx.drawImage(sprite, p.x * px - r, p.y * px - r, r * 2, r * 2);
+          ctx.globalAlpha = 1;
+        }
       } else {
         ctx.fillStyle = `rgba(255, 214, 107, ${(0.9 * (1 - t)).toFixed(3)})`;
         ctx.beginPath();

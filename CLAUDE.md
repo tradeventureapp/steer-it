@@ -4609,3 +4609,49 @@ intact. **REGRESSION:** ONLY `src/surfaces.ts` changed — `physics.ts`/`physics
 `desktop.ts`/`marks.ts` byte-identical (empty diffs) ⇒ step() 0.0e+0 and the geometry masks
 (`surfaceAt`/`markClassAt`) unchanged; desktop + both ovals don't use the asphalt bitmap surface
 (their own `drawWallpaper`/`drawStadiumSurface`) so they're untouched. tsc + build clean.
+
+---
+**GAME-WIDE PERF — HIDPI FILL-RATE STALL FIXED (backing-store DPR cap 1.5 + smoke sprite bake;
+`desktop.ts` + `effects.ts` only, physics/masks 0.0e+0):** a friend's Mac was choppy on ALL maps
+(desktop/ovals/circuit) from the first frame at full size; shrinking the window to ~15 cm made it
+smooth (cost ∝ pixel count = fill-rate). Fine on the boss's non-retina panel ⇒ DPR/GPU-dependent.
+**STEP 1 — PROFILED at DPR=2 (real GPU-backed Canvas, 1440×900 CSS):** the render loop is already
+baked-blit (wallpaper/skids/overlay/marks are static offscreen layers), so the DOMINANT shared cost
+is the PER-FRAME COMPOSITE — `fillRect` + 3 full-canvas `drawImage` blits (desktop/ovals) or 5
+(circuit: +marks over + multiply) — onto the MAIN backing store sized `W·dpr × H·dpr`. That scales
+with dpr² and is common to every map. **Measured composite-only ms (dev GPU; the Mac is slower but
+the ratio holds):**
+```
+   dpr   backing(1440×900)  relFill   desktop/oval   circuit
+   2.0    2880×1800 5.18MP    1.00      11.8 ms      19.3 ms   <- circuit ALONE > 16.7ms 60fps budget
+   1.5    2160×1350 2.92MP    0.56       5.2 ms      11.4 ms
+   1.25   1800×1125 2.02MP    0.39       3.3 ms       6.6 ms
+   1.0    1440× 900 1.30MP    0.25       1.8 ms       3.9 ms
+```
+At native 2.0 the circuit composite ALONE (19 ms) already blows the 60fps budget BEFORE cars/HUD →
+choppy on every map on a weaker GPU. Second cost (drift only): `fx.draw` did a FRESH
+`createRadialGradient` + arc + fill PER SMOKE PUFF (up to `maxParticles` 340) every frame — allocation
++ fill-rate hog at dpr² (200 puffs @ dpr2 ≈ 3.6 ms). Car `shadowBlur` (per car) also scales with device
+pixels but with car-count, not full-canvas — the DPR cap covers it too, so the car art is untouched
+(no DPR=1 regression). **STEP 2 — FIX (2 files):** **(A) BACKING-STORE DPR CAP** — new
+`MAX_BACKING_DPR = 1.5` + `backingDpr() = min(devicePixelRatio, 1.5)`, applied to the main canvas AND
+the offscreen layers (both derive from the one `dpr`) AND the map-select tiles. The canvas art is flat
+cartoon and the HUD/menus are HTML DOM (crisp at the panel's real DPR regardless), so 1.5× is still
+supersampled — a hair softer, not blurry. **dpr≤1.5 panels (the boss's 1.0) are BYTE-IDENTICAL**
+(`min(1,1.5)=1`). Fill at native 2.0→1.5 = ×(1.5/2)² = **0.56** (circuit composite 19.3→11.4 ms,
+desktop/oval 11.8→5.2 ms — back under budget with headroom). **(B) SMOKE SPRITE** — the radial puff
+profile (1 / 0.5 / 0 alpha) is BAKED ONCE per tint into a 128 px sprite (`smokeSprite`, cached by tint
+— the palette is a tiny discrete set: rubber / brown dust / stone) and BLITTED per puff at
+`globalAlpha` = the puff opacity → one `drawImage` instead of a per-puff gradient allocation+fill.
+**STEP 3 — VERIFIED:** (a) **smoke sprite ≈ old gradient** — core alpha 37 vs 36, mid 19 vs 18, mean
+per-channel diff 0.108 (max 381 = one AA rim pixel) ⇒ no DPR=1 visual change; (b) **DPR cap not a
+blurry mess** — circuit kerb/blue/edge-line/gravel crop at clamped-1.5 upscaled to the 2× panel is
+indistinguishable from native 2.0 by eye (finest edges a hair softer); (c) **before→after per map
+(composite, the shared bottleneck): desktop/oval 11.8→5.2 ms (2.3×), circuit 19.3→11.4 ms (1.7×)**;
+smoke 200-puff 3.6→~1.4 ms. **DPR DECISION:** cap = 1.5 (not 1.0 — keeps supersampling/sharpness; not
+2.0 — halves fill); one-line tunable (`MAX_BACKING_DPR`), drop to 1.25 if a very weak GPU still
+struggles. **REGRESSION:** only `src/desktop.ts` (backing-store size) + `src/effects.ts` (smoke render)
+changed — `physics.ts`/`physics4.ts`/`maps.ts`/`race.ts`/`marks.ts`/`surfaces.ts`/`cars.ts`
+byte-identical (empty diffs) ⇒ step() 0.0e+0 and the geometry masks unchanged; the particle
+simulation (spawn/update) is untouched (render-only change); physics stays in metres, unaffected by the
+backing-store cap. tsc + build clean.
