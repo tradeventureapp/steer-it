@@ -127,7 +127,7 @@ export function listVehicles(): VehicleIdentity[] {
 //
 //  Type-only import of `Config` → no runtime dependency on physics (no cycle).
 // =============================================================================
-import type { Config } from './physics';
+import type { Config } from './vehicle-core';
 import type { ArcadeParams } from './arcadeModel';
 
 export interface VehicleSpec {

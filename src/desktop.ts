@@ -5,7 +5,7 @@ import { createRtcHost, connectionPathOf, createFallbackTracker, RTC_EV } from '
 import {
   CONFIG, makeCar, bodyToWorld, collideWithRects,
   type CarState, type Inputs,
-} from './physics';
+} from './vehicle-core';
 import { collideCars, applyInputs } from './cars';
 import { TyreMarks } from './marks';
 import {

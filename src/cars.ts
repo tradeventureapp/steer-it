@@ -9,7 +9,7 @@
 //      explode),
 //    • input clamping/merge shared by the control router and its test.
 // =============================================================================
-import { CONFIG, type CarState, type Inputs } from './physics';
+import { CONFIG, type CarState, type Inputs } from './vehicle-core';
 
 function clamp(v: number, lo: number, hi: number): number {
   return v < lo ? lo : v > hi ? hi : v;

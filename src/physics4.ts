@@ -24,7 +24,7 @@
 //  in a WeakMap keyed by the CarState object → physics.ts is UNTOUCHED, multi-
 //  car safe, deterministic, respawn = fresh state.
 // =============================================================================
-import { CONFIG, type CarState, type Inputs } from './physics';
+import { CONFIG, type CarState, type Inputs } from './vehicle-core';
 import type { Surface } from './maps';
 
 export interface Physics4Params {

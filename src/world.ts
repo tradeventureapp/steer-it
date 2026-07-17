@@ -15,7 +15,7 @@
 //    →  clock (dynamic)  →  car
 // =============================================================================
 
-import { CONFIG, type ObstacleRect } from './physics';
+import { CONFIG, type ObstacleRect } from './vehicle-core';
 
 export type IconType = 'folder' | 'file' | 'image' | 'zip' | 'bin';
 

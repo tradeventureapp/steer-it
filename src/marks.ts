@@ -28,7 +28,7 @@
 // Memory is FIXED: two bitmaps sized once. Nothing accumulates in an array, so this also
 // retires the unbounded skid-line list that was the real performance time-bomb.
 
-import { CONFIG, bodyToWorld, type CarState } from './physics';
+import { CONFIG, bodyToWorld, type CarState } from './vehicle-core';
 import { wheelDebug, PHYS4 } from './physics4';
 import type { Surface, MarkClass } from './maps';
 

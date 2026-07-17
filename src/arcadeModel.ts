@@ -43,7 +43,7 @@
 //  the CarState object (a respawn creates a new object → fresh state).
 //  physics.ts is UNTOUCHED — sim-real-2 stays byte-identical.
 // =============================================================================
-import type { CarState, Inputs } from './physics';
+import type { CarState, Inputs } from './vehicle-core';
 
 export interface ArcadeParams {
   // L1 thrust

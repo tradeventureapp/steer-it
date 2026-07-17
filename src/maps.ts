@@ -14,7 +14,7 @@
 //  map-agnostic. Each MapDefinition's own methods know how to read their world.
 // =============================================================================
 
-import { CONFIG, type CarState, type ObstacleRect } from './physics';
+import { CONFIG, type CarState, type ObstacleRect } from './vehicle-core';
 import { spawnPose } from './cars';
 import type { RaceElement } from './race';
 import {
