@@ -4433,3 +4433,31 @@ boxes are PAINT, not geometry). **physics.ts + physics4.ts untouched (empty diff
 tsc + build clean. **VERIFIED BY EYE** (PNG harness, cars overlaid, nose marked): P1 inner + nearest
 the line, echelon stagger, boxes framing the cars with the nose at the open end, all clear of the edge
 line, plain single finish line (checkers gone).
+
+---
+**CIRCUIT GRID — 3×4 + WIDER + STRONGER STAGGER + BOXES MIRRORED (boss's screenshot verdict):**
+**LAYOUT 3 COLS × 4 ROWS** (was 4×3), still 12: P1 inner / P2 middle / P3 outer, P4–P6 row 2, …
+P10–P12 row 4. `circuitGridPose` stays the single source for BOTH the car pose and the box paint.
+Cap/slot policy unchanged (P1..P8 reachable; PLAYER_CAP 8).
+**NEW VALUES (measured against every target):** `GRID_BOX_W` 3.08 → **3.69 m (×1.20** = "~1/5 wider") ·
+`GRID_STAGGER` 1.92 → **2.56 m (×1.34** = "×1.33") · `GRID_COL_PITCH` **8.72 m** (3 cols spread evenly
+across the band) · `GRID_ROW_PITCH` **7.69 m UNCHANGED** (no adjustment needed — gaps still clear) ·
+`GRID_BOX_L` 5.13 / `GRID_BOX_ARM` 3.85 / `GRID_FRONT_GAP` 4.44 kept. **VERIFIED: margin to the white
+edge lines 2.47 m** (previous 2.44, kept) · **no overlap** (5.03 m lateral / 2.56 m longitudinal
+between boxes) · **nothing over the start line** (closest front point 2.22 m behind) · furthest box
+back 35.22 m on a straight with ~60 m behind the line · all 12 spawn on asphalt.
+**⚠️ ORIENTATION — THE SPEC CONTRADICTED ITSELF; MEASURED FIRST, THEN ASKED (do not silently pick):**
+point 1 said BOTH "the boxes render open BACKWARD — wrong way. Open end must face the RACING DIRECTION
+(−x)" AND "the boss's original sketch was right — flip the sign" — but the sketch is bar-LEFT/
+arms-RIGHT = **open backward**, so the two are mutually exclusive. **An ASCII dump of the LIVE render
+proved it was ALREADY open toward −x with the back bar behind the car** (i.e. it already matched the
+WORDS; "renders open BACKWARD" did not hold — likely a screenshot misread, easy with no cars in the
+boxes). Asked with both previews → **boss picked the MIRROR knowing the bar lands in front of the
+nose.** ⇒ **`GRID_BOX_OPEN_FORWARD` = −1** (bar ahead of the nose, arms trailing, open end backward =
+the sketch's shape). **ONE constant flips it back to +1** (the real-grid convention).
+**SCOPE:** paint + spawn only — `maps.ts` alone. **MASKS byte-identical: 922,320 samples @ 0.2 m —
+`surfaceAt` 0 diffs, `markClassAt` 0 diffs.** physics.ts / physics4.ts / race.ts / desktop.ts
+**untouched (empty diff)** ⇒ step() 0.0e+0 and the nose/plane timing unchanged. tsc + build clean.
+**VERIFIED BY EYE** (PNG harness, all 12 cars overlaid + nose marked): 3 lane-columns × 4 rows, P1
+inner + nearest the line, stagger visibly stronger, boxes mirrored per the boss's pick, nothing over
+the start line or the edge lines.
