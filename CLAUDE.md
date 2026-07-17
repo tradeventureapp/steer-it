@@ -4171,3 +4171,82 @@ tsc + build clean. **HONEST NOTE:** the surface itself is the designer's polishe
 were no surface defects for me to "fix" — the production-readiness here is the verified alignment +
 correct start line + the flash removal; the fallback still lacks the baked racing-line strip (it's
 a <1 s pre-load frame, not worth baking).
+
+---
+**CIRCUIT — SURFACE LIBRARY + LAYERED RENDER + VISUAL UPGRADE (surfaces defined ONCE game-wide;
+maps only place them; the designer bitmap survives only as asphalt fill):** the boss's third path
+out of the "re-texture the bitmap vs go procedural" fork. **NEW `src/surfaces.ts` — the surface
+library.** ONE `SurfaceDef` joins a surface's RENDERER + PHYSICS BINDING + EFFECTS IDENTITY, so
+"grass" means one thing game-wide (look + grip + marks + dust). **API:** `SurfaceId` = 'grass' |
+'gravel' | 'asphalt'; `SurfaceRC {wPx,hPx,pxPerM}`; **`SurfaceShape = (mask: Ctx2D, rc) => void`**
+(the map paints its region's ALPHA — the callback's own path AA becomes the surface's edge);
+`SurfaceDef { id, physics: Surface, markClass: MarkClass, dust: SurfaceDust, texture(rc,opts),
+paint(ctx, shape, rc, opts) }`; `SURFACES` / `getSurface(id)`; `onSurfaceAssetsReady(cb)`;
+tunables `GRASS_LOOK` / `GRAVEL_LOOK`. NOTHING map-specific is inside — a map supplies GEOMETRY +
+PLACEMENT only. No import cycle: surfaces.ts takes `type {Surface, MarkClass}` from maps.ts
+(type-only ⇒ erased) while maps.ts imports it at runtime. Textures bake once per (surface, size,
+angle) into a cached canvas.
+**LAYER STACK (`drawCircuitSurface`, one path, no dead code):** 1. GRASS (whole field) → 2. GRAVEL
+(`gravelShape`) → 3. ASPHALT (ribbon) → 4. WHITE EDGE LINES → 5. KERBS → 6. START LINE
+(7. skids composite on top, desktop.ts). **DELETED: the "draw the whole bitmap and return" path AND
+the dead procedural-asphalt fallback** (+ the old grass/gravel noise layers, `circuitSurfaceImg`,
+`CIRCUIT_ASPHALT_FALLBACK`, the CIRCUIT_EDGE_FEATHER set, GRASS_*/GRAVEL_* look constants — the look
+now lives in the library). `setCircuitGrassReady` → **`setCircuitSurfaceReady`** (delegates to
+`onSurfaceAssetsReady`; the name was stale — there is no grass bitmap any more).
+**THE LOOK — (A) GRASS = mown lawn stripes** (`GRASS_LOOK`: light [116,164,72] / dark [98,143,62]
+= the family, `bandM` **4.2** m world-scaled, `angleDeg` **12**, `edgeSoft` **0.12** — a sine
+sharpened into a soft-edged square wave ⇒ flat bands, clean transitions, no gradient look; 0.34 was
+tried first and read as broad vertical smears). **(B) GRAVEL = restyled + raked** (`GRAVEL_LOOK`:
+`base` **[203,189,160]** lighter warm sand-beige, `groove` **[140,108,72]** the damp under-layer,
+`rakeStrength` **0.20**, `rakeSpacingM` **2.0**, `rakeAngleDeg` **38** (≠ grass ⇒ reads distinct),
+`rakeSharp` **2.0** = raised-cosine powered up ⇒ broad light tops, narrow soft brown grooves; even
+spacing, one direction per trap, grooves end at the trap boundary). **GRAIN: judged BOTH ways at
+1:1 and blown up → shipped OFF** (`speckle` **0**, knob retained): a speckle fine enough to read as
+sand is SUB-PIXEL here (0.22 m ≈ 1.65 px), so it only aliased into a faint dither — and a blocky
+checkerboard when zoomed. The raking alone carries the surface and reads DRAWN, not photographic.
+**(C) WHITE EDGE LINES** (`drawCircuitEdgeLines`): thin off-white inside BOTH asphalt edges,
+`WHITE_LINE_INSET_M` **0.55** / `WHITE_LINE_W_M` **0.34** / `WHITE_LINE_RGB` '238,240,242' /
+`WHITE_LINE_ALPHA` **0.7** / `WHITE_LINE_MIN_PTS` **3** (no slivers). BREAKS at kerbs + resumes
+after each wedge via **`CIRCUIT_KERB_COVER`** — two per-path-point Uint8Arrays filled inside
+`emitKerb`, the side recovered as `normFn(1,0)[1]` (so NO call-site change). Painted on the asphalt
+⇒ under the kerbs + under the skid layer.
+**TWO REAL DEFECTS FOUND BY MEASURING + LOOKING (the useful findings):** **(1) the bitmap's own
+baked rim.** The designer asset is a finished PICTURE, so its tarmac carries a dark AA rim; our
+ribbon's edge is not the image's edge, so that rim landed just INSIDE our boundary as a dark
+fringe (measured at x=800: render 837→[60,66,69], 838→[75,79,86], 839→[87,91,99] vs clean asphalt
+[92,96,104]). Cured GEOMETRICALLY in **`cleanFill(shape, rc, tex, insetPx)`** — erode the shape's
+alpha (∩ of `ring()`-shifted copies), sample the fill only through that interior, then DILATE the
+clean sample back out past the edge. NO pixel is classified; the shape decides what is "inside".
+`ASPHALT_FILL_INSET_M` **0.9**. After: 837 → [93,96,104] = clean tarmac right at the edge, fringe
+GONE. **(2) the gravel trap's staircase.** Tightening the edge (the old ~8 px blur had been hiding
+it as an airbrushed smudge) exposed the physics mask's own 4 px/m raster steps — the "chewed" edge.
+`GRAVEL_MASK_PPM` is SHARED WITH PHYSICS so it must not move; fixed instead with the same
+BLUR+THRESHOLD rounding the mask is built with, applied at SCREEN res: `GRAVEL_EDGE_SMOOTH_PX` **6**
+(averages the steps into the curve they approximate) then a smoothstep about 0.5 leaving
+`GRAVEL_EDGE_AA_PX` **1.4** of ramp (re-sharpen to a vector-clean AA edge). The mask is only READ.
+**⚠️ NOTE the earlier `GRAVEL_EDGE_SOFT_M` 0.55 was in DESTINATION px, not metres** — `m.filter`
+applies to the drawing op on the 1920-wide mask ctx, which is why it read as an 8 px mush.
+**MEASURED / VERIFIED:** **physics 0.0e+0 — 590,400 samples over the WHOLE world at a 0.2 m grid:
+`surfaceAt` 0 diffs, `markClassAt` 0 diffs vs HEAD** (A/B'd against a bundle of HEAD's maps.ts in
+the browser; asphalt 55.1 % = the documented figure). Masks are GEOMETRIC and independent of
+rendering — kept so. Ovals + desktop map untouched (only maps.ts + surfaces.ts + the desktop.ts
+import rename). **ZERO per-frame cost — all three `drawBackground` call sites are load/rebuild-time**
+(map-select tile, resize, async-asset-ready); warm bake **37 ms**. tsc + build clean; no brand
+strings. **VERIFIED BY EYE** (PNG-export harness — browser screenshots hang here): full map + 1:1/3×/8×
+crops — (a) asphalt fills inside the geometric ribbon edge against striped grass, clean vector AA,
+no fringe; (b) the raked trap incl. its boundary = a smooth organic curve, no staircase, no smudge,
+**no dark contour** (the old rim is gone); (c) the white line breaking at a kerb + resuming after the
+wedge; (d) kerbs sitting correctly on top. Judged against the oval craftsmanship bar.
+**OVALS MIGRATION (described, NOT done — as instructed):** `drawStadiumSurface` currently paints its
+ring from `SURFACE_STYLES[style]` gradients + groove tints, and `drawStadiumDecor` the rest. To
+migrate: (1) add `'dirt'` to `SurfaceId` + a `DIRT` SurfaceDef (physics 'grass' or a future 'dirt'
+tyre entry, markClass, dust `[170,126,84]` = the existing `smokeColor`) and move the asphalt-twin's
+ring tones into the ASPHALT def as a night/day `SurfacePaintOpts` variant (the ovals are a NIGHT
+palette — the library must carry the variant, not a second surface id); (2) express the ring as a
+`SurfaceShape` — `stadiumPath()` stroked at `bandW` — and the infield as another (both already exist
+as geometry, so this is a callback wrap, not new maths); (3) `makeStadiumMap` then passes
+`surface: SurfaceId` instead of a `SURFACE_STYLES` key, and `SURFACE_STYLES` + `drawStadiumSurface`'s
+gradient body collapse into the library. Barriers/grandstands/floodlights/start line stay as they are
+(decor, not surfaces). The factory already guarantees both twins share geometry, so the migration is
+per-surface, not per-map — and the per-surface GRIP difference (deferred, dirt side) then lands as
+one `tire.muScale` entry rather than a map override.
