@@ -899,12 +899,14 @@ const KERB_EXTENDS: Array<{ near: Pt; addPts: number }> = [
 ];
 
 interface KerbQuad { a: Pt; b: Pt; c: Pt; d: Pt; fill: string; z: number; }  // z: 0 blue (under) · 1 stripes (over)
-// Per path index + side: does a kerb cover this stretch (stripes AND blue tails)? The white
-// edge lines read it to BREAK where a kerb sits and resume after its wedge. Filled by the
-// kerb builder below, which is the only thing that knows each kerb's true extent.
+// Per path index + side: how far PAST the asphalt edge the kerb's OUTER (grass-side)
+// silhouette reaches — 0 where there is no kerb. The white edge line rides this, so it leaves
+// the asphalt edge and WRAPS the kerb's rim instead of stopping at it. Filled by the kerb
+// builder below (the only thing that knows each kerb's true extent) straight from the same
+// outer offset the blue is drawn with, so the line can never disagree with the kerb.
 //   [0] = side +1 (normal (−ty, tx)) · [1] = side −1
-const CIRCUIT_KERB_COVER: [Uint8Array, Uint8Array] = [
-  new Uint8Array(CIRCUIT_PATH.length), new Uint8Array(CIRCUIT_PATH.length),
+const CIRCUIT_KERB_OUTER: [Float32Array, Float32Array] = [
+  new Float32Array(CIRCUIT_PATH.length), new Float32Array(CIRCUIT_PATH.length),
 ];
 const CIRCUIT_KERBS: KerbQuad[] = ((): KerbQuad[] => {
   const N = CIRCUIT_PATH.length, idx = (i: number) => ((i % N) + N) % N;
@@ -980,11 +982,6 @@ const CIRCUIT_KERBS: KerbQuad[] = ((): KerbQuad[] => {
     const leftPts = tailPts(sStart, -1), rightPts = tailPts(sEnd, 1);
     const bStart = idx(sStart - leftPts);
     const blen = ((sEnd - sStart + N) % N) + 1 + leftPts + rightPts;
-    // Record this kerb's FULL extent (stripes + both blue tails) on ITS side, so the white
-    // edge line breaks over exactly the stretch the kerb occupies. The side is read back out
-    // of the caller's normal: normFn(1,0) = [0, side] ⇒ its y component IS the sign.
-    const cover = CIRCUIT_KERB_COVER[normFn(1, 0)[1] >= 0 ? 0 : 1];
-    for (let k = 0; k < blen; k++) cover[idx(bStart + k)] = 1;
     const P: Pt[] = [], nrm: Pt[] = [], edge: Pt[] = [], arc: number[] = [0];
     for (let k = 0; k < blen; k++) {
       const i = idx(bStart + k), a = CIRCUIT_PATH[idx(i - 1)], c = CIRCUIT_PATH[idx(i + 1)], p = CIRCUIT_PATH[i];
@@ -1024,6 +1021,17 @@ const CIRCUIT_KERBS: KerbQuad[] = ((): KerbQuad[] => {
       const t = Math.min(1, dist / KERB_BLUE_TAIL);      // 0 at the cut → 1 at the tail end
       return [-KERB_SEAM, FULL_W * (1 - t)];             // full band at the cut, steady wedge to 0
     };
+    // Hand this kerb's OUTER silhouette to the white edge line, straight from the offset the
+    // blue is drawn with — so the line rides the real rim rather than a re-derived guess. The
+    // side is read back out of the caller's normal: normFn(1,0) = [0, side] ⇒ its y IS the sign.
+    // Deliberately the UNCLIPPED wedge (it tapers to 0 rather than stopping at the tip trim), so
+    // the profile the line follows runs all the way back down onto the asphalt edge with no step:
+    // the wedges are the on/off ramps. Where kerbs overlap, the outermost wins.
+    const rim = CIRCUIT_KERB_OUTER[normFn(1, 0)[1] >= 0 ? 0 : 1];
+    for (let k = 0; k < blen; k++) {
+      const i = idx(bStart + k);
+      rim[i] = Math.max(rim[i], blueEdges(k)[1]);
+    }
     // TIP TRIM — the wedge ENDS where its outer reach has fallen to W_CLIP, closed with a
     // rounded nose. outer(dist) = FULL_W·(1 − dist/L) ⇒ the clip sits at a CONSTANT arc past
     // each hard cut, so every end is trimmed identically (canonical, like the tail itself).
@@ -1102,6 +1110,32 @@ const CIRCUIT_KERBS: KerbQuad[] = ((): KerbQuad[] => {
   return quads;
 })();
 
+// The kerb rim as the white edge line rides it: CIRCUIT_KERB_OUTER, lightly smoothed. The raw
+// silhouette has ONE corner — the wedge leaves the body's constant FULL_W on a straight taper,
+// so its slope steps at the hard cut (the same ~29° facet the kerb's own blue shows). A short
+// circular box blur rounds exactly that join into a curve; everywhere else the profile is
+// already flat or a long ramp, so it barely moves — and the line sits WHITE_LINE_INSET_M inside
+// the rim anyway, far more than this shifts it. Baked once (the path never changes).
+const KERB_RIM_SMOOTH_R = 3;    // path points, per pass
+const KERB_RIM_SMOOTH_PASSES = 2;
+const CIRCUIT_KERB_RIM: [Float32Array, Float32Array] = (() => {
+  const N = CIRCUIT_PATH.length;
+  const out = CIRCUIT_KERB_OUTER.map((src) => {
+    let cur = Float32Array.from(src);
+    for (let pass = 0; pass < KERB_RIM_SMOOTH_PASSES; pass++) {
+      const next = new Float32Array(N);
+      for (let i = 0; i < N; i++) {
+        let s = 0;
+        for (let d = -KERB_RIM_SMOOTH_R; d <= KERB_RIM_SMOOTH_R; d++) s += cur[((i + d) % N + N) % N];
+        next[i] = s / (2 * KERB_RIM_SMOOTH_R + 1);
+      }
+      cur = next;
+    }
+    return cur;
+  });
+  return [out[0], out[1]];
+})();
+
 // Track bbox centre (of the SMOOTH path) → centre the ribbon in the screen world.
 const _cpx = CIRCUIT_PATH.map((p) => p[0]), _cpy = CIRCUIT_PATH.map((p) => p[1]);
 const CS_BCX = (Math.min(..._cpx) + Math.max(..._cpx)) / 2;
@@ -1122,13 +1156,6 @@ function tracePolyline(ctx: CanvasRenderingContext2D, pxPts: Pt[]) {
   ctx.moveTo(pxPts[0][0], pxPts[0][1]);
   for (let i = 1; i < pxPts.length; i++) ctx.lineTo(pxPts[i][0], pxPts[i][1]);
   ctx.closePath();
-}
-
-// Same, but OPEN — for a run that starts and ends somewhere (an edge line broken by a kerb).
-function tracePolylineOpen(ctx: CanvasRenderingContext2D, pxPts: Pt[]) {
-  ctx.beginPath();
-  ctx.moveTo(pxPts[0][0], pxPts[0][1]);
-  for (let i = 1; i < pxPts.length; i++) ctx.lineTo(pxPts[i][0], pxPts[i][1]);
 }
 
 // ---------- SURFACE MASK (circuit) ----------
@@ -1495,45 +1522,54 @@ const gravelShape: SurfaceShape = (m, rc) => {
 // second render path (the layer stack below is the only one).
 export function setCircuitSurfaceReady(cb: () => void): void { onSurfaceAssetsReady(cb); }
 
-// WHITE TRACK EDGE LINES — a thin off-white line just inside BOTH asphalt edges, real-circuit
-// style. Soft alpha so it never glares; it BREAKS wherever a kerb sits (CIRCUIT_KERB_COVER) and
-// resumes after the kerb's wedge. Skid marks composite on TOP of it (rubber covers paint).
-const WHITE_LINE_INSET_M = 0.55;   // m — from the asphalt edge inward to the line's centre
+// WHITE TRACK EDGE LINES — a thin off-white line inside BOTH track edges, real-circuit style.
+// Soft alpha so it never glares. It is CONTINUOUS: rather than stopping at a kerb it leaves the
+// asphalt edge, WRAPS the kerb along its outer (grass-side) silhouette, and returns — one closed
+// polyline per side, no gaps. The wrap needs no special case and no join logic: the line simply
+// holds a constant WHITE_LINE_INSET_M inside whatever the outermost edge is at each point
+// (CIRCUIT_KERB_RIM, 0 off a kerb), and the kerb's own wedges ramp that from 0 → full → 0. Drawn
+// AFTER the kerbs (paint on their rim); skid marks composite on top of it (rubber covers paint).
+const WHITE_LINE_INSET_M = 0.55;   // m — from the outer edge inward to the line's centre
 const WHITE_LINE_W_M = 0.34;       // m — line width
 const WHITE_LINE_RGB = '238,240,242';
 const WHITE_LINE_ALPHA = 0.7;
-const WHITE_LINE_MIN_PTS = 3;      // drop slivers shorter than this (no dashes at a kerb end)
+
+// The line's polyline for one side, in SKETCH space (closed). ci 0 = side +1, 1 = side −1.
+// Baked once per side — the path and the kerbs never change.
+const _edgeLinePts: Array<Pt[] | null> = [null, null];
+function circuitEdgeLinePts(ci: 0 | 1): Pt[] {
+  const hit = _edgeLinePts[ci];
+  if (hit) return hit;
+  const N = CIRCUIT_PATH.length, idx = (i: number) => ((i % N) + N) % N;
+  const side = ci === 0 ? 1 : -1;
+  const insetU = WHITE_LINE_INSET_M / CS_SCALE;   // metres → sketch units
+  const rim = CIRCUIT_KERB_RIM[ci];
+  const pts: Pt[] = [];
+  for (let i = 0; i < N; i++) {
+    const a = CIRCUIT_PATH[idx(i - 1)], c = CIRCUIT_PATH[idx(i + 1)], p = CIRCUIT_PATH[i];
+    let tx = c[0] - a[0], ty = c[1] - a[1];
+    const tl = Math.hypot(tx, ty) || 1; tx /= tl; ty /= tl;
+    const d = CS_BAND / 2 + rim[i] - insetU;      // rim 0 ⇒ the asphalt edge, else the kerb's
+    pts.push([p[0] + side * -ty * d, p[1] + side * tx * d]);
+  }
+  _edgeLinePts[ci] = pts;
+  return pts;
+}
+/** Harness hook: the exact polyline the white edge line is stroked from (sketch space). */
+export function circuitDebugEdgeLine(ci: 0 | 1): Pt[] { return circuitEdgeLinePts(ci); }
 
 function drawCircuitEdgeLines(ctx: CanvasRenderingContext2D, offX: number, offY: number,
-  s: number, twPx: number, pxPerM: number) {
-  const N = CIRCUIT_PATH.length, idx = (i: number) => ((i % N) + N) % N;
-  const insetPx = WHITE_LINE_INSET_M * pxPerM;
+  s: number, pxPerM: number) {
   ctx.save();
   ctx.strokeStyle = `rgba(${WHITE_LINE_RGB},${WHITE_LINE_ALPHA})`;
   ctx.lineWidth = Math.max(1, WHITE_LINE_W_M * pxPerM);
   ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-  for (const [ci, side] of [[0, 1], [1, -1]] as Array<[number, number]>) {
-    const cover = CIRCUIT_KERB_COVER[ci];
-    // the line's own polyline: the ribbon offset to (band/2 − inset) on this side
-    const off = (i: number): [number, number] => {
-      const a = CIRCUIT_PATH[idx(i - 1)], c = CIRCUIT_PATH[idx(i + 1)], p = CIRCUIT_PATH[i];
-      let tx = c[0] - a[0], ty = c[1] - a[1];
-      const tl = Math.hypot(tx, ty) || 1; tx /= tl; ty /= tl;
-      const nx = side * -ty, ny = side * tx;
-      return [offX + p[0] * s + nx * (twPx / 2 - insetPx), offY + p[1] * s + ny * (twPx / 2 - insetPx)];
-    };
-    // walk the loop, emitting each contiguous kerb-free run as one smooth stroke
-    let run: Array<[number, number]> = [];
-    const flush = () => {
-      if (run.length >= WHITE_LINE_MIN_PTS) { tracePolylineOpen(ctx, run); ctx.stroke(); }
-      run = [];
-    };
-    for (let k = 0; k <= N; k++) {
-      const i = idx(k);
-      if (cover[i]) flush();
-      else run.push(off(i));
-    }
-    flush();
+  for (const ci of [0, 1] as const) {
+    const pts = circuitEdgeLinePts(ci).map(
+      (p) => [offX + p[0] * s, offY + p[1] * s] as Pt,
+    );
+    tracePolyline(ctx, pts);   // closed — the loop is a loop
+    ctx.stroke();
   }
   ctx.restore();
 }
@@ -1574,11 +1610,7 @@ function drawCircuitSurface(ctx: CanvasRenderingContext2D, wPx: number, hPx: num
 
   ctx.lineJoin = 'round'; ctx.lineCap = 'round';
 
-  // 4. WHITE EDGE LINES — painted on the asphalt, so they go UNDER the kerbs (which are
-  //    physical blocks sitting on the track edge) and under the skid layer.
-  drawCircuitEdgeLines(ctx, offX, offY, s, twPx, pxPerM);
-
-  // 5. KERBS — red/white striped curbs + blue border, drawn ON TOP of the asphalt (each
+  // 4. KERBS — red/white striped curbs + blue border, drawn ON TOP of the asphalt (each
   // quad is a perpendicular slice). Blue first (underneath), stripes over (CIRCUIT_KERBS is
   // z-sorted). Each quad is FILLED and lightly STROKED in its own colour (round joins,
   // ~1 px) → subtly softened edges (not knife-edged) + the stroke overlaps neighbours so no
@@ -1594,6 +1626,9 @@ function drawCircuitSurface(ctx: CanvasRenderingContext2D, wPx: number, hPx: num
     ctx.fillStyle = q.fill; ctx.fill();
     ctx.strokeStyle = q.fill; ctx.lineWidth = softPx; ctx.stroke();
   }
+
+  // 5. WHITE EDGE LINES — after the kerbs: where one sits, the line is paint on ITS rim.
+  drawCircuitEdgeLines(ctx, offX, offY, s, pxPerM);
 
   // 6. START LINE. (7. the SKID layer composites on top of all of this, in desktop.ts.)
   drawCircuitStartLine(ctx, offX, offY, s, twPx, pxPerM);
