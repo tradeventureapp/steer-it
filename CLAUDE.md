@@ -4473,3 +4473,26 @@ auta" is a SPREAD; a pixel scan proved the boxes already cleared the lines by **
 (nothing was overflowing), so I asked instead of guessing → boss picked the SPREAD. Box size / row
 pitch / stagger / orientation unchanged. Paint + spawn only: **masks 0 diffs (922,320 samples)**;
 physics/race/desktop untouched. tsc + build clean.
+
+---
+**CIRCUIT GRID — COLUMN PITCH DERIVED FROM THE BAND (REAL BUG: boxes were OFF THE ASPHALT on
+narrower screens):** `GRID_COL_PITCH` was a FIXED metre value, but **`CIRCUIT_TRACK_W` is derived
+from the HOST'S SCREEN** (`FLAT_LOGICAL` = `window.screen / pxPerMeter`) ⇒ a pitch tuned on 1920
+pushes the outer arms clean off the asphalt on anything narrower. **PROVEN by A/B vs HEAD across
+screen widths** (outer arm vs the band's half-width): **1920 → inside 1.65 m (why my tests passed)
+· 1536 → OFF BY 1.10 m · 1366 → OFF BY 2.32 m**; AFTER: inside 1.63–1.71 m on all.
+**⚠️ WHY MY EARLIER CHECK MISSED IT (twice over):** I only tested at **1920**, and I checked the
+spawn **CENTRE** not the ARMS — and **`surfaceAt` returns 'asphalt' out there anyway because the
+KERB counts as asphalt**, so "all 12 on asphalt: true" was true AND meaningless. Lesson: anything
+lateral on the circuit must be verified at ≥2 screen widths, and against the BAND, not `surfaceAt`.
+**FIX:** `GRID_COL_PITCH = CIRCUIT_TRACK_W/2 − WHITE_LINE_REACH_M − GRID_EDGE_CLEAR − GRID_BOX_W/2`
+⇒ each outer ARM lands exactly `GRID_EDGE_CLEAR` (= **half a car width**, `CAR_WIDTH_M/2` ≈ 0.92 m)
+short of its edge line on ANY screen. Only the clearance is ABSOLUTE (the car is 1.83 m on every
+screen). **`WHITE_LINE_REACH_M`** mirrors `circuitEdgeLinePts`' own offsets (worst case = the
+KERBED side) so the two can't drift. Floored at `GRID_BOX_W×1.1` (boxes can't overlap on a tiny
+display). **MEASURED pitch: 10.21 m @1920 · 7.53 @1536 · 6.30 @1366 · 14.64 @2560** — every box AND
+arm on asphalt at all. **PIXEL-MEASURED @1920:** inner line → P1 inner arm **1.07 m**, P3 outer arm
+→ outer line **0.93 m**, both ≥ the 0.91 target ("alespoň"; the inner side gets extra because the
+pitch is sized off the worse/kerbed side). Also: reused the existing **`CAR_WIDTH_M`** instead of
+adding a duplicate, and fixed a **TDZ order bug** (the pitch referenced `GRID_BOX_W` before its
+declaration). Box size / row pitch / stagger / orientation unchanged; physics/race/desktop untouched.
