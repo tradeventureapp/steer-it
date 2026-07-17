@@ -4204,10 +4204,10 @@ spacing, one direction per trap, grooves end at the trap boundary). **GRAIN: jud
 1:1 and blown up → shipped OFF** (`speckle` **0**, knob retained): a speckle fine enough to read as
 sand is SUB-PIXEL here (0.22 m ≈ 1.65 px), so it only aliased into a faint dither — and a blocky
 checkerboard when zoomed. The raking alone carries the surface and reads DRAWN, not photographic.
-**(C) WHITE EDGE LINES** (`drawCircuitEdgeLines`): thin off-white inside BOTH track edges,
-`WHITE_LINE_INSET_M` **0.55** / `WHITE_LINE_W_M` **0.34** / `WHITE_LINE_RGB` '238,240,242' /
-`WHITE_LINE_ALPHA` **0.7**. (Initially it BROKE at each kerb; superseded one pass later — see the
-WRAP entry below.)
+**(C) WHITE EDGE LINES** (`drawCircuitEdgeLines`): thin off-white inside BOTH asphalt edges,
+`WHITE_LINE_W_M` **0.34** / `WHITE_LINE_RGB` '238,240,242' / `WHITE_LINE_ALPHA` **0.7**.
+(This pass BROKE the line at each kerb; superseded twice — see the two entries below. Final =
+runs inside along the asphalt edge, under the kerbs, `WHITE_LINE_INSET_M` **0.25**.)
 **TWO REAL DEFECTS FOUND BY MEASURING + LOOKING (the useful findings):** **(1) the bitmap's own
 baked rim.** The designer asset is a finished PICTURE, so its tarmac carries a dark AA rim; our
 ribbon's edge is not the image's edge, so that rim landed just INSIDE our boundary as a dark
@@ -4285,3 +4285,35 @@ samples over the whole world at a 0.2 m grid — `surfaceAt` 0 diffs, `markClass
 (PNG harness, 2×/3×/4×): kerb entry (line ramps off the asphalt edge onto the rim via the wedge),
 mid-kerb (rides the blue, apex AND outer-perimeter incl. the blue-only stretch), and the exit
 ramp-off — a clean S-curve back onto the edge line, no corner, no gap.
+
+---
+**CIRCUIT — WHITE EDGE LINE: FINAL = INSIDE ALONG THE ASPHALT EDGE, UNDER THE KERBS (the wrap
+pass reverted; boss's correction):** the previous pass had the line riding the kerb's OUTER
+(grass-side) silhouette — WRONG SIDE. The line is TRACK PAINT: one continuous closed polyline per
+side at a **constant inset from the plain ribbon edge**, running straight on past the kerbs,
+**unaffected by them**; the kerb sits OUTSIDE/beyond it. **LAYERING: the line draws UNDER the
+kerbs** — stack is now grass → gravel → asphalt → **WHITE LINES → KERBS** → start line (skids on
+top as always) — so a kerb's inner edge (pulled `KERB_SEAM` onto the asphalt) laps over it and the
+line reappears the other side = one painted line, bordered by the kerb.
+**BIG SIMPLIFICATION (the rim machinery existed ONLY to feed the line → all deleted):**
+`CIRCUIT_KERB_OUTER`, `CIRCUIT_KERB_RIM` + `KERB_RIM_SMOOTH_R`/`_PASSES` + the smoothing IIFE, the
+per-kerb rim recording inside `emitKerb`, and the `circuitDebugEdgeLine` harness hook (the line is
+now just the ribbon edge offset, so its smoothness IS `CIRCUIT_PATH`'s — the kink check is moot).
+**Net 64 deletions vs 16 insertions.** `circuitEdgeLinePts(ci)` is now a plain
+`d = CS_BAND/2 − WHITE_LINE_INSET_M/CS_SCALE` offset, baked once per side.
+**⚠️ ONE VALUE HAD TO MOVE — `WHITE_LINE_INSET_M` 0.55 → 0.25** (the boss didn't ask, but "no gap
+between line and kerb inner edge" is geometrically impossible at 0.55): the kerb only reaches
+`KERB_SEAM` (0.8 sketch u ≈ **0.18 m**) onto the asphalt, so at 0.55 m inset the paint sat ~0.38 m
+INSIDE the kerb's inner edge → a ~1.5 px sliver of asphalt showed between them. At 0.25 m the
+line's outer edge lands just under that reach (overlap condition: `insetU ≤ halfW + KERB_SEAM` =
+1.57 u ≈ 0.35 m), and the line then also reads as the track edge itself where there is no kerb —
+which is what a real circuit's line does.
+**MEASURED on the render:** kerb-free (x=800) grass [116,164,72] → AA → **line [194,197,201]** →
+AA → asphalt [92,96,104] = **no asphalt sliver outside the paint**; under a kerb (x=600) solid red
+[201,56,47] → AA → asphalt = **no white sliver** (the kerb's fill PLUS its ~4 px soft stroke laps
+fully over the line — measured, not assumed).
+**PHYSICS re-proven** (emitKerb feeds `circuitMask`): **922,320 samples @ 0.2 m — `surfaceAt` 0
+diffs, `markClassAt` 0 diffs vs HEAD** (asphalt 55.1 %). Render-only; ovals + desktop untouched;
+tsc + build clean. **VERIFIED BY EYE** (PNG harness at 5×/10×/20×): kerb entry (line runs straight
+under the wedge), mid-kerb (hidden, no sliver either side), exit (the blue tip ends and the line
+emerges right there, continuing along the edge — no gap).
