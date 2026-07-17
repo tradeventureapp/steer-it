@@ -1675,15 +1675,18 @@ const WHITE_LINE_REACH_M = Math.max(
   WHITE_LINE_INSET_M,
   (KERB_SEAM + CS_BAND * 0.01) * CS_SCALE + WHITE_LINE_W_M / 2,
 ) + WHITE_LINE_W_M / 2;
-// Lateral pitch: the 3 columns spread until each outer ARM stops GRID_EDGE_CLEAR short of its edge
-// line, so the grid uses the band's width AND every box stays on the asphalt.
-// DERIVED FROM THE BAND — NOT A FIXED METRE VALUE. CIRCUIT_TRACK_W comes from the host's SCREEN
-// (via FLAT_LOGICAL), so a pitch hardcoded to suit a 1920-wide screen pushes the arms clean off the
-// asphalt on a narrower one. Only the clearance is absolute, because the car is 1.83 m on every
-// screen. Floored so the boxes can never overlap each other on a very small display.
+// Lateral pitch, DERIVED FROM THE BAND — never a fixed metre value. CIRCUIT_TRACK_W comes from the
+// host's SCREEN (via FLAT_LOGICAL), so a pitch hardcoded to suit a 1920-wide screen pushes the arms
+// clean off the asphalt on a narrower one. Only the clearance is absolute, because the car is
+// 1.83 m on every screen.
+//   · the ceiling is where each outer ARM would stop exactly GRID_EDGE_CLEAR short of its edge line
+//   · GRID_COL_TIGHTEN then squeezes the columns back toward the centre (so the real gap to the
+//     lines is larger than the minimum — "alespoň ½ šířky auta" is a floor, not a target)
+//   · floored so the boxes can never overlap each other on a very small display
+const GRID_COL_TIGHTEN = 0.75;                    // 1 = out at the lines · lower = tighter cluster
 const GRID_COL_PITCH = Math.max(
   GRID_BOX_W * 1.1,
-  CIRCUIT_TRACK_W / 2 - WHITE_LINE_REACH_M - GRID_EDGE_CLEAR - GRID_BOX_W / 2,
+  (CIRCUIT_TRACK_W / 2 - WHITE_LINE_REACH_M - GRID_EDGE_CLEAR - GRID_BOX_W / 2) * GRID_COL_TIGHTEN,
 );
 // Which way the half-frame opens. +1 = arms forward with the bar behind the car (the real-grid
 // convention); −1 = MIRRORED — bar ahead of the nose, open end facing backward. −1 is the boss's
