@@ -1339,8 +1339,13 @@ const GRAVEL_STROKES: Array<Array<[number, number, number]>> = [
   // BOTTOM-LEFT (red hatch) — the FULL outer edge: down the left perimeter (closing the gap
   // between the top-left trap and the corner) and out into the bottom-left corner, the radius
   // SWELLING so the widening wedge is filled right out to the world edges (which clip it).
+  // The last leg then runs the WHOLE bottom perimeter to meet the bottom-right stroke's end,
+  // so the gravel abuts the bottom straight's kerb like everywhere else (it used to stop at
+  // x=707 and leave a grass strip below the blue all the way along the straight). y=704 is the
+  // world's bottom edge, so the tube is clipped there; the carve trims its other side back to
+  // the kerb's outer edge — leaving exactly the strip between kerb and edge.
   [[490, 340, 34], [491, 408, 34], [497, 476, 38], [518, 543, 52],
-   [548, 603, 76], [578, 656, 98], [598, 704, 124], [707, 704, 83]],
+   [548, 603, 76], [578, 656, 98], [598, 704, 124], [707, 704, 83], [1410, 704, 83]],
   // BOTTOM-RIGHT (red hatch) — the mirror.
   [[1628, 340, 34], [1626, 408, 34], [1620, 476, 38], [1599, 543, 52],
    [1569, 603, 76], [1539, 656, 98], [1519, 704, 124], [1410, 704, 83]],

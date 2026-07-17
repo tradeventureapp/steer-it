@@ -4545,3 +4545,34 @@ kerb-width-independent): pitch still 7.65 m, all 12 on asphalt.
 with a 1.25 m smoothing radius — **and it was never true**: the committed build already had **116
 rays with gaps up to 1.5 m**. This pass leaves **7 rays up to 0.6 m** (2–3 mask cells).
 physics.ts / physics4.ts / race.ts / desktop.ts untouched; tsc + build clean.
+
+---
+**CIRCUIT — GRAVEL ABUTS THE BOTTOM PERIMETER KERB (the strip below the bottom straight had NO trap at
+all; `maps.ts` render/mask only):** the boss's screenshot showed a grass strip between the bottom
+straight's blue kerb and the world's bottom edge. **DIAGNOSED — this was NOT a regrow failure, it was
+MISSING COVERAGE:** `GRAVEL_STROKES`' bottom-left stroke ended at sketch `[707,704]` and the
+bottom-right at `[1410,704]` — **nothing between them**, so the whole bottom perimeter had no trap
+authored on it. Vertical scans proved it: at x = 100/128/160 m the sequence read `kerb` → **grass all
+the way to the world edge (144 m)**. (Geometry: sketch y=704 maps to world y=144.0 = the bottom edge;
+the kerb's outer edge sits at ~141.96 m ⇒ a ~2 m strip.) **FIX = ONE point:** the bottom-left stroke
+gains a final `[1410, 704, 83]` so it runs the WHOLE bottom perimeter and meets the bottom-right
+stroke's end — the tube is clipped by the world's bottom edge on one side, and the existing carve
+(`dilate(ribbon, GRAVEL_GRASS_GAP) ∪ kerbs(UNDILATED)`) trims the other side back to the kerb's own
+outer edge ⇒ exactly the strip between kerb and edge, abutting the blue with no grass. No new
+mechanism — the same regrow/carve from the kerb-narrowing pass. **DIRECTIONAL RAY CHECK (vertical
+normal-walk along the bottom perimeter, 0.5 m spacing, AA fringe skipped):**
+```
+                abuts   gap > noise   NO TRAP BELOW THE KERB   worst gap
+  BEFORE          29        7 (to 1.0 m)      237  <- the complaint      1.0 m
+  AFTER          219        0                   0                        0.3 m
+```
+**0 rays exceed mask noise** (worst 0.3 m = ONE 0.25 m mask cell), and the 237 rays that had no gravel
+at all are gone. **MASK A/B (0.2 m grid, whole world): 228 m² of `grass → gravel` and NOTHING ELSE** —
+`{"grass -> gravel": 228}` is the only transition; changed bbox `x 68.4..187.6, y 142.0..143.8 m` = the
+bottom perimeter strip alone. **VERIFIED BY EYE** (PNG harness, before/after of the marked spot, 4×):
+BEFORE = asphalt → white line → blue kerb → **green grass** to the edge; AFTER = the same → **raked tan
+gravel** directly against the blue. Outer trap shapes / other traps / `GRAVEL_GRASS_GAP` / smoothing /
+`GRAVEL_MIN_AREA` all unchanged. **`physics.ts` / `physics4.ts` / `race.ts` / `desktop.ts` / `marks.ts`
+/ `surfaces.ts` / `effects.ts` / `cars.ts` UNTOUCHED (empty diffs ⇒ step() 0.0e+0)** — `maps.ts` only,
+and the surface mask is geometry-based so `surfaceAt`/marks/lap-counting are unaffected outside the
+strip. tsc + build clean.
