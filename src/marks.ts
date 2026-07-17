@@ -146,6 +146,10 @@ export class TyreMarks {
   private over: HTMLCanvasElement | null = null;
   private overCtx: CanvasRenderingContext2D | null = null;
   private wPx = 0; private hPx = 0;
+  // Has anything been stamped into each layer? An empty layer is never blitted, so a
+  // clean map (or an asphalt-only map whose grass layer stays empty) costs no per-frame
+  // composite — the whole system is free until the first mark is laid.
+  private mulDirty = false; private overDirty = false;
   // Per-car wheel trails, keyed by the CarState object — a respawn makes a new object and so
   // starts a fresh trail, and a departed car's entry is collected. Same pattern as physics4.
   private trails = new WeakMap<CarState, Trail[]>();
@@ -170,6 +174,7 @@ export class TyreMarks {
   clear() {
     this.mulCtx?.clearRect(0, 0, this.wPx, this.hPx);
     this.overCtx?.clearRect(0, 0, this.wPx, this.hPx);
+    this.mulDirty = this.overDirty = false;
   }
   /** Break every trail (wrap / respawn) so no streak is drawn across the jump. */
   cut(state: CarState) {
@@ -226,6 +231,7 @@ export class TyreMarks {
         c.moveTo(trail.px, trail.py);
         c.lineTo(x, y);
         c.stroke();
+        if (grass) this.overDirty = true; else this.mulDirty = true;
       }
     }
     trail.px = x; trail.py = y; trail.active = true;
@@ -237,12 +243,12 @@ export class TyreMarks {
    * its stripes and the racing line still reads as tarmac.
    */
   draw(ctx: CanvasRenderingContext2D, ox: number, oy: number, dw: number, dh: number) {
-    if (this.over) {
+    if (this.over && this.overDirty) {
       ctx.globalAlpha = MARK.grassCap;
       ctx.drawImage(this.over, ox, oy, dw, dh);
       ctx.globalAlpha = 1;
     }
-    if (this.mul) {
+    if (this.mul && this.mulDirty) {
       ctx.globalCompositeOperation = 'multiply';
       ctx.drawImage(this.mul, ox, oy, dw, dh);
       ctx.globalCompositeOperation = 'source-over';

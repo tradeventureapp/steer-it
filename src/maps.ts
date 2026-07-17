@@ -77,6 +77,12 @@ export interface MapDefinition {
   // so the whole grass path is dead code and those maps stay byte-identical.
   surfaceAt?(x: number, y: number): Surface;
 
+  // RENDER-ONLY tyre-mark class for a map with NO per-point mask (desktop, ovals).
+  // The saturation mark system stamps the whole map in this class (rubber on
+  // asphalt, a brown dirt scuff on the flat oval). Default 'asphalt'. NEVER read
+  // by the physics — a mark is a surface's look, not its grip.
+  markClass?: MarkClass;
+
   // Circuit maps only: the built-in start/finish line as a race START element
   // (acts as start AND finish in circuit mode). Open maps omit it.
   startLine?(world: MapWorld): RaceElement;
@@ -557,6 +563,11 @@ function makeStadiumMap(opts: {
     surfaceGroup: opts.surfaceGroup,
 
     smokeColor: opts.smokeColor,
+
+    // Tyre-mark look (render-only): the asphalt ring lays grey rubber; the DIRT ring
+    // lays a brown gouged scuff (the 'gravel' cap — a darkening multiply that keeps the
+    // dirt grain, not a grey line on brown). NOT read by the physics.
+    markClass: opts.surface === 'dirt' ? 'gravel' : 'asphalt',
 
     // Fixed-shape world: built at FLAT_LOGICAL metres regardless of the window
     // and rendered with a uniform scale-to-fit, so the oval never squashes.

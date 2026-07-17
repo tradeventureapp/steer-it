@@ -10,7 +10,7 @@ import { collideCars, applyInputs } from './cars';
 import { TyreMarks } from './marks';
 import {
   getMap, listMaps, DEFAULT_MAP_ID, markClassAt, setCircuitSurfaceReady,
-  type MapDefinition, type MapWorld, type MapObstacle, type Surface,
+  type MapDefinition, type MapWorld, type MapObstacle, type Surface, type MarkClass,
 } from './maps';
 import { SoundEngine } from './sound';
 import { Effects, FX_CONFIG, GRASS_DUST_RGB, GRAVEL_SPRAY_RGB } from './effects';
@@ -584,11 +584,22 @@ const canvas = document.getElementById('game') as HTMLCanvasElement;
 const ctx = canvas.getContext('2d')!;
 const skidCanvas = document.createElement('canvas');
 const skidCtx = skidCanvas.getContext('2d')!;
-// TYRE MARKS — threshold + per-surface saturation (see marks.ts). Live only for a masked
-// map on physics4; the desktop + both ovals keep the legacy skid path below and pay nothing.
+// TYRE-MARK MODE — one active system at a time.
+//   'race'  (default): the SATURATION system (marks.ts) — threshold-gated, per-surface
+//           capped, an offscreen accumulation layer. Clean laps leave nothing; a drift
+//           lays a line that darkens toward a per-surface cap and then STOPS. It is now
+//           the single active system on EVERY map (desktop + both ovals + circuit).
+//   'paint' (future DRAWING MODE, wired but inactive): the old UNBOUNDED per-car skid
+//           system (the legacy skidCanvas path below) — no threshold, ever-darkening,
+//           tinted per car. Kept for a future paint-the-track mode; flip via
+//           window.steerSetMarkMode('paint'). No per-frame cost while off (the inactive
+//           system's layer is never written to nor blitted).
+type MarkMode = 'race' | 'paint';
+let markMode: MarkMode = 'race';
 const tyreMarks = new TyreMarks();
 let marksLive = false;
-const marksEnabled = () => !!currentMap.surfaceAt;
+// The saturation system is active for every map whenever we're in 'race' mode.
+const marksEnabled = () => markMode === 'race';
 const wallpaperCanvas = document.createElement('canvas');
 const wallpaperCtx = wallpaperCanvas.getContext('2d')!;
 const overlayCanvas = document.createElement('canvas');
@@ -715,9 +726,11 @@ function syncCanvasesAndView(): boolean {
 // at, so 1 layer px = 1 on-screen px at fullscreen and a 3 px rubber line is exactly as crisp
 // as the skid line it replaces, with no resampling. (The surface MASK is a coarse 4 px/m
 // because it only answers a yes/no question; marks are SEEN, so they need render resolution.)
-// Two RGBA bitmaps ~= 2 x logicalPx x 4 B ~= 16 MB at 1920x1080 — fixed, and only for a masked map.
+// Two RGBA bitmaps ~= 2 x logicalPx x 4 B ~= 16 MB at 1920x1080 — FIXED (no per-frame growth),
+// allocated for every map now that the saturation system is the active one in 'race' mode. Sized
+// at `layerDpr` (= backingDpr(), the MAX_BACKING_DPR-capped ratio) so HiDPI can't inflate them.
 function ensureMarkLayers() {
-  if (marksLive || !marksEnabled()) return;
+  if (marksLive || !marksEnabled()) return;   // marksEnabled = we're in 'race' mode
   tyreMarks.resize(logicalPxW, logicalPxH, layerDpr);
   marksLive = true;
 }
@@ -1596,15 +1609,26 @@ function digging(car: Car, slip: number, rear: boolean) {
     || Math.abs(slip) > CONFIG.slipThresholdForSkid;
 }
 
+// Render-only mark class for the saturation system: circuit reads its per-point mask;
+// desktop + ovals use the map's single markClass (rubber on asphalt, brown scuff on the
+// dirt oval), defaulting to 'asphalt'. NEVER read by the physics.
+function markClassFn(): (x: number, y: number) => MarkClass {
+  const c = currentMap.markClass;
+  return currentMap.surfaceAt
+    ? (x, y) => markClassAt(currentMap, x, y)
+    : () => c ?? 'asphalt';
+}
+
 function recordSkids(car: Car) {
-  if (marksEnabled()) {
-    // ALL FOUR wheels mark by slip energy, saturating per surface — see marks.ts.
-    tyreMarks.record(car.state, wheelSurfaces(car), wheelSlips(car),
-      (x, y) => markClassAt(currentMap, x, y), PX());
-    car.skidL.active = car.skidR.active = false;   // legacy trails stay idle here
+  if (markMode === 'race') {
+    // SATURATION system, EVERY map. All four wheels mark by slip energy, threshold-gated,
+    // saturating per surface — see marks.ts. The legacy per-car trails stay idle.
+    tyreMarks.record(car.state, wheelSurfaces(car), wheelSlips(car), markClassFn(), PX());
+    car.skidL.active = car.skidR.active = false;
+    for (const d of car.dig) d.active = false;
     return;
   }
-  // ---- LEGACY skid path (desktop + both ovals) — untouched ----
+  // ---- 'paint' DRAWING MODE — the legacy UNBOUNDED per-car skid system (every map) ----
   const s = car.state;
   const driftingRear =
     s.isRearSliding || Math.abs(s.rearSlip) > CONFIG.slipThresholdForSkid;
@@ -1914,7 +1938,7 @@ function render() {
   const H = window.innerHeight;
 
   if (currentMap.followCam) updateCamera();
-  ensureMarkLayers();   // no-op unless a masked map on physics4 needs them and has none
+  ensureMarkLayers();   // sizes the saturation layers on first render of each map ('race' mode)
 
   // Fill the whole viewport first so the letterbox/pillarbox margins of a fixed-
   // world map are clean. The desktop world fully overdraws this.
@@ -1930,10 +1954,12 @@ function render() {
   // with a UNIFORM scale (never stretched). Desktop: offset 0, scale 1 ⇒ 1:1.
   const dw = logicalPxW * viewScale, dh = logicalPxH * viewScale;
   ctx.drawImage(wallpaperCanvas, viewOffX, viewOffY, dw, dh);
-  ctx.drawImage(skidCanvas, viewOffX, viewOffY, dw, dh);
-  // TYRE MARKS (masked maps) — dug turf, then a multiply pass that darkens
-  // asphalt/kerb/gravel without hiding what is under it. Both sit under the cars.
-  if (marksLive) tyreMarks.draw(ctx, viewOffX, viewOffY, dw, dh);
+  // Exactly ONE mark system composites (the other's layer is never written, so this also
+  // skips its blit → no per-frame cost for the inactive mode). RACE = the saturation layers
+  // (dug turf, then a multiply darkening pass that keeps kerbs/gravel/racing-line legible);
+  // PAINT = the legacy per-car skid canvas. Both sit under the cars.
+  if (markMode === 'paint') ctx.drawImage(skidCanvas, viewOffX, viewOffY, dw, dh);
+  else if (marksLive) tyreMarks.draw(ctx, viewOffX, viewOffY, dw, dh);
   ctx.drawImage(overlayCanvas, viewOffX, viewOffY, dw, dh);
 
   // Dynamic layers draw in LOGICAL pixel space; the same uniform scale + offset
@@ -2465,3 +2491,15 @@ function switchMap(id: string): boolean {
 (window as unknown as {
   steerMaps: () => Array<{ id: string; name: string }>;
 }).steerMaps = listMaps;
+// DEV hook for the future DRAWING MODE: flip the tyre-mark system between the default
+// 'race' (saturation) and 'paint' (the legacy unbounded per-car skids). Clears both
+// layers on the flip so the two systems' marks never mix, and re-arms the saturation
+// layer when returning to 'race'. No UI yet — reachable only from the console.
+(window as unknown as { steerSetMarkMode: (m: MarkMode) => MarkMode }).steerSetMarkMode =
+  (m: MarkMode) => {
+    markMode = m === 'paint' ? 'paint' : 'race';
+    skidCtx.clearRect(0, 0, logicalPxW, logicalPxH);
+    tyreMarks.clear();
+    if (markMode === 'race') ensureMarkLayers();
+    return markMode;
+  };

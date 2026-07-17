@@ -4702,3 +4702,37 @@ kept (display, not the old model). **FOLLOW-UP (noted, not done — out of scope
 old-model numeric knobs that only the deleted `step` read (harmless dead DATA, not code paths; pruning
 each risks physics4 0.0e+0 without the model to test against); and the big §9 running-log narrative is
 historical (describes deleted `step()`/sim-real code).
+
+---
+**TYRE MARKS — SATURATION IS NOW THE SINGLE ACTIVE SYSTEM ON EVERY MAP; the old brutal system kept as
+a future 'paint' DRAWING MODE (`MarkMode`, default 'race'):** after the arcade removal marks are always
+on, but desktop + both ovals still ran the OLD unbounded ever-darkening per-car skidCanvas while only the
+circuit used the good threshold+saturation system (`marks.ts`). Unified. **`MarkMode = 'race' | 'paint'`
+(desktop.ts, `let markMode = 'race'`):** RACE = the saturation system (marks.ts `TyreMarks`) for EVERY map
+— threshold-gated (nothing on a clean lap), per-surface capped via MULTIPLY (a saturated pixel = surface ×
+factor, so asphalt stays asphalt with a darkened racing line, never black), fixed offscreen layers.
+PAINT = the legacy UNBOUNDED per-car skidCanvas path (kept for a future paint-the-track mode) — wired but
+INACTIVE, flip via `window.steerSetMarkMode('paint')` (dev hook, no UI). **Exactly one system composites
+per frame** (`markMode==='paint'` blits skidCanvas else `tyreMarks.draw`), so the inactive mode costs
+NOTHING per frame; marks.ts also gained per-layer `mulDirty`/`overDirty` flags so an EMPTY layer is never
+blitted (a clean map / an asphalt-only map's empty grass layer = zero composite). **PER-MAP mark class**
+(render-only, NEVER physics): new `MapDefinition.markClass?: MarkClass` — circuit reads its per-point mask
+(`markClassAt`); desktop + asphalt oval default 'asphalt' (grey rubber); the DIRT flat oval =
+**'gravel'** (a brown gouged scuff via the existing `mulGravel` ×0.72 cap — a darkening multiply that keeps
+the dirt grain, not a grey line on brown), derived in `makeStadiumMap` from `surface==='dirt'`. The mark
+class is decoupled from the physics `surfaceAt` (which the ovals deliberately DON'T have), so adding it
+changes NO grip. **MAX_BACKING_DPR respected:** `tyreMarks.resize(...,layerDpr)` uses the capped
+`backingDpr()` ratio → fixed memory, no HiDPI blowup, no per-frame growth (the unbounded skid-line array
+is retired in race mode). **VERIFIED (headless, real `TyreMarks` + real `step4`):** (a) RACE clean gentle
+corner → **NOTHING** (mulDirty false, 0 px — the threshold gate); (b) RACE committed drift → marks that
+**SATURATE**: max alpha 110→213→213→213→213 (Δ 110, 103, **0, 0, 0** = plateau, further passes add
+nothing); (c) FLAT dirt oval drift → class **'gravel'** (mulPx 2109, grass layer empty); (d) PAINT
+preserved — the legacy `drawSkidSegment` + stamping body is **byte-identical** (git diff shows only the
+guard condition + render branch + a comment changed, 0 lines touch the stamp code); (e) **physics 0.0e+0**
+— `physics4.ts`/`vehicle-core.ts`/`cars.ts`/`race.ts` all empty diffs (only desktop.ts + maps.ts +
+marks.ts changed, all render/mark-class). tsc + build clean. **ACTIVE SYSTEM PER MAP/SURFACE:** desktop →
+saturation/asphalt(grey rubber); asphalt oval → saturation/asphalt; flat (dirt) oval → saturation/gravel
+(brown scuff); circuit → saturation/per-point mask (asphalt line / kerb scuff / gravel gouge / grass dug
+turf). **The MarkMode flag lives in desktop.ts** (routes the two mark paths); the saturation SYSTEM +
+per-surface caps live in `marks.ts` (`MARK`). Flip to the future drawing mode with
+`steerSetMarkMode('paint')`.
