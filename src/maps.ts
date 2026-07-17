@@ -1661,17 +1661,30 @@ function drawCircuitStartLine(
 // wheelbase-derived, so the grid stays on the one ruler and 12 cars fit with no overlap.
 const GRID_COLS = 3;
 const GRID_ROWS = 4;                              // painted boxes = COLS × ROWS = 12
-// Lateral pitch: the 3 columns spread so the OUTER boxes stop ~half a car width short of the white
-// edge lines — the grid uses the band's width instead of huddling in the middle. Sized off the
-// tighter of the two lines (the outer one sits a fraction further in, where the perimeter kerb
-// pushes it), so both sides clear.
-const GRID_COL_PITCH = CONFIG.wheelbase * 4.0;    // m ≈ 10.26
 const GRID_ROW_PITCH = CONFIG.wheelbase * 3.0;    // m ≈ 7.70 — box is 5.13 long ⇒ 2.6 m between rows
 const GRID_STAGGER = CONFIG.wheelbase * 1.0;      // m ≈ 2.57 — echelon: each column sits this far back
 const GRID_FRONT_GAP = CONFIG.wheelbase * 1.73;   // m ≈ 4.44 — line → P1 (one car length)
 const GRID_BOX_W = CONFIG.wheelbase * 1.44;       // m ≈ 3.69 — box across (car is 1.83 wide)
 const GRID_BOX_L = CONFIG.wheelbase * 2.0;        // m ≈ 5.13 — box along (car is 4.44 long)
 const GRID_BOX_ARM = CONFIG.wheelbase * 1.5;      // m ≈ 3.85 — arms run alongside ~¾ of the car
+const GRID_EDGE_CLEAR = CAR_WIDTH_M / 2;          // m ≈ 0.92 — required: outer ARM → edge line
+// How far in from the band's edge the white edge line's INNER face can reach — the worse of its
+// two states, the kerbed side, where it sits a little further in. Mirrors circuitEdgeLinePts'
+// own offsets (KERB_SEAM + half the kerb's soft stroke + half the line), so the two can't drift.
+const WHITE_LINE_REACH_M = Math.max(
+  WHITE_LINE_INSET_M,
+  (KERB_SEAM + CS_BAND * 0.01) * CS_SCALE + WHITE_LINE_W_M / 2,
+) + WHITE_LINE_W_M / 2;
+// Lateral pitch: the 3 columns spread until each outer ARM stops GRID_EDGE_CLEAR short of its edge
+// line, so the grid uses the band's width AND every box stays on the asphalt.
+// DERIVED FROM THE BAND — NOT A FIXED METRE VALUE. CIRCUIT_TRACK_W comes from the host's SCREEN
+// (via FLAT_LOGICAL), so a pitch hardcoded to suit a 1920-wide screen pushes the arms clean off the
+// asphalt on a narrower one. Only the clearance is absolute, because the car is 1.83 m on every
+// screen. Floored so the boxes can never overlap each other on a very small display.
+const GRID_COL_PITCH = Math.max(
+  GRID_BOX_W * 1.1,
+  CIRCUIT_TRACK_W / 2 - WHITE_LINE_REACH_M - GRID_EDGE_CLEAR - GRID_BOX_W / 2,
+);
 // Which way the half-frame opens. +1 = arms forward with the bar behind the car (the real-grid
 // convention); −1 = MIRRORED — bar ahead of the nose, open end facing backward. −1 is the boss's
 // call, matching his original sketch; he confirmed it knowing the bar lands in front of the nose.
