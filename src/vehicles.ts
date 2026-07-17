@@ -128,13 +128,11 @@ export function listVehicles(): VehicleIdentity[] {
 //  Type-only import of `Config` → no runtime dependency on physics (no cycle).
 // =============================================================================
 import type { Config } from './vehicle-core';
-import type { ArcadeParams } from './arcadeModel';
 
 export interface VehicleSpec {
   name: string;                    // internal codename (NO real brand strings)
   liveryColor?: string;            // fixed body hex; falls back to the slot colour
-  overrides: Partial<Config>;      // partial CONFIG override (SIM mode feel, NOT scale)
-  arcade?: Partial<ArcadeParams>;  // NEW arcade-model param overrides (per-car feel)
+  overrides: Partial<Config>;      // partial CONFIG override (physics4 per-car feel, NOT scale)
 }
 
 // ROAD — the base Blitz RS (grippy asphalt Sport-class coupe). NO overrides →

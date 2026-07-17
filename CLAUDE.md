@@ -1014,13 +1014,16 @@ phone→desktop `join | color | name | leave | control`; desktop→phone `lobby 
 
 ## 9. PHYSICS FOUNDATION — physics4.ts (the per-wheel SIM engine)
 
-- `physics4.ts` = a full PER-WHEEL vehicle model (4 contact points). The game now runs TWO live
-  drive models toggled by **X** (`DriveMode` in desktop.ts): **`arcadeModel.ts`** = a simple
-  KINEMATIC arcade controller (6 laws, owns v/φ/θ; forgiving; the current default), and
-  **`physics4.ts`** = this per-wheel SIMULATION (absolute realism, drift emergent only, never a
-  tuned-in feature). Every physics4 change keeps the arcade model byte-identical (0.0e+0). The old
-  `physics.ts` (the p1–p33 arcade + sim-real history in the running log) is RETIRED/unreferenced by
-  the drive loop — kept in git. A forgiving arcade car ON the physics4 engine is still planned (§10).
+- `physics4.ts` = a full PER-WHEEL vehicle model (4 contact points) and, since the arcade-branch
+  removal, **THE ONLY drive model** — every car, every map, always. `step4(car, input, dt, PHYS4,
+  surfaceAt?)` is the sole step; there is NO drive-mode toggle any more (the X key, the `DriveMode`
+  flag, and the kinematic `arcadeModel.ts` are all deleted). A forgiving arcade CAR (a physics4
+  PARAMETER tune, second vehicle) is still planned (§10) — it is a car, not a mode. The shared
+  vehicle data layer (`CONFIG`, `Config`, `CarState`, `Inputs`, `makeCar`, `bodyToWorld`,
+  `ObstacleRect`, `collideWithRects`) now lives in **`vehicle-core.ts`** (the former `physics.ts`,
+  renamed and stripped of the dead p1–p33/sim-real `step` + `applyArcade`); physics4/maps/render/
+  race/marks/cars/vehicles all import from it. The old model history is kept in git only (the running
+  log below is historical — the `step()`/arcade/sim-real narrative describes code that no longer exists).
 - **GUIDING ORDER (core lesson): REALITY sets the numbers; the physics is tuned AROUND them, never
   the reverse.** When a behavior is wrong, find the real physical cause. Don't pick a number just to
   unlock a behavior, and don't paper over a missing mechanism with an artificial damper/gate
@@ -4655,3 +4658,47 @@ changed — `physics.ts`/`physics4.ts`/`maps.ts`/`race.ts`/`marks.ts`/`surfaces.
 byte-identical (empty diffs) ⇒ step() 0.0e+0 and the geometry masks unchanged; the particle
 simulation (spawn/update) is untouched (render-only change); physics stays in metres, unaffected by the
 backing-store cap. tsc + build clean.
+
+---
+**ARCADE BRANCH REMOVED — physics4 is the ONLY drive model (2 commits: extract, then delete;
+physics4 path 0.0e+0):** the boss retired the arcade branch — the sim car (Blitz RS on physics4) IS
+the game; a forgiving arcade CAR is a later physics4 tune (a car, not a mode). **STEP 0 BASELINE:** a
+physics4 golden fingerprint (9 scenarios launch/corner/drift/handbrake/brakes/trail-brake/reverse/
+top-speed/coast × asphalt/grass/gravel, 6-dp on x/y/heading/speed/vx/vy/ω/rearSlip/wheelSpin/
+rearWheelSpeed/onGrass, mid+final) recorded on HEAD — the proof standard. **STEP 1 INVENTORY:** the X
+toggle (`type DriveMode='arcade'|'physics4'`, `driveMode='arcade'` DEFAULT, X-key handler, HUD "MODE:"
+line) — **NO persistence** (no localStorage). ALL maps (desktop, both ovals, circuit) ran the KINEMATIC
+`arcadeModel.ts` by DEFAULT; physics4 was opt-in via X; grass/gravel physics + tyre marks were
+`driveMode==='physics4'`-gated ⇒ OFF in the shipped default. `physics.ts` held the DEAD old model
+(`step` p1–p33/sim-real, `applyArcade`, the CONFIG "ARCADE branch knobs" + `arcadeDriftHold`) AND the
+LIVE shared exports (`CONFIG`/`Config`/`CarState`/`Inputs`/`makeCar`/`bodyToWorld`/`ObstacleRect`/
+`collideWithRects`) used by 8 files. `arcadeModel.ts` (`stepArcade`/`makeArcadeParams`/`ARCADE`/
+`ArcadeParams`) imported only by desktop.ts + a `type` in vehicles.ts. D-tuner had an `'arcade'` group
+(26 rows) + `'phys4'` group. Car wrapper had `arcadeParams`; `VehicleSpec.arcade?`. cars.ts/race.ts/
+marks.ts had NO old-model refs; no phone/menu/help/QR mode mentions; the arcade-vs-sim A/B suites were
+scratch-only (never committed). **STEP 2 — COMMIT 1 (extract, reverts alone):** `git mv physics.ts →
+vehicle-core.ts` + repoint every `from './physics'` → `from './vehicle-core'` (8 files). Pure rename +
+rewire, zero behaviour change; golden 0.0e+0 identical; X toggle still worked. **COMMIT 2 (delete):**
+removed the X toggle + `DriveMode` + `driveMode` + arcade imports; the step dispatch is now
+unconditional `step4(...)`; the `marksEnabled`/`wheelSurfaces` `driveMode==='physics4'` gates collapsed
+to `!!currentMap.surfaceAt`; the arcade D-tuner group + `reArcade` + `showTunerFor(mode)` gone (tuner is
+phys4-only); `Car.arcadeParams` + `applyVariant`/`makeManagedCar` arcade init gone; the HUD "MODE" line
+simplified; `VehicleSpec.arcade` + its `ArcadeParams` import gone; **`arcadeModel.ts` deleted**; and in
+`vehicle-core.ts` the dead `step` (~690 lines) + `applyArcade` + the CONFIG "ARCADE branch knobs" block +
+`arcadeDriftHold` + the 3 now-orphaned `simReal2*` helpers were spliced out (anchor-checked; 1664→881
+lines, −759). `noUnusedLocals` guided the orphan cleanup; `clamp` stayed (still live). **STEP 3 — WHAT
+RUNS WHERE, before→now:** BEFORE every map ran the kinematic arcade model by default (physics4 only via
+X; circuit grass/gravel + marks OFF). NOW **physics4 runs on every map, always — no per-map physics
+compensation**. Harness-drove all 4 maps: spawn valid, launch 13.94 m/s @90 steps (identical across maps
+— the point: one model, no compensation), corner yaw 1.43 rad/s, desktop wall-hit impact 24.99 finite
+(no tunnel, heading preserved — the arcade 171° end-swap CANNOT recur, physics4 integrates heading),
+wrap works, **allFinite everywhere (no NaN)**; the circuit's grass/gravel grip+drag + tyre marks are now
+ALWAYS ON (the real, intended behaviour change). **STEP 4 — PROOF:** physics4 golden after the FULL
+deletion == HEAD baseline **0.0e+0 IDENTICAL** (the deletion touched no live physics — only dead code +
+the mode plumbing). **STEP 5:** two commits (extract 87ed7d0; delete <this>), each tsc + build clean,
+each reverts alone. Bundle total 366296 → 360424 B (−5872; the dead `step`/`applyArcade` were already
+tree-shaken, so the shrink is `arcadeModel.ts` + the mode plumbing). vehicles.ts/cars.ts identity layer
+kept (display, not the old model). **FOLLOW-UP (noted, not done — out of scope):** `CONFIG` still carries
+old-model numeric knobs that only the deleted `step` read (harmless dead DATA, not code paths; pruning
+each risks physics4 0.0e+0 without the model to test against); and the big §9 running-log narrative is
+historical (describes deleted `step()`/sim-real code).

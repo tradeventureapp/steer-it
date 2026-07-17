@@ -18,18 +18,11 @@ import {
   PLAYER_CAP, LOBBY_SYNC_MS, RESILIENCE, EV, colorName, LobbyState,
 } from './lobby';
 import { ROAD_SPEC, type VehicleSpec } from './vehicles';
-import { stepArcade, makeArcadeParams, ARCADE, type ArcadeParams } from './arcadeModel';
 import { step4, PHYS4, wheelDebug, type Physics4Params } from './physics4';
 
-// The two live models behind the X toggle: ARCADE (the shipping reference) and
-// PHYSICS4 (the new per-wheel model, Fase 0). sim-real-2 + rally are retired.
-type DriveMode = 'arcade' | 'physics4';
-// Drive model behind the X toggle: ARCADE (shipping reference, DEFAULT) ⇄
-// PHYSICS4 (new per-wheel, Fase 0). Declared here (before the D-tuner build,
-// which reads it) to avoid a TDZ at init.
-let driveMode: DriveMode = 'arcade';
-// Swaps the D-tuner to the active model's knobs (assigned when the tuner builds).
-let showTunerFor: (m: DriveMode) => void = () => {};
+// physics4 (the per-wheel sim — Blitz RS) is THE drive model: every car, every
+// map, always. The old kinematic arcade branch and its X toggle are retired; a
+// forgiving arcade CAR (a physics4 tune) is a future second vehicle, not a mode.
 import {
   RaceManager, RACE_CONFIG, formatRaceTime,
   placeElement, removeElementAt, clearElements, findElementIndexAt,
@@ -157,11 +150,6 @@ document.body.appendChild(brakeTunerEl);
   title.style.cssText = 'font-weight:700;letter-spacing:.5px;margin-bottom:6px;color:#ff8a3d;';
   brakeTunerEl.appendChild(title);
 
-  // Each row is tagged with its model group so the tuner can show only the
-  // active model's knobs (no bloat). curGroup is set before each row block.
-  const tunerRows: Array<{ g: string; row: HTMLElement }> = [];
-  let curGroup = 'arcade';
-
   const mkRow = (
     label: string, get: () => number, set: (v: number) => void,
     step: number, lo: number, hi: number, fmt: (v: number) => string,
@@ -189,49 +177,10 @@ document.body.appendChild(brakeTunerEl);
     };
     row.append(name, mkBtn('−', -step), val, mkBtn('+', step));
     upd();
-    row.dataset.g = curGroup;
-    tunerRows.push({ g: curGroup, row });
     brakeTunerEl.appendChild(row);
   };
 
-  // ---------- ARCADE knobs (group 'arcade') ----------
-  // NEW ARCADE model — every law parameter is a knob. The rows mutate the live
-  // ARCADE defaults and re-apply variants so the change hits every car
-  // immediately (rally keeps its per-car overrides on top of the base).
-  const reArcade = () => { for (const c of cars.values()) applyVariant(c, c.spec); };
-  const aRow = (label: string, key: keyof ArcadeParams,
-                stp: number, lo: number, hi: number, d = 2) =>
-    mkRow(label, () => ARCADE[key],
-      (v) => { ARCADE[key] = v; reArcade(); }, stp, lo, hi, (v) => v.toFixed(d));
-  aRow('vTop (m/s)',        'vTop',           1,    20, 70, 0);
-  aRow('aMax (launch)',     'aMax',           0.5,  4,  16, 1);
-  aRow('aBrake',            'aBrake',         1,    6,  24, 0);
-  aRow('coastDecel',        'coastDecel',     0.25, 0.5, 6, 2);
-  aRow('omegaMax (agility)','omegaMax',       0.1,  0.8, 3, 2);
-  aRow('tauSteer (weight)', 'tauSteer',       0.02, 0.08, 0.6, 2);
-  aRow('kGrip',             'kGrip',          0.5,  2,  12, 1);
-  aRow('aLatMax (corner g)','aLatMax',        0.5,  6,  20, 1);
-  aRow('sMax (grip slip)',  'sMax',           0.01, 0.05, 0.35, 2);
-  aRow('deltaMin',          'deltaMin',       0.02, 0.1, 0.5, 2);
-  aRow('deltaMax',          'deltaMax',       0.05, 0.4, 1.2, 2);
-  aRow('kDelta',            'kDelta',         0.5,  2,  12, 1);
-  aRow('omegaDriftBase',    'omegaDriftBase', 0.1,  0.3, 2, 2);
-  aRow('omegaDriftGain',    'omegaDriftGain', 0.1,  0.4, 3, 2);
-  aRow('driftBleed',        'driftBleed',     0.25, 1,  8, 2);
-  aRow('driftFeedCap',      'driftFeedCap',   0.05, 0,  0.95, 2);
-  aRow('hbDecel',           'hbDecel',        0.5,  2,  14, 1);
-  aRow('hbSwingRate',       'hbSwingRate',    0.1,  0.2, 2.5, 2);
-  aRow('deltaSpin',         'deltaSpin',      0.05, 0.9, 1.5, 2);
-  aRow('spinYaw',           'spinYaw',        0.25, 2,  8, 2);
-  aRow('spinDecay',         'spinDecay',      0.1,  0.3, 2, 2);
-  aRow('spinBleed',         'spinBleed',      0.5,  2,  12, 1);
-  aRow('vMinDrift',         'vMinDrift',      0.5,  3,  12, 1);
-  aRow('kExit',             'kExit',          0.5,  3,  16, 1);
-  aRow('tauBody',           'tauBody',        0.01, 0.05, 0.3, 2);
-  aRow('vRevMax',           'vRevMax',        0.5,  3,  12, 1);
-
-  // ---------- PHYSICS4 knobs (group 'phys4', Fase 0 per-wheel) ----------
-  curGroup = 'phys4';
+  // ---------- PHYSICS4 knobs (per-wheel) — the only model's live tune ----------
   // only the NUMERIC params are steppable (PHYS4.tire is a structured tyre profile)
   type NumKey<T> = { [K in keyof T]: T[K] extends number ? K : never }[keyof T];
   const pRow = (label: string, key: NumKey<Physics4Params>,
@@ -281,15 +230,7 @@ document.body.appendChild(brakeTunerEl);
   pRow('gravelDragQuad',    'gravelDragQuad',       0.25, 0,   8,   2);
   pRow('gravelDigGain',     'gravelDigGain',        0.5,  0,   12,  1);
 
-  // Show only the active model's rows (+ set the panel title).
-  showTunerFor = (mode: DriveMode) => {
-    const g = mode === 'arcade' ? 'arcade' : 'phys4';
-    title.textContent = mode === 'arcade'
-      ? 'ARCADE TUNE — live (resets on reload)'
-      : 'PHYSICS4 TUNE — per-wheel Fase 0 (live)';
-    for (const t of tunerRows) t.row.style.display = t.g === g ? '' : 'none';
-  };
-  showTunerFor(driveMode);
+  title.textContent = 'PHYSICS4 TUNE — per-wheel (live, resets on reload)';
 }
 
 // ---------- Sound + visual effects ----------
@@ -333,12 +274,6 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'q' || e.key === 'Q') {
     qrOn = !qrOn;
     updateQrVisibility();
-  }
-  if (e.key === 'x' || e.key === 'X') {
-    // Toggle ARCADE ⇄ PHYSICS4 (the new per-wheel model). Instant — the step
-    // dispatch picks the model; the D-tuner swaps to the active model's knobs.
-    driveMode = driveMode === 'arcade' ? 'physics4' : 'arcade';
-    showTunerFor(driveMode);
   }
   if (e.key === 'p' || e.key === 'P' || e.key === 'Escape') {
     if (e.key === 'Escape') e.preventDefault();   // just toggle the menu, nothing else
@@ -653,7 +588,7 @@ const skidCtx = skidCanvas.getContext('2d')!;
 // map on physics4; the desktop + both ovals keep the legacy skid path below and pay nothing.
 const tyreMarks = new TyreMarks();
 let marksLive = false;
-const marksEnabled = () => driveMode === 'physics4' && !!currentMap.surfaceAt;
+const marksEnabled = () => !!currentMap.surfaceAt;
 const wallpaperCanvas = document.createElement('canvas');
 const wallpaperCtx = wallpaperCanvas.getContext('2d')!;
 const overlayCanvas = document.createElement('canvas');
@@ -904,15 +839,13 @@ interface Car {
   local?: boolean;       // keyboard-driven LOCAL test car (no phone) — exempt from
                          //   the lobby sweep / syncCars removal; fed by driveKeyboard()
   spec: VehicleSpec;     // the car's variant (ROAD only now — rally retired)
-  arcadeParams: ArcadeParams;  // NEW arcade model params (ARCADE defaults × spec.arcade)
   liveryColor?: string;  // fixed body hex from the spec; drawCar uses it over the slot colour
 }
 
-// Resolve a spec to a car's arcade params + livery. ROAD only (rally retired) →
-// car.arcadeParams = the live ARCADE defaults. Called at spawn / tuner.
+// Resolve a spec to a car's livery. ROAD only for now; a second physics4-tuned
+// vehicle would set its feel via the spec here. Called at spawn.
 function applyVariant(car: Car, spec: VehicleSpec) {
   car.spec = spec;
-  car.arcadeParams = makeArcadeParams(spec.arcade);
   car.liveryColor = spec.liveryColor;
 }
 
@@ -942,7 +875,6 @@ function makeManagedCar(slot: number, color: string): Car {
     inputStale: false,
     coastInput: null,
     spec: ROAD_SPEC,   // overwritten by applyVariant below
-    arcadeParams: makeArcadeParams(),
   };
   applyVariant(car, currentVariant);   // spawn in the active variant
   return car;
@@ -1634,7 +1566,7 @@ function drawSkidSegment(
 const ALL_ASPHALT: Surface[] = ['asphalt', 'asphalt', 'asphalt', 'asphalt'];
 /** Ground under each wheel in DESKTOP L/R order: [fL, fR, rL, rR]. */
 function wheelSurfaces(car: Car): Surface[] {
-  if (driveMode !== 'physics4' || !currentMap.surfaceAt) return ALL_ASPHALT;
+  if (!currentMap.surfaceAt) return ALL_ASPHALT;
   const g = wheelDebug(car.state)?.surface;
   return g ? [g[1], g[0], g[3], g[2]] : ALL_ASPHALT;
 }
@@ -1869,11 +1801,10 @@ function frame(now: number) {
         current.brake    += (target.brake    - current.brake)    * 0.3;
         current.handbrake = target.handbrake;
 
-        // NEW ARCADE model (default) or the hidden realistic sim-real-2 (X toggles).
-        if (driveMode === 'arcade') stepArcade(car.state, current, FIXED_DT, car.arcadeParams);
-        // the map's ground lookup ARMS the per-wheel grass grip/drag; every map except
-        // the circuit passes undefined → the grass path never runs (byte-identical).
-        else step4(car.state, current, FIXED_DT, PHYS4, currentMap.surfaceAt);
+        // physics4 (per-wheel sim) drives every car. The map's ground lookup ARMS the
+        // per-wheel grass/gravel grip+drag; every map except the circuit passes undefined
+        // → the off-asphalt branches never run (byte-identical on desktop + both ovals).
+        step4(car.state, current, FIXED_DT, PHYS4, currentMap.surfaceAt);
         const impact = collideWithRects(car.state, world.rects);
         if (impact > 0.8) {
           sound.impact(impact);
@@ -2084,7 +2015,7 @@ function updateHud() {
     const parked = cur.throttle < 0.02 && cur.brake < 0.02 && !cur.handbrake
       && s.speed < CONFIG.restSpeed;
     debugEl.textContent =
-      `MODE: ${driveMode === 'arcade' ? 'ARCADE' : 'PHYSICS4 (per-wheel, Fase 0 — no throttle)'}   (X = switch)\n` +
+      `MODE: PHYSICS4 (per-wheel sim)\n` +
       `slot ${lead!.slot}   steer ${cur.steer.toFixed(2)}   (spin-arm ≥ ${armT.toFixed(2)}${cur.handbrake ? ' HB' : ''})\n` +
       `throttle ${cur.throttle.toFixed(2)}  brake ${cur.brake.toFixed(2)}  hb ${cur.handbrake ? 'ON' : 'off'}\n` +
       `|v| ${s.speed.toFixed(3)} m/s   yaw ${s.angularVel.toFixed(3)} rad/s   rest=${parked ? 'Y' : 'n'} (≤${CONFIG.restSpeed})\n` +
