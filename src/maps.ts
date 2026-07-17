@@ -864,8 +864,21 @@ const KERB_BLUE_TAIL = 35;            // arc-length (sketch u, ~3.5 stripe block
                                       //   continues PAST each stripe end as a WEDGE — the full
                                       //   kerb+blue band at the cut, its grass-side edge tapering
                                       //   STEADILY inward to the asphalt edge until it vanishes
-const KERB_WIDTH = CS_BAND * 0.11;    // red/white kerb reach into the grass = track WIDENING (≈3 m)
-const KERB_BLUE_WIDTH = CS_BAND * 0.045;  // solid BLUE border strip beyond it (grass side)
+// The kerbs reach 1/3 LESS toward the grass than they used to. Both bands scale together, so
+// stripes and blue keep their proportions and the whole band is 2/3 of its old reach. The INNER
+// edge does NOT move — it is pinned to the asphalt edge by KERB_SEAM, which is untouched; only the
+// grass-side reach shrinks. Everything else (lengths, merges, wedge arc-lengths, KERB_STRIPE)
+// is independent of these, and the wedge/tip-trim maths is all relative to FULL_W, so the wedge
+// keeps its shape at 2/3 scale.
+//   NOTE the gravel abutment depends on this: carveGap relies on a kerb reaching FURTHER past the
+//   ribbon than the gap-dilated ribbon does (GRAVEL_GRASS_GAP = 1.83 m), so the kerb's own edge is
+//   what stops a trap. FULL_W is 2.84 m here — still clear of 1.83, so traps still abut directly.
+//   Narrow these much further and that flips, leaving an orphan grass strip between kerb and trap.
+const KERB_NARROW = 2 / 3;
+const KERB_WIDTH = CS_BAND * 0.11 * KERB_NARROW;      // red/white reach into the grass ≈2.0 m (was ≈3.0)
+const KERB_BLUE_WIDTH = CS_BAND * 0.045 * KERB_NARROW; // solid BLUE border beyond it ≈0.83 m (was ≈1.24)
+/** The kerb band's TOTAL reach past the asphalt edge (sketch u) — the fixed grass edge. */
+const KERB_FULL_W = KERB_WIDTH + KERB_BLUE_WIDTH;
 // TIP TRIM — THE ONE TUNABLE (boss's black mark): the wedge is ENDED EARLY, where its reach
 // from the asphalt edge has fallen to this fraction of KERB_BLUE_WIDTH, and closed with a
 // ROUNDED nose instead of running out to a needle point. Everything before the clip is
@@ -972,7 +985,7 @@ const CIRCUIT_KERBS: KerbQuad[] = ((): KerbQuad[] => {
     kerbRegions.splice(bi, 1);
   }
   const quads: KerbQuad[] = [];
-  const FULL_W = KERB_WIDTH + KERB_BLUE_WIDTH;   // full kerb reach → the FIXED grass edge
+  const FULL_W = KERB_FULL_W;                    // full kerb reach → the FIXED grass edge
   const avgSeg = (() => { let s = 0; for (let i = 0; i < N; i++) s += Math.hypot(CIRCUIT_PATH[(i + 1) % N][0] - CIRCUIT_PATH[i][0], CIRCUIT_PATH[(i + 1) % N][1] - CIRCUIT_PATH[i][1]); return s / N; })();
   // The blue tail is ONE CANONICAL wedge measured in KERB_BLUE_TAIL of EDGE-ARC — NOT a
   // fixed point count. (A fixed count made fat stubs on tight concave ends and slim wedges
@@ -1377,11 +1390,45 @@ function gravelMask(): Uint8Array | null {
   const toM = (sx: number, sy: number): Pt => {
     const w = circuitToWorld(sx, sy); return [w.x * P, w.y * P];
   };
-  // 1. the MARKED areas — union of discs
+  // 1. the MARKED areas — union of discs, GROWN back over whatever the kerbs vacated.
+  //    Narrowing the kerbs (KERB_NARROW) frees a strip of what used to be kerb. A trap that
+  //    ABUTTED a kerb must follow it in — but the discs were hand-marked to the OLD kerb edge,
+  //    so on their own they'd leave an orphan grass strip between kerb and trap. So grow every
+  //    disc by the vacated width first. Dilating a UNION of discs is EXACTLY the union of the
+  //    grown discs (Minkowski sum distributes over union), so this needs no raster dilation.
+  //    The carve below then trims the growth back to the true boundary — the kerb's NEW edge,
+  //    or the car-width grass strip off bare asphalt — so this can only ever fill what the
+  //    narrowing vacated, never overrun a rule.
+  const REGROW_U = KERB_FULL_W * (1 / KERB_NARROW - 1);   // sketch u the narrowing freed up
   c.fillStyle = '#fff';
   for (const [sx, sy, r] of GRAVEL_DISCS) {
     const [x, y] = toM(sx, sy);
-    c.beginPath(); c.arc(x, y, r * CS_SCALE * P, 0, Math.PI * 2); c.fill();
+    c.beginPath(); c.arc(x, y, (r + REGROW_U) * CS_SCALE * P, 0, Math.PI * 2); c.fill();
+  }
+  // 1b. …but CLIP that growth to the track's old-kerb neighbourhood, so the traps' OUTER
+  //     (grass-side) silhouettes — the boss's marks — cannot move. Allowed = the ORIGINAL
+  //     discs ∪ the ribbon dilated by the kerbs' pre-narrowing reach. Away from the track the
+  //     growth is clipped straight back to the marked shape.
+  {
+    const allow = document.createElement('canvas'); allow.width = W; allow.height = H;
+    const ac = allow.getContext('2d');
+    if (ac) {
+      ac.fillStyle = '#fff'; ac.strokeStyle = '#fff';
+      ac.lineJoin = 'round'; ac.lineCap = 'round';
+      for (const [sx, sy, r] of GRAVEL_DISCS) {
+        const [x, y] = toM(sx, sy);
+        ac.beginPath(); ac.arc(x, y, r * CS_SCALE * P, 0, Math.PI * 2); ac.fill();
+      }
+      const oldReachM = (KERB_FULL_W / KERB_NARROW) * CS_SCALE;   // what a kerb used to reach
+      const rp = CIRCUIT_PATH.map((p) => toM(p[0], p[1]));
+      ac.lineWidth = (CIRCUIT_TRACK_W + 2 * oldReachM) * P;
+      ac.beginPath(); ac.moveTo(rp[0][0], rp[0][1]);
+      for (let i = 1; i < rp.length; i++) ac.lineTo(rp[i][0], rp[i][1]);
+      ac.closePath(); ac.stroke();
+      c.globalCompositeOperation = 'destination-in';
+      c.drawImage(allow, 0, 0);
+      c.globalCompositeOperation = 'source-over';
+    }
   }
   // 2. carve the MANDATORY grass gap = erase asphalt+kerbs DILATED by GRAVEL_GRASS_GAP.
   //    (A stroke of width 2·gap around a shape IS its dilation by gap — round joins/caps.)
