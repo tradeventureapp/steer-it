@@ -215,6 +215,12 @@ const STEEREX_ARCADE: Partial<Physics4Params> = {
   tire: { muScale: { asphalt: 1.0, grass: 0.60, gravel: 0.65 } },
   // NOTE: tireBx (12) + tireCx (1.6) NOT touched — 12 is already a broad longitudinal peak; the
   // universal's softer longitudinal bite comes from tireEllipseLong (1.3 → 1.05), not tireBx.
+  // --- PHASE 2.3a: CORE DRIFT — handbrake entry + hold + punishable spin. Re-derived for the
+  //     Phase-2.2 grip (1.90 broad); the old grip-3.0 drift values would spin on entry here. ---
+  arcadeDriftGrip: 0.4,    // rear grip cut ONCE PAST the drift gate → over-driving deepens toward a spin (punishable). Small at 1.90 (the rear is already loose); bigger and it spins on entry.
+  arcadeDriftGate: 0.55,   // rad ≈ 31° body-slip onset. A committed handbrake drift SELF-STABILISES around ~50° (forgiving, holds); pushing PAST the gate engages the cut → it deepens and SPINS. Normal cornering (small β) never trips it.
+  pneumaticTrail: 0.14,    // self-aligning torque — counter-steer catches / recovers the slide (vs sim 0.06). NOT so high it auto-saves a spin.
+  trailPeakSlip: 0.30,     // rad — where the self-align reverses; re-derived for grip 1.90 (the grip-3.0 value 0.35 misbehaved).
 };
 export const STEEREX_SILVER: VehicleSpec = {
   name: 'Stee-Rex Silver',
