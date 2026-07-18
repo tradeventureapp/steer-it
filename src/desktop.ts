@@ -18,7 +18,7 @@ import {
   PLAYER_CAP, LOBBY_SYNC_MS, RESILIENCE, EV, colorName, LobbyState,
 } from './lobby';
 import { ROAD_SPEC, STEEREX_SILVER, STEEREX_BLACK, type VehicleSpec } from './vehicles';
-import { steerexSprite, preloadSteerex, STEEREX_LEN_SVG, STEEREX_RASTER, type SteerexSkin } from './steerex-sprite';
+import { steerexSprite, steerexOpaque, preloadSteerex, type SteerexSkin } from './steerex-sprite';
 import { step4, PHYS4, wheelDebug, type Physics4Params } from './physics4';
 
 // physics4 (the per-wheel sim — Blitz RS) is THE drive model: every car, every
@@ -857,15 +857,25 @@ interface Car {
                               //   start so the ramp eases from it to neutral
   local?: boolean;       // keyboard-driven LOCAL test car (no phone) — exempt from
                          //   the lobby sweep / syncCars removal; fed by driveKeyboard()
-  spec: VehicleSpec;     // the car's variant (ROAD only now — rally retired)
+  spec: VehicleSpec;     // the car's variant (Blitz RS or a Stee-Rex skin)
   liveryColor?: string;  // fixed body hex from the spec; drawCar uses it over the slot colour
+  collisionRadius: number;  // per-vehicle wall/car collision radius (from its real dimensions)
 }
 
-// Resolve a spec to a car's livery. ROAD only for now; a second physics4-tuned
-// vehicle would set its feel via the spec here. Called at spawn.
+// Blitz RS's collision radius is CONFIG.carCollisionRadius (wheelbase-derived). A sprite
+// car with its own dimensions gets a proportionally smaller radius — the SAME
+// radius/length ratio as Blitz RS, so it collides at the right size for its footprint.
+const BLITZ_LEN_M = CONFIG.wheelbase * 0.865 * 2;   // Blitz RS drawn length (the one ruler)
+function collisionRadiusFor(spec: VehicleSpec): number {
+  if (!spec.dims) return CONFIG.carCollisionRadius;   // Blitz RS → unchanged (0.0e+0)
+  return CONFIG.carCollisionRadius * (spec.dims.lengthM / BLITZ_LEN_M);
+}
+
+// Resolve a spec to a car's livery + collision size. Called at spawn / on a vehicle switch.
 function applyVariant(car: Car, spec: VehicleSpec) {
   car.spec = spec;
   car.liveryColor = spec.liveryColor;
+  car.collisionRadius = collisionRadiusFor(spec);
 }
 
 // Keyed by slot so routing/lookup is O(1) and nothing is hardcoded to 2 cars.
@@ -900,9 +910,10 @@ function makeManagedCar(slot: number, color: string): Car {
     lastInputAt: performance.now(),
     inputStale: false,
     coastInput: null,
-    spec: ROAD_SPEC,   // overwritten by applyVariant below
+    spec: ROAD_SPEC,                            // overwritten by applyVariant below
+    collisionRadius: CONFIG.carCollisionRadius, // ditto
   };
-  applyVariant(car, currentVariant);   // spawn in the active variant
+  applyVariant(car, currentVariant);   // spawn in the active variant (livery + collision size)
   return car;
 }
 
@@ -1842,7 +1853,7 @@ function frame(now: number) {
         // per-wheel grass/gravel grip+drag; every map except the circuit passes undefined
         // → the off-asphalt branches never run (byte-identical on desktop + both ovals).
         step4(car.state, current, FIXED_DT, PHYS4, currentMap.surfaceAt);
-        const impact = collideWithRects(car.state, world.rects);
+        const impact = collideWithRects(car.state, world.rects, CONFIG, car.collisionRadius);
         if (impact > 0.8) {
           sound.impact(impact);
           fx.impact(car.state.x, car.state.y, impact);
@@ -1852,7 +1863,8 @@ function frame(now: number) {
 
       // Cars bounce off EACH OTHER (arcade, clamped) after all have integrated.
       if (cars.size > 1) {
-        const carImpact = collideCars([...cars.values()].map((c) => c.state));
+        // All cars share the active vehicle, so one radius covers every pair.
+        const carImpact = collideCars([...cars.values()].map((c) => c.state), collisionRadiusFor(currentVariant));
         if (carImpact > 0.8 && lead) fx.impact(lead.state.x, lead.state.y, carImpact);
       }
 
@@ -2204,21 +2216,23 @@ function updateXpHud() {
 // grille, chrome window/bumper trim, boxy door mirrors, a ducktail, and dark
 // tyre-tops (no rim shows from straight above). +x = front. All marks ORIGINAL:
 // it evokes the era and copies no real car.
-// Blit the cached Stee-Rex sprite: scaled so its nose→tail length matches Blitz RS's
-// drawn length (same one-ruler in-world size, so it sits right on the track/grid),
-// rotated about its centre by heading. The bitmap's nose points UP, so +90° aligns it
-// with +x (the heading direction) exactly like the Blitz RS vector.
+// Blit the cached Stee-Rex sprite at its OWN real dimensions: the sprite's measured
+// opaque length (tyres included) is scaled to the vehicle's real lengthM, so the width
+// follows automatically at the sprite's aspect ratio (uniform scale, no distortion).
+// Drawn about the opaque-bbox centre (the rotation pivot); the bitmap's nose points UP,
+// so +90° aligns it with +x (heading) exactly like the Blitz RS vector.
 function drawSteerex(car: Car, skin: SteerexSkin) {
   const cv = steerexSprite(skin);
-  if (!cv) return;   // not decoded yet — preloaded at startup, so this is momentary
+  const op = steerexOpaque();
+  if (!cv || !op) return;   // not decoded/measured yet — preloaded at startup, momentary
   const s = car.state;
-  const LEN_M = CONFIG.wheelbase * 0.865 * 2;   // = Blitz RS drawn length (1.5 art-units × ART)
-  const scale = (LEN_M * PX()) / (STEEREX_LEN_SVG * STEEREX_RASTER);
+  const lenM = car.spec.dims?.lengthM ?? CONFIG.wheelbase * 0.865 * 2;   // real nose→tail
+  const scale = (lenM * PX()) / op.lenPx;   // opaque length px → lenM metres
   ctx.save();
   ctx.translate(s.x * PX(), s.y * PX());
   ctx.rotate(s.heading + Math.PI / 2);
   ctx.scale(scale, scale);
-  ctx.drawImage(cv, -cv.width / 2, -cv.height / 2);
+  ctx.drawImage(cv, -op.cxPx, -op.cyPx);
   ctx.restore();
 }
 

@@ -825,9 +825,11 @@ export function bodyToWorld(car: CarState, bx: number, by: number): { x: number;
 export interface ObstacleRect { x: number; y: number; w: number; h: number; }
 
 export function collideWithRects(
-  car: CarState, rects: ObstacleRect[], c: Config = CONFIG,
+  car: CarState, rects: ObstacleRect[], c: Config = CONFIG, radius?: number,
 ): number {
-  const R = c.carCollisionRadius;
+  // Per-vehicle collision radius (a smaller car collides at a smaller circle). Omitted
+  // ⇒ the config's radius, so existing (Blitz RS) callers are byte-identical.
+  const R = radius ?? c.carCollisionRadius;
   let strongest = 0;
   for (const r of rects) {
     // Closest point on the rect to the car center.

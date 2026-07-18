@@ -152,6 +152,32 @@ function svgFor(skin: SteerexSkin): string {
 const _cache = new Map<SteerexSkin, HTMLCanvasElement>();
 const _loading = new Set<SteerexSkin>();
 
+// The sprite's FULL OPAQUE bounding box, measured from the rasterised bitmap (tyres,
+// flares and any AA/shadow bleed included). Both skins share the geometry, so this is
+// measured once. `lenPx`/`widPx` are the opaque nose→tail / across-tyres extents in
+// bitmap px; (cxPx,cyPx) the opaque centre = the rotation pivot the sprite is drawn
+// about. drawSteerex scales `lenPx` → the vehicle's real length, so the width follows
+// automatically at the sprite's own aspect ratio (no stretching).
+let _opaque: { lenPx: number; widPx: number; cxPx: number; cyPx: number } | null = null;
+/** The measured opaque bbox of the Stee-Rex bitmap (null until the first skin bakes). */
+export function steerexOpaque() { return _opaque; }
+function measureOpaque(cv: HTMLCanvasElement) {
+  const c = cv.getContext('2d');
+  if (!c) return;
+  const d = c.getImageData(0, 0, cv.width, cv.height).data;
+  let x0 = cv.width, y0 = cv.height, x1 = -1, y1 = -1;
+  for (let y = 0; y < cv.height; y++) {
+    for (let x = 0; x < cv.width; x++) {
+      if (d[(y * cv.width + x) * 4 + 3] > 8) {
+        if (x < x0) x0 = x; if (x > x1) x1 = x;
+        if (y < y0) y0 = y; if (y > y1) y1 = y;
+      }
+    }
+  }
+  if (x1 < 0) return;
+  _opaque = { lenPx: y1 - y0 + 1, widPx: x1 - x0 + 1, cxPx: (x0 + x1 + 1) / 2, cyPx: (y0 + y1 + 1) / 2 };
+}
+
 /**
  * The cached, rasterised Stee-Rex bitmap for a skin (transparent, nose UP, centred
  * on the car's rotation pivot). Null until it has decoded — kicks the async bake on
@@ -173,6 +199,7 @@ export function steerexSprite(skin: SteerexSkin): HTMLCanvasElement | null {
       if (!c) return;
       c.drawImage(img, 0, 0, cv.width, cv.height);
       _cache.set(skin, cv);
+      if (!_opaque) measureOpaque(cv);   // both skins share the geometry → measure once
     };
     // decode() gates on the bitmap being canvas-paintable (WebKit fires load early).
     if (typeof img.decode === 'function') img.decode().then(bake).catch(() => { /* keep null */ });

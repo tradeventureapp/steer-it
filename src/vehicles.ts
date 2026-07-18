@@ -130,10 +130,22 @@ export function listVehicles(): VehicleIdentity[] {
 import type { Config } from './vehicle-core';
 import type { SteerexSkin } from './steerex-sprite';
 
+// A vehicle's REAL-WORLD dimensions (metres). The source of truth for how big the car
+// is in the world — the sprite is scaled to `lengthM` and the collision radius derives
+// from it (later, so does the physics tune). Blitz RS's dimensions come from CONFIG
+// (wheelbase-derived), so ROAD_SPEC omits this; a sprite car states its own.
+export interface VehicleDims {
+  lengthM: number;      // nose→tail
+  widthM: number;       // across the (flared) tyres — the widest point
+  wheelbaseM: number;   // front axle → rear axle
+  bodyWidthM: number;   // body only, excluding the flared wheels
+}
+
 export interface VehicleSpec {
   name: string;                    // internal codename (NO real brand strings)
   liveryColor?: string;            // fixed body hex; falls back to the slot colour
   overrides: Partial<Config>;      // partial CONFIG override (physics4 per-car feel, NOT scale)
+  dims?: VehicleDims;              // real-world size (source of truth for sprite scale + collision)
   // A pre-authored SVG sprite instead of the vector-drawn Blitz RS body. When set,
   // drawCar blits the cached bitmap; the slot colour / livery are ignored (the skin
   // is a fixed design). VISUAL ONLY — the physics still uses the global PHYS4.
@@ -156,14 +168,21 @@ export const ROAD_SPEC: VehicleSpec = {
 // a sprite skin with NO physics tune yet, so it borrows Blitz RS's physics4 params
 // (the global PHYS4) as a placeholder — clearly to be replaced with the real arcade
 // tune next. Two fixed skins.
+// Real dimensions (measured from the designer's render, aspect preserved exactly): a
+// short, wide car vs the long Blitz RS coupe — 0.72× its length, 1.16× its width.
+const STEEREX_DIMS: VehicleDims = {
+  lengthM: 3.14, widthM: 1.95, wheelbaseM: 2.00, bodyWidthM: 1.63,
+};
 export const STEEREX_SILVER: VehicleSpec = {
   name: 'Stee-Rex Silver',
   overrides: {},
+  dims: STEEREX_DIMS,
   sprite: { car: 'steerex', skin: 'silver' },
 };
 export const STEEREX_BLACK: VehicleSpec = {
   name: 'Stee-Rex Black',
   overrides: {},
+  dims: STEEREX_DIMS,
   sprite: { car: 'steerex', skin: 'black' },
 };
 
