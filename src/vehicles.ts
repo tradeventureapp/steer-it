@@ -190,14 +190,23 @@ const STEEREX_DIMS: VehicleDims = {
 const STEEREX_ARCADE: Partial<Physics4Params> = {
   // 2a — TOP SPEED = 300 km/h, set by the hard limiter (decoupled from engine power).
   arcadeTopSpeed: 300 / 3.6,   // 83.333 m/s
-  // 2b — ACCELERATION: modulated 0-100 ≈ 2.0 s, full-mash clearly slower (spin-burn).
+  // ACCELERATION (revised — supersedes the old 0-100 = 2.0 s): MODULATED 0-100 ≈ 1.2 s /
+  // 0-200 ≈ 3.0 s (100→200 ≈ 1.8 s, longer than the first 100 as physics requires); full-mash
+  // clearly SLOWER (wheelspin burns traction). Four DECOUPLED levers:
+  //   • arcadeLongGrip — the rear LONGITUDINAL (launch) grip, scaled WITHOUT touching lateral
+  //     (cornering/drift) grip, so the launch is blistering on the SAME muNom 3.0 corner grip.
+  //   • peakThrust — kept far ABOVE the launch grip so a full MASH breaks the rear loose (spins →
+  //     the spin-burn bites), while a feathered launch uses only up to the grip = the fast time.
+  //   • enginePower — the high-range pull that sets the 100→200 taper (drops as ∝1/v).
+  //   • arcadeTopSpeed — the hard 300 limiter, so raising power never moves the top.
   massKg: 1000,
-  peakThrust: 30000,           // strong low-end (grip-limited launch → 2.0 s when modulated)
-  enginePower: 650000,         // keeps it torque-limited through 100 km/h
-  muNom: 3.0,                  // arcade grip: strong (2.0 s gripped launch + no accidental snap)
+  arcadeLongGrip: 2.1,         // 2.1× rear LAUNCH grip (lateral μ 3.0 unchanged) → 0-100 ≈ 1.2 s
+  peakThrust: 95000,           // ≫ launch grip → a MASH spins (burns); a feathered launch stays gripped
+  enginePower: 920000,         // high-range pull → 0-200 ≈ 3.0 s, 100→200 ≈ 1.9 s (drag-limited top 300+)
+  muNom: 3.0,                  // arcade CORNERING grip: strong (no accidental snap) — UNCHANGED by the launch
   wheelInertiaDrive: 5,        // the rear runs away on a standstill mash (deep κ)…
-  arcadeSpinGrip: 0.7,         // …and that deep straight overspin BURNS grip → mash 2.68 s vs 2.07 s
-  arcadeSpinGripSpeed: 12,     // launch-only (fades out by 12 m/s; never touches the top)
+  arcadeSpinGrip: 0.85,        // …and that deep straight overspin BURNS grip → mash ~1.6 s vs ~1.1 s modulated
+  arcadeSpinGripSpeed: 14,     // launch-only (fades out by 14 m/s; never touches the top)
   // 2c — DRIFT: a provoked slide SUSTAINS and is throttle/counter-steer controllable; over-
   // driving SPINS (punishable); normal cornering never snaps. The drift-grip cut is gated on
   // BODY SIDESLIP β (not rear slip) so a hard grip corner (small β) never trips it — only a
