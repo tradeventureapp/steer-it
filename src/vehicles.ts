@@ -168,11 +168,11 @@ export const ROAD_SPEC: VehicleSpec = {
 // a sprite skin with NO physics tune yet, so it borrows Blitz RS's physics4 params
 // (the global PHYS4) as a placeholder — clearly to be replaced with the real arcade
 // tune next. Two fixed skins.
-// Real dimensions (measured from the designer's render, sprite ratio L/W = 1.61 kept
-// exactly): near Blitz RS's length but DRAMATICALLY wider (sci-fi/NASA lore, wider than
-// F1) — vs Blitz RS (4.35×1.68) = 0.92× length, 1.48× width. The width is intentional.
+// Real dimensions (measured from the designer's NEW narrower render, sprite ratio
+// L/W = 2.0137 kept exactly, width anchored to a clean 2.000 m): wide but realistic —
+// vs Blitz RS (4.35×1.68) = ~same length, a touch wider.
 const STEEREX_DIMS: VehicleDims = {
-  lengthM: 4.00, widthM: 2.49, wheelbaseM: 2.55, bodyWidthM: 2.08,
+  lengthM: 4.027, widthM: 2.000, wheelbaseM: 2.571, bodyWidthM: 1.672,
 };
 export const STEEREX_SILVER: VehicleSpec = {
   name: 'Stee-Rex Silver',

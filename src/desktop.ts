@@ -2217,7 +2217,7 @@ function updateXpHud() {
 // tyre-tops (no rim shows from straight above). +x = front. All marks ORIGINAL:
 // it evokes the era and copies no real car.
 // Blit the cached Stee-Rex sprite at its OWN real dimensions: the sprite's measured
-// opaque length (tyres included) is scaled to the vehicle's real lengthM, so the width
+// opaque WIDTH (over the tyres) is scaled to the vehicle's real widthM, so the length
 // follows automatically at the sprite's aspect ratio (uniform scale, no distortion).
 // Drawn about the opaque-bbox centre (the rotation pivot); the bitmap's nose points UP,
 // so +90° aligns it with +x (heading) exactly like the Blitz RS vector.
@@ -2226,8 +2226,8 @@ function drawSteerex(car: Car, skin: SteerexSkin) {
   const op = steerexOpaque();
   if (!cv || !op) return;   // not decoded/measured yet — preloaded at startup, momentary
   const s = car.state;
-  const lenM = car.spec.dims?.lengthM ?? CONFIG.wheelbase * 0.865 * 2;   // real nose→tail
-  const scale = (lenM * PX()) / op.lenPx;   // opaque length px → lenM metres
+  const widM = car.spec.dims?.widthM ?? CONFIG.trackWidth;   // real width over the tyres
+  const scale = (widM * PX()) / op.widPx;   // opaque width px → widM metres (length follows)
   ctx.save();
   ctx.translate(s.x * PX(), s.y * PX());
   ctx.rotate(s.heading + Math.PI / 2);

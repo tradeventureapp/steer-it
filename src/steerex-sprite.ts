@@ -61,8 +61,11 @@ const SHARED_DEFS = `
   <clipPath id="rwin"><path d="M249 553 L411 553 L417 617 Q418 624 411 624 L249 624 Q242 624 243 617 Z"/></clipPath>`;
 
 // ---- the car geometry (Silver #carG, verbatim; identical for both skins) ----
+// NARROWER version: the designer squeezes the whole car horizontally to 0.8× about its
+// centre-line (x=330), exactly as their `<use transform="… scale(0.8 1) …">` does. The
+// geometry inside is byte-identical to the wider version; only this outer transform is new.
 const CAR_G = `
-  <g id="carG">
+  <g id="carG" transform="translate(330 0) scale(0.8 1) translate(-330 0)">
     <rect x="192" y="330" width="14" height="300" rx="5" fill="url(#rocker)"/>
     <rect x="454" y="330" width="14" height="300" rx="5" fill="url(#rocker)"/>
     <g>

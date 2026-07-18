@@ -4828,3 +4828,22 @@ stretch); collision radius = `carCollisionRadius × 4.00/4.44 ≈ 2.27 m`. **GRI
 EYE (Blitz + both skins on asphalt at 60 + in-game 7.5 px/m): near-same length as Blitz, dramatically
 wider, undistorted. **ONLY `vehicles.ts` changed** — all other src byte-identical (empty diffs) ⇒ step()
 0.0e+0, grid/masks unchanged. tsc + build clean.
+
+---
+**STEE-REX — NEW NARROWER SPRITE + EXACT DIMS (4.027×2.000 m, width-anchored; grid UNTOUCHED, 0.0e+0):**
+the designer's new "narrow" files are the SAME `#carG` geometry with one added outer transform —
+`translate(330 0) scale(0.8 1) translate(-330 0)` (squeeze the whole car to 0.8× horizontally about its
+centre-line x=330; length unchanged). Applied that transform to the module's `#carG` opening tag (the
+inner markup is byte-identical to the wide version — only skins swap the 4 gradients). `STEEREX_DIMS`
+3.14…/4.00… → **length 4.027 m, width 2.000 m, wheelbase 2.571, body 1.672** (sprite ratio L/W 2.0137
+kept 1:1). **SCALE now WIDTH-anchored** (`drawSteerex`: `scale = dims.widthM·PX / op.widPx`) per the
+handoff — the measured opaque bbox is now **1599×798 px = 533×266 svg** (width squeezed from 332→266,
+aspect **2.0038**); 2.000 m maps to the 798-px opaque track width ⇒ **0.002506 m/px = 0.00752 m/svg**
+(bitmap→screen 0.0188 @7.5px/m), and the **length lands at 4.008 m automatically** (target 4.027; 0.5%
+under, because the measured opaque aspect 2.0038 ≠ the stated 2.0137 — undistorted, uniform scale, width
+EXACT). Collision radius still from `dims.lengthM` (4.027 → ≈2.28 m). vs Blitz RS (4.44 drawn): 0.90×
+length, 1.19× width — near-same length, a touch wider (much cleaner than the old 2.49 m-wide version).
+**GRID UNTOUCHED. VERIFIED BY EYE** (Blitz + both skins on asphalt at 60 + in-game 7.5 px/m): narrower/
+cleaner than before, undistorted, wide-but-realistic, no kerb clip (2.0 m ≪ 27 m band). **REGRESSION:**
+`physics4`/`cars`/`maps`/`marks`/`race`/`vehicle-core` byte-identical (empty diffs) ⇒ step() 0.0e+0,
+grid/masks unchanged; only desktop/steerex-sprite/vehicles (render + dims). tsc + build clean.
