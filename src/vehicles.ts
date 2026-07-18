@@ -222,16 +222,6 @@ const STEEREX_ARCADE: Partial<Physics4Params> = {
   tire: { muScale: { asphalt: 1.0, grass: 0.60, gravel: 0.65 } },
   // NOTE: tireBx (12) + tireCx (1.6) NOT touched — 12 is already a broad longitudinal peak; the
   // universal's softer longitudinal bite comes from tireEllipseLong (1.3 → 1.05), not tireBx.
-  // --- WEIGHT-TRANSFER SENSITIVITY: the LATERAL load transfer (weight shifting to the outer
-  //     wheels through a corner) was HAIR-TRIGGER — at gain 1.0 the rear broke loose (isRearSliding)
-  //     in EVERY normal throttle corner (65+ frames at 20-70 km/h, steer 0.5-0.7), so you couldn't
-  //     drive any corner cleanly, even slowly. DIAGNOSED as the lateral transfer specifically
-  //     (halving it → 0 slide frames; cgHeight/ellipse also fix it but touch braking/throttle feel,
-  //     so this is the ISOLATED knob). 1.0 → 0.6: normal corners now GRIP across the whole envelope
-  //     with margin, while 60% of the lateral weight shift is retained (still a functional, felt
-  //     transfer). The handbrake drift tool is UNAFFECTED (it's a locked-rear mechanism, independent
-  //     of this gain — provoked β stays 179°), so hard provocation still slides on demand.
-  loadTransferLatGain: 0.6,
   // --- PHASE 2.5 (power first): OWN POWER + TOP SPEED. Grip is NOT touched (high grip killed
   //     drift); the 4WD 40/60 puts the launch down, full-throttle wheelspin is fine character. ---
   enginePower: 666000,     // 666 kW ≈ 893 hp (lore figure, real physics peak). At 900 kg = ~740 kW/t — sci-fi tier (~2× a real rallycross RX1e's 500 kW/1400 kg).
