@@ -236,8 +236,17 @@ const STEEREX_ARCADE: Partial<Physics4Params> = {
   // --- HANDBRAKE as the PRIMARY DRIFT TOOL (not the sim's over-braking kinetic lock). Breaks the
   //     rear lateral grip loose so the tail steps out into a FLOWING drift that carries speed;
   //     pulling it mid-drift re-breaks the rear → swing through centre to the opposite lock (flick). ---
-  arcadeHbLatGrip: 0.50,   // rear keeps 50% cornering grip under handbrake → breaks loose into a CONTROLLED ~40° drift (not the sim lock's violent 47°+ snap); lower = wilder/over-rotates, higher = shallower.
+  arcadeHbLatGrip: 0.60,   // rear keeps 60% cornering grip under handbrake → breaks loose into a CONTROLLED ~50° drift. RAISED 0.50→0.60 in the DRIFT-BALANCE pass: 0.50 over-rotated (peak β 101° at 40 km/h, and even a MODERATE steer 0.35 spun to 107°); 0.60 CALMS it (full-steer peak 55°, moderate steer 0.35 → a clean 50° drift). Lower = wilder/over-rotates, higher = shallower (0.70 → barely drifts, 17°).
   arcadeHbBrake: 0.40,     // rear-axle handbrake braking — NOTICEABLE deceleration (hb-only stop ~31 m from 50, vs the old 0.10's 88 m), but well short of the 4-wheel main brake (~6 m). Still light enough that the drift FLOWS (entry ~36° keeping ~47 km/h) and the flick works. (0.55 → ~25 m / shallower drift if more braking wanted.)
+  // --- DRIFT-BALANCE PASS: the sim inherits weak self-align (pneumaticTrail 0.06) which let the
+  //     handbrake over-rotate; raised so the tail steps out then CATCHES instead of running away.
+  pneumaticTrail: 0.16,    // m — self-aligning torque arm (Blitz/sim 0.06). Stronger → the drift catches on counter-steer instead of spinning; corners stay clean (β 4-8°).
+  trailPeakSlip: 0.25,     // rad ≈ 14° — the slip angle where the trail collapses (sim 0.19). Wider → the self-align stays active over a broader drift-angle range before it reverses into a spin.
+  // --- THROTTLE POWER-OVER: was DEAD (arcadeDriftGrip unset → the cut never ran, so flooring it
+  //     just gripped ~10°). Enabled + a committed floor+turn provoke so you can power-slide on demand. ---
+  arcadeDriftGrip: 0.55,   // 0..1 rear-grip cut once sliding (keep 45%) — sustains a throttle-provoked slide. β-gated (below) so normal corners don't trigger it.
+  arcadeDriftGate: 0.14,   // rad ≈ 8° body-sideslip onset for the cut — above any grip-corner β, so a clean corner (β 4-8°) never engages it.
+  arcadePowerOver: 0.35,   // COMMITTED power-over: high throttle (>0.7) + turn (|steer|>0.4) engages the drift-grip cut WITHOUT a pre-existing β → flooring it at full lock breaks the rear loose into a drift (was impossible: β needs the cut, the cut needed β). 0.35 = controllable (full lock low-speed ~33-60°, catchable); higher spins too easily.
 };
 export const STEEREX_SILVER: VehicleSpec = {
   name: 'Stee-Rex Silver',

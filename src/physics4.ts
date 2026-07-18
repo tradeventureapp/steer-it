@@ -143,6 +143,10 @@ export interface Physics4Params {
   arcadeDriftGate?: number;    // rad — lateral-slip onset for the drift-grip cut (full 0.15 rad above).
                                // Sets where a provoked slide starts to SUSTAIN — low enough that a
                                // drift holds a stable angle, high enough a gripped corner stays gripped.
+  arcadePowerOver?: number;    // POWER-OVER: a COMMITTED floor + turn (high throttle + steer) engages the
+                               // rear-grip cut even before a slide exists, so throttle breaks the rear
+                               // loose and rotates the car into a drift at low speed / standstill (the
+                               // chicken-and-egg where a β-only gate can never start). 0 = off.
   // 2.4 — BRAKE STABILITY: under braking (not handbrake), damp the yaw so the car HOLDS ITS LINE
   // instead of the unloaded rear spinning it (braking-into-a-corner oversteer). FADED by steer so
   // HARD brake + HARD steer still breaks loose (spin). Decouples braking from drifting — plain
@@ -472,7 +476,14 @@ export function step4(
       // moderate rear slip → never trips; a drift has large β → the cut engages and SUSTAINS
       // it (β stays large through counter-steer). Below the gate → full grip → recovers.
       const gate = p.arcadeDriftGate ?? SLIDE_SLIP_LO;
-      const slide = clamp((Math.abs(bodyBeta) - gate) / 0.15, 0, 1);
+      const betaSlide = clamp((Math.abs(bodyBeta) - gate) / 0.15, 0, 1);
+      // POWER-OVER provoke: a COMMITTED floor + turn breaks the rear loose even before a slide
+      // exists (low-speed / standstill), so throttle is a real drift trigger. The high thresholds
+      // (throttle > 0.7, |steer| > 0.4) keep a normal high-throttle corner from tripping it.
+      const powerProvoke = p.arcadePowerOver
+        ? p.arcadePowerOver * clamp((throttle - 0.7) / 0.3, 0, 1) * clamp((Math.abs(steer) - 0.4) / 0.4, 0, 1)
+        : 0;
+      const slide = clamp(Math.max(betaSlide, powerProvoke), 0, 1);
       const thrGate = clamp(throttle / 0.3, 0, 1);   // throttle sustains the slide (full by 0.3)
       D *= 1 - p.arcadeDriftGrip * slide * thrGate;
     }
