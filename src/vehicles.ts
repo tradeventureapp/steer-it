@@ -203,6 +203,13 @@ const STEEREX_ARCADE: Partial<Physics4Params> = {
   trackWidth: 1.74,        // m — wide track matching its 2.0 m body (Blitz 1.46)
   massKg: 900,             // kg — light sci-fi car (Blitz 1020)
   driveSplitFront: 0.4,    // 4WD, 40% front / 60% rear (Blitz is RWD = 0)
+  weightDistFront: 0.55,   // 55% front (up from the inherited 0.53) — authentic rally/rallycross
+                           // AWD bias (real cars run 55-61% front); 0.55 = the low end. CALMS the
+                           // lift-off oversteer (more front = more directionally stable, so the rear
+                           // won't step out so willingly on throttle-lift + turn) while staying
+                           // drift-capable. Also sets the CoM longitudinal position (lr = 0.55·WB) —
+                           // one value, no separate CoG-longitudinal to mismatch. cgHeight (0.45,
+                           // vertical) unchanged — weight distribution only.
   // --- PHASE 2.2: OWN TIRES — universal all-terrain (vs Blitz's specialised slicks). STARTING
   //     values for drive-testing, not final. Character: strong but BROAD/forgiving on tarmac
   //     (planted, no razor peak, doesn't snap) + keeps far more grip off-track. ---
