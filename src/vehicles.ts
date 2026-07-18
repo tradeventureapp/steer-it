@@ -198,10 +198,23 @@ const STEEREX_DIMS: VehicleDims = {
 // drift/brake/launch tuning) is deliberately INHERITED from Blitz this phase, so we can isolate
 // what mass + geometry + 4WD alone do. Later phases give it its own tyres, grip, drift, etc.
 const STEEREX_ARCADE: Partial<Physics4Params> = {
+  // --- PHASE 2.1: geometry + mass + 4WD ---
   wheelbase: 2.571,        // m — its own rovor (Blitz 2.565)
   trackWidth: 1.74,        // m — wide track matching its 2.0 m body (Blitz 1.46)
   massKg: 900,             // kg — light sci-fi car (Blitz 1020)
   driveSplitFront: 0.4,    // 4WD, 40% front / 60% rear (Blitz is RWD = 0)
+  // --- PHASE 2.2: OWN TIRES — universal all-terrain (vs Blitz's specialised slicks). STARTING
+  //     values for drive-testing, not final. Character: strong but BROAD/forgiving on tarmac
+  //     (planted, no razor peak, doesn't snap) + keeps far more grip off-track. ---
+  muNom: 1.90,             // SAME peak grip magnitude as the slick — NOT higher (high grip killed drift). The universal feel comes from a BROADER curve, not more grip.
+  tireB: 8,                // lateral stiffness — LOWER than the slick's 10 → the peak sits at a higher slip angle = a broader, more planted grip build-up
+  tireC: 1.30,             // lateral shape — LOWER than the slick's 1.45 → gentler post-peak fall-off = forgiving, holds over a wider slip range, doesn't snap
+  tireEllipseLong: 1.05,   // LOWER than the slick's 1.3 — universals lack the slick's extreme longitudinal bite (also lets it rotate more willingly, for later drift phases)
+  loadSensitivity: 0.06,   // ~Blitz's 0.05 — kept low so grip holds under load transfer = planted/forgiving (not dramatic)
+  // per-surface μ — ALL-TERRAIN: keeps meaningful grip off-tarmac (Blitz slick collapses to 0.28/0.35)
+  tire: { muScale: { asphalt: 1.0, grass: 0.60, gravel: 0.65 } },
+  // NOTE: tireBx (12) + tireCx (1.6) NOT touched — 12 is already a broad longitudinal peak; the
+  // universal's softer longitudinal bite comes from tireEllipseLong (1.3 → 1.05), not tireBx.
 };
 export const STEEREX_SILVER: VehicleSpec = {
   name: 'Stee-Rex Silver',
