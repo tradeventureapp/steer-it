@@ -860,6 +860,7 @@ interface Car {
   spec: VehicleSpec;     // the car's variant (Blitz RS or a Stee-Rex skin)
   liveryColor?: string;  // fixed body hex from the spec; drawCar uses it over the slot colour
   collisionRadius: number;  // per-vehicle wall/car collision radius (from its real dimensions)
+  phys: Physics4Params;  // the car's physics4 params (sim = the shared PHYS4; arcade = a tuned clone)
 }
 
 // Blitz RS's collision radius is CONFIG.carCollisionRadius (wheelbase-derived). A sprite
@@ -871,11 +872,22 @@ function collisionRadiusFor(spec: VehicleSpec): number {
   return CONFIG.carCollisionRadius * (spec.dims.lengthM / BLITZ_LEN_M);
 }
 
-// Resolve a spec to a car's livery + collision size. Called at spawn / on a vehicle switch.
+// The car's physics4 params for its handling branch. SIM (Blitz RS) = the SHARED PHYS4
+// reference (so the D-tuner keeps working + it stays byte-identical). ARCADE (Stee-Rex) =
+// a clone of PHYS4 with the arcade branch + the spec's per-car overrides (empty at Stage 1
+// ⇒ numerically identical to PHYS4, i.e. still behaves like sim until the tune lands).
+function physFor(spec: VehicleSpec): Physics4Params {
+  if (spec.branch !== 'arcade') return PHYS4;
+  return { ...PHYS4, ...(spec.arcade ?? {}), branch: 'arcade' };
+}
+
+// Resolve a spec to a car's livery + collision size + physics branch. Called at spawn /
+// on a vehicle switch.
 function applyVariant(car: Car, spec: VehicleSpec) {
   car.spec = spec;
   car.liveryColor = spec.liveryColor;
   car.collisionRadius = collisionRadiusFor(spec);
+  car.phys = physFor(spec);
 }
 
 // Keyed by slot so routing/lookup is O(1) and nothing is hardcoded to 2 cars.
@@ -912,8 +924,9 @@ function makeManagedCar(slot: number, color: string): Car {
     coastInput: null,
     spec: ROAD_SPEC,                            // overwritten by applyVariant below
     collisionRadius: CONFIG.carCollisionRadius, // ditto
+    phys: PHYS4,                                // ditto
   };
-  applyVariant(car, currentVariant);   // spawn in the active variant (livery + collision size)
+  applyVariant(car, currentVariant);   // spawn in the active variant (livery + collision + phys)
   return car;
 }
 
@@ -1852,7 +1865,7 @@ function frame(now: number) {
         // physics4 (per-wheel sim) drives every car. The map's ground lookup ARMS the
         // per-wheel grass/gravel grip+drag; every map except the circuit passes undefined
         // → the off-asphalt branches never run (byte-identical on desktop + both ovals).
-        step4(car.state, current, FIXED_DT, PHYS4, currentMap.surfaceAt);
+        step4(car.state, current, FIXED_DT, car.phys, currentMap.surfaceAt);
         const impact = collideWithRects(car.state, world.rects, CONFIG, car.collisionRadius);
         if (impact > 0.8) {
           sound.impact(impact);

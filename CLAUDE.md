@@ -4847,3 +4847,24 @@ length, 1.19× width — near-same length, a touch wider (much cleaner than the 
 cleaner than before, undistorted, wide-but-realistic, no kerb clip (2.0 m ≪ 27 m band). **REGRESSION:**
 `physics4`/`cars`/`maps`/`marks`/`race`/`vehicle-core` byte-identical (empty diffs) ⇒ step() 0.0e+0,
 grid/masks unchanged; only desktop/steerex-sprite/vehicles (render + dims). tsc + build clean.
+
+---
+**STEE-REX ARCADE — STAGE 1: per-car HANDLING BRANCH (sim/arcade), a provable NO-OP:** the branch
+architecture for the flagship arcade car, built on physics4 (the ONE engine — the deleted arcade model
+stays deleted). **API (how a car declares its branch + arcade knobs):** `Physics4Params.branch:
+'sim' | 'arcade'` (the runtime flag step4 will gate arcade divergence on — added but NOT YET READ);
+`VehicleSpec.branch?: 'sim'|'arcade'` (default sim) + `VehicleSpec.arcade?: Partial<Physics4Params>`
+(per-car physics4 knob overrides). desktop.ts `physFor(spec)` computes each car's `phys`: **SIM → the
+SHARED `PHYS4` reference** (so the D-tuner keeps working AND it's byte-identical), **ARCADE → `{...PHYS4,
+...spec.arcade, branch:'arcade'}`**. `step4(car.state, current, dt, car.phys, surfaceAt)` (was the global
+PHYS4). Blitz RS = sim (ROAD_SPEC omits branch); Stee-Rex = arcade with EMPTY overrides ⇒ numerically
+identical to PHYS4. **CRITICAL: step4's code is LITERALLY UNCHANGED** — only an unread `branch` field was
+added to the type + PHYS4; there is NO arcade divergence code yet (Stage 2). **PROVEN 0.0e+0:** (a) the
+golden step suite (launch/corner/drift/handbrake/brake/trail-brake/reverse/top-speed/coast × asphalt/
+grass/gravel = 27 cells, 6-dp fingerprint) run on the Stage-1 tree == the pre-change HEAD **byte-identical**
+(git-stash A/B); (b) `step4` with the arcade clone (`{...PHYS4, branch:'arcade'}`) == `step4` with PHYS4
+**identical** (arcade behaves exactly like sim, placeholder unchanged). Nothing feels different in-game;
+ovals/desktop/circuit unaffected. tsc + build clean. **NEXT: Stage 2 — Stee-Rex arcade tune (top speed
+300 km/h via gearing/limiter, modulated 0-100 in 2.0 s, easy-in/skill-to-hold drift with ~8-10% speed
+cost, arcade surface-forgiveness + cranked particles), each a decoupled lever swept in the harness; Blitz
+stays 0.0e+0.**

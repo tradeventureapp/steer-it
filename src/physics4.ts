@@ -28,6 +28,11 @@ import { CONFIG, type CarState, type Inputs } from './vehicle-core';
 import type { Surface } from './maps';
 
 export interface Physics4Params {
+  // HANDLING BRANCH (declared once per car, like the tyre profile). 'sim' = the honest
+  // per-wheel model exactly as written (Blitz RS). 'arcade' = the same engine tuned for a
+  // forgiving arcade car (Stee-Rex). step4's SIM path is literally the existing code; any
+  // arcade divergence is gated behind `branch === 'arcade'`, so a sim car is byte-identical.
+  branch: 'sim' | 'arcade';
   massKg: number;             // 1200
   weightDistFront: number;    // 0..1 static front-axle load fraction (0.52 = front-biased RWD)
   cgHeight: number;           // m — CoG height (load-transfer arm) (0.5)
@@ -122,6 +127,7 @@ export interface TireProfile {
 // grip, decisive breakaway, race brakes, ~1020 kg stripped weight, 370 hp. The honest
 // per-wheel sim benchmark (a separate forgiving ARCADE car is built on top later).
 export const PHYS4: Physics4Params = {
+  branch: 'sim',           // Blitz RS = the honest sim; step4 runs the existing path verbatim
   massKg: 1020,            // stripped homologation-spec race weight (was 1200)
   weightDistFront: 0.53,   // a real road-going coupe of this layout sits ~52/48 front; race setup adds a touch → the STABILITY MARGIN (neutral-steer-point BEHIND the CoM = directionally stable under throttle, no power-oversteer divergence)
   cgHeight: 0.45,          // lowered race car → less load transfer → planted
