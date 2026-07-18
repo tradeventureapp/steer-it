@@ -203,6 +203,11 @@ const STEEREX_ARCADE: Partial<Physics4Params> = {
   trackWidth: 1.74,        // m — wide track matching its 2.0 m body (Blitz 1.46)
   massKg: 900,             // kg — light sci-fi car (Blitz 1020)
   driveSplitFront: 0.4,    // 4WD, 40% front / 60% rear (Blitz is RWD = 0)
+  maxSteer: 0.52,          // 30° front lock (down from the inherited 32°/0.56) — calms the twitchy,
+                           // over-sensitive turn-in slightly. The universal tyre peaks at ~19° slip,
+                           // so 30° still covers full grip + counter-steer (the handbrake drift stays
+                           // catchable) while a tad less near-centre gain than 32°. Radius @30 km/h
+                           // ~4.45 m (vs 4.1 at 32°). LINEAR mapping unchanged (no expo curve).
   weightDistFront: 0.55,   // 55% front (up from the inherited 0.53) — authentic rally/rallycross
                            // AWD bias (real cars run 55-61% front); 0.55 = the low end. CALMS the
                            // lift-off oversteer (more front = more directionally stable, so the rear
