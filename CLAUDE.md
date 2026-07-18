@@ -4816,3 +4816,15 @@ sprite's own aspect, uniform, no stretch); collision radius = `CONFIG.carCollisi
 undistorted, clearly bigger than before. **REGRESSION: ONLY `vehicles.ts` changed** (one dims literal)
 — physics4/cars/maps/marks/race/vehicle-core/desktop/steerex-sprite byte-identical (empty diffs) ⇒
 step() 0.0e+0, grid/masks unchanged. tsc + build clean.
+
+---
+**STEE-REX — RESIZED AGAIN (4.00 × 2.49 m; near-Blitz length, dramatically wider; dims+scale only,
+grid UNTOUCHED, 0.0e+0):** `STEEREX_DIMS` 3.70×2.30/wb 2.36 → **4.00 m length × 2.49 m width / wheelbase
+2.55 / body 2.08** (sprite ratio L/W 1.61 kept). vs Blitz RS (4.44 drawn) = **0.90× length, 1.48× width**
+— nearly same length, far wider (the extreme width is intentional sci-fi lore). ONE dims literal changed;
+sprite scale + collision radius derive from `dims.lengthM`: opaque 533 svg → 4.00 m (**0.0075 m/svg**;
+bitmap→screen 0.0188 @7.5px/m), **width lands at 2.492 m automatically** (target 2.49, uniform, no
+stretch); collision radius = `carCollisionRadius × 4.00/4.44 ≈ 2.27 m`. **GRID UNTOUCHED.** VERIFIED BY
+EYE (Blitz + both skins on asphalt at 60 + in-game 7.5 px/m): near-same length as Blitz, dramatically
+wider, undistorted. **ONLY `vehicles.ts` changed** — all other src byte-identical (empty diffs) ⇒ step()
+0.0e+0, grid/masks unchanged. tsc + build clean.

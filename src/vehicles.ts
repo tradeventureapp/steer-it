@@ -169,10 +169,10 @@ export const ROAD_SPEC: VehicleSpec = {
 // (the global PHYS4) as a placeholder — clearly to be replaced with the real arcade
 // tune next. Two fixed skins.
 // Real dimensions (measured from the designer's render, sprite ratio L/W = 1.61 kept
-// exactly): a short, MUCH wider car vs the long Blitz RS coupe (4.35×1.68) — 0.85× its
-// length, 1.37× its width.
+// exactly): near Blitz RS's length but DRAMATICALLY wider (sci-fi/NASA lore, wider than
+// F1) — vs Blitz RS (4.35×1.68) = 0.92× length, 1.48× width. The width is intentional.
 const STEEREX_DIMS: VehicleDims = {
-  lengthM: 3.70, widthM: 2.30, wheelbaseM: 2.36, bodyWidthM: 1.92,
+  lengthM: 4.00, widthM: 2.49, wheelbaseM: 2.55, bodyWidthM: 2.08,
 };
 export const STEEREX_SILVER: VehicleSpec = {
   name: 'Stee-Rex Silver',
