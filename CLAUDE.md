@@ -4868,3 +4868,19 @@ ovals/desktop/circuit unaffected. tsc + build clean. **NEXT: Stage 2 — Stee-Re
 300 km/h via gearing/limiter, modulated 0-100 in 2.0 s, easy-in/skill-to-hold drift with ~8-10% speed
 cost, arcade surface-forgiveness + cranked particles), each a decoupled lever swept in the harness; Blitz
 stays 0.0e+0.**
+
+---
+**STEE-REX ARCADE — STAGE 2a: TOP SPEED = 300 km/h via a hard limiter (decoupled from power):** new
+optional arcade knob `Physics4Params.arcadeTopSpeed` (m/s) + a `branch==='arcade'`-gated hard clamp on
+the forward speed just before the pose integration (`if sp>arcadeTopSpeed scale vx,vy down`). Stee-Rex
+`arcade.arcadeTopSpeed = 300/3.6` (83.333 m/s). **DECOUPLING PROVEN (sweep, full throttle to top):** sim
+Blitz 246 km/h (unchanged); arcade at Blitz power 246 (limiter never reached), at **3× power = EXACTLY
+300** (clamp holds), 6× = 300, 10× = 294 (extreme power spins the wheel at top → thrust dips just under —
+an unrealistic power level; the real tune sits ≪ that). Across the whole 2b accel sweep (peakThrust
+16–38k, enginePower 520–650k) **top stayed 300** → raising power for the launch cannot move the top. The
+`NumKey<Physics4Params>` D-tuner mapped type got `-?` so the new OPTIONAL knob can't leak `undefined`.
+**Blitz 0.0e+0:** the golden step suite on the 2a tree == Stage-1 HEAD byte-identical (the limiter is
+arcade-gated; sim never clamps). tsc + build clean. **NEXT: 2b accel (modulated 0-100 = 2.0 s, full-mash
+clearly slower), 2c drift, 2d grip, 2e surfaces — Blitz stays 0.0e+0.** KNOWN (for 2b): physics4's
+wheel-speed power limit SELF-LIMITS launch wheelspin, so full-mash is NOT emergently much slower than a
+modulated launch (they converge) — a deliberate arcade mash-penalty lever is needed in 2b.

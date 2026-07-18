@@ -111,6 +111,15 @@ export interface Physics4Params {
   // a FEATHERED exit (no spin) fights only the light constant, while MASHING the throttle
   // buries the car. Driven (rear) wheels only: an unspun wheel digs no hole.
   gravelDigGain: number;      // × extra constant drag at 100% wheelspin
+
+  // ================= ARCADE KNOBS (read ONLY when branch === 'arcade') =================
+  // Optional so the sim car (PHYS4) omits them entirely and every sim step is byte-
+  // identical; a Stee-Rex-style car supplies them via VehicleSpec.arcade. Each is a
+  // DECOUPLED lever (top speed / accel via the existing power+grip fields / drift feel /
+  // surface forgiveness) so tuning one never drags another off target.
+  arcadeTopSpeed?: number;    // m/s — HARD top-speed limiter (gearing/limiter). The top is
+                              // fixed HERE, independent of engine power, so raising power
+                              // for the launch can't push the top off target.
 }
 
 // How one tyre compound behaves on each ground: a ×scale on that wheel's μ. This lives with
@@ -662,6 +671,14 @@ export function step4(
   // reverse, where the brake pedal is the reverse throttle driving it backward)
   if (v < 0.15 && throttle < 0.02 && !reversing) {
     vx = 0; vy = 0; omega = 0; st.rearOmega = [0, 0];
+  }
+
+  // ---- ARCADE top-speed limiter: a hard cap on the forward speed (the "gearing/
+  // limiter" top), gated on the arcade branch so SIM is byte-identical. Decoupled
+  // from engine power → raising power for the launch cannot push the top off target.
+  if (p.branch === 'arcade' && p.arcadeTopSpeed) {
+    const sp = Math.hypot(vx, vy);
+    if (sp > p.arcadeTopSpeed) { const k = p.arcadeTopSpeed / sp; vx *= k; vy *= k; }
   }
 
   // ---- integrate pose ----

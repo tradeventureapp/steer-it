@@ -181,9 +181,12 @@ export const ROAD_SPEC: VehicleSpec = {
 const STEEREX_DIMS: VehicleDims = {
   lengthM: 4.027, widthM: 2.000, wheelbaseM: 2.571, bodyWidthM: 1.672,
 };
-// The arcade physics-knob overrides (on top of PHYS4). EMPTY at this stage → Stee-Rex
-// behaves exactly like the sim car (placeholder); Stage 2 fills it with the real tune.
-const STEEREX_ARCADE: Partial<Physics4Params> = {};
+// STEE-REX arcade tune (physics4 knob overrides on top of PHYS4, arcade branch).
+// Each target is a DECOUPLED lever (top speed / accel / drift / surface).
+const STEEREX_ARCADE: Partial<Physics4Params> = {
+  // 2a — TOP SPEED = 300 km/h, set by the hard limiter (decoupled from engine power).
+  arcadeTopSpeed: 300 / 3.6,   // 83.333 m/s
+};
 export const STEEREX_SILVER: VehicleSpec = {
   name: 'Stee-Rex Silver',
   overrides: {},

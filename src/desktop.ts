@@ -183,7 +183,7 @@ document.body.appendChild(brakeTunerEl);
 
   // ---------- PHYSICS4 knobs (per-wheel) — the only model's live tune ----------
   // only the NUMERIC params are steppable (PHYS4.tire is a structured tyre profile)
-  type NumKey<T> = { [K in keyof T]: T[K] extends number ? K : never }[keyof T];
+  type NumKey<T> = { [K in keyof T]-?: T[K] extends number ? K : never }[keyof T];
   const pRow = (label: string, key: NumKey<Physics4Params>,
                 stp: number, lo: number, hi: number, d = 2) =>
     mkRow(label, () => PHYS4[key], (v) => { PHYS4[key] = v; }, stp, lo, hi, (v) => v.toFixed(d));
