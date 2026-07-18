@@ -194,6 +194,15 @@ const STEEREX_ARCADE: Partial<Physics4Params> = {
   wheelInertiaDrive: 5,        // the rear runs away on a standstill mash (deep κ)…
   arcadeSpinGrip: 0.7,         // …and that deep straight overspin BURNS grip → mash 2.68 s vs 2.07 s
   arcadeSpinGripSpeed: 12,     // launch-only (fades out by 12 m/s; never touches the top)
+  // 2c — DRIFT: a provoked slide SUSTAINS and is throttle/counter-steer controllable; over-
+  // driving SPINS (punishable); normal cornering never snaps. The drift-grip cut is gated on
+  // BODY SIDESLIP β (not rear slip) so a hard grip corner (small β) never trips it — only a
+  // real drift (large β) does. The self-aligning torque is beefed up (trail + a wider stable
+  // range) so counter-steer catches it, and past that range it still spins.
+  arcadeDriftGrip: 0.6,        // rear keeps 40% grip in a full slide → the slide holds (power-over)
+  arcadeDriftGate: 0.14,       // ~8° body sideslip onset (above grip-corner β → no accidental snap)
+  pneumaticTrail: 0.16,        // stronger self-align than the sim's 0.06 → counter-steer catches
+  trailPeakSlip: 0.35,         // ~20° — wider stable drift range before the self-align reverses (spin)
 };
 export const STEEREX_SILVER: VehicleSpec = {
   name: 'Stee-Rex Silver',

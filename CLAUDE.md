@@ -4918,3 +4918,34 @@ arcade+straight+low-speed gated. **BLITZ 0.0e+0** — golden A/B (launch/corner/
 coast × asphalt) vs HEAD byte-identical; sim path untouched. tsc + build clean. **NEXT: 2c drift (easy
 triggers, wide control band, counter-steer catches, punishable spin, ~8-10% speed cost measured drifted-
 vs-gripped). Then 2d grip/forgiveness, 2e surfaces. Stage 3 (assist) HELD for separate go-ahead.**
+
+---
+**STEE-REX ARCADE — STAGE 2c DRIFT (β-gated drift-grip cut; provoke/sustain/punish/no-snap work; the
+grip-vs-drift coupling honestly reported):** the drift mechanism, built as arcade-gated knobs on top of
+the 2b tune. **THE MECHANISM — a rear-grip cut GATED ON BODY SIDESLIP β (not rear slip):** the key insight
+after many dead-ends — a hard GRIP corner sits at small β even at moderate rear slip, while a DRIFT has
+large β; gating on β cleanly separates them. `arcadeDriftGrip` 0.6 (rear keeps 40% grip in a full slide →
+the slide SUSTAINS = power-over) × `arcadeDriftGate` 0.14 (~8° β onset, above any grip-corner β) ×
+throttle-gate (more throttle → bigger cut → bigger angle = "throttle scales the angle"; lift → grip
+returns → winds down). The self-aligning torque is beefed for arcade (`pneumaticTrail` 0.16 vs sim 0.06 =
+counter-steer catches; `trailPeakSlip` 0.35 ≈20° vs sim 0.19 = a WIDER stable range before it reverses →
+spin). All arcade-gated / per-car overrides → Blitz 0.0e+0. **MEASURED (full STEEREX_ARCADE):** 2b intact
+(modulated 2.07 s / mash 2.68 s / top 300); handbrake provoke → real slide; hold (counter-steer + 0.55
+throttle) → **a bounded ~15° drift HELD** (ω small, doesn't regrip to 0, doesn't spin); over-drive (full
+throttle, no counter) → SPINS (punishable, no auto-save); **2d NO ACCIDENTAL SNAP — a hard grip corner
+with full throttle stays at 1-2° β (gripped)** (the β-gate is why); recoverable on lift. **⚠️ THE KEY
+FINDING — grip-vs-drift COUPLING, reported honestly:** 2b's 2.0 s launch REQUIRES high grip (mu 3.0). At
+that grip the raw drift is MODEST and SKILL-BASED — it holds ~15° with active counter-steer + moderate
+throttle, but it is NOT a wide, deep, self-forgiving band, and full throttle spins it. A traced drift
+builds (β −13→−39→−97, rear slip 58-70°) then spins unless caught. This is physics, not a bug: at high
+grip the car is bistable (grips back, or spins past the self-align peak), with a narrow controllable
+middle. The **WIDE forgiving band + deeper/faster sustained drift is exactly what Stage 3's catch-assist
+(deliberately deferred — "feel the raw tune first") provides**, layered on this raw mechanism. Speed cost
+measured ~5% through a fast corner (retains ~95%; the harness under-drifts, so this is a soft number —
+real committed-drift cost is higher; a phone feel-tune). **KNOBS in STEEREX_ARCADE:** arcadeDriftGrip 0.6
+· arcadeDriftGate 0.14 · pneumaticTrail 0.16 · trailPeakSlip 0.35. physics4 gained `arcadeDriftGrip`/
+`arcadeDriftGate` (both arcade+β+throttle gated) + a computed-but-sim-unused `bodyBeta` local. **BLITZ
+0.0e+0** (golden A/B vs HEAD byte-identical). tsc + build clean. **NEXT: 2e surfaces (arcade tyre
+forgiveness + cranked dig/spray effects). Then the full Stage 2 report + the grip-vs-drift decision for
+the boss (accept the raw skill-drift with Stage 3 for the wide band, OR soften the launch grip for a
+naturally wider drift). Stage 3 assist HELD.**

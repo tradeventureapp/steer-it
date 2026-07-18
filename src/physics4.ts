@@ -127,6 +127,15 @@ export interface Physics4Params {
   // crutch (it makes mashing WORSE; it never auto-prevents the spin).
   arcadeSpinGrip?: number;     // 0..1 — rear grip cut at full straight overspin (0 = off)
   arcadeSpinGripSpeed?: number;// m/s — fades the cut out by this speed (launch only, never top)
+  // 2c — DRIFT SUSTAIN: once the rear is ALREADY sliding (lateral slip past the slide gate),
+  // cut its grip budget so the slide SUSTAINS instead of the high arcade grip snapping it
+  // straight back. Slide-GATED (0 below ~9° lateral slip) so normal grip cornering is
+  // UNTOUCHED (2d forgiveness) and it is NOT an auto-catch: the player still catches it with
+  // counter-steer (the self-aligning torque), and over-driving past the trail peak still SPINS.
+  arcadeDriftGrip?: number;    // 0..1 — rear grip cut at full slide (0 = off; e.g. 0.5 = keep 50%)
+  arcadeDriftGate?: number;    // rad — lateral-slip onset for the drift-grip cut (full 0.15 rad above).
+                               // Sets where a provoked slide starts to SUSTAIN — low enough that a
+                               // drift holds a stable angle, high enough a gripped corner stays gripped.
 }
 
 // How one tyre compound behaves on each ground: a ×scale on that wheel's μ. This lives with
@@ -301,6 +310,11 @@ export function step4(
   const vby = -car.vx * sin + car.vy * cos;   // body lateral (right +)
   const v = Math.hypot(car.vx, car.vy);
   const w = car.angularVel;
+  // BODY SIDESLIP β = angle between the body's forward axis and its velocity. This
+  // cleanly separates a DRIFT (body sliding sideways → |β| large) from a hard GRIP
+  // corner (body follows the path → |β| small, even at moderate rear slip) — the
+  // arcade drift-grip cut gates on THIS so normal cornering never trips it.
+  const bodyBeta = v > 1 ? Math.atan2(vby, vbx) : 0;
 
   const throttle = clamp(input.throttle, 0, 1);
   const brake = clamp(input.brake, 0, 1);
@@ -416,6 +430,22 @@ export function step4(
       const lowFade = clamp((p.arcadeSpinGripSpeed ?? 12) - v, 0, p.arcadeSpinGripSpeed ?? 12)
         / (p.arcadeSpinGripSpeed ?? 12);
       D *= 1 - p.arcadeSpinGrip * spin * straight * lowFade;
+    }
+    // ARCADE drift-sustain (2c): once THIS rear is SLIDING (lateral slip past the slide gate)
+    // AND the player is ON THROTTLE, cut its grip so the slide HOLDS (power-over) instead of the
+    // high arcade grip snapping it back to grip. Slide-gated (0 below ~9° lateral slip → normal
+    // grip cornering UNTOUCHED = 2d) and THROTTLE-gated: more throttle → bigger cut → the rear
+    // stays looser → a bigger drift angle ("throttle scales the angle"); LIFT → grip returns →
+    // the drift winds down (recoverable). NOT an auto-catch — the player still counter-steers to
+    // hold it and over-driving past the trail peak still SPINS. SIM: off (arcade-gated).
+    if (p.branch === 'arcade' && !front && !hb && !reversing && p.arcadeDriftGrip) {
+      // Gate on BODY SIDESLIP β (not rear α): a hard grip corner sits at small β even with
+      // moderate rear slip → never trips; a drift has large β → the cut engages and SUSTAINS
+      // it (β stays large through counter-steer). Below the gate → full grip → recovers.
+      const gate = p.arcadeDriftGate ?? SLIDE_SLIP_LO;
+      const slide = clamp((Math.abs(bodyBeta) - gate) / 0.15, 0, 1);
+      const thrGate = clamp(throttle / 0.3, 0, 1);   // throttle sustains the slide (full by 0.3)
+      D *= 1 - p.arcadeDriftGrip * slide * thrGate;
     }
 
     // Magic-Formula lateral (peak-then-falloff = the kinetic/drift regime).
