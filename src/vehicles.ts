@@ -233,6 +233,11 @@ const STEEREX_ARCADE: Partial<Physics4Params> = {
   brakeBiasFront: 0.62,    // slight front bias (Blitz 0.60)
   arcadeBrakeStability: 8,     // yaw damping under braking → the car HOLDS ITS LINE (fixes the bug where ~30% brake + any steer spun the car via the unloaded rear). Straight braking unaffected (no yaw to damp).
   arcadeBrakeStabilitySteer: 0.85,  // |steer| at which the stability has faded → a HARD brake + HARD steer still breaks loose (spin). Below it: controllable diagonal skid, not a spin.
+  // --- HANDBRAKE as the PRIMARY DRIFT TOOL (not the sim's over-braking kinetic lock). Breaks the
+  //     rear lateral grip loose so the tail steps out into a FLOWING drift that carries speed;
+  //     pulling it mid-drift re-breaks the rear → swing through centre to the opposite lock (flick). ---
+  arcadeHbLatGrip: 0.50,   // rear keeps 50% cornering grip under handbrake → breaks loose into a CONTROLLED ~40° drift (not the sim lock's violent 47°+ snap); lower = wilder/over-rotates, higher = shallower.
+  arcadeHbBrake: 0.10,     // LIGHT longitudinal brake (10% of the rear grip) — a fraction of the main brake, so the drift FLOWS and carries speed (entry keeps ~47 km/h vs the sim lock scrubbing to ~36).
 };
 export const STEEREX_SILVER: VehicleSpec = {
   name: 'Stee-Rex Silver',

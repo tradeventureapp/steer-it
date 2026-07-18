@@ -149,6 +149,13 @@ export interface Physics4Params {
   // braking stays plain, and the handbrake remains the drift trigger. arcade-only (sim untouched).
   arcadeBrakeStability?: number;      // yaw-damping strength under braking (0 = off)
   arcadeBrakeStabilitySteer?: number; // |steer| at which the stability has fully faded → spin allowed
+  // HANDBRAKE as an arcade DRIFT TOOL (Stee-Rex): instead of the sim's full kinetic LOCK (which
+  // over-brakes → violent snap + speed scrub), the arcade handbrake BREAKS the rear LATERAL grip
+  // loose (tail steps out → drift) with only LIGHT longitudinal braking, so the drift FLOWS and
+  // carries speed. Pulling it mid-drift re-breaks the rear → the car can swing through centre to
+  // the opposite lock (scandinavian flick). Present ⇒ arcade path; absent ⇒ the sim lock (Blitz).
+  arcadeHbLatGrip?: number;   // 0..1 — rear cornering grip RETAINED under handbrake (low = breaks loose more)
+  arcadeHbBrake?: number;     // 0..1 — LIGHT longitudinal brake fraction of the rear grip (« the main brake)
 }
 
 // How one tyre compound behaves on each ground: a ×scale on that wheel's μ. This lives with
@@ -487,8 +494,17 @@ export function step4(
       // launch traction). RWD (driveSplitFront 0) → this is skipped → byte-identical. (Independent
       // front wheelspin dynamics are deliberately deferred to a later phase; here the front hooks up.)
       if (p.driveSplitFront > 0) Fx += driveForcePerFront;
+    } else if (lockedRear && p.branch === 'arcade' && p.arcadeHbLatGrip !== undefined) {
+      // ARCADE handbrake = the DRIFT TOOL (Stee-Rex): break the rear LATERAL grip loose so the
+      // tail steps out into a drift, but apply only LIGHT longitudinal braking — the drift FLOWS
+      // and CARRIES SPEED instead of the sim's kinetic lock scrubbing it to a stop. Pulling it
+      // mid-drift re-breaks the rear → the car swings through centre to the opposite lock (flick);
+      // steering + throttle guide which way. `Fy` here still holds the slip-angle MF lateral.
+      Fx = -Math.sign(vlong) * D * (p.arcadeHbBrake ?? 0.2);   // LIGHT brake, « the main brake
+      Fy = Fy * p.arcadeHbLatGrip;                             // cut rear cornering grip → breaks loose (flows)
+      st.slipRatio[i - 2] = -Math.sign(vlong);
     } else if (lockedRear) {
-      // HANDBRAKE = LOCKED rear: the whole contact patch SLIDES on the ground,
+      // SIM handbrake (Blitz) = LOCKED rear: the whole contact patch SLIDES on the ground,
       // so the force is KINETIC friction = the full grip budget (× hbKineticMu)
       // directed OPPOSITE the contact slip velocity — NOT the rolling MF(κ),
       // which sat at only 0.66·D at full lock and left the rear gripping. This
