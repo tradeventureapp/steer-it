@@ -153,6 +153,10 @@ export interface VehicleSpec {
   // global PHYS4 (empty for now = behaves like sim until the arcade tune lands).
   branch?: 'sim' | 'arcade';
   arcade?: Partial<Physics4Params>;
+  // Off-track effect multiplier (render-only): ×size + ×rate on this car's grass-dust / gravel-
+  // spray particles. 1 = the shared default (Blitz RS → circuit visuals byte-identical); an
+  // arcade car cranks it up for a brutal, dense off-road throw. NEVER touches physics.
+  fxScale?: number;
   // A pre-authored SVG sprite instead of the vector-drawn Blitz RS body. When set,
   // drawCar blits the cached bitmap; the slot colour / livery are ignored (the skin
   // is a fixed design). VISUAL ONLY — the physics still uses the global PHYS4.
@@ -203,6 +207,15 @@ const STEEREX_ARCADE: Partial<Physics4Params> = {
   arcadeDriftGate: 0.14,       // ~8° body sideslip onset (above grip-corner β → no accidental snap)
   pneumaticTrail: 0.16,        // stronger self-align than the sim's 0.06 → counter-steer catches
   trailPeakSlip: 0.35,         // ~20° — wider stable drift range before the self-align reverses (spin)
+  // 2e — SURFACE FORGIVENESS: the arcade tyre keeps far more grip off-track than Blitz's slicks
+  // (grass 0.48 / gravel 0.55 vs 0.28 / 0.35) and the loose-surface drag is softened, so Stee-Rex
+  // POWERS THROUGH grass + gravel instead of bogging (per-car → Blitz's slicks unchanged, 0.0e+0).
+  tire: { muScale: { asphalt: 1.0, grass: 0.48, gravel: 0.55 } },
+  grassDragPerWheel: 6,        // vs Blitz 10 — grass swallows it far less
+  gravelDragConst: 180,        // vs Blitz 300 — crawls out of a trap easily
+  gravelDragLin: 8,
+  gravelDragQuad: 2.5,         // vs Blitz 4.0 — brakes less at speed (plows through)
+  gravelDigGain: 1,            // vs Blitz 2 — a spinning wheel buries the car less
 };
 export const STEEREX_SILVER: VehicleSpec = {
   name: 'Stee-Rex Silver',
@@ -210,6 +223,7 @@ export const STEEREX_SILVER: VehicleSpec = {
   dims: STEEREX_DIMS,
   branch: 'arcade',
   arcade: STEEREX_ARCADE,
+  fxScale: 1.7,                // brutal, dense off-road throw (grass dust / gravel spray)
   sprite: { car: 'steerex', skin: 'silver' },
 };
 export const STEEREX_BLACK: VehicleSpec = {
@@ -218,6 +232,7 @@ export const STEEREX_BLACK: VehicleSpec = {
   dims: STEEREX_DIMS,
   branch: 'arcade',
   arcade: STEEREX_ARCADE,
+  fxScale: 1.7,                // brutal, dense off-road throw (grass dust / gravel spray)
   sprite: { car: 'steerex', skin: 'black' },
 };
 

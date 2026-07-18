@@ -4949,3 +4949,28 @@ real committed-drift cost is higher; a phone feel-tune). **KNOBS in STEEREX_ARCA
 forgiveness + cranked dig/spray effects). Then the full Stage 2 report + the grip-vs-drift decision for
 the boss (accept the raw skill-drift with Stage 3 for the wide band, OR soften the launch grip for a
 naturally wider drift). Stage 3 assist HELD.**
+
+---
+**STEE-REX ARCADE — STAGE 2e SURFACES (off-track forgiveness + cranked effects) + STAGE 2 COMPLETE:**
+the arcade car POWERS THROUGH grass/gravel where Blitz's slicks bog, with a brutal off-road particle
+throw. **PHYSICS (per-car → Blitz 0.0e+0):** the arcade TYRE keeps far more grip off-track —
+`tire.muScale` grass 0.48 / gravel 0.55 (vs Blitz 0.28 / 0.35) — and the loose-surface drag is softened
+(`grassDragPerWheel` 6 vs 10, `gravelDragConst` 180 vs 300, `gravelDragQuad` 2.5 vs 4.0, `gravelDigGain`
+1 vs 2). **MEASURED (Stee-Rex vs Blitz):** GRASS power-through @100 km/h full throttle **153 vs 96** (a
+modest penalty, not a stop), scrub 100→20 **129 vs 124 m**; GRAVEL power-through **61 vs 16** (Blitz bogs,
+Stee-Rex plows through), scrub **65 vs 48 m**. **EFFECTS (render-only, per-car → Blitz byte-identical):**
+new `VehicleSpec.fxScale` (Stee-Rex 1.7, Blitz 1) multiplies this car's grass-dust / gravel-spray particle
+SIZE + RATE → a dense, brutal throw for the arcade car while Blitz's circuit visuals are untouched (fxScale
+1 = ×1 = same emitSmoke args). Both cars already wheelspin 1.0 off-track → full emission; Stee-Rex's is
+1.7× bigger + denser. `physics4.ts` UNTOUCHED in 2e (only vehicles.ts params + desktop.ts fxScale render).
+**STAGE 2 COMPLETE — FINAL TABLE (Stee-Rex arcade):** 2a top **300 km/h** (hard limiter) · 2b modulated
+0-100 **2.07 s** / full-mash **2.68 s** (+0.62 s, spin-burn) · 2c drift = β-gated grip cut (provoke/hold-
+with-counter/spin-if-overdriven/no-snap) · 2d strong grip (mu 3.0) + no accidental snap (β-gate) · 2e
+off-track forgiving + brutal effects. **BLITZ 0.0e+0 re-verified at END of Stage 2** (golden A/B vs HEAD,
+byte-identical). tsc + build clean throughout. Every arcade knob lives in STEEREX_ARCADE (vehicles.ts) +
+the arcade branch — Blitz / ovals / desktop / circuit physics untouched. **⚠️ THE ONE OPEN DESIGN
+DECISION (2c, for the boss):** the 2.0 s launch needs mu 3.0, and at that grip the raw drift is
+skill-based (holds ~15° with active counter-steer, spins if over-driven), NOT a wide self-forgiving band
+— that WIDE band is Stage 3's catch-assist (deferred, "feel the raw tune first"). Options: (A) keep the
+2.0 s launch + feel the raw skill-drift, add Stage 3 for the wide band; (B) soften the launch grip for a
+naturally wider/deeper drift. **Stage 3 (assist) HELD for a separate go-ahead.**

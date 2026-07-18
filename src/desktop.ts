@@ -861,6 +861,7 @@ interface Car {
   liveryColor?: string;  // fixed body hex from the spec; drawCar uses it over the slot colour
   collisionRadius: number;  // per-vehicle wall/car collision radius (from its real dimensions)
   phys: Physics4Params;  // the car's physics4 params (sim = the shared PHYS4; arcade = a tuned clone)
+  fxScale: number;       // off-track particle multiplier (render-only; 1 = Blitz default)
 }
 
 // Blitz RS's collision radius is CONFIG.carCollisionRadius (wheelbase-derived). A sprite
@@ -888,6 +889,7 @@ function applyVariant(car: Car, spec: VehicleSpec) {
   car.liveryColor = spec.liveryColor;
   car.collisionRadius = collisionRadiusFor(spec);
   car.phys = physFor(spec);
+  car.fxScale = spec.fxScale ?? 1;
 }
 
 // Keyed by slot so routing/lookup is O(1) and nothing is hardcoded to 2 cars.
@@ -925,6 +927,7 @@ function makeManagedCar(slot: number, color: string): Car {
     spec: ROAD_SPEC,                            // overwritten by applyVariant below
     collisionRadius: CONFIG.carCollisionRadius, // ditto
     phys: PHYS4,                                // ditto
+    fxScale: 1,                                 // ditto
   };
   applyVariant(car, currentVariant);   // spawn in the active variant (livery + collision + phys)
   return car;
@@ -1720,13 +1723,16 @@ function emitCarSmoke(car: Car, realDt: number) {
   //   GRASS  → a small BROWN puff (turf doesn't billow like a flattrack)
   //   GRAVEL → a STONE SPRAY in the trap's light grey-beige, more pronounced than the dust
   //            (loose stone is genuinely thrown), and bigger/denser per gravelSpray*.
+  // Per-car off-track intensity: an arcade car (Stee-Rex) cranks size + rate for a brutal,
+  // dense throw; Blitz's fxScale is 1 → byte-identical to before.
+  const fxs = car.fxScale;
   const spray = (x: number, y: number, intensity: number, ground: Surface) => {
     const gravel = ground === 'gravel';
     fx.emitSmoke(x, y, s.vx, s.vy, intensity, realDt,
-      sizeScale * (gravel ? FX_CONFIG.gravelSpraySize : FX_CONFIG.grassDustSize),
+      sizeScale * (gravel ? FX_CONFIG.gravelSpraySize : FX_CONFIG.grassDustSize) * fxs,
       gravel ? GRAVEL_SPRAY_RGB : GRASS_DUST_RGB, 0,
       gravel ? FX_CONFIG.gravelSprayAlpha : FX_CONFIG.grassDustAlpha,
-      gravel ? FX_CONFIG.gravelSprayScale : FX_CONFIG.grassDustScale);
+      gravel ? FX_CONFIG.gravelSprayScale * fxs : FX_CONFIG.grassDustScale * fxs);
   };
 
   // ---- BURNOUT smoke — LONGITUDINAL wheelspin (launch / full throttle). Dense,
