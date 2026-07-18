@@ -237,7 +237,7 @@ const STEEREX_ARCADE: Partial<Physics4Params> = {
   //     rear lateral grip loose so the tail steps out into a FLOWING drift that carries speed;
   //     pulling it mid-drift re-breaks the rear → swing through centre to the opposite lock (flick). ---
   arcadeHbLatGrip: 0.50,   // rear keeps 50% cornering grip under handbrake → breaks loose into a CONTROLLED ~40° drift (not the sim lock's violent 47°+ snap); lower = wilder/over-rotates, higher = shallower.
-  arcadeHbBrake: 0.10,     // LIGHT longitudinal brake (10% of the rear grip) — a fraction of the main brake, so the drift FLOWS and carries speed (entry keeps ~47 km/h vs the sim lock scrubbing to ~36).
+  arcadeHbBrake: 0.40,     // rear-axle handbrake braking — NOTICEABLE deceleration (hb-only stop ~31 m from 50, vs the old 0.10's 88 m), but well short of the 4-wheel main brake (~6 m). Still light enough that the drift FLOWS (entry ~36° keeping ~47 km/h) and the flick works. (0.55 → ~25 m / shallower drift if more braking wanted.)
 };
 export const STEEREX_SILVER: VehicleSpec = {
   name: 'Stee-Rex Silver',
