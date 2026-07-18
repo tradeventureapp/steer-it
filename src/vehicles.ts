@@ -187,36 +187,13 @@ const STEEREX_DIMS: VehicleDims = {
 };
 // STEE-REX arcade tune (physics4 knob overrides on top of PHYS4, arcade branch).
 // Each target is a DECOUPLED lever (top speed / accel / drift / surface).
-const STEEREX_ARCADE: Partial<Physics4Params> = {
-  // 2a — TOP SPEED = 300 km/h, set by the hard limiter (decoupled from engine power).
-  arcadeTopSpeed: 300 / 3.6,   // 83.333 m/s
-  // 2b — ACCELERATION: modulated 0-100 ≈ 2.0 s, full-mash clearly slower (spin-burn).
-  massKg: 1000,
-  peakThrust: 30000,           // strong low-end (grip-limited launch → 2.0 s when modulated)
-  enginePower: 650000,         // keeps it torque-limited through 100 km/h
-  muNom: 3.0,                  // arcade grip: strong (2.0 s gripped launch + no accidental snap)
-  wheelInertiaDrive: 5,        // the rear runs away on a standstill mash (deep κ)…
-  arcadeSpinGrip: 0.7,         // …and that deep straight overspin BURNS grip → mash 2.68 s vs 2.07 s
-  arcadeSpinGripSpeed: 12,     // launch-only (fades out by 12 m/s; never touches the top)
-  // 2c — DRIFT: a provoked slide SUSTAINS and is throttle/counter-steer controllable; over-
-  // driving SPINS (punishable); normal cornering never snaps. The drift-grip cut is gated on
-  // BODY SIDESLIP β (not rear slip) so a hard grip corner (small β) never trips it — only a
-  // real drift (large β) does. The self-aligning torque is beefed up (trail + a wider stable
-  // range) so counter-steer catches it, and past that range it still spins.
-  arcadeDriftGrip: 0.6,        // rear keeps 40% grip in a full slide → the slide holds (power-over)
-  arcadeDriftGate: 0.14,       // ~8° body sideslip onset (above grip-corner β → no accidental snap)
-  pneumaticTrail: 0.16,        // stronger self-align than the sim's 0.06 → counter-steer catches
-  trailPeakSlip: 0.35,         // ~20° — wider stable drift range before the self-align reverses (spin)
-  // 2e — SURFACE FORGIVENESS: the arcade tyre keeps far more grip off-track than Blitz's slicks
-  // (grass 0.48 / gravel 0.55 vs 0.28 / 0.35) and the loose-surface drag is softened, so Stee-Rex
-  // POWERS THROUGH grass + gravel instead of bogging (per-car → Blitz's slicks unchanged, 0.0e+0).
-  tire: { muScale: { asphalt: 1.0, grass: 0.48, gravel: 0.55 } },
-  grassDragPerWheel: 6,        // vs Blitz 10 — grass swallows it far less
-  gravelDragConst: 180,        // vs Blitz 300 — crawls out of a trap easily
-  gravelDragLin: 8,
-  gravelDragQuad: 2.5,         // vs Blitz 4.0 — brakes less at speed (plows through)
-  gravelDigGain: 1,            // vs Blitz 2 — a spinning wheel buries the car less
-};
+// EMPTY = the pre-acceleration state (Stage 1). The whole "0-100 / 0-200 / 300 max" tuning
+// (Stage 2b onward) raised muNom to 3.0 for a fast launch — and that high grip is exactly what
+// KILLED the drift (the rear could no longer break loose; a handbrake tap barely reached ~10°).
+// With NO overrides, Stee-Rex runs the sim physics (muNom 1.90), which DRIFTS: a handbrake tap
+// slides it to ~37° and it recovers (proven in the harness). This is the state the car drove
+// well in, before the acceleration work. arcade branch + empty overrides = sim behaviour.
+const STEEREX_ARCADE: Partial<Physics4Params> = {};
 export const STEEREX_SILVER: VehicleSpec = {
   name: 'Stee-Rex Silver',
   overrides: {},
