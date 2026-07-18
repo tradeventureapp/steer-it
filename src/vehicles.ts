@@ -227,6 +227,12 @@ const STEEREX_ARCADE: Partial<Physics4Params> = {
   enginePower: 666000,     // 666 kW ≈ 893 hp (lore figure, real physics peak). At 900 kg = ~740 kW/t — sci-fi tier (~2× a real rallycross RX1e's 500 kW/1400 kg).
   peakThrust: 31000,       // N low-speed drive force — scaled ~2.4× from Blitz's 13000 (same ratio as the power 666/276) so the torque→power crossover stays ~76 km/h. 4WD 40/60 spreads it across 4 tyres, so more of it puts down; the excess spins the wheels (character).
   arcadeTopSpeed: 300 / 3.6,  // 300 km/h HARD limiter — top held by gearing/limiter, INDEPENDENT of power (666 kW would otherwise drag-limit ~340 km/h; the limiter caps it at 300).
+  // --- PHASE 2.4: BRAKING — arcade rallycross, forgiving. Stronger stops + braking is DECOUPLED
+  //     from drifting (plain braking stays plain; the handbrake stays the drift trigger). ---
+  brakeForce: 20000,       // N — brutal, shorter stop (100→0 ~25 m vs ~32 m before). Stronger than a real rallycross car.
+  brakeBiasFront: 0.62,    // slight front bias (Blitz 0.60)
+  arcadeBrakeStability: 8,     // yaw damping under braking → the car HOLDS ITS LINE (fixes the bug where ~30% brake + any steer spun the car via the unloaded rear). Straight braking unaffected (no yaw to damp).
+  arcadeBrakeStabilitySteer: 0.85,  // |steer| at which the stability has faded → a HARD brake + HARD steer still breaks loose (spin). Below it: controllable diagonal skid, not a spin.
 };
 export const STEEREX_SILVER: VehicleSpec = {
   name: 'Stee-Rex Silver',

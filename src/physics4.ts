@@ -143,6 +143,12 @@ export interface Physics4Params {
   arcadeDriftGate?: number;    // rad — lateral-slip onset for the drift-grip cut (full 0.15 rad above).
                                // Sets where a provoked slide starts to SUSTAIN — low enough that a
                                // drift holds a stable angle, high enough a gripped corner stays gripped.
+  // 2.4 — BRAKE STABILITY: under braking (not handbrake), damp the yaw so the car HOLDS ITS LINE
+  // instead of the unloaded rear spinning it (braking-into-a-corner oversteer). FADED by steer so
+  // HARD brake + HARD steer still breaks loose (spin). Decouples braking from drifting — plain
+  // braking stays plain, and the handbrake remains the drift trigger. arcade-only (sim untouched).
+  arcadeBrakeStability?: number;      // yaw-damping strength under braking (0 = off)
+  arcadeBrakeStabilitySteer?: number; // |steer| at which the stability has fully faded → spin allowed
 }
 
 // How one tyre compound behaves on each ground: a ×scale on that wheel's μ. This lives with
@@ -719,6 +725,16 @@ export function step4(
   const Tyaw = Tz - p.yawDampConst * w;
   let vy = car.vy + awy * dt;
   let omega = w + Tyaw / Iz * dt;
+
+  // ---- ARCADE BRAKE STABILITY (2.4): under braking, damp the yaw so the car holds its line
+  // (no braking-into-a-corner spin from the unloaded rear). Ramps in over 0→25% brake, FADES with
+  // steer so a HARD brake + HARD steer still lets go (spin). arcade + brake-only gated → the sim
+  // (Blitz) never runs it = byte-identical.
+  if (p.branch === 'arcade' && p.arcadeBrakeStability && brakeEff > 0.05 && !hb) {
+    const brakeGate = clamp(brakeEff / 0.25, 0, 1);
+    const steerFade = clamp(1 - Math.abs(steer) / (p.arcadeBrakeStabilitySteer ?? 1), 0, 1);
+    omega -= omega * clamp(p.arcadeBrakeStability * brakeGate * steerFade * dt, 0, 1);
+  }
 
   // ---- low-speed KINEMATIC BLEND (< lowSpeedBlend): guarantees launch / donut
   // / parking stability. Below the threshold, blend ω toward the kinematic
