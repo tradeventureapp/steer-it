@@ -4976,37 +4976,17 @@ skill-based (holds ~15° with active counter-steer, spins if over-driven), NOT a
 naturally wider/deeper drift. **Stage 3 (assist) HELD for a separate go-ahead.**
 
 ---
-**STEE-REX ARCADE — ACCEL + TOP REVISED (0-100 1.13s / 0-200 3.07s; 246 = track-length, not a cap;
-launch decoupled from cornering via arcadeLongGrip):** the boss measured 246 km/h in-game (wanted 300)
-and new aggressive accel targets superseding the old 0-100=2.0s. **TOP-SPEED DIAGNOSIS (the key finding):
-246 is TRACK-LENGTH limited, NOT a shared cap and NOT a bug.** Harness on an unlimited straight: DRAG-
-LIMITED top **329.6 km/h**, with the 300 limiter **300.0**. Distance to reach speeds: **246 km/h = 269 m,
-300 km/h = 660 m** — but the world/oval is only ~256 m wide, so the straight can't get the OLD tune past
-~246. "Close to Blitz 248" was coincidence (both distance-limited to a similar point). The arcade params
-DO apply (drag-limited 329 ≠ Blitz's 252). The fix for "300 reachable" = far more accel (below) → 300 in a
-much shorter run. **THE DECOUPLED LEVERS (gravel-style — tuned together, none drags another off):**
-• **NEW `arcadeLongGrip` 2.1** — a rear LONGITUDINAL grip multiplier (the "tire long-grip" launch lever).
-  The MF amplitude is D=μ·Fz for BOTH axes, so raising μ for a quicker launch would also make the car
-  corner harder; arcadeLongGrip scales ONLY the rear longitudinal force + its ellipse axis → a blistering
-  launch on the SAME muNom 3.0 cornering/drift grip. **β-GATED (fades out in a drift, |β|>arcadeDriftGate)**
-  so the extra grip doesn't hold the rear gripped and kill the power-over — launch boosted, drift untouched.
-• **`peakThrust` 30k→95k** — kept ≫ the launch grip so a full MASH breaks the rear loose (spins → the
-  spin-burn bites), while a feathered launch uses only up to the grip = the fast time.
-• **`enginePower` 650k→920k** — the high-range pull setting the 100→200 taper (∝1/v).
-• **`arcadeTopSpeed` 300/3.6** — the hard limiter holds the top at 300 regardless of power.
-• **`arcadeSpinGrip` 0.7→0.85, `arcadeSpinGripSpeed` 12→14** — the mash-penalty (bigger, faster car).
-**MEASURED (final STEEREX_ARCADE):** MODULATED (feather→traction→full, min over throttle ramps) **0-100
-1.13 s** (target 1.2±0.1 ✓) / **0-200 3.07 s** (target 3.0±0.15 ✓) / **100→200 1.93 s** (monotonic, longer
-than the first 100 ✓); MASH (full from standstill) **0-100 1.63 s / 0-200 3.55 s** = clearly SLOWER (44% on
-0-100 — wheelspin burns traction, modulation is the reward ✓); TOP **300 km/h** (limiter); **straight to
-reach 300 now 376 m** (was 660), to 250 = 196 m. **2c/2d intact — arcadeLongGrip is β-gated:** drift still
-holds ~15° with counter-steer, over-drives to a spin (ω 7.0), no accidental snap (2-3°). **BLITZ 0.0e+0**
-(golden A/B vs HEAD byte-identical — Dlong=D for the sim, arcade-gated). tsc + build clean.
-**⚠️ SIDE EFFECT (reported, 2e left as the boss tuned it):** the much more powerful car now PLOWS through
-off-track faster — grass power-through @100 **277 km/h** (was 153), gravel **98** (was 61). This is the
-920 kW power, not arcadeLongGrip (grass top is drive-vs-drag limited, and linear drag can't dent 920 kW —
-even 3× drag only drops grass to ~250). The 2e surface params (grass μ 0.48 / gravel 0.55 / drags) are
-UNCHANGED (the boss's Stage-2e tune); flagged in case more off-track penalty is wanted (needs a v²/v³ drag,
-not linear). **Physics: `physics4.ts` gained `arcadeLongGrip` + `Dlong`/`rearDlong` (rear longitudinal
-budget, β-gated, arcade-only). NEXT: phone feel-test — punchy 1.1s launch when feathered, mash spins +
-is slower, pulls to 200 hard, 300 reachable on a real straight; drift/corner unchanged.**
+**STEE-REX ACCEL/TOP REVISION REVERTED (d81b315 rolled back — the aggressive 0-100=1.2s tune broke the
+feel; back to the Stage-2b acceleration):** the boss drove the revised accel and it drove worse, so the
+ENTIRE accel/top-speed revision task (ONE commit, d81b315: `arcadeLongGrip` 2.1 + `peakThrust` 95k +
+`enginePower` 920k + `arcadeSpinGrip` 0.85 / `arcadeSpinGripSpeed` 14, targeting modulated 0-100 1.13s /
+0-200 3.07s) was reverted via `git revert d81b315`. (Note: the boss recalled it as "666 kW / 700 kg /
+several commits" — the actual reverted values were **920 kW / 1000 kg / arcadeLongGrip 2.1 / peakThrust
+95k**, and it was a SINGLE commit.) Restores Stee-Rex to exactly the **e338d5a** state (Stage 2 complete):
+STEEREX_ARCADE accel = `peakThrust` **30000** / `enginePower` **650000** / `muNom` **3.0** /
+`arcadeSpinGrip` **0.7** / `arcadeSpinGripSpeed` **12**, NO `arcadeLongGrip`; physics4.ts loses the
+`arcadeLongGrip` + `Dlong`/`rearDlong` knob (the whole longitudinal-grip lever). The RESTORED acceleration
+is the Stage-2b tune: **modulated 0-100 ≈ 2.07 s, full-mash ≈ 2.68 s, top 300 km/h** (limiter; the 246
+in-game was track-length, unchanged by the revert). ONLY the accel task reverted — branch architecture,
+sprite, dimensions, other cars, maps, 2c drift, 2d grip, 2e surfaces all UNTOUCHED (they weren't in
+d81b315). Blitz 0.0e+0. tsc + build clean.

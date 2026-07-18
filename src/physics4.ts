@@ -136,12 +136,6 @@ export interface Physics4Params {
   arcadeDriftGate?: number;    // rad — lateral-slip onset for the drift-grip cut (full 0.15 rad above).
                                // Sets where a provoked slide starts to SUSTAIN — low enough that a
                                // drift holds a stable angle, high enough a gripped corner stays gripped.
-  // 2b/accel — LONGITUDINAL grip multiplier (rear only): scales the drive/launch grip WITHOUT
-  // touching lateral (cornering/drift) grip. In the tyre model the MF amplitude is D = μ·Fz for
-  // BOTH axes, so raising μ for a quicker launch would also make the car corner harder. This
-  // scales ONLY the rear longitudinal force + its ellipse axis → a blistering launch on the same
-  // cornering/drift grip (the "tire long-grip" launch lever, decoupled from the lateral μ).
-  arcadeLongGrip?: number;     // × rear longitudinal grip (1 = off; e.g. 2.5 = 2.5× launch traction)
 }
 
 // How one tyre compound behaves on each ground: a ×scale on that wheel's μ. This lives with
@@ -377,8 +371,7 @@ export function step4(
   const loadOut: number[] = [0, 0, 0, 0];
   const rearFx: [number, number] = [0, 0];   // delivered longitudinal (for ω integration)
   const rearVlong: [number, number] = [0, 0];
-  const rearD: [number, number] = [0, 0];        // rear LATERAL grip budget (sub-step ellipse)
-  const rearDlong: [number, number] = [0, 0];    // rear LONGITUDINAL grip budget (× arcadeLongGrip)
+  const rearD: [number, number] = [0, 0];        // rear grip budget (sub-step ω integration)
   const rearFyRaw: [number, number] = [0, 0];    // rear pre-ellipse lateral (sub-step ellipse)
   const surfOut: Surface[] = ['asphalt', 'asphalt', 'asphalt', 'asphalt'];
   let rearSaturated = false;
@@ -460,17 +453,6 @@ export function step4(
     let Fy = -D * Math.sin(p.tireC * Math.atan(p.tireB * alpha));
     let Fx = 0;
     const lockedRear = !front && hb;
-    // LONGITUDINAL grip budget: the same D as lateral, except an arcade car can scale the rear
-    // DRIVE grip on its own (arcadeLongGrip) for a launch quicker than its cornering grip implies.
-    // GATED ON BODY SIDESLIP β so the boost applies going STRAIGHT (the launch) but FADES OUT in a
-    // drift (large β) — otherwise the extra longitudinal grip would hold the rear gripped and kill
-    // the power-over / drift-sustain. So: blistering launch, drift unaffected.
-    let Dlong = D;
-    if (p.branch === 'arcade' && p.arcadeLongGrip && !front) {
-      const gate = p.arcadeDriftGate ?? SLIDE_SLIP_LO;
-      const straight = clamp(1 - Math.abs(bodyBeta) / gate, 0, 1);   // 1 straight → 0 in a drift
-      Dlong = D * (1 + (p.arcadeLongGrip - 1) * straight);
-    }
 
     if (front) {
       // fronts: brake only (not driven). Brake force opposes motion, capped by
@@ -500,7 +482,7 @@ export function step4(
       // longitudinal slip ratio (bounded denominator → no low-speed blow-up)
       const kappa = (st.rearOmega[ri] * rr - vlong) / Math.max(Math.abs(vlong), 3);
       st.slipRatio[ri] = kappa;
-      Fx = Dlong * Math.sin(p.tireCx * Math.atan(p.tireBx * kappa));
+      Fx = D * Math.sin(p.tireCx * Math.atan(p.tireBx * kappa));
       // rear brake force adds into the longitudinal demand (also via the circle)
       Fx += -Math.sign(vlong) * brakeEff * p.brakeForce * (1 - p.brakeBiasFront) / 2;
     }
@@ -514,10 +496,10 @@ export function step4(
     // A LOCKED rear only counts as "sliding" (smoke/skid) when it is actually
     // SCRUBBING across the ground (v above a small threshold) — a stationary
     // handbrake has zero contact slip → no scrub → no smoke.
-    if (!front) { rearD[i - 2] = D; rearDlong[i - 2] = Dlong; rearFyRaw[i - 2] = Fy; }
+    if (!front) { rearD[i - 2] = D; rearFyRaw[i - 2] = Fy; }
     let rearSat = lockedRear && v > 0.6;
     if (!lockedRear) {
-      const demand = Math.hypot(Fx / (Dlong * p.tireEllipseLong || 1), Fy / (D || 1));
+      const demand = Math.hypot(Fx / (D * p.tireEllipseLong || 1), Fy / (D || 1));
       if (demand > 1) { Fx /= demand; Fy /= demand; }
       // "sliding" (smoke/skid) only when the tyre is GENUINELY over its budget
       // (demand > 1.1) — a car cornering near the limit (demand ~1.0, β ~1°) is
@@ -638,14 +620,13 @@ export function step4(
       // evolving κ each sub-step (the stiff nonlinearity), through the same friction
       // ellipse the body sees (combined slip: a laterally-loaded rear spins up more).
       const vlong = rearVlong[ri];
-      const D = rearD[ri] || 1;           // LATERAL grip budget
-      const Dl = rearDlong[ri] || 1;      // LONGITUDINAL grip budget (× arcadeLongGrip)
+      const D = rearD[ri] || 1;
       const denom = Math.max(Math.abs(vlong), 3);
-      const ellLong = Dl * (p.tireEllipseLong || 1);
+      const ellLong = D * (p.tireEllipseLong || 1);
       const FyRaw = rearFyRaw[ri];
       for (let s = 0; s < nSub; s++) {
         const kappa = (omega * rr - vlong) / denom;
-        let FxLong = Dl * Math.sin(p.tireCx * Math.atan(p.tireBx * kappa));
+        let FxLong = D * Math.sin(p.tireCx * Math.atan(p.tireBx * kappa));
         const demand = Math.hypot(FxLong / ellLong, FyRaw / D);
         if (demand > 1) FxLong /= demand;
         // ENGINE REVS WITH THE WHEEL: the power limit is set by the ENGINE RPM,
