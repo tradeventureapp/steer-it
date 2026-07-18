@@ -120,6 +120,13 @@ export interface Physics4Params {
   arcadeTopSpeed?: number;    // m/s — HARD top-speed limiter (gearing/limiter). The top is
                               // fixed HERE, independent of engine power, so raising power
                               // for the launch can't push the top off target.
+  // 2b — LAUNCH SPIN-BURN: a rear tyre in deep longitudinal overspin while going STRAIGHT
+  // at low speed loses grip (roasting the tyres) → MASHING from a standstill burns traction
+  // and launches SLOWER, while a modulated (near-peak) launch keeps full grip. This is the
+  // punishment the wheel-speed power limit otherwise self-limits away — NOT a launch-control
+  // crutch (it makes mashing WORSE; it never auto-prevents the spin).
+  arcadeSpinGrip?: number;     // 0..1 — rear grip cut at full straight overspin (0 = off)
+  arcadeSpinGripSpeed?: number;// m/s — fades the cut out by this speed (launch only, never top)
 }
 
 // How one tyre compound behaves on each ground: a ×scale on that wheel's μ. This lives with
@@ -394,7 +401,22 @@ export function step4(
     const mu = Math.max(MU_FLOOR,
       p.muNom - p.loadSensitivity * (Fz - FzStatic[i]) / FzStatic[i])
       * p.tire.muScale[ground];   // the TYRE decides what this ground costs it
-    const D = mu * Fz;   // this wheel's grip budget
+    let D = mu * Fz;   // this wheel's grip budget
+    // ARCADE launch spin-burn (2b): a rear wheel in deep STRAIGHT overspin at low speed
+    // loses grip → mashing burns traction (slower launch), modulated keeps it. Straight-
+    // gated (lateral slip ~0 = not a drift) + low-speed-gated (never touches top). SIM: off.
+    if (p.branch === 'arcade' && !front && !hb && !reversing && p.arcadeSpinGrip) {
+      const kap = (st.rearOmega[i - 2] * rr - vlong) / Math.max(Math.abs(vlong), 3);
+      // 0 below κ 1.0 (a modulated launch peaks at κ≈0.12 → UNPENALISED with wide margin),
+      // ramping to 1 by κ 6 (a standstill mash runs away to κ 5–15 and stays above κ 1 for
+      // ~the whole first second → fully burned). The wide gap cleanly separates a skilled
+      // launch from mashing so only genuine tyre-roasting is punished.
+      const spin = clamp((Math.abs(kap) - 1.0) / 5, 0, 1);
+      const straight = clamp(1 - Math.abs(alpha) / 0.15, 0, 1);        // 1 straight → 0 lateral slide
+      const lowFade = clamp((p.arcadeSpinGripSpeed ?? 12) - v, 0, p.arcadeSpinGripSpeed ?? 12)
+        / (p.arcadeSpinGripSpeed ?? 12);
+      D *= 1 - p.arcadeSpinGrip * spin * straight * lowFade;
+    }
 
     // Magic-Formula lateral (peak-then-falloff = the kinetic/drift regime).
     // OVERRIDDEN for a LOCKED rear below (a locked wheel scrubs, it doesn't roll).

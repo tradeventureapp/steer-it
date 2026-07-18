@@ -4884,3 +4884,37 @@ arcade-gated; sim never clamps). tsc + build clean. **NEXT: 2b accel (modulated 
 clearly slower), 2c drift, 2d grip, 2e surfaces — Blitz stays 0.0e+0.** KNOWN (for 2b): physics4's
 wheel-speed power limit SELF-LIMITS launch wheelspin, so full-mash is NOT emergently much slower than a
 modulated launch (they converge) — a deliberate arcade mash-penalty lever is needed in 2b.
+
+---
+**STEE-REX ARCADE — STAGE 2b ACCELERATION (decoupled from top speed; modulated 2.07 s / mash 2.68 s):**
+2b tunes the arcade launch to ~2.0 s modulated with a full-mash penalty, WITHOUT dragging the 2a top
+speed off 300 (proven decoupled — the limiter holds top=300 across the whole accel sweep). **THE TWO
+LEVERS:** (1) GRIP for the clean launch — a modulated (feathered) launch is grip-limited, so `muNom` 3.0
+(arcade-fantasy grip; strong normal grip = 2d forgiveness, no accidental snap) + `peakThrust` 30000 +
+`enginePower` 650000 give a **2.07 s** grip-limited 0-100 when the wheel is kept near the κ≈0.12 peak.
+(2) SPIN-BURN for the mash penalty — a NEW arcade-gated knob `arcadeSpinGrip` 0.7 cuts rear grip `D`
+when the driven wheel runs away into DEEP straight overspin (`spin = clamp((|κ|−1.0)/5)`, straight-gated
+`clamp(1−|α|/0.15)`, low-speed-faded by `arcadeSpinGripSpeed` 12 m/s). A standstill mash spins to κ 5-15
+(stays > κ 1 for ~the first second) → grip burns → **2.68 s (+0.62 s)**; a modulated launch peaks at
+κ≈0.12 (well below the κ 1.0 floor) → UNBURNED → the fast 2.07 s. `wheelInertiaDrive` 5 (vs sim 8) lets
+the mash wheel run away (deeper κ = more burn). Both knobs `p.branch==='arcade'`-GATED + fade out by
+12 m/s ⇒ never touch the top speed or the sim. **THE BURN IS EMERGENT, not launch-control** — it's a
+grip cut on genuine tyre-roasting overspin; feathering avoids it by staying below the burn floor.
+**SWEEP (muNom × arcadeSpinGrip, arcadeTopSpeed 300, peakThrust 30000, mass 1000, iwd 5):**
+```
+   mu\sg   0.4              0.55             0.70
+   2.8   mod2.40 mash2.35  mod2.50 mash2.65  mod2.47 mash3.07     (all top=300)
+   2.9   mod2.12 mash2.17  mod2.18 mash2.45  mod2.35 mash2.87
+   3.0   mod2.18 mash2.03  mod2.22 mash2.28  mod2.07 mash2.68  <-- SHIPPED
+```
+**mu3.0 sg0.7: mod 2.07 s (2.0 ±0.1 ✓), mash 2.68 s (+0.62 s clearly slower ✓), top 300 (held ✓).**
+**MEASURED FINAL (STEEREX_ARCADE via desktop.ts physFor):** top 300.0 km/h (full-throttle held → limiter),
+0-100 modulated best 2.07 s, 0-100 full-mash 2.68 s, penalty +0.62 s. **DECOUPLING CONFIRMED:** every
+sweep row is top=300 — raising power for the launch never moved the top (the 2a limiter caps it; power is
+free to be strong). **KNOBS in STEEREX_ARCADE (vehicles.ts):** massKg 1000 · peakThrust 30000 ·
+enginePower 650000 · muNom 3.0 · wheelInertiaDrive 5 · arcadeSpinGrip 0.7 · arcadeSpinGripSpeed 12 (+ 2a
+arcadeTopSpeed 300/3.6). physics4.ts arcade knobs (`arcadeSpinGrip`/`arcadeSpinGripSpeed`) added, both
+arcade+straight+low-speed gated. **BLITZ 0.0e+0** — golden A/B (launch/corner/drift/hb/brake/trail/rev/
+coast × asphalt) vs HEAD byte-identical; sim path untouched. tsc + build clean. **NEXT: 2c drift (easy
+triggers, wide control band, counter-steer catches, punishable spin, ~8-10% speed cost measured drifted-
+vs-gripped). Then 2d grip/forgiveness, 2e surfaces. Stage 3 (assist) HELD for separate go-ahead.**

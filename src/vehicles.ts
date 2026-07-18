@@ -186,6 +186,14 @@ const STEEREX_DIMS: VehicleDims = {
 const STEEREX_ARCADE: Partial<Physics4Params> = {
   // 2a — TOP SPEED = 300 km/h, set by the hard limiter (decoupled from engine power).
   arcadeTopSpeed: 300 / 3.6,   // 83.333 m/s
+  // 2b — ACCELERATION: modulated 0-100 ≈ 2.0 s, full-mash clearly slower (spin-burn).
+  massKg: 1000,
+  peakThrust: 30000,           // strong low-end (grip-limited launch → 2.0 s when modulated)
+  enginePower: 650000,         // keeps it torque-limited through 100 km/h
+  muNom: 3.0,                  // arcade grip: strong (2.0 s gripped launch + no accidental snap)
+  wheelInertiaDrive: 5,        // the rear runs away on a standstill mash (deep κ)…
+  arcadeSpinGrip: 0.7,         // …and that deep straight overspin BURNS grip → mash 2.68 s vs 2.07 s
+  arcadeSpinGripSpeed: 12,     // launch-only (fades out by 12 m/s; never touches the top)
 };
 export const STEEREX_SILVER: VehicleSpec = {
   name: 'Stee-Rex Silver',
