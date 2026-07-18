@@ -243,6 +243,20 @@ const STEEREX_ARCADE: Partial<Physics4Params> = {
   //     pulling it mid-drift re-breaks the rear → swing through centre to the opposite lock (flick). ---
   arcadeHbLatGrip: 0.50,   // rear keeps 50% cornering grip under handbrake → breaks loose into a CONTROLLED ~40° drift (not the sim lock's violent 47°+ snap); lower = wilder/over-rotates, higher = shallower.
   arcadeHbBrake: 0.40,     // rear-axle handbrake braking — NOTICEABLE deceleration (hb-only stop ~31 m from 50, vs the old 0.10's 88 m), but well short of the 4-wheel main brake (~6 m). Still light enough that the drift FLOWS (entry ~36° keeping ~47 km/h) and the flick works. (0.55 → ~25 m / shallower drift if more braking wanted.)
+  // --- SELF-SUSTAINING DRIFT: without this the rear re-grips on its own once the slide shallows,
+  //     so the car AUTO-STRAIGHTENED back to grip with NO counter-steer (a drift you don't have to
+  //     hold). This cuts the sliding rear's lateral grip so it STAYS loose once provoked — the slide
+  //     holds, counter-steer becomes REQUIRED to balance it, and the deliberate exit is to LIFT the
+  //     throttle (the cut is throttle-gated → lift releases it → the rear re-grips → straightens).
+  arcadeDriftGrip: 0.15,   // 0..1 rear-grip cut once sliding (keep 85%). MEASURED: no-input + held
+                           // throttle now SUSTAINS a deep ~60-70° drift for ~2 s (vs the old snap
+                           // straight back to 0°); counter-steer TOWARD the velocity catches it
+                           // cleanly (required — nothing catches it for you); lift → exits. Kept mild
+                           // (0.15) so it's holdable, not an uncatchable spin — over-driving into the
+                           // slide still spins (the punish). Higher = holds looser/longer but spinnier.
+  arcadeDriftGate: 0.12,   // rad ≈ 7° body-sideslip onset for the cut — above a normal corner's β
+                           // (4-8°), so grip cornering is UNCHANGED (measured: identical slide-frames
+                           // with vs without the cut), the cut only engages once genuinely drifting.
 };
 export const STEEREX_SILVER: VehicleSpec = {
   name: 'Stee-Rex Silver',
