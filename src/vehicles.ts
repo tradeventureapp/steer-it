@@ -221,8 +221,27 @@ const STEEREX_ARCADE: Partial<Physics4Params> = {
   muNom: 1.90,             // SAME peak grip magnitude as the slick — NOT higher (high grip killed drift). The universal feel comes from a BROADER curve, not more grip.
   tireB: 8,                // lateral stiffness — LOWER than the slick's 10 → the peak sits at a higher slip angle = a broader, more planted grip build-up
   tireC: 1.30,             // lateral shape — LOWER than the slick's 1.45 → gentler post-peak fall-off = forgiving, holds over a wider slip range, doesn't snap
-  tireEllipseLong: 1.05,   // LOWER than the slick's 1.3 — universals lack the slick's extreme longitudinal bite (also lets it rotate more willingly, for later drift phases)
+  tireEllipseLong: 1.3,    // NORMAL-CORNER FIX (raised 1.05→1.3, = Blitz's slick value). At 1.05 the
+                           // friction ellipse was too round → maintenance throttle in a corner ATE the
+                           // rear's lateral grip → the rear smeared/stepped out in EVERY normal corner
+                           // (164 slide-frames across the envelope). 1.3 elongates the ellipse
+                           // longitudinally so throttle no longer crushes the rear's cornering grip →
+                           // rear PLANTED (smear 164→~20 frames, the single biggest cornering fix).
+                           // The drift is now handbrake/arcadeDriftGrip-driven, not ellipse-driven, so
+                           // this doesn't cost the drift (verified). Trade: less throttle-induced
+                           // rotation = the intended stable feel.
   loadSensitivity: 0.06,   // ~Blitz's 0.05 — kept low so grip holds under load transfer = planted/forgiving (not dramatic)
+  // --- NORMAL-CORNER FIX: WEIGHT-TRANSFER SENSITIVITY. Both were inherited from PHYS4 at the
+  //     values Blitz uses; with Stee-Rex's own (marginal-rear) grip they tipped the rear loose.
+  loadTransferLatGain: 0.6,   // 1.0→0.6 — LATERAL transfer to the outer wheels was hair-trigger:
+                              // the rear broke loose (isRearSliding) in every throttle-on corner
+                              // (65+ frames, 20-70 km/h). 0.6 plants it; 60% of the shift is retained
+                              // (felt). Handbrake is a direct grip-cut, independent → still provokes.
+  loadTransferLongGain: 0.8,  // 1.5→0.8 — LONGITUDINAL transfer under lift-off/coast unloaded the rear
+                              // → a high-speed COAST corner (60 km/h) SPUN (β 149°). 0.8 kills the
+                              // lift-off spin (β 149°→8°) without touching braking feel (brakes are a
+                              // separate force path). Trail-brake rotation is slightly softer (fine —
+                              // Stee-Rex drifts on the handbrake, not the brake).
   // per-surface μ — ALL-TERRAIN: keeps meaningful grip off-tarmac (Blitz slick collapses to 0.28/0.35)
   tire: { muScale: { asphalt: 1.0, grass: 0.60, gravel: 0.65 } },
   // NOTE: tireBx (12) + tireCx (1.6) NOT touched — 12 is already a broad longitudinal peak; the
@@ -248,7 +267,11 @@ const STEEREX_ARCADE: Partial<Physics4Params> = {
   //     hold). This cuts the sliding rear's lateral grip so it STAYS loose once provoked — the slide
   //     holds, counter-steer becomes REQUIRED to balance it, and the deliberate exit is to LIFT the
   //     throttle (the cut is throttle-gated → lift releases it → the rear re-grips → straightens).
-  arcadeDriftGrip: 0.15,   // 0..1 rear-grip cut once sliding (keep 85%). MEASURED: no-input + held
+  arcadeDriftGrip: 0.25,   // 0..1 rear-grip cut once sliding. RAISED 0.15→0.25: the normal-corner fix
+                           // above (planting the rear) also made a provoked drift re-grip faster, so
+                           // the cut is deepened to RESTORE the self-sustain (provoke → holds ~70° for
+                           // ~1.5 s, verified). Still β-gated above corner β → does NOT bleed into
+                           // normal corners. MEASURED: no-input + held
                            // throttle now SUSTAINS a deep ~60-70° drift for ~2 s (vs the old snap
                            // straight back to 0°); counter-steer TOWARD the velocity catches it
                            // cleanly (required — nothing catches it for you); lift → exits. Kept mild
