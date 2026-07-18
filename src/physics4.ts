@@ -33,6 +33,12 @@ export interface Physics4Params {
   // forgiving arcade car (Stee-Rex). step4's SIM path is literally the existing code; any
   // arcade divergence is gated behind `branch === 'arcade'`, so a sim car is byte-identical.
   branch: 'sim' | 'arcade';
+  // ---- DRIVING GEOMETRY (per-car): the yaw/handling model reads THESE, not the global CONFIG,
+  // so a car's own size actually drives its physics. (Render/collision size lives separately in
+  // the VehicleDims spec — see vehicles.ts.) Blitz's values equal the CONFIG ruler, so moving the
+  // read from CONFIG → the profile is byte-identical for Blitz. ----
+  wheelbase: number;          // m — axle-to-axle: CoM→axle arms, contact-point x, longitudinal load-transfer arm, kinematic yaw
+  trackWidth: number;         // m — left↔right wheels: contact-point y, lateral load-transfer arm, yaw moment arm
   massKg: number;             // 1200
   weightDistFront: number;    // 0..1 static front-axle load fraction (0.52 = front-biased RWD)
   cgHeight: number;           // m — CoG height (load-transfer arm) (0.5)
@@ -153,6 +159,8 @@ export interface TireProfile {
 // per-wheel sim benchmark (a separate forgiving ARCADE car is built on top later).
 export const PHYS4: Physics4Params = {
   branch: 'sim',           // Blitz RS = the honest sim; step4 runs the existing path verbatim
+  wheelbase: CONFIG.wheelbase,   // 2.565 m — Blitz's EXACT geometry (= the one ruler); step4 now reads this, not CONFIG
+  trackWidth: CONFIG.trackWidth, // 1.46 m — ditto
   massKg: 1020,            // stripped homologation-spec race weight (was 1200)
   weightDistFront: 0.53,   // a real road-going coupe of this layout sits ~52/48 front; race setup adds a touch → the STABILITY MARGIN (neutral-steer-point BEHIND the CoM = directionally stable under throttle, no power-oversteer divergence)
   cgHeight: 0.45,          // lowered race car → less load transfer → planted
@@ -285,8 +293,8 @@ export function step4(
   surfaceAt?: (x: number, y: number) => Surface,
 ) {
   const st = stateOf(car);
-  const WB = CONFIG.wheelbase;      // one ruler
-  const T = CONFIG.trackWidth;
+  const WB = p.wheelbase;      // per-car driving geometry (Blitz's profile == the CONFIG ruler)
+  const T = p.trackWidth;
   const m = p.massKg;
   const g = 9.81;
   const Iz = m * p.yawInertiaK * p.yawInertiaK;
