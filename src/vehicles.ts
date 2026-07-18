@@ -193,7 +193,16 @@ const STEEREX_DIMS: VehicleDims = {
 // With NO overrides, Stee-Rex runs the sim physics (muNom 1.90), which DRIFTS: a handbrake tap
 // slides it to ~37° and it recovers (proven in the harness). This is the state the car drove
 // well in, before the acceleration work. arcade branch + empty overrides = sim behaviour.
-const STEEREX_ARCADE: Partial<Physics4Params> = {};
+// Stee-Rex's OWN driving profile — built deliberately, phase by phase (physics4 is per-car).
+// PHASE 2.1: geometry + mass + 4WD only. Everything else (tyres/grip, CoG, weight distribution,
+// drift/brake/launch tuning) is deliberately INHERITED from Blitz this phase, so we can isolate
+// what mass + geometry + 4WD alone do. Later phases give it its own tyres, grip, drift, etc.
+const STEEREX_ARCADE: Partial<Physics4Params> = {
+  wheelbase: 2.571,        // m — its own rovor (Blitz 2.565)
+  trackWidth: 1.74,        // m — wide track matching its 2.0 m body (Blitz 1.46)
+  massKg: 900,             // kg — light sci-fi car (Blitz 1020)
+  driveSplitFront: 0.4,    // 4WD, 40% front / 60% rear (Blitz is RWD = 0)
+};
 export const STEEREX_SILVER: VehicleSpec = {
   name: 'Stee-Rex Silver',
   overrides: {},

@@ -39,6 +39,7 @@ export interface Physics4Params {
   // read from CONFIG → the profile is byte-identical for Blitz. ----
   wheelbase: number;          // m — axle-to-axle: CoM→axle arms, contact-point x, longitudinal load-transfer arm, kinematic yaw
   trackWidth: number;         // m — left↔right wheels: contact-point y, lateral load-transfer arm, yaw moment arm
+  driveSplitFront: number;    // 0..1 — fraction of drive torque to the FRONT axle. 0 = RWD (Blitz); 0.4 = 4WD 40/60
   massKg: number;             // 1200
   weightDistFront: number;    // 0..1 static front-axle load fraction (0.52 = front-biased RWD)
   cgHeight: number;           // m — CoG height (load-transfer arm) (0.5)
@@ -161,6 +162,7 @@ export const PHYS4: Physics4Params = {
   branch: 'sim',           // Blitz RS = the honest sim; step4 runs the existing path verbatim
   wheelbase: CONFIG.wheelbase,   // 2.565 m — Blitz's EXACT geometry (= the one ruler); step4 now reads this, not CONFIG
   trackWidth: CONFIG.trackWidth, // 1.46 m — ditto
+  driveSplitFront: 0,      // Blitz = RWD (rear-only drive) → the front-drive path is dead code (byte-identical)
   massKg: 1020,            // stripped homologation-spec race weight (was 1200)
   weightDistFront: 0.53,   // a real road-going coupe of this layout sits ~52/48 front; race setup adds a touch → the STABILITY MARGIN (neutral-steer-point BEHIND the CoM = directionally stable under throttle, no power-oversteer divergence)
   cgHeight: 0.45,          // lowered race car → less load transfer → planted
@@ -371,7 +373,13 @@ export function step4(
   // angle). Forward only; reverse is its own low-speed force below.
   const driveForceAxle = reversing ? 0
     : throttle * Math.min(p.peakThrust, p.enginePower / Math.max(v, p.powerFloorSpeed));
-  const driveTorquePerRear = (driveForceAxle / 2) * rr;
+  // DRIVETRAIN split (per-car): fraction of drive to the FRONT axle. Blitz driveSplitFront = 0
+  // → rearDriveShare = 1 → every rear drive expression is multiplied by exactly 1.0 = byte-
+  // identical to the old RWD code; the front-drive term is gated off. A 4WD car (Stee-Rex 0.4)
+  // sends 40% of the drive to the front axle and 60% to the rear.
+  const rearDriveShare = 1 - p.driveSplitFront;
+  const driveForcePerFront = (driveForceAxle * p.driveSplitFront) / 2;   // per FRONT wheel (4WD only)
+  const driveTorquePerRear = (driveForceAxle * rearDriveShare / 2) * rr;
 
   // ---- per-wheel forces (body frame) + accumulate net force & yaw torque ----
   let Fbx = 0, Fby = 0, Tz = 0;
@@ -463,10 +471,16 @@ export function step4(
     const lockedRear = !front && hb;
 
     if (front) {
-      // fronts: brake only (not driven). Brake force opposes motion, capped by
-      // grip via the ellipse below → ABS-like (front locks only at full pedal).
+      // fronts: brake force opposes motion, capped by grip via the ellipse below →
+      // ABS-like (front locks only at full pedal).
       const fBrake = brakeEff * p.brakeForce * p.brakeBiasFront / 2;
       Fx = -Math.sign(vlong) * fBrake;
+      // 4WD: the front axle is ALSO driven. Its drive share is added as a longitudinal force at
+      // the front contact, then CAPPED by the front friction ellipse below (so it can only lay
+      // down what the front tyre's grip allows — that shared grip is what gives 4WD its extra
+      // launch traction). RWD (driveSplitFront 0) → this is skipped → byte-identical. (Independent
+      // front wheelspin dynamics are deliberately deferred to a later phase; here the front hooks up.)
+      if (p.driveSplitFront > 0) Fx += driveForcePerFront;
     } else if (lockedRear) {
       // HANDBRAKE = LOCKED rear: the whole contact patch SLIDES on the ground,
       // so the force is KINETIC friction = the full grip budget (× hbKineticMu)
@@ -649,7 +663,7 @@ export function step4(
         const wheelSurf = Math.abs(omega) * rr;
         const driveForceW = throttle * Math.min(p.peakThrust,
           p.enginePower / Math.max(v, wheelSurf, p.powerFloorSpeed));
-        const TdriveW = (driveForceW / 2) * rr;
+        const TdriveW = (driveForceW * rearDriveShare / 2) * rr;   // rear share (×1 for RWD)
         omega += (TdriveW - FxLong * rr - Math.sign(omega) * Tengine) / IwEff * subDt;
         if (omega < 0) omega = 0;
       }
