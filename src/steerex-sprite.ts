@@ -40,13 +40,13 @@ const SKIN_DEFS: Record<SteerexSkin, string> = {
     <linearGradient id="fenderR" x1="448" y1="0" x2="478" y2="0" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#eef1f4"/><stop offset="0.45" stop-color="#aeb6bf"/><stop offset="1" stop-color="#5b626b"/></linearGradient>`,
   black: `
     <linearGradient id="body" x1="196" y1="0" x2="464" y2="0" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#3a3d42"/><stop offset="0.1" stop-color="#25282d"/><stop offset="0.3" stop-color="#54585f"/><stop offset="0.5" stop-color="#2b2e33"/><stop offset="0.7" stop-color="#54585f"/><stop offset="0.9" stop-color="#25282d"/><stop offset="1" stop-color="#3a3d42"/>
+      <stop offset="0" stop-color="#565b63"/><stop offset="0.1" stop-color="#34383f"/><stop offset="0.3" stop-color="#828892"/><stop offset="0.5" stop-color="#3f444c"/><stop offset="0.7" stop-color="#828892"/><stop offset="0.9" stop-color="#34383f"/><stop offset="1" stop-color="#565b63"/>
     </linearGradient>
     <linearGradient id="roof" x1="214" y1="0" x2="446" y2="0" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#26282d"/><stop offset="0.5" stop-color="#4a4e55"/><stop offset="1" stop-color="#26282d"/>
+      <stop offset="0" stop-color="#3a3f47"/><stop offset="0.5" stop-color="#7a808b"/><stop offset="1" stop-color="#3a3f47"/>
     </linearGradient>
-    <linearGradient id="fenderL" x1="182" y1="0" x2="212" y2="0" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#17191d"/><stop offset="0.55" stop-color="#31343a"/><stop offset="1" stop-color="#54585f"/></linearGradient>
-    <linearGradient id="fenderR" x1="448" y1="0" x2="478" y2="0" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#54585f"/><stop offset="0.45" stop-color="#31343a"/><stop offset="1" stop-color="#17191d"/></linearGradient>`,
+    <linearGradient id="fenderL" x1="182" y1="0" x2="212" y2="0" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#24272c"/><stop offset="0.55" stop-color="#4a4f57"/><stop offset="1" stop-color="#828892"/></linearGradient>
+    <linearGradient id="fenderR" x1="448" y1="0" x2="478" y2="0" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#828892"/><stop offset="0.45" stop-color="#4a4f57"/><stop offset="1" stop-color="#24272c"/></linearGradient>`,
 };
 
 // ---- shared defs (identical for both skins) ----
@@ -215,4 +215,49 @@ export function steerexSprite(skin: SteerexSkin): HTMLCanvasElement | null {
 export function preloadSteerex(): void {
   steerexSprite('silver');
   steerexSprite('black');
+}
+
+// ---- MIPMAP DOWNSCALE CACHE (crisp small render) ----------------------------------------
+// The source bitmap is huge (~1776 px long) but the in-game car is ~40-140 px. Downscaling
+// that far in ONE drawImage step aliases the fine details (window slats, stripes, thin strokes)
+// into speckle/grain. Fix: pre-downscale to ~the on-screen size via STEPPED HALVING (each step
+// high-quality), cached per (skin, size bucket), so the per-frame draw is a gentle ≤2× scale.
+export interface SteerexMip { cv: HTMLCanvasElement; widPx: number; cxPx: number; cyPx: number; }
+const _mips = new Map<string, SteerexMip>();
+function downscaleStep(src: HTMLCanvasElement, w: number, h: number): HTMLCanvasElement {
+  const cv = document.createElement('canvas');
+  cv.width = w; cv.height = h;
+  const c = cv.getContext('2d')!;
+  c.imageSmoothingEnabled = true; c.imageSmoothingQuality = 'high';
+  c.drawImage(src, 0, 0, w, h);
+  return cv;
+}
+/**
+ * A cached copy of the skin bitmap pre-scaled so its opaque length ≈ `targetLenPx` (power-of-two
+ * bucketed → stable across frames), for a crisp small draw. Returns the source unchanged when no
+ * meaningful downscale is needed. Null until the source has baked.
+ */
+export function steerexScaled(skin: SteerexSkin, targetLenPx: number): SteerexMip | null {
+  const src = _cache.get(skin);
+  if (!src || !_opaque) return null;
+  const srcLen = _opaque.lenPx;
+  if (targetLenPx >= srcLen * 0.9) {
+    return { cv: src, widPx: _opaque.widPx, cxPx: _opaque.cxPx, cyPx: _opaque.cyPx };
+  }
+  const bucket = Math.max(48, Math.pow(2, Math.round(Math.log2(Math.max(1, targetLenPx)))));
+  const key = skin + ':' + bucket;
+  const hit = _mips.get(key);
+  if (hit) return hit;
+  const f = Math.min(1, bucket / srcLen);          // downscale factor for the FULL bitmap
+  const finalW = Math.max(1, Math.round(src.width * f));
+  const finalH = Math.max(1, Math.round(src.height * f));
+  let cur = src;
+  while (cur.width > finalW * 2) {                  // halve repeatedly (crisp) until close
+    cur = downscaleStep(cur, Math.max(finalW, Math.round(cur.width / 2)),
+                             Math.max(finalH, Math.round(cur.height / 2)));
+  }
+  const out = downscaleStep(cur, finalW, finalH);
+  const mip: SteerexMip = { cv: out, widPx: _opaque.widPx * f, cxPx: _opaque.cxPx * f, cyPx: _opaque.cyPx * f };
+  _mips.set(key, mip);
+  return mip;
 }

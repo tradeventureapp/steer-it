@@ -18,7 +18,7 @@ import {
   PLAYER_CAP, LOBBY_SYNC_MS, RESILIENCE, EV, colorName, LobbyState,
 } from './lobby';
 import { ROAD_SPEC, STEEREX_SILVER, STEEREX_BLACK, type VehicleSpec } from './vehicles';
-import { steerexSprite, steerexOpaque, preloadSteerex, type SteerexSkin } from './steerex-sprite';
+import { steerexSprite, steerexScaled, steerexOpaque, preloadSteerex, type SteerexSkin } from './steerex-sprite';
 import { step4, PHYS4, wheelDebug, type Physics4Params } from './physics4';
 
 // physics4 (the per-wheel sim — Blitz RS) is THE drive model: every car, every
@@ -2247,12 +2247,24 @@ function drawSteerex(car: Car, skin: SteerexSkin) {
   const s = car.state;
   const widM = car.spec.dims?.widthM ?? CONFIG.trackWidth;   // real width over the tyres
   const scale = (widM * PX()) / op.widPx;   // opaque width px → widM metres (length follows)
+  // The source bitmap is ~1776 px long but draws at ~40-140 px → a huge single-step downscale
+  // that aliases into grain. Draw a MIP pre-scaled to ~2× the on-screen size instead (crisp).
+  const m = ctx.getTransform();
+  const ctxScale = Math.hypot(m.a, m.b) || 1;                // world-px → device-px (viewScale·dpr)
+  const onScreenLenDev = op.lenPx * scale * ctxScale;        // the sprite's length in device px
+  const mip = steerexScaled(skin, onScreenLenDev * 2)
+    ?? { cv, widPx: op.widPx, cxPx: op.cxPx, cyPx: op.cyPx };
+  const mipScale = (widM * PX()) / mip.widPx;                // same on-screen size, gentler draw
+  const prevSmooth = ctx.imageSmoothingEnabled, prevQ = ctx.imageSmoothingQuality;
   ctx.save();
   ctx.translate(s.x * PX(), s.y * PX());
   ctx.rotate(s.heading + Math.PI / 2);
-  ctx.scale(scale, scale);
-  ctx.drawImage(cv, -op.cxPx, -op.cyPx);
+  ctx.scale(mipScale, mipScale);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(mip.cv, -mip.cxPx, -mip.cyPx);
   ctx.restore();
+  ctx.imageSmoothingEnabled = prevSmooth; ctx.imageSmoothingQuality = prevQ;
 }
 
 function drawCar(car: Car) {
