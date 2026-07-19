@@ -281,8 +281,9 @@ const STEEREX_ARCADE: Partial<Physics4Params> = {
                            // genuinely drifting.
   // --- THROTTLE-DEPENDENT GRIP: off/light throttle = PLANTED (no accidental slide), hard throttle
   //     = can power-over, already-drifting = stays drifting (boost fades with β past arcadeDriftGate). ---
-  arcadeThrottleGrip: 0.8,     // +80% rear grip at zero throttle → normal (feathered) driving grips
-                               // strongly at any speed; scales down to +0 as throttle rises.
+  arcadeThrottleGrip: 0.6,     // +60% rear grip at zero throttle (eased down from 0.8) → gentle driving
+                               // still grips well at any speed, just not as glued-down; scales to +0 as
+                               // throttle rises.
   arcadeThrottleGripFade: 0.6, // boost gone by 60% throttle → floor it (>0.6) and the rear can break
                                // loose for a power-over; light throttle (≤~0.3) still keeps it glued.
   arcadeThrottleCut: 0.5,      // past 60% throttle WHILE turning, cut the rear grip up to 50% at full
