@@ -773,13 +773,21 @@ export function step4(
   // ---- REVERSE drive (low-speed mode): the brake pedal is the reverse throttle
   // → a backward body force, capped at reverseSpeed, un-sticks a nosed-in car.
   // SIMPLE surface response (a shortcut, NOT the full tyre-model reverse): the scripted
-  // reverse force is scaled by the DRIVEN (rear) wheels' surface grip factor — the same
+  // reverse force is scaled by the DRIVEN wheels' surface grip factor — the same
   // muScale[ground] the tyre uses everywhere else — so reverse is BRISK on asphalt
-  // (muScale ~1) and WEAK on grass/gravel (~0.28/0.35), matching how forward drive already
-  // responds to surface. Reverse-only + asphalt (or no sampler) → muScale 1 → byte-identical.
-  if (reversing && vbx > -p.reverseSpeed) {
-    const revMu = (p.tire.muScale[surfOut[2]] + p.tire.muScale[surfOut[3]]) / 2;   // driven rear
-    Fbx -= brake * p.reverseForce * revMu;   // −body-x = backward, surface-scaled
+  // (muScale ~1) and WEAK on grass/gravel, matching how forward drive already responds.
+  // DRIVEN WHEELS: 4WD (driveSplitFront>0 = Stee-Rex) samples ALL FOUR; RWD (Blitz) the
+  // REAR pair only (byte-identical to the prior reverse). CAP: ARCADE (Stee-Rex) scales
+  // the speed cap by the surface too, so the reverse TOP SPEED itself is lower on grass/
+  // gravel (not just slower to reach the same cap); SIM (Blitz) keeps the flat cap
+  // (branch !== 'arcade' + driveSplitFront 0 → both branches below take the OLD path).
+  if (reversing) {
+    const ms = p.tire.muScale;
+    const revMu = p.driveSplitFront > 0
+      ? (ms[surfOut[0]] + ms[surfOut[1]] + ms[surfOut[2]] + ms[surfOut[3]]) / 4   // 4WD: all four
+      : (ms[surfOut[2]] + ms[surfOut[3]]) / 2;                                    // RWD: driven rear
+    const cap = p.branch === 'arcade' ? p.reverseSpeed * revMu : p.reverseSpeed;  // arcade: surface cap
+    if (vbx > -cap) Fbx -= brake * p.reverseForce * revMu;   // −body-x = backward, surface-scaled
   }
 
   // ---- COAST forces: aero drag (∝v²) + rolling resistance (constant), both
