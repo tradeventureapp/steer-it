@@ -252,10 +252,13 @@ const STEEREX_ARCADE: Partial<Physics4Params> = {
   arcadeTopSpeed: 300 / 3.6,  // 300 km/h HARD limiter — top held by gearing/limiter, INDEPENDENT of power (666 kW would otherwise drag-limit ~340 km/h; the limiter caps it at 300).
   // --- PHASE 2.4: BRAKING — arcade rallycross, forgiving. Stronger stops + braking is DECOUPLED
   //     from drifting (plain braking stays plain; the handbrake stays the drift trigger). ---
-  brakeForce: 20000,       // N — brutal, shorter stop (100→0 ~25 m vs ~32 m before). Stronger than a real rallycross car.
+  brakeForce: 22000,       // N — raised 20000→22000 so hard braking exceeds the grip budget a bit sooner = the wheels LOCK / break into a skid slightly earlier.
   brakeBiasFront: 0.62,    // slight front bias (Blitz 0.60)
-  arcadeBrakeStability: 8,     // yaw damping under braking → the car HOLDS ITS LINE (fixes the bug where ~30% brake + any steer spun the car via the unloaded rear). Straight braking unaffected (no yaw to damp).
+  arcadeBrakeStability: 6,     // yaw damping under braking — LOWERED 8→6 so brake+steer swings the tail more willingly (less yaw damp). Straight braking still stable (no yaw to damp when steer≈0).
   arcadeBrakeStabilitySteer: 0.85,  // |steer| at which the stability has faded → a HARD brake + HARD steer still breaks loose (spin). Below it: controllable diagonal skid, not a spin.
+  arcadeBrakeTransfer: 1.0,    // under braking, DOUBLE the longitudinal transfer at full pedal (0.8→1.6 effective)
+                               // → the rear unloads → trail-brake OVERSTEER = the car swings sideways on brake+
+                               // steer. Brake-gated → coast (off-throttle high-speed) keeps its grip, unchanged.
   // --- HANDBRAKE as the PRIMARY DRIFT TOOL (not the sim's over-braking kinetic lock). Breaks the
   //     rear lateral grip loose so the tail steps out into a FLOWING drift that carries speed;
   //     pulling it mid-drift re-breaks the rear → swing through centre to the opposite lock (flick). ---

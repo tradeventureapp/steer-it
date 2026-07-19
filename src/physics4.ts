@@ -149,6 +149,8 @@ export interface Physics4Params {
   // braking stays plain, and the handbrake remains the drift trigger. arcade-only (sim untouched).
   arcadeBrakeStability?: number;      // yaw-damping strength under braking (0 = off)
   arcadeBrakeStabilitySteer?: number; // |steer| at which the stability has fully faded → spin allowed
+  arcadeBrakeTransfer?: number;       // ×boost to longitudinal load transfer UNDER braking (rear unloads
+                                      // more → trail-brake oversteer). Brake-gated → coast untouched.
   // HANDBRAKE as an arcade DRIFT TOOL (Stee-Rex): instead of the sim's full kinetic LOCK (which
   // over-brakes → violent snap + speed scrub), the arcade handbrake BREAKS the rear LATERAL grip
   // loose (tail steps out → drift) with only LIGHT longitudinal braking, so the drift FLOWS and
@@ -378,7 +380,12 @@ export function step4(
   // ΔFz_long = m·ax·h/WB (accel → rear, brake → front). ΔFz_lat = m·ay·h/T
   // (→ outer wheels). Clamped to ±static so a cold-start accel spike can't
   // invert the load; per-wheel Fz clamped ≥ 0 (a lifted wheel carries nothing).
-  const dLong = clamp(m * st.prevAx * p.cgHeight / WB * p.loadTransferLongGain,
+  // ARCADE: under BRAKING, boost the longitudinal transfer (scaled by pedal) so the rear unloads
+  // MORE → trail-brake oversteer (the car swings sideways on brake+steer). Brake-gated, so COAST
+  // (no pedal) keeps the base gain = the off-throttle high-speed grip is untouched. arcade ⇒ Blitz off.
+  const brakeXfer = (p.branch === 'arcade' && p.arcadeBrakeTransfer)
+    ? (1 + p.arcadeBrakeTransfer * brakeEff) : 1;
+  const dLong = clamp(m * st.prevAx * p.cgHeight / WB * p.loadTransferLongGain * brakeXfer,
     -(FzF + FzR), (FzF + FzR));
   const dLat = m * st.prevAy * p.cgHeight / T * p.loadTransferLatGain;
 
