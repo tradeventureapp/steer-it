@@ -297,6 +297,7 @@ const STEEREX_ARCADE: Partial<Physics4Params> = {
   arcadeThrottleYaw: 10,       // rad/s² — gentle throttle in a GRIPPING corner rotates the NOSE IN
                                // (tightens the line) instead of understeering wide. Scaled by throttle ×
                                // steer, gripping-gated (never a drift). Mild = agile, not snap-oversteer.
+  reverseSpeed: 19.44,         // m/s = 70 km/h — Stee-Rex's own reverse top (value only, no physics change).
 };
 export const STEEREX_SILVER: VehicleSpec = {
   name: 'Stee-Rex Silver',
