@@ -301,6 +301,12 @@ const STEEREX_ARCADE: Partial<Physics4Params> = {
   arcadeReverseGrip: 0.6,      // front (trailing axle) keeps 60% grip while REVERSING → the tail breaks loose and the car
                                // swings/spins willingly from a hard steer even at LOW reverse speed (loose,
                                // tail-happy). Counter-steer still catches it (the front keeps its grip).
+  // --- STAGE 3: SUBTLE DRIFT ASSIST (feel like a master, NOT autopilot). ONLY while drifting. ---
+  arcadeDriftAssist: 2.0,      // gentle β̇ damping → less twitchy: slightly wider holdable band + smoother
+                               // catch + a touch more sustain. Kept low so a held drift still winds down.
+  arcadeDriftAssistBand: 1.1,  // rad ≈ 63° — beyond this the assist fades to 0 → over-angle STILL SPINS.
+  arcadeDriftAssistCatch: 0.15,// counter-steer threshold: a light corrective flick (≥0.15) already earns the
+                               // full assist (forgiving). Below it / no counter / steering INTO the slide → OFF.
 };
 export const STEEREX_SILVER: VehicleSpec = {
   name: 'Stee-Rex Silver',

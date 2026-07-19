@@ -166,6 +166,10 @@ export interface Physics4Params {
                                    // speed keeps free turn-in; only high-speed (where the rear washes) is planted
   arcadeThrottleCut?: number;      // 0..1 rear grip CUT at FULL throttle + steer (breaks loose → power-over)
   arcadeReverseGrip?: number;      // 0..1 rear grip kept WHILE REVERSING (low = tail breaks loose / spins easily)
+  // DRIFT ASSIST (Stage 3): a subtle drift-angle-rate damper, ONLY while drifting (drift-gated, spin-faded).
+  arcadeDriftAssist?: number;      // strength of the β̇ damping (0 = off). Gentle = less twitchy, not autopilot.
+  arcadeDriftAssistBand?: number;  // rad — |β| beyond which the assist fades to 0 (over-angle still spins)
+  arcadeDriftAssistCatch?: number; // extra strength while the player is counter-steering (smoother catch)
   arcadeThrottleYaw?: number;      // rad/s² — throttle rotates the NOSE INTO the corner (× throttle × steer),
                                    // gripping-gated so it shapes a grip corner, not a drift (0 = off)
 }
@@ -816,6 +820,33 @@ export function step4(
     const gripping = 1 - clamp((Math.abs(bodyBeta) - gate) / 0.15, 0, 1);
     const spd = clamp((v - 4) / 4, 0, 1);   // fade in above ~4 m/s (low speed = kinematic blend)
     omega += p.arcadeThrottleYaw * clamp(throttle, 0, 1) * steer * gripping * spd * dt;
+  }
+
+  // ---- ARCADE DRIFT ASSIST (Stage 3): a SUBTLE stabiliser, ONLY while DRIFTING. It gently damps
+  // the drift-angle RATE — pulls ω toward dφ/dt (the velocity vector's OWN rotation rate), which
+  // holds the CURRENT β steady (β̇ = dφ/dt − ω → 0). Effect: less twitchy → a slightly wider
+  // holdable band, a smoother counter-steer catch, and a touch more sustain. It is NOT a governor:
+  // it holds whatever angle the player has, never drives to a target. HARD-GATED so the skill stays:
+  //  • inDrift: 0 below the drift gate → NORMAL cornering/grip is byte-identical (assist fully off);
+  //  • notSpin: FADES to 0 past the band → an over-angle / no-counter-steer STILL SPINS (no auto-save);
+  //  • it is a YAW moment only (no grip change) → it can't fight arcadeDriftGrip / arcadeThrottleGrip.
+  // Kept weak so a held drift still WINDS DOWN on its own (scrub + self-align outlast it). arcade-gated.
+  if (p.branch === 'arcade' && p.arcadeDriftAssist && v > 2 && !hb) {
+    const gate = p.arcadeDriftGate ?? SLIDE_SLIP_LO;
+    const inDrift = clamp((Math.abs(bodyBeta) - gate) / 0.10, 0, 1);          // 0 below gate = normal driving OFF
+    const band = p.arcadeDriftAssistBand ?? 1.1;                             // rad — beyond here it's a spin
+    const notSpin = clamp((band - Math.abs(bodyBeta)) / 0.25, 0, 1);         // fades out over-angled → still spins
+    // GATED ON THE PLAYER ACTIVELY COUNTER-STEERING (steering OPPOSITE the yaw = catching/holding). The
+    // assist only helps the player's OWN correction — it never acts on its own. So: no input OR steering
+    // INTO the slide (over-driving) → counterAmt 0 → assist OFF → raw physics → it STILL SPINS. Steering
+    // to catch → the assist smooths/forgives that catch (wider holdable band, settles nicely). `catch`
+    // sets how little counter-steer already gets the help (forgiveness); it never drives on its own.
+    const counterAmt = (Math.sign(steer) === -Math.sign(omega))
+      ? clamp(Math.abs(steer) / (p.arcadeDriftAssistCatch ?? 0.3), 0, 1) : 0;
+    const k = clamp(p.arcadeDriftAssist * inDrift * notSpin * counterAmt * dt, 0, 0.5);
+    const sp2 = vx * vx + vy * vy;
+    const dphidt = sp2 > 1 ? (vx * awy - vy * awx) / sp2 : 0;                 // velocity-vector rotation rate
+    omega += (dphidt - omega) * k;
   }
 
   // ---- low-speed KINEMATIC BLEND (< lowSpeedBlend): guarantees launch / donut
