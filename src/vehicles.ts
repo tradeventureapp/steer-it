@@ -219,15 +219,8 @@ const STEEREX_ARCADE: Partial<Physics4Params> = {
   //     values for drive-testing, not final. Character: strong but BROAD/forgiving on tarmac
   //     (planted, no razor peak, doesn't snap) + keeps far more grip off-track. ---
   muNom: 1.90,             // SAME peak grip magnitude as the slick — NOT higher (high grip killed drift). The universal feel comes from a BROADER curve, not more grip.
-  tireB: 10,               // ROOT-CAUSE FIX (raised 8→10 = Blitz's value). tireB is the cornering
-                           // STIFFNESS (force built per degree of slip). At 8 the "broad forgiving"
-                           // idea BACKFIRED: low stiffness → the tyre LAGS (needs a big slip angle to
-                           // make force) → at 80-100 km/h the slip angle ran away before the force
-                           // built → the WHOLE car (both axles, alpha 23-49°) washed out on a mere
-                           // turn, even throttle-OFF (Blitz, at 10, held at 5°). This "the rear never
-                           // held, going way back" WAS the soft tyre. 10 builds force fast → grips.
-  tireC: 1.45,             // lateral shape (raised 1.30→1.45 = Blitz). Pairs with tireB 10 for the
-                           // real cornering curve; 1.30 alone left the rear marginal.
+  tireB: 8,                // lateral stiffness — LOWER than the slick's 10 → the peak sits at a higher slip angle = a broader, more planted grip build-up. (Tried 10 to stiffen cornering — it barely helped the corner and WORSENED the drift feel, so reverted to the universal 8.)
+  tireC: 1.30,             // lateral shape — LOWER than the slick's 1.45 → gentler post-peak fall-off = forgiving, holds over a wider slip range, doesn't snap. (Reverted from 1.45 with tireB — kept the universal drift feel.)
   tireEllipseLong: 1.3,    // NORMAL-CORNER FIX (raised 1.05→1.3, = Blitz's slick value). At 1.05 the
                            // friction ellipse was too round → maintenance throttle in a corner ATE the
                            // rear's lateral grip → the rear smeared/stepped out in EVERY normal corner
