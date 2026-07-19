@@ -298,6 +298,9 @@ const STEEREX_ARCADE: Partial<Physics4Params> = {
                                // (tightens the line) instead of understeering wide. Scaled by throttle ×
                                // steer, gripping-gated (never a drift). Mild = agile, not snap-oversteer.
   reverseSpeed: 19.44,         // m/s = 70 km/h — Stee-Rex's own reverse top (value only, no physics change).
+  arcadeReverseGrip: 0.6,      // front (trailing axle) keeps 60% grip while REVERSING → the tail breaks loose and the car
+                               // swings/spins willingly from a hard steer even at LOW reverse speed (loose,
+                               // tail-happy). Counter-steer still catches it (the front keeps its grip).
 };
 export const STEEREX_SILVER: VehicleSpec = {
   name: 'Stee-Rex Silver',

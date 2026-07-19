@@ -165,6 +165,7 @@ export interface Physics4Params {
   arcadeThrottleGripSpeed?: number;// m/s — the boost fades IN from here (0→full over the next 8 m/s) so low
                                    // speed keeps free turn-in; only high-speed (where the rear washes) is planted
   arcadeThrottleCut?: number;      // 0..1 rear grip CUT at FULL throttle + steer (breaks loose → power-over)
+  arcadeReverseGrip?: number;      // 0..1 rear grip kept WHILE REVERSING (low = tail breaks loose / spins easily)
   arcadeThrottleYaw?: number;      // rad/s² — throttle rotates the NOSE INTO the corner (× throttle × steer),
                                    // gripping-gated so it shapes a grip corner, not a drift (0 = off)
 }
@@ -518,6 +519,11 @@ export function step4(
         * clamp((Math.abs(steer) - 0.25) / 0.25, 0, 1);
       D *= 1 - breakLoose * gripping;
     }
+    // ARCADE REVERSE GRIP CUT — while reversing the FRONT axle is the TRAILING axle (the "fletching"
+    // that keeps a reversing car straight). Cut its grip so that stabilising force weakens → the car
+    // SWINGS/spins willingly from a hard steer at ANY reverse speed (loose / tail-happy, not planted).
+    // The front keeps enough grip to still steer/catch. Reverse + arcade gated ⇒ forward & SIM untouched.
+    if (p.branch === 'arcade' && front && reversing && p.arcadeReverseGrip) D *= p.arcadeReverseGrip;
 
     // Magic-Formula lateral (peak-then-falloff = the kinetic/drift regime).
     // OVERRIDDEN for a LOCKED rear below (a locked wheel scrubs, it doesn't roll).
