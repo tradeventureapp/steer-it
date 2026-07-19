@@ -279,20 +279,6 @@ const STEEREX_ARCADE: Partial<Physics4Params> = {
   arcadeDriftGate: 0.12,   // rad ≈ 7° body-sideslip onset for the cut — above a normal corner's β
                            // (4-8°), so grip cornering isn't tripped; the cut only engages once
                            // genuinely drifting.
-  // --- ARCADE GRIP ASSIST: the "two modes" — GRIP by default, DRIFT only on a trigger. This is the
-  //     arcade override that makes the car do what the player wants: normal cornering (however hard,
-  //     any speed) GRIPS and goes where pointed; a drift happens ONLY when the player pulls the
-  //     handbrake or floors it while turning. Physics-be-damned, Stee-Rex only (Blitz = 0.0e+0).
-  arcadeGripAlign: 20,     // sideslip-kill rate — pulls velocity toward heading in grip mode. High =
-                           // grips hard at 120 km/h; a residual slip remains (equilibrium with the
-                           // tyre forces) so it still feels like a car, not on rails.
-  arcadeGripYaw: 6,        // yaw-settle rate — eases ω toward the kinematic turn-in so the car NOSES
-                           // into the corner (rotates naturally) instead of just crabbing along.
-  arcadeGripRamp: 9,       // per s — grip⇄drift transition speed (~0.11 s = smooth, not a snap).
-  arcadeGripPowerThrottle: 0.85, // FLOOR it (throttle > 0.85) ...
-  arcadeGripPowerSteer: 0.45,    // ... WHILE turning (|steer| > 0.45) = the power-over drift trigger.
-  arcadeGripPowerLatGrip: 0.35,  // when that trigger fires, cut the rear grip to 35% so the throttle
-                                 // actually breaks the tail out into a drift (else it'd just grip).
 };
 export const STEEREX_SILVER: VehicleSpec = {
   name: 'Stee-Rex Silver',
