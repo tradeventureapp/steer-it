@@ -167,9 +167,6 @@ export interface Physics4Params {
   arcadeThrottleCut?: number;      // 0..1 rear grip CUT at FULL throttle + steer (breaks loose → power-over)
   arcadeThrottleYaw?: number;      // rad/s² — throttle rotates the NOSE INTO the corner (× throttle × steer),
                                    // gripping-gated so it shapes a grip corner, not a drift (0 = off)
-  arcadeReverseAlign?: number;     // reverse stability: rate the velocity is pulled to heading+π (0 = off)
-  arcadeReverseYaw?: number;       // reverse: rate ω settles to the kinematic reverse turn-in (default = align)
-  arcadeReverseMaxLat?: number;    // m/s² — caps the reverse yaw at aLat/v (gentle curve at speed, no spin)
 }
 
 // How one tyre compound behaves on each ground: a ×scale on that wheel's μ. This lives with
@@ -808,29 +805,6 @@ export function step4(
     const gripping = 1 - clamp((Math.abs(bodyBeta) - gate) / 0.15, 0, 1);
     const spd = clamp((v - 4) / 4, 0, 1);   // fade in above ~4 m/s (low speed = kinematic blend)
     omega += p.arcadeThrottleYaw * clamp(throttle, 0, 1) * steer * gripping * spd * dt;
-  }
-
-  // ---- ARCADE REVERSE STABILITY (mirrored physics): at speed in reverse the car is directionally
-  // UNSTABLE (the front weight-bias + self-aligning torque that stabilise FORWARD motion push the
-  // wrong way going backward → twitchy / spins). So mirror the forward grip model for reverse: pull
-  // the velocity toward heading+π (the reverse travel direction → kills sideslip, stays controllable)
-  // and settle the yaw toward the KINEMATIC REVERSE turn-in (ω = −v·tan(δ)/WB → turning the wheel
-  // curves the car the sensible way backward, the rear leads). The full tyre model still runs (weight
-  // transfer / grip roles are live underneath); this keeps it from diverging at 150 km/h. Reverse +
-  // arcade gated ⇒ sim (Blitz) reverse is byte-identical.
-  if (p.branch === 'arcade' && reversing && p.arcadeReverseAlign && v > 1) {
-    const sp = Math.hypot(vx, vy);
-    if (sp > 1e-4) {
-      const cur = Math.atan2(vy, vx);
-      let d = cur - (h + Math.PI); d = Math.atan2(Math.sin(d), Math.cos(d));   // mismatch vs reverse dir
-      const na = cur - d * clamp(p.arcadeReverseAlign * dt, 0, 1);
-      vx = sp * Math.cos(na); vy = sp * Math.sin(na);
-    }
-    // kinematic reverse yaw, CAPPED at the grip-limited rate (aLat/v) so a small steer at 150 km/h is
-    // a gentle curve, NOT the impossibly-tight kinematic whip-around (which would spin the car).
-    const yawCap = (p.arcadeReverseMaxLat ?? 14) / Math.max(v, 5);
-    const omegaKin = clamp(-v * Math.tan(delta[0]) / WB, -yawCap, yawCap);
-    omega += (omegaKin - omega) * clamp((p.arcadeReverseYaw ?? p.arcadeReverseAlign) * dt, 0, 1);
   }
 
   // ---- low-speed KINEMATIC BLEND (< lowSpeedBlend): guarantees launch / donut

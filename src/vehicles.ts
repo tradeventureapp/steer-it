@@ -297,12 +297,6 @@ const STEEREX_ARCADE: Partial<Physics4Params> = {
   arcadeThrottleYaw: 10,       // rad/s² — gentle throttle in a GRIPPING corner rotates the NOSE IN
                                // (tightens the line) instead of understeering wide. Scaled by throttle ×
                                // steer, gripping-gated (never a drift). Mild = agile, not snap-oversteer.
-  // --- REVERSE: Stee-Rex's own high top-reverse + MIRRORED reverse physics (controllable at speed). ---
-  reverseSpeed: 41.7,          // m/s = 150 km/h — Stee-Rex's own reverse top (Blitz keeps ~50 km/h).
-  arcadeReverseAlign: 40,      // pulls velocity to the reverse direction (heading+π) → no sideslip = the
-                               // car tracks straight backward and stays controllable at 150, not twitchy.
-  arcadeReverseYaw: 30,         // settles ω to the kinematic reverse turn-in → turning the wheel curves the
-                               // car the SENSIBLE way in reverse (rear leads), no inverted/wrong-way steer.
 };
 export const STEEREX_SILVER: VehicleSpec = {
   name: 'Stee-Rex Silver',
