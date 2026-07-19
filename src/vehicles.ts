@@ -282,6 +282,16 @@ const STEEREX_ARCADE: Partial<Physics4Params> = {
   arcadeDriftGate: 0.12,   // rad ≈ 7° body-sideslip onset for the cut — above a normal corner's β
                            // (4-8°), so grip cornering isn't tripped; the cut only engages once
                            // genuinely drifting.
+  arcadeDriftThrottleGate: 1.8, // throttle at which the drift-grip cut reaches FULL. PROGRESSIVE onset:
+                           // at the old 0.3 the cut was full by ~30% throttle, so a moderate-throttle
+                           // corner slide got AMPLIFIED into a 110°+ SPIN (grip→snap cliff). Raised to
+                           // 1.8 so light/moderate throttle → little cut → the rear GRIPS (a corner
+                           // slide settles to a controllable angle, not a spin); the cut feeds in as
+                           // throttle rises → drift builds with MORE throttle. MEASURED (trail-brake
+                           // maxβ): 0.5→19° (grips), 0.6→53°, full→56° controllable — vs the old
+                           // 0.5→110° snap-spin. Higher = grippier / needs more throttle to drift;
+                           // lower = drifts on less throttle. Handbrake path is !hb-gated → still
+                           // triggers instantly regardless.
   // --- THROTTLE-DEPENDENT GRIP: off/light throttle = PLANTED (no accidental slide), hard throttle
   //     = can power-over, already-drifting = stays drifting (boost fades with β past arcadeDriftGate). ---
   arcadeThrottleGrip: 0.6,     // +60% rear grip at zero throttle → keeps the rear planted at speed. It's

@@ -140,6 +140,9 @@ export interface Physics4Params {
   // UNTOUCHED (2d forgiveness) and it is NOT an auto-catch: the player still catches it with
   // counter-steer (the self-aligning torque), and over-driving past the trail peak still SPINS.
   arcadeDriftGrip?: number;    // 0..1 — rear grip cut at full slide (0 = off; e.g. 0.5 = keep 50%)
+  arcadeDriftThrottleGate?: number;// throttle at which the drift-grip cut reaches FULL (default 0.3). Higher
+                               // = PROGRESSIVE onset: light throttle → little cut → GRIPS; drift builds only
+                               // as throttle feeds in (no hair-trigger snap-loose on a little throttle).
   arcadeDriftGate?: number;    // rad — lateral-slip onset for the drift-grip cut (full 0.15 rad above).
                                // Sets where a provoked slide starts to SUSTAIN — low enough that a
                                // drift holds a stable angle, high enough a gripped corner stays gripped.
@@ -494,7 +497,7 @@ export function step4(
       // it (β stays large through counter-steer). Below the gate → full grip → recovers.
       const gate = p.arcadeDriftGate ?? SLIDE_SLIP_LO;
       const slide = clamp((Math.abs(bodyBeta) - gate) / 0.15, 0, 1);
-      const thrGate = clamp(throttle / 0.3, 0, 1);   // throttle sustains the slide (full by 0.3)
+      const thrGate = clamp(throttle / (p.arcadeDriftThrottleGate ?? 0.3), 0, 1);   // progressive throttle onset
       D *= 1 - p.arcadeDriftGrip * slide * thrGate;
     }
     // ARCADE THROTTLE-DEPENDENT GRIP — OFF / LIGHT throttle → BOOST the rear grip so it stays PLANTED
