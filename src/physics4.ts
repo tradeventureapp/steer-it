@@ -156,6 +156,19 @@ export interface Physics4Params {
   // the opposite lock (scandinavian flick). Present ⇒ arcade path; absent ⇒ the sim lock (Blitz).
   arcadeHbLatGrip?: number;   // 0..1 — rear cornering grip RETAINED under handbrake (low = breaks loose more)
   arcadeHbBrake?: number;     // 0..1 — LIGHT longitudinal brake fraction of the rear grip (« the main brake)
+  // ARCADE GRIP ASSIST (Stee-Rex, the "two modes" model): a TRIGGER-gated override that FORCES the
+  // car to grip whenever the player is NOT provoking a drift. GRIP MODE (default): the velocity is
+  // pulled toward the heading (kills sideslip → no accidental slide) and the yaw settles toward the
+  // kinematic turn-in (rotates into the corner naturally, not on rails). DRIFT MODE (handbrake OR a
+  // hard floor+steer power-over): the override fades OFF so the arcade drift works untouched. The
+  // switch is the TRIGGER, not the slip angle, so normal hard cornering can NEVER cross into a drift.
+  // arcade-gated ⇒ Blitz (sim) never runs any of it = byte-identical.
+  arcadeGripAlign?: number;   // sideslip-kill rate (per s): pulls velocity toward heading in GRIP mode
+  arcadeGripYaw?: number;     // yaw-settle rate (per s): blends ω toward the kinematic turn-in (grip)
+  arcadeGripRamp?: number;    // per s — how fast grip⇄drift transitions (smooth, not a snap)
+  arcadeGripPowerThrottle?: number; // throttle above this + a turn = a power-over drift trigger
+  arcadeGripPowerSteer?: number;    // |steer| above this + floor = the power-over drift trigger
+  arcadeGripPowerLatGrip?: number;  // 0..1 rear grip kept when the power-over trigger fires (low = breaks loose harder). Its PRESENCE also enables the power-over trigger.
 }
 
 // How one tyre compound behaves on each ground: a ×scale on that wheel's μ. This lives with
@@ -271,6 +284,7 @@ interface P4State {
   initd: boolean;   // rear omega seeded to free-rolling on the first step
   reversing: boolean;    // low-speed reverse mode (stopped + brake held)
   brakeHoldT: number;    // s — brake held while stopped (arms reverse after reverseDelay)
+  gripAssist: number;    // arcade grip-assist ramp: 1 = GRIP mode (override on), 0 = DRIFT mode (off)
   // last-frame debug for HUD / verification (per wheel)
   load: [number, number, number, number];
   slipRatio: [number, number];   // rear longitudinal slip ratio (wheelspin/lock)
@@ -285,7 +299,7 @@ function stateOf(car: CarState): P4State {
     s = {
       slip: [0, 0, 0, 0], prevAx: 0, prevAy: 0,
       rearOmega: [0, 0], initd: false,
-      reversing: false, brakeHoldT: 0,
+      reversing: false, brakeHoldT: 0, gripAssist: 1,
       load: [0, 0, 0, 0], slipRatio: [0, 0],
       surface: ['asphalt', 'asphalt', 'asphalt', 'asphalt'],
     };
@@ -366,6 +380,15 @@ export function step4(
   // front wheels point left → the car reverses to the LEFT, like a real car.
   const steer = clamp(input.steer, -1, 1);
   const delta = [steer * p.maxSteer, steer * p.maxSteer, 0, 0]; // fronts steer, rears fixed
+
+  // ARCADE POWER-OVER TRIGGER: flooring it (throttle high) WHILE turning (steer high) is a
+  // deliberate drift trigger — it both breaks the rear grip loose (below, in the wheel loop) AND
+  // switches the grip-assist off (at the end). The SAME trigger both places so grip and drift can't
+  // disagree. arcade-only ⇒ sim (Blitz) never sets it.
+  const powerOverDrift = p.branch === 'arcade' && !hb && !reversing
+    && !!p.arcadeGripPowerLatGrip
+    && throttle > (p.arcadeGripPowerThrottle ?? 0.85)
+    && Math.abs(steer) > (p.arcadeGripPowerSteer ?? 0.45);
 
   // ---- LOAD TRANSFER (from PREV-frame body accel — no algebraic loop) ----
   // ΔFz_long = m·ax·h/WB (accel → rear, brake → front). ΔFz_lat = m·ay·h/T
@@ -476,6 +499,10 @@ export function step4(
       const thrGate = clamp(throttle / 0.3, 0, 1);   // throttle sustains the slide (full by 0.3)
       D *= 1 - p.arcadeDriftGrip * slide * thrGate;
     }
+    // ARCADE POWER-OVER BREAK-LOOSE: on a floor+steer trigger, cut the rear grip budget so the
+    // throttle drive steps the tail out into a drift (grip-assist is off simultaneously). Without
+    // this the grip-assist would just switch off but the (grippy) rear wouldn't actually slide.
+    if (powerOverDrift && !front) D *= (p.arcadeGripPowerLatGrip ?? 0.4);
 
     // Magic-Formula lateral (peak-then-falloff = the kinetic/drift regime).
     // OVERRIDDEN for a LOCKED rear below (a locked wheel scrubs, it doesn't roll).
@@ -770,6 +797,35 @@ export function step4(
       d = Math.atan2(Math.sin(d), Math.cos(d));
       const na = cur - d * blend * 0.5;
       vx = sp * Math.cos(na); vy = sp * Math.sin(na);
+    }
+  }
+
+  // ---- ARCADE GRIP ASSIST (the two-mode override): whenever the player is NOT provoking a
+  // drift, FORCE the car to grip — pull the velocity toward the heading (kills sideslip → no
+  // accidental slide, at ANY speed) and settle the yaw toward the kinematic turn-in (so it still
+  // ROTATES into the corner, not on rails). The TRIGGER (handbrake OR a hard floor+steer
+  // power-over) ramps the override OFF → the arcade drift works untouched. The switch is the
+  // TRIGGER, not the slip angle, so normal hard cornering can NEVER cross into a drift.
+  // arcade-gated ⇒ sim (Blitz) never runs it = byte-identical.
+  if (p.branch === 'arcade' && p.arcadeGripAlign) {
+    const drifting = hb || powerOverDrift;
+    st.gripAssist += ((drifting ? 0 : 1) - st.gripAssist) * clamp((p.arcadeGripRamp ?? 8) * dt, 0, 1);
+    const ga = st.gripAssist;
+    if (ga > 0.001 && v > 1) {
+      // (a) kill sideslip: rotate the velocity vector toward the heading (reverse-aware)
+      const sp = Math.hypot(vx, vy);
+      if (sp > 1e-4) {
+        const cur = Math.atan2(vy, vx);
+        let d = cur - (reversing ? h + Math.PI : h);
+        d = Math.atan2(Math.sin(d), Math.cos(d));
+        const na = cur - d * clamp(p.arcadeGripAlign * ga * dt, 0, 1);
+        vx = sp * Math.cos(na); vy = sp * Math.sin(na);
+      }
+      // (b) settle the yaw toward the kinematic turn-in → grips AND noses into the corner
+      if (p.arcadeGripYaw) {
+        const omegaKin = (reversing ? -v : v) * Math.tan(delta[0]) / WB;
+        omega += (omegaKin - omega) * clamp(p.arcadeGripYaw * ga * dt, 0, 1);
+      }
     }
   }
 
