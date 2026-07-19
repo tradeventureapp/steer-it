@@ -165,6 +165,8 @@ export interface Physics4Params {
   arcadeThrottleGripSpeed?: number;// m/s — the boost fades IN from here (0→full over the next 8 m/s) so low
                                    // speed keeps free turn-in; only high-speed (where the rear washes) is planted
   arcadeThrottleCut?: number;      // 0..1 rear grip CUT at FULL throttle + steer (breaks loose → power-over)
+  arcadeThrottleYaw?: number;      // rad/s² — throttle rotates the NOSE INTO the corner (× throttle × steer),
+                                   // gripping-gated so it shapes a grip corner, not a drift (0 = off)
 }
 
 // How one tyre compound behaves on each ground: a ×scale on that wheel's μ. This lives with
@@ -790,6 +792,19 @@ export function step4(
     const brakeGate = clamp(brakeEff / 0.25, 0, 1);
     const steerFade = clamp(1 - Math.abs(steer) / (p.arcadeBrakeStabilitySteer ?? 1), 0, 1);
     omega -= omega * clamp(p.arcadeBrakeStability * brakeGate * steerFade * dt, 0, 1);
+  }
+
+  // ---- ARCADE THROTTLE NOSE-IN: gentle throttle in a GRIPPING corner should rotate the nose INTO
+  // the corner (tighten the line), not push wide. Adds a mild yaw acceleration toward the steer
+  // direction, scaled by throttle × steer. GRIPPING-gated (fades once |β| passes arcadeDriftGate) so
+  // it only shapes a normal grip corner and NEVER a drift (a power-over/handbrake slide just continues,
+  // and it self-limits — if it over-rotates, β grows → gripping → 0 → the assist backs off). Faded out
+  // at low speed (the kinematic blend owns that). arcade-gated ⇒ Blitz (sim) never runs it.
+  if (p.branch === 'arcade' && p.arcadeThrottleYaw && !hb && !reversing && throttle > 0.03) {
+    const gate = p.arcadeDriftGate ?? SLIDE_SLIP_LO;
+    const gripping = 1 - clamp((Math.abs(bodyBeta) - gate) / 0.15, 0, 1);
+    const spd = clamp((v - 4) / 4, 0, 1);   // fade in above ~4 m/s (low speed = kinematic blend)
+    omega += p.arcadeThrottleYaw * clamp(throttle, 0, 1) * steer * gripping * spd * dt;
   }
 
   // ---- low-speed KINEMATIC BLEND (< lowSpeedBlend): guarantees launch / donut

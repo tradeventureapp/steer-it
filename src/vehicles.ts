@@ -294,6 +294,9 @@ const STEEREX_ARCADE: Partial<Physics4Params> = {
   arcadeThrottleCut: 0.5,      // past 60% throttle WHILE turning, cut the rear grip up to 50% at full
                                // → flooring it in a corner breaks the tail loose (power-over). Steer-
                                // gated → a straight-line full-throttle pull still grips/accelerates.
+  arcadeThrottleYaw: 10,       // rad/s² — gentle throttle in a GRIPPING corner rotates the NOSE IN
+                               // (tightens the line) instead of understeering wide. Scaled by throttle ×
+                               // steer, gripping-gated (never a drift). Mild = agile, not snap-oversteer.
 };
 export const STEEREX_SILVER: VehicleSpec = {
   name: 'Stee-Rex Silver',
