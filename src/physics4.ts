@@ -772,8 +772,14 @@ export function step4(
 
   // ---- REVERSE drive (low-speed mode): the brake pedal is the reverse throttle
   // → a backward body force, capped at reverseSpeed, un-sticks a nosed-in car.
+  // SIMPLE surface response (a shortcut, NOT the full tyre-model reverse): the scripted
+  // reverse force is scaled by the DRIVEN (rear) wheels' surface grip factor — the same
+  // muScale[ground] the tyre uses everywhere else — so reverse is BRISK on asphalt
+  // (muScale ~1) and WEAK on grass/gravel (~0.28/0.35), matching how forward drive already
+  // responds to surface. Reverse-only + asphalt (or no sampler) → muScale 1 → byte-identical.
   if (reversing && vbx > -p.reverseSpeed) {
-    Fbx -= brake * p.reverseForce;   // −body-x = backward
+    const revMu = (p.tire.muScale[surfOut[2]] + p.tire.muScale[surfOut[3]]) / 2;   // driven rear
+    Fbx -= brake * p.reverseForce * revMu;   // −body-x = backward, surface-scaled
   }
 
   // ---- COAST forces: aero drag (∝v²) + rolling resistance (constant), both
