@@ -614,11 +614,16 @@ export function step4(
     // (fixed wheel angle), so a front Mz on the chassis would be spurious understeer.
     // The REAR aligning moment has no steering DOF → it genuinely acts on the
     // chassis = the real directional stability that kills the yaw limit-cycle.
+    // ARCADE reverse (Stee-Rex) runs the aligning moment in reverse too, but SIGN-FLIPPED: a wheel
+    // travelling BACKWARD has its pneumatic trail effectively AHEAD of the contact, so the moment
+    // becomes DESTABILISING — the real, honest reason a car reversing fast is unstable and swaps ends
+    // (no artificial rule). SIM (Blitz) keeps the forward-only gate → reverse byte-identical.
     let Mz = 0;
-    if (!front && !lockedRear && !reversing) {
+    const revAlign = reversing && p.branch === 'arcade';
+    if (!front && !lockedRear && (!reversing || revAlign)) {
       const trailFrac = clamp(1 - Math.abs(alpha) / p.trailPeakSlip, -0.15, 1);
       const loadScale = clamp(Fz / FzStatic[i], 0, 1.5);   // trail ∝ contact patch ∝ load
-      Mz = -Fy * p.pneumaticTrail * trailFrac * loadScale;
+      Mz = -Fy * p.pneumaticTrail * trailFrac * loadScale * (revAlign ? -1 : 1);
     }
 
     // rotate wheel force back to body frame (+δ) and accumulate
