@@ -160,6 +160,8 @@ export interface Physics4Params {
   // fades with throttle (hard throttle → power-over) and fades once already sliding (drift continues).
   arcadeThrottleGrip?: number;     // extra rear grip fraction at ZERO throttle (0 = off; e.g. 0.8 = +80%)
   arcadeThrottleGripFade?: number; // throttle at which the boost has fully faded (hard throttle → no boost)
+  arcadeThrottleGripSpeed?: number;// m/s — the boost fades IN from here (0→full over the next 8 m/s) so low
+                                   // speed keeps free turn-in; only high-speed (where the rear washes) is planted
   arcadeThrottleCut?: number;      // 0..1 rear grip CUT at FULL throttle + steer (breaks loose → power-over)
 }
 
@@ -481,21 +483,31 @@ export function step4(
       const thrGate = clamp(throttle / 0.3, 0, 1);   // throttle sustains the slide (full by 0.3)
       D *= 1 - p.arcadeDriftGrip * slide * thrGate;
     }
-    // ARCADE THROTTLE-DEPENDENT GRIP: OFF / LIGHT throttle → BOOST the rear grip so normal driving
-    // is PLANTED (no accidental slide, at any speed). The boost FADES with throttle (hard throttle
-    // can still power-over) AND fades once the car is ALREADY sliding (β past the gate) so it NEVER
-    // yanks an active drift back to grip — the drift just continues. arcade-gated ⇒ Blitz untouched.
+    // ARCADE THROTTLE-DEPENDENT GRIP — OFF / LIGHT throttle → BOOST the rear grip so it stays PLANTED
+    // (no accidental slide). REAR-only + SPEED-FADED: at low/moderate speed the base already grips AND
+    // turns in cleanly, so NO boost there (the boost's rear-plant was killing turn-in = understeer/
+    // on-rails); it fades IN with speed (arcadeThrottleGripSpeed) to catch the high-speed washout where
+    // the rear actually lets go. Fades with throttle (hard throttle → power-over) AND once ALREADY
+    // sliding (β past the gate) so it never yanks an active drift back to grip. arcade ⇒ Blitz untouched.
     if (p.branch === 'arcade' && !front && !hb && !reversing && p.arcadeThrottleGrip) {
       const gate = p.arcadeDriftGate ?? SLIDE_SLIP_LO;
       const gripping = 1 - clamp((Math.abs(bodyBeta) - gate) / 0.15, 0, 1);            // 1 planted → 0 in a slide
+      const lowThr = 1 - clamp(throttle / (p.arcadeThrottleGripFade ?? 0.6), 0, 1);    // 1 off-throttle → 0 hard
+      const sp0 = p.arcadeThrottleGripSpeed ?? 0;                                       // speed the boost starts fading in
+      const speedFade = clamp((v - sp0) / 8, 0, 1);                                     // 0 below sp0 → full 8 m/s above
+      D *= 1 + p.arcadeThrottleGrip * lowThr * gripping * speedFade;
+    }
+    // Power-over BREAK-LOOSE — REAR only: hard throttle (past the fade) WHILE turning cuts the rear grip
+    // so flooring it in a corner breaks the tail loose into a drift. Steer-gated → a straight-line
+    // full-throttle pull still grips/accelerates. Fades in a slide (β past gate) so a drift just continues.
+    if (p.branch === 'arcade' && !front && !hb && !reversing && p.arcadeThrottleCut) {
+      const gate = p.arcadeDriftGate ?? SLIDE_SLIP_LO;
+      const gripping = 1 - clamp((Math.abs(bodyBeta) - gate) / 0.15, 0, 1);
       const fade = p.arcadeThrottleGripFade ?? 0.6;
-      const boost = p.arcadeThrottleGrip * (1 - clamp(throttle / fade, 0, 1));         // low throttle → grip BOOST
-      // HARD throttle (past `fade`) WHILE turning → CUT the rear grip so flooring it breaks the tail
-      // loose into a power-over. Steer-gated so a straight-line full-throttle pull still GRIPS/accelerates.
-      const breakLoose = (p.arcadeThrottleCut ?? 0)
+      const breakLoose = p.arcadeThrottleCut
         * clamp((throttle - fade) / (1 - fade), 0, 1)
         * clamp((Math.abs(steer) - 0.25) / 0.25, 0, 1);
-      D *= 1 + (boost - breakLoose) * gripping;
+      D *= 1 - breakLoose * gripping;
     }
 
     // Magic-Formula lateral (peak-then-falloff = the kinetic/drift regime).
