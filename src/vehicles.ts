@@ -231,16 +231,11 @@ const STEEREX_ARCADE: Partial<Physics4Params> = {
                            // this doesn't cost the drift (verified). Trade: less throttle-induced
                            // rotation = the intended stable feel.
   loadSensitivity: 0.06,   // ~Blitz's 0.05 — kept low so grip holds under load transfer = planted/forgiving (not dramatic)
-  // --- WEIGHT-TRANSFER SENSITIVITY (paired with the tyre fix above). ---
-  loadTransferLatGain: 0.9,   // ROOT-CAUSE correction: lateral transfer LOADS the outer wheels =
-                              // STABILISING at speed (a loaded tyre grips harder). My earlier 0.6
-                              // (chasing a cosmetic isRearSliding flag) REMOVED that stabilisation →
-                              // the car washed out throttle-off at 80-100 km/h. 0.9 restores it (grips
-                              // to 80 km/h; Stee-Rex's WIDE track 1.74 already gives less transfer than
-                              // Blitz's 1.46, so it wants a high gain). NOT 1.0 — that tips into
-                              // throttle power-over-spin at moderate throttle; 0.9 is the balance:
-                              // throttle-off + light + moderate throttle all GRIP, hard throttle (0.6+,
-                              // it's a 666 kW car) still power-slides on demand.
+  // --- WEIGHT-TRANSFER SENSITIVITY. ---
+  loadTransferLatGain: 0.6,   // 1.0→0.6 — LATERAL transfer to the outer wheels was hair-trigger:
+                              // the rear broke loose (isRearSliding) in every throttle-on corner
+                              // (65+ frames, 20-70 km/h). 0.6 plants it; 60% of the shift is retained
+                              // (felt). Handbrake is a direct grip-cut, independent → still provokes.
   loadTransferLongGain: 0.8,  // 1.5→0.8 — LONGITUDINAL transfer under lift-off/coast unloaded the rear
                               // → a high-speed COAST corner (60 km/h) SPUN (β 149°). 0.8 kills the
                               // lift-off spin (β 149°→8°) without touching braking feel (brakes are a
@@ -281,12 +276,9 @@ const STEEREX_ARCADE: Partial<Physics4Params> = {
                            // cleanly (required — nothing catches it for you); lift → exits. Kept mild
                            // (0.15) so it's holdable, not an uncatchable spin — over-driving into the
                            // slide still spins (the punish). Higher = holds looser/longer but spinnier.
-  arcadeDriftGate: 0.25,   // rad ≈ 14° body-sideslip onset for the cut — RAISED 0.12→0.25 with the
-                           // root fix: the planted rear now reaches ~5-15° in a hard/fast throttle
-                           // corner, which at the old 7° gate tripped the cut → a moderate-throttle
-                           // SPIN (the "band-aid made it worse" the boss saw). 14° sits above any
-                           // normal corner but below a real provoked drift, so the self-sustain only
-                           // fires in an actual drift now, not in cornering.
+  arcadeDriftGate: 0.12,   // rad ≈ 7° body-sideslip onset for the cut — above a normal corner's β
+                           // (4-8°), so grip cornering isn't tripped; the cut only engages once
+                           // genuinely drifting.
 };
 export const STEEREX_SILVER: VehicleSpec = {
   name: 'Stee-Rex Silver',
