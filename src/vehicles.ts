@@ -269,15 +269,16 @@ const STEEREX_ARCADE: Partial<Physics4Params> = {
   //     hold). This cuts the sliding rear's lateral grip so it STAYS loose once provoked — the slide
   //     holds, counter-steer becomes REQUIRED to balance it, and the deliberate exit is to LIFT the
   //     throttle (the cut is throttle-gated → lift releases it → the rear re-grips → straightens).
-  arcadeDriftGrip: 0.55,   // 0..1 rear-grip cut once sliding (throttle-gated). RAISED 0.25→0.55 to INVERT
-                           // the throttle relationship: at 0.25 the rear kept 75% grip on throttle → it
-                           // re-gripped and STRAIGHTENED the drift to β≈0 (throttle = exit), while lift
-                           // left a dying shallow scrub. At 0.55 throttle keeps the rear loose enough that
-                           // the drift SUSTAINS a controllable angle (MEASURED: full throttle HOLDS β ~-32°
-                           // @ ~95 km/h instead of straightening); LIFT → thrGate 0 → cut released → rear
-                           // re-grips → clean EXIT (β→grip). Still β-gated above corner β (normal corners
-                           // untouched) and over-driving into the slide with no counter STILL SPINS (the
-                           // punish). Higher = holds looser/deeper but spinnier (0.75 spins too easily).
+  arcadeDriftGrip: 0.25,   // 0..1 rear-grip cut once sliding. RAISED 0.15→0.25: the normal-corner fix
+                           // above (planting the rear) also made a provoked drift re-grip faster, so
+                           // the cut is deepened to RESTORE the self-sustain (provoke → holds ~70° for
+                           // ~1.5 s, verified). Still β-gated above corner β → does NOT bleed into
+                           // normal corners. MEASURED: no-input + held
+                           // throttle now SUSTAINS a deep ~60-70° drift for ~2 s (vs the old snap
+                           // straight back to 0°); counter-steer TOWARD the velocity catches it
+                           // cleanly (required — nothing catches it for you); lift → exits. Kept mild
+                           // (0.15) so it's holdable, not an uncatchable spin — over-driving into the
+                           // slide still spins (the punish). Higher = holds looser/longer but spinnier.
   arcadeDriftGate: 0.12,   // rad ≈ 7° body-sideslip onset for the cut — above a normal corner's β
                            // (4-8°), so grip cornering isn't tripped; the cut only engages once
                            // genuinely drifting.
