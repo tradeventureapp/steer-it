@@ -208,7 +208,7 @@ const STEEREX_ARCADE: Partial<Physics4Params> = {
                            // so 30° still covers full grip + counter-steer (the handbrake drift stays
                            // catchable) while a tad less near-centre gain than 32°. Radius @30 km/h
                            // ~4.45 m (vs 4.1 at 32°). LINEAR mapping unchanged (no expo curve).
-  weightDistFront: 0.55,   // 55% front (up from the inherited 0.53) — authentic rally/rallycross
+  weightDistFront: 0.54,   // 54% front (nudged 0.55→0.54, tiny shift toward neutral) — authentic rally/rallycross
                            // AWD bias (real cars run 55-61% front); 0.55 = the low end. CALMS the
                            // lift-off oversteer (more front = more directionally stable, so the rear
                            // won't step out so willingly on throttle-lift + turn) while staying
