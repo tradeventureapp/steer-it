@@ -872,6 +872,14 @@ function collisionRadiusFor(spec: VehicleSpec): number {
   if (!spec.dims) return CONFIG.carCollisionRadius;   // Blitz RS → unchanged (0.0e+0)
   return CONFIG.carCollisionRadius * (spec.dims.lengthM / BLITZ_LEN_M);
 }
+// The car's VISUAL half-extents (metres) for the capsule wall collision — so the car's visible
+// edge touches the wall exactly. Blitz RS = its drawn footprint (native 0.75×0.309 half-extents
+// × the ART scale); a sprite car states its own dims.
+function carHalfExtents(spec: VehicleSpec): { halfLen: number; halfWidth: number } {
+  if (spec.dims) return { halfLen: spec.dims.lengthM / 2, halfWidth: spec.dims.widthM / 2 };
+  const ART = CONFIG.wheelbase * 0.865 / 0.75;
+  return { halfLen: 0.75 * ART, halfWidth: 0.309 * ART };   // ≈ 2.22 × 0.914
+}
 
 // The car's physics4 params for its handling branch. SIM (Blitz RS) = the SHARED PHYS4
 // reference (so the D-tuner keeps working + it stays byte-identical). ARCADE (Stee-Rex) =
@@ -1876,7 +1884,8 @@ function frame(now: number) {
         // per-wheel grass/gravel grip+drag; every map except the circuit passes undefined
         // → the off-asphalt branches never run (byte-identical on desktop + both ovals).
         step4(car.state, current, FIXED_DT, car.phys, currentMap.surfaceAt);
-        const impact = collideWithRects(car.state, world.rects, CONFIG, car.collisionRadius);
+        const he = carHalfExtents(currentVariant);
+        const impact = collideWithRects(car.state, world.rects, CONFIG, he.halfLen, he.halfWidth);
         if (impact > 0.8) {
           sound.impact(impact);
           fx.impact(car.state.x, car.state.y, impact);

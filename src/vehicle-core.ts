@@ -825,31 +825,56 @@ export function bodyToWorld(car: CarState, bx: number, by: number): { x: number;
 export interface ObstacleRect { x: number; y: number; w: number; h: number; }
 
 export function collideWithRects(
-  car: CarState, rects: ObstacleRect[], c: Config = CONFIG, radius?: number,
+  car: CarState, rects: ObstacleRect[], c: Config = CONFIG,
+  halfLen?: number, halfWidth?: number,
 ): number {
-  // Per-vehicle collision radius (a smaller car collides at a smaller circle). Omitted
-  // ⇒ the config's radius, so existing (Blitz RS) callers are byte-identical.
-  const R = radius ?? c.carCollisionRadius;
+  // CAPSULE collision (the car's rounded-rectangle footprint) instead of a fat circle:
+  // a spine segment of half-length (halfLen − halfWidth) along the heading, thickened by
+  // radius = halfWidth. So the flat SIDES contact at halfWidth and the NOSE/TAIL contact at
+  // halfLen — the visible edge touches the wall exactly in every orientation (a bare circle of
+  // radius ≈ halfLen bulged ~halfLen−halfWidth past the narrow sides → the early-stop gap).
+  // Omitting the extents ⇒ a circle of the config radius (old behaviour) for any bare caller.
+  const R = halfWidth ?? halfLen ?? c.carCollisionRadius;              // capsule radius
+  const hl = Math.max(halfLen ?? c.carCollisionRadius, R);            // half-length ≥ radius
+  const spine = hl - R;                                               // spine half-length
+  const ch = Math.cos(car.heading), sh = Math.sin(car.heading);
+  const ax = car.x - ch * spine, ay = car.y - sh * spine;            // rear spine end
+  const bx = car.x + ch * spine, by = car.y + sh * spine;            // front spine end
+  const abx = bx - ax, aby = by - ay, abL2 = abx * abx + aby * aby;
+
   let strongest = 0;
   for (const r of rects) {
-    // Closest point on the rect to the car center.
-    const px = clamp(car.x, r.x, r.x + r.w);
-    const py = clamp(car.y, r.y, r.y + r.h);
-    const dx = car.x - px;
-    const dy = car.y - py;
-    const d2 = dx * dx + dy * dy;
-    if (d2 >= R * R) continue;
+    // Closest points between the spine segment AB and the AABB: candidates are each spine
+    // endpoint clamped onto the rect + each rect corner projected onto the spine. In 2D the
+    // segment↔box closest pair is always among these, so the min over them is exact.
+    let bestD2 = Infinity, Px = 0, Py = 0, Qx = 0, Qy = 0;
+    const consider = (px: number, py: number, qx: number, qy: number) => {
+      const dx = px - qx, dy = py - qy, d2 = dx * dx + dy * dy;
+      if (d2 < bestD2) { bestD2 = d2; Px = px; Py = py; Qx = qx; Qy = qy; }
+    };
+    // spine endpoints → nearest point on the rect
+    consider(ax, ay, clamp(ax, r.x, r.x + r.w), clamp(ay, r.y, r.y + r.h));
+    consider(bx, by, clamp(bx, r.x, r.x + r.w), clamp(by, r.y, r.y + r.h));
+    // rect corners → nearest point on the spine
+    const corners = [r.x, r.y, r.x + r.w, r.y, r.x, r.y + r.h, r.x + r.w, r.y + r.h];
+    for (let k = 0; k < 8; k += 2) {
+      const cxk = corners[k], cyk = corners[k + 1];
+      let t = abL2 > 0 ? ((cxk - ax) * abx + (cyk - ay) * aby) / abL2 : 0;
+      t = clamp(t, 0, 1);
+      consider(ax + t * abx, ay + t * aby, cxk, cyk);
+    }
+    if (bestD2 >= R * R) continue;
 
-    // Contact normal + penetration depth.
+    // Contact normal + penetration at the closest spine point P vs rect point Q.
     let nx: number, ny: number, pen: number;
-    if (d2 > 1e-9) {
-      const d = Math.sqrt(d2);
-      nx = dx / d; ny = dy / d;
+    if (bestD2 > 1e-9) {
+      const d = Math.sqrt(bestD2);
+      nx = (Px - Qx) / d; ny = (Py - Qy) / d;
       pen = R - d;
     } else {
-      // Center inside the rect — exit along the shallowest face.
-      const left = car.x - r.x, right = r.x + r.w - car.x;
-      const top = car.y - r.y, bottom = r.y + r.h - car.y;
+      // Spine point inside the rect — exit along the shallowest face (from P).
+      const left = Px - r.x, right = r.x + r.w - Px;
+      const top = Py - r.y, bottom = r.y + r.h - Py;
       const m = Math.min(left, right, top, bottom);
       if (m === left)       { nx = -1; ny = 0; pen = R + left; }
       else if (m === right) { nx =  1; ny = 0; pen = R + right; }
@@ -857,8 +882,9 @@ export function collideWithRects(
       else                  { nx = 0; ny =  1; pen = R + bottom; }
     }
 
-    // Push out, then bounce: reflect the inbound normal component with
-    // restitution, keep the tangential with light friction.
+    // Push the car CENTRE out along n (rigid translation of the whole capsule), then bounce:
+    // reflect the inbound normal component with restitution, keep the tangential with light
+    // friction.
     car.x += nx * (pen + c.collisionPushOut);
     car.y += ny * (pen + c.collisionPushOut);
     const vn = car.vx * nx + car.vy * ny;
