@@ -274,6 +274,22 @@ function computeStadium(wM: number, hM: number): StadiumGeom {
   return { cx, cy, sx, OYh, IYh: OYh - bandW, bandW };
 }
 
+// Wall thickness + the INNER-barrier inward shift (a grass run-off opens up between the track's
+// inner edge and the moved-in barrier). Shared by the collision, the surface sampler, and the
+// draw so they always agree.
+function stadiumSq(g: StadiumGeom): number { return Math.max(3.0, g.bandW * 0.16); }
+const INNER_SHIFT_MULT = 1.5;                          // barrier moves in by 1.5× its own width
+function innerBarrierR(g: StadiumGeom): number { return g.IYh - INNER_SHIFT_MULT * stadiumSq(g); }
+function grassInnerR(g: StadiumGeom): number { return innerBarrierR(g) + stadiumSq(g) / 2; }  // grass ∈ [this, IYh]
+
+// A point's radial OFFSET in stadium terms (metres from the centre-line): the vertical distance
+// on the straights, the distance to the nearest turn centre in the caps. IYh..OYh = the track
+// band; below IYh = the inner grass run-off / infield.
+function stadiumOffset(g: StadiumGeom, x: number, y: number): number {
+  const dx = x - g.cx, dy = y - g.cy, ax = Math.abs(dx);
+  return ax <= g.sx ? Math.abs(dy) : Math.hypot(ax - g.sx, dy);
+}
+
 // Trace a stadium outline (sx, Yh) in the ctx's current units; arc centres at
 // (cx±sx, cy). Used for the dirt fill, grooves, and the neon barrier strokes.
 function stadiumPath(
@@ -293,7 +309,7 @@ function stadiumPath(
 // each; turns = small overlapping squares pushed strictly OUTSIDE the outer
 // radius / INSIDE the inner radius (so they never intrude onto the band).
 function stadiumBarriers(g: StadiumGeom): ObstacleRect[] {
-  const { cx, cy, sx, OYh, IYh } = g;
+  const { cx, cy, sx, OYh } = g;
   const sq = Math.max(3.0, g.bandW * 0.16);   // wall thickness (floor in real m)
   const ext = sq;                              // straight↔turn overlap
   // Collision rects are CENTRED on the band edge (OYh / IYh) to match drawStadiumWall's
@@ -302,11 +318,13 @@ function stadiumBarriers(g: StadiumGeom): ObstacleRect[] {
   // leaving ~sq/2 of each strip drivable). The bounce (collideWithRects, restitution 0.35) is
   // unchanged.
   // STRAIGHTS = thin rects centred on the band edge (match drawStadiumWall's centred strokes).
+  // The INNER walls sit at the shifted-in radius Ib (a grass run-off opens between IYh and Ib).
+  const Ib = innerBarrierR(g);
   return [
     { x: cx - sx - ext, y: cy - OYh - sq / 2, w: 2 * sx + 2 * ext, h: sq }, // outer top
     { x: cx - sx - ext, y: cy + OYh - sq / 2, w: 2 * sx + 2 * ext, h: sq }, // outer bottom
-    { x: cx - sx - ext, y: cy - IYh - sq / 2, w: 2 * sx + 2 * ext, h: sq }, // inner top
-    { x: cx - sx - ext, y: cy + IYh - sq / 2, w: 2 * sx + 2 * ext, h: sq }, // inner bottom
+    { x: cx - sx - ext, y: cy - Ib - sq / 2,  w: 2 * sx + 2 * ext, h: sq }, // inner top (moved in)
+    { x: cx - sx - ext, y: cy + Ib - sq / 2,  w: 2 * sx + 2 * ext, h: sq }, // inner bottom (moved in)
   ];
 }
 
@@ -316,16 +334,16 @@ function stadiumBarriers(g: StadiumGeom): ObstacleRect[] {
 // IYh + sq/2 inner), so the visible edge is what the car touches. A small angular pad overlaps
 // the straight rects at the four junctions so there's no seam. Inner + outer, both turns.
 function stadiumArcs(g: StadiumGeom): ObstacleArc[] {
-  const { cx, cy, sx, OYh, IYh } = g;
-  const sq = Math.max(3.0, g.bandW * 0.16);
-  const half = sq / 2, pad = 0.16;
+  const { cx, cy, sx, OYh } = g;
+  const half = stadiumSq(g) / 2, pad = 0.16;
+  const innerR = grassInnerR(g);   // inner barrier's band-side edge (shifted in)
   return [
     // outer walls — the car stays INSIDE radius OYh − half
     { cx: cx + sx, cy, r: OYh - half, a0: -Math.PI / 2 - pad, a1: Math.PI / 2 + pad, inside: true },
     { cx: cx - sx, cy, r: OYh - half, a0: Math.PI / 2 - pad, a1: Math.PI * 1.5 + pad, inside: true },
-    // inner walls — the car stays OUTSIDE radius IYh + half
-    { cx: cx + sx, cy, r: IYh + half, a0: -Math.PI / 2 - pad, a1: Math.PI / 2 + pad, inside: false },
-    { cx: cx - sx, cy, r: IYh + half, a0: Math.PI / 2 - pad, a1: Math.PI * 1.5 + pad, inside: false },
+    // inner walls (moved in) — the car stays OUTSIDE the shifted band-side edge
+    { cx: cx + sx, cy, r: innerR, a0: -Math.PI / 2 - pad, a1: Math.PI / 2 + pad, inside: false },
+    { cx: cx - sx, cy, r: innerR, a0: Math.PI / 2 - pad, a1: Math.PI * 1.5 + pad, inside: false },
   ];
 }
 
@@ -437,6 +455,9 @@ const FLAT_LOGICAL = {
   widthM:  SCREEN_W / CONFIG.pxPerMeter,
   heightM: SCREEN_H / CONFIG.pxPerMeter,
 };
+// Both ovals are fixed-world (always built at FLAT_LOGICAL), so their stadium geometry is a
+// constant — computed once for the per-point surface sampler (track band vs inner grass run-off).
+const FLAT_GEOM = computeStadium(FLAT_LOGICAL.widthM, FLAT_LOGICAL.heightM);
 
 // ---- Racing-ring SURFACE styles -----------------------------------------------
 // The ONE thing that differs between the stadium twins: the ring fill + groove
@@ -592,11 +613,18 @@ function drawStadiumSurface(
     }
   }
 
-  // Infield — carve the dark-green centre (inner stadium).
-  const inf = ctx.createLinearGradient(0, cy - IYh, 0, cy + IYh);
+  // GRASS RUN-OFF — the strip that opens between the track's inner edge (IYh) and the moved-in
+  // inner barrier, drawn with the CIRCUIT's grass surface (same visual + physics). Painted over
+  // the whole inner stadium (out to IYh); the green infield below then covers all but the ring.
+  const grassInnerPx = grassInnerR(g) * px;
+  const rc: SurfaceRC = { wPx, hPx, pxPerM: px };
+  SURFACES.grass.paint(ctx, (m) => { stadiumPath(m, cx, cy, sx, IYh); m.fill(); }, rc);
+
+  // Infield — carve the dark-green centre INSIDE the grass run-off (moved in with the barrier).
+  const inf = ctx.createLinearGradient(0, cy - grassInnerPx, 0, cy + grassInnerPx);
   inf.addColorStop(0, '#22382b'); inf.addColorStop(1, '#192c21');
   ctx.fillStyle = inf;
-  stadiumPath(ctx, cx, cy, sx, IYh); ctx.fill();
+  stadiumPath(ctx, cx, cy, sx, grassInnerPx); ctx.fill();
 
   // Start/finish — checkered stripe across the bottom straight (x = cx).
   const yTop = cy + IYh, yBot = cy + OYh, segs = 9;
@@ -613,7 +641,7 @@ function drawStadiumSurface(
 function drawStadiumDecor(ctx: CanvasRenderingContext2D, world: MapWorld, px: number) {
   const g = (world as FlatWorld).geom;
   const cx = g.cx * px, cy = g.cy * px, sx = g.sx * px;
-  const OYh = g.OYh * px, IYh = g.IYh * px;
+  const OYh = g.OYh * px, IbPx = innerBarrierR(g) * px;   // inner wall moved in (grass run-off)
   const barrierPx = Math.max(3, g.bandW * px * 0.16);
 
   // Grandstands (crowd only): along the top straight + behind each turn.
@@ -631,9 +659,10 @@ function drawStadiumDecor(ctx: CanvasRenderingContext2D, world: MapWorld, px: nu
     drawFloodlight(ctx, cx + gx * (sx + OYh * 0.55), cy + gy * (OYh + 9), gy);
   }
 
-  // Barriers (tyre walls) on the inner + outer edges — match the collision.
+  // Barriers (tyre walls) — match the collision: OUTER tight to the track, INNER moved in
+  // (a grass run-off sits between the track's inner edge and this wall).
   drawStadiumWall(ctx, cx, cy, sx, OYh, barrierPx);
-  drawStadiumWall(ctx, cx, cy, sx, IYh, barrierPx);
+  drawStadiumWall(ctx, cx, cy, sx, IbPx, barrierPx);
 }
 
 // =============================================================================
@@ -651,12 +680,12 @@ function makeStadiumMap(opts: {
   surface: TrackSurfaceStyle;
   smokeColor: [number, number, number];
   surfaceGroup?: SurfaceGroup;
-  // PHYSICS ground for the whole oval (per-wheel grip + drag in physics4). Given only for the
-  // DIRT oval → its band drives on 'dirt' physics; omitted (the asphalt oval) → no sampler →
-  // surfaceAt() returns 'asphalt' as before → asphalt physics, byte-identical. The band is
-  // barrier-bounded (inner+outer walls), so a constant is equivalent to a point-in-band test.
-  physicsSurface?: Surface;
 }): MapDefinition {
+  // Per-point PHYSICS ground: the drivable BAND (offset ≥ IYh) drives on the track surface
+  // (opts.surface = 'dirt' or 'asphalt'); INSIDE the track's inner edge (offset < IYh) is the
+  // GRASS run-off (real grass grip + drag). Asphalt track → muScale 1.0 = the old asphalt
+  // behaviour on the band; only the new inner run-off is grass.
+  const track = opts.surface as Surface;
   return {
     id: opts.id,
     name: opts.name,
@@ -666,9 +695,8 @@ function makeStadiumMap(opts: {
 
     smokeColor: opts.smokeColor,
 
-    ...(opts.physicsSurface
-      ? { surfaceAt: (_x: number, _y: number): Surface => opts.physicsSurface! }
-      : {}),
+    surfaceAt: (x: number, y: number): Surface =>
+      stadiumOffset(FLAT_GEOM, x, y) < FLAT_GEOM.IYh ? 'grass' : track,
 
     // Tyre-mark look (render-only): the asphalt ring lays grey rubber; the DIRT ring
     // lays a brown gouged scuff (the 'gravel' cap — a darkening multiply that keeps the
@@ -757,7 +785,6 @@ export const flatTrackMap: MapDefinition = makeStadiumMap({
   id: 'flat',
   name: 'Flat Track',
   surface: 'dirt',
-  physicsSurface: 'dirt',       // the WHOLE band drives on dirt physics (grip + drag)
   smokeColor: [170, 126, 84],   // warm brown/tan dust
   // Map-select grouping: shares the "Stadium Oval" tile; the "Flattrack" switcher
   // option (second, after Asphalt). Still registered + launched by id 'flat'.
