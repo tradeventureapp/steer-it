@@ -295,14 +295,19 @@ function stadiumBarriers(g: StadiumGeom): ObstacleRect[] {
   const { cx, cy, sx, OYh, IYh } = g;
   const sq = Math.max(3.0, g.bandW * 0.16);   // wall thickness (floor in real m)
   const ext = sq;                              // straight↔turn overlap
+  // Collision rects are CENTRED on the band edge (OYh / IYh) to match drawStadiumWall's
+  // centred strokes → the collision wall IS the drawn black tyre-wall strip: the whole strip
+  // is solid and the car bounces off its band-side edge (was offset outside/inside the edge,
+  // leaving ~sq/2 of each strip drivable). The bounce (collideWithRects, restitution 0.35) is
+  // unchanged.
   const rects: ObstacleRect[] = [
-    { x: cx - sx - ext, y: cy - OYh - sq, w: 2 * sx + 2 * ext, h: sq }, // outer top
-    { x: cx - sx - ext, y: cy + OYh,      w: 2 * sx + 2 * ext, h: sq }, // outer bottom
-    { x: cx - sx - ext, y: cy - IYh,      w: 2 * sx + 2 * ext, h: sq }, // inner top
-    { x: cx - sx - ext, y: cy + IYh - sq, w: 2 * sx + 2 * ext, h: sq }, // inner bottom
+    { x: cx - sx - ext, y: cy - OYh - sq / 2, w: 2 * sx + 2 * ext, h: sq }, // outer top
+    { x: cx - sx - ext, y: cy + OYh - sq / 2, w: 2 * sx + 2 * ext, h: sq }, // outer bottom
+    { x: cx - sx - ext, y: cy - IYh - sq / 2, w: 2 * sx + 2 * ext, h: sq }, // inner top
+    { x: cx - sx - ext, y: cy + IYh - sq / 2, w: 2 * sx + 2 * ext, h: sq }, // inner bottom
   ];
-  const arc = (ccx: number, ccy: number, R: number, a0: number, a1: number, side: number) => {
-    const Rc = R + side * sq * 0.72;      // square corners stay clear of radius R
+  const arc = (ccx: number, ccy: number, R: number, a0: number, a1: number, _side: number) => {
+    const Rc = R;                          // squares centred on the edge radius (match the strip)
     const pad = 0.14;                      // overrun to meet the straight walls
     const span = a1 - a0 + pad * 2;
     const n = Math.max(6, Math.ceil((R * span) / (sq * 0.5)));
