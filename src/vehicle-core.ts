@@ -907,3 +907,76 @@ export function collideWithRects(
   }
   return strongest;
 }
+
+// A CURVED collision boundary (a circular arc) — the oval CORNER walls. Represented as a
+// circle (centre + radius) so the car (capsule) contacts the smooth arc EXACTLY, matching the
+// drawn curved barrier — no axis-aligned-square scalloping (which left a ~0.1-0.2 m gap in the
+// corners). The wall spans the angle range [a0, a1]. `inside: true`  → the car must stay INSIDE
+// the circle (an outer wall); `inside: false` → the car must stay OUTSIDE it (the inner/infield
+// wall). `r` is the strip's band-side edge radius, so the visible edge is what the car touches.
+export interface ObstacleArc {
+  cx: number; cy: number; r: number;
+  a0: number; a1: number;
+  inside: boolean;
+}
+
+export function collideWithArcs(
+  car: CarState, arcs: ObstacleArc[], c: Config = CONFIG,
+  halfLen?: number, halfWidth?: number,
+): number {
+  const R = halfWidth ?? halfLen ?? c.carCollisionRadius;   // capsule radius
+  const hl = Math.max(halfLen ?? c.carCollisionRadius, R);  // half-length ≥ radius
+  const spine = hl - R;
+  const ch = Math.cos(car.heading), sh = Math.sin(car.heading);
+  const ax = car.x - ch * spine, ay = car.y - sh * spine;
+  const bx = car.x + ch * spine, by = car.y + sh * spine;
+  let strongest = 0;
+  for (const a of arcs) {
+    // The spine point that most violates the boundary: for an INSIDE wall the FARTHEST spine
+    // point from the centre (distance-to-a-point is convex → an endpoint); for an OUTSIDE wall
+    // the CLOSEST spine point (project the centre onto the spine, clamped).
+    let px: number, py: number;
+    if (a.inside) {
+      const da = (ax - a.cx) ** 2 + (ay - a.cy) ** 2;
+      const db = (bx - a.cx) ** 2 + (by - a.cy) ** 2;
+      if (da >= db) { px = ax; py = ay; } else { px = bx; py = by; }
+    } else {
+      const dbx = bx - ax, dby = by - ay, L2 = dbx * dbx + dby * dby;
+      let t = L2 > 0 ? ((a.cx - ax) * dbx + (a.cy - ay) * dby) / L2 : 0;
+      t = clamp(t, 0, 1);
+      px = ax + t * dbx; py = ay + t * dby;
+    }
+    const dx = px - a.cx, dy = py - a.cy;
+    const d = Math.hypot(dx, dy);
+    if (d < 1e-6) continue;
+    // only the corner's angular span (the straights are handled by rects)
+    let ang = Math.atan2(dy, dx);
+    while (ang < a.a0) ang += Math.PI * 2;
+    if (ang > a.a1) continue;
+    // penetration + radial normal
+    let nx: number, ny: number, pen: number;
+    if (a.inside) {
+      pen = (d + R) - a.r;               // capsule pokes past the inside radius
+      if (pen <= 0) continue;
+      nx = -dx / d; ny = -dy / d;        // push inward
+    } else {
+      pen = a.r - (d - R);              // capsule pokes inside the outside radius
+      if (pen <= 0) continue;
+      nx = dx / d; ny = dy / d;          // push outward
+    }
+    car.x += nx * (pen + c.collisionPushOut);
+    car.y += ny * (pen + c.collisionPushOut);
+    const vn = car.vx * nx + car.vy * ny;
+    if (vn < 0) {
+      const tx = car.vx - vn * nx, ty = car.vy - vn * ny;
+      const tf = 1 - c.collisionTangentFriction * Math.min(1, -vn / 5);
+      const bounce = -vn * c.collisionRestitution;
+      car.vx = tx * tf + nx * bounce;
+      car.vy = ty * tf + ny * bounce;
+      const impact = Math.min(1, -vn / 10);
+      car.angularVel *= 1 - c.collisionYawDamp * impact;
+      strongest = Math.max(strongest, -vn);
+    }
+  }
+  return strongest;
+}

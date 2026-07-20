@@ -14,7 +14,7 @@
 //  map-agnostic. Each MapDefinition's own methods know how to read their world.
 // =============================================================================
 
-import { CONFIG, type CarState, type ObstacleRect } from './vehicle-core';
+import { CONFIG, type CarState, type ObstacleRect, type ObstacleArc } from './vehicle-core';
 import { spawnPose } from './cars';
 import type { RaceElement } from './race';
 import {
@@ -33,6 +33,7 @@ export interface MapWorld {
   width: number;          // metres
   height: number;         // metres
   rects: ObstacleRect[];  // collision rects fed to collideWithRects
+  arcs?: ObstacleArc[];   // curved collision walls (oval corners) fed to collideWithArcs
 }
 
 export interface SpawnPose { x: number; y: number; heading: number; }
@@ -300,31 +301,32 @@ function stadiumBarriers(g: StadiumGeom): ObstacleRect[] {
   // is solid and the car bounces off its band-side edge (was offset outside/inside the edge,
   // leaving ~sq/2 of each strip drivable). The bounce (collideWithRects, restitution 0.35) is
   // unchanged.
-  const rects: ObstacleRect[] = [
+  // STRAIGHTS = thin rects centred on the band edge (match drawStadiumWall's centred strokes).
+  return [
     { x: cx - sx - ext, y: cy - OYh - sq / 2, w: 2 * sx + 2 * ext, h: sq }, // outer top
     { x: cx - sx - ext, y: cy + OYh - sq / 2, w: 2 * sx + 2 * ext, h: sq }, // outer bottom
     { x: cx - sx - ext, y: cy - IYh - sq / 2, w: 2 * sx + 2 * ext, h: sq }, // inner top
     { x: cx - sx - ext, y: cy + IYh - sq / 2, w: 2 * sx + 2 * ext, h: sq }, // inner bottom
   ];
-  const arc = (ccx: number, ccy: number, R: number, a0: number, a1: number, _side: number) => {
-    const Rc = R;                          // squares centred on the edge radius (match the strip)
-    const pad = 0.14;                      // overrun to meet the straight walls
-    const span = a1 - a0 + pad * 2;
-    const n = Math.max(6, Math.ceil((R * span) / (sq * 0.5)));
-    for (let i = 0; i <= n; i++) {
-      const t = a0 - pad + span * (i / n);
-      rects.push({
-        x: ccx + Rc * Math.cos(t) - sq / 2,
-        y: ccy + Rc * Math.sin(t) - sq / 2,
-        w: sq, h: sq,
-      });
-    }
-  };
-  arc(cx + sx, cy, OYh, -Math.PI / 2, Math.PI / 2, +1);    // outer right turn
-  arc(cx - sx, cy, OYh, Math.PI / 2, Math.PI * 1.5, +1);   // outer left turn
-  arc(cx + sx, cy, IYh, -Math.PI / 2, Math.PI / 2, -1);    // inner right turn
-  arc(cx - sx, cy, IYh, Math.PI / 2, Math.PI * 1.5, -1);   // inner left turn
-  return rects;
+}
+
+// The oval CORNER walls as curved (arc) collision boundaries — the car (capsule) contacts the
+// smooth drawn curve EXACTLY (the old arc-of-axis-aligned-squares scalloped it → a ~0.1-0.2 m
+// nose-on gap in the corners). `r` is the strip's BAND-SIDE edge radius (OYh − sq/2 outer /
+// IYh + sq/2 inner), so the visible edge is what the car touches. A small angular pad overlaps
+// the straight rects at the four junctions so there's no seam. Inner + outer, both turns.
+function stadiumArcs(g: StadiumGeom): ObstacleArc[] {
+  const { cx, cy, sx, OYh, IYh } = g;
+  const sq = Math.max(3.0, g.bandW * 0.16);
+  const half = sq / 2, pad = 0.16;
+  return [
+    // outer walls — the car stays INSIDE radius OYh − half
+    { cx: cx + sx, cy, r: OYh - half, a0: -Math.PI / 2 - pad, a1: Math.PI / 2 + pad, inside: true },
+    { cx: cx - sx, cy, r: OYh - half, a0: Math.PI / 2 - pad, a1: Math.PI * 1.5 + pad, inside: true },
+    // inner walls — the car stays OUTSIDE radius IYh + half
+    { cx: cx + sx, cy, r: IYh + half, a0: -Math.PI / 2 - pad, a1: Math.PI / 2 + pad, inside: false },
+    { cx: cx - sx, cy, r: IYh + half, a0: Math.PI / 2 - pad, a1: Math.PI * 1.5 + pad, inside: false },
+  ];
 }
 
 // Stable pseudo-random in [0,1) for deterministic crowd dots (no per-frame
@@ -703,9 +705,11 @@ function makeStadiumMap(opts: {
 
     createWorld(widthM, heightM) {
       const g = computeStadium(widthM, heightM);
-      // Barriers ONLY on the inner + outer edges; the band between is rect-free.
+      // Barriers on the inner + outer edges: STRAIGHTS as rects, CORNERS as curved arcs (exact
+      // contact, no square scalloping). The band between is clear.
       const world: FlatWorld = {
-        width: widthM, height: heightM, rects: stadiumBarriers(g), geom: g,
+        width: widthM, height: heightM,
+        rects: stadiumBarriers(g), arcs: stadiumArcs(g), geom: g,
       };
       return world;
     },

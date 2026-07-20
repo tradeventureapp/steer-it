@@ -3,7 +3,7 @@ import type { RealtimeChannel } from '@supabase/supabase-js';
 import { channelName, createResilientChannel } from './supabase';
 import { createRtcHost, connectionPathOf, createFallbackTracker, RTC_EV } from './rtc';
 import {
-  CONFIG, makeCar, bodyToWorld, collideWithRects,
+  CONFIG, makeCar, bodyToWorld, collideWithRects, collideWithArcs,
   type CarState, type Inputs,
 } from './vehicle-core';
 import { collideCars, applyInputs } from './cars';
@@ -1885,7 +1885,11 @@ function frame(now: number) {
         // → the off-asphalt branches never run (byte-identical on desktop + both ovals).
         step4(car.state, current, FIXED_DT, car.phys, currentMap.surfaceAt);
         const he = carHalfExtents(currentVariant);
-        const impact = collideWithRects(car.state, world.rects, CONFIG, he.halfLen, he.halfWidth);
+        let impact = collideWithRects(car.state, world.rects, CONFIG, he.halfLen, he.halfWidth);
+        if (world.arcs) {
+          impact = Math.max(impact,
+            collideWithArcs(car.state, world.arcs, CONFIG, he.halfLen, he.halfWidth));
+        }
         if (impact > 0.8) {
           sound.impact(impact);
           fx.impact(car.state.x, car.state.y, impact);
