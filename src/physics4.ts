@@ -118,6 +118,11 @@ export interface Physics4Params {
   // a FEATHERED exit (no spin) fights only the light constant, while MASHING the throttle
   // buries the car. Driven (rear) wheels only: an unspun wheel digs no hole.
   gravelDigGain: number;      // × extra constant drag at 100% wheelspin
+  // DIRT — packed flat-track surface, resistance BETWEEN asphalt and gravel: a light linear
+  // rolling drag + a mild wheelspin churn (kicks up a rut, does not bury like gravel).
+  dirtDragPerWheel: number;   // N·s/m per wheel — linear rolling drag on the contact velocity
+  dirtDigConst: number;       // N per wheel of static churn (scaled by wheelspin)
+  dirtDigGain: number;        // × extra churn at 100% wheelspin
 
   // ================= ARCADE KNOBS (read ONLY when branch === 'arcade') =================
   // Optional so the sim car (PHYS4) omits them entirely and every sim step is byte-
@@ -237,7 +242,9 @@ export const PHYS4: Physics4Params = {
   // Blitz RS = race SLICKS: superb on tarmac, hopeless off it. asphalt 1.0 is EXACT so every
   // on-asphalt step stays byte-identical. grass 0.28 (μ→0.53) is the shipped value, unchanged.
   // gravel 0.35 (μ→0.67): loose stone gives a slick slightly more bite than turf, still weak.
-  tire: { muScale: { asphalt: 1.0, grass: 0.28, gravel: 0.35 } },
+  // dirt 0.50 (μ→0.95): packed flat-track dirt gives slicks MORE than loose gravel (0.35) but
+  // FAR less than asphalt → the Blitz (slicks, RWD) slides and struggles on dirt (realistic).
+  tire: { muScale: { asphalt: 1.0, grass: 0.28, gravel: 0.35, dirt: 0.50 } },
   // N·s/m PER WHEEL (×4 = 40 total). ~10 ≈ 1.2 kN at 30 m/s ≈ a real grass rolling resistance
   // (Crr ≈ 0.1 · mg). MEASURED SWEEP (flat-out grass top vs asphalt's 246 km/h | lift-off loss
   // over 1 s from 108 km/h, asphalt = −9.6):
@@ -268,6 +275,13 @@ export const PHYS4: Physics4Params = {
   gravelDragLin: 15,
   gravelDragQuad: 4.0,
   gravelDigGain: 2,
+  // DIRT — packed, raced-in flat-track surface: BETWEEN asphalt (no drag) and gravel (heavy
+  // dig). A light rolling drag (firmer than grass, nowhere near loose stone) + a small
+  // wheelspin dig (dirt kicks up + churns a rut, but doesn't BURY the car like gravel). Grip
+  // (the drift character) is the muScale; this just adds the surface's own resistance.
+  dirtDragPerWheel: 4,     // N·s/m per wheel — light linear rolling drag (grass 10, gravel much more)
+  dirtDigConst: 60,        // N per wheel of static churn, scaled by wheelspin below (gravel const 300)
+  dirtDigGain: 3,          // × extra churn at 100% wheelspin (a spun wheel digs a rut, mildly)
 };
 
 const GRAVEL_EPS = 0.5;       // m/s — taper the constant plow drag below this (no rest jitter)
@@ -673,6 +687,22 @@ export function step4(
         const dig = p.gravelDragConst * (1 + p.gravelDigGain * spin);
         const taper = Math.min(1, vc / GRAVEL_EPS);
         const mag = (dig + p.gravelDragLin * vc + p.gravelDragQuad * vc * vc) * taper;
+        fbx -= mag * (vwx / vc);
+        fby -= mag * (vwy / vc);
+      }
+    } else if (ground === 'dirt') {
+      // PACKED DIRT — firmer than grass, nowhere near loose stone: a light LINEAR rolling drag
+      // (contact-velocity vector, so a slide scrubs too) + a MILD static churn scaled by
+      // wheelspin (a spun driven wheel digs a shallow rut, but the constant is 1/5 of gravel's
+      // so it never buries the car). Same prev-frame wheelspin measure + rest taper as gravel.
+      const vc = Math.hypot(vwx, vwy);
+      if (vc > 1e-6) {
+        const spin = i >= 2 && !hb
+          ? clamp((st.rearOmega[i - 2] * rr - v) / Math.max(v, 3), 0, 1)
+          : 0;
+        const churn = p.dirtDigConst * (1 + p.dirtDigGain * spin);
+        const taper = Math.min(1, vc / GRAVEL_EPS);
+        const mag = (churn * taper) + p.dirtDragPerWheel * vc;
         fbx -= mag * (vwx / vc);
         fby -= mag * (vwy / vc);
       }

@@ -1653,10 +1653,14 @@ function digging(car: Car, slip: number, rear: boolean) {
 // desktop + ovals use the map's single markClass (rubber on asphalt, brown scuff on the
 // dirt oval), defaulting to 'asphalt'. NEVER read by the physics.
 function markClassFn(): (x: number, y: number) => MarkClass {
+  // A map with a single constant markClass (both ovals, desktop) uses it directly — the DIRT
+  // oval keeps its brown 'gravel' scuff. ONLY the circuit (per-point surface mask, no constant
+  // markClass) reads markClassAt. (A constant surfaceAt like the dirt oval's is NOT the circuit,
+  // so it must not fall into the per-point branch → it would wrongly read 'asphalt'.)
   const c = currentMap.markClass;
-  return currentMap.surfaceAt
-    ? (x, y) => markClassAt(currentMap, x, y)
-    : () => c ?? 'asphalt';
+  if (c) return () => c;
+  if (currentMap.surfaceAt) return (x, y) => markClassAt(currentMap, x, y);
+  return () => 'asphalt';
 }
 
 function recordSkids(car: Car) {

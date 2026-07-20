@@ -62,7 +62,7 @@ export interface SurfaceGroup {
 
 // Ground under a world point. Drives PER-WHEEL grip + drag in physics4: the tyre profile
 // (PHYS4.tire.muScale) keys its μ off this, and each surface adds its own resistance.
-export type Surface = 'asphalt' | 'grass' | 'gravel';
+export type Surface = 'asphalt' | 'grass' | 'gravel' | 'dirt';
 
 export interface MapDefinition {
   id: string;
@@ -462,6 +462,55 @@ const SURFACE_STYLES: Record<TrackSurfaceStyle, SurfaceStyle> = {
   },
 };
 
+// ---- Packed-dirt texture (flat-track look) ----------------------------------
+// A cached, deterministic, brightness-NEUTRAL mottle: two scales (coarse tonal
+// patches + fine grain) baked OPAQUE around a mid dirt tone, tinted brown, so
+// overlaying it never shifts the ring's mean colour (the lesson from the asphalt/
+// gravel grain passes). Built ONCE, reused as a repeating pattern → zero per-frame
+// cost. off-DOM (unit tests) → null → the flat gradient fallback is used instead.
+let _dirtTile: HTMLCanvasElement | null = null;
+let _dirtTried = false;
+function dirtTile(): HTMLCanvasElement | null {
+  if (_dirtTried) return _dirtTile;
+  _dirtTried = true;
+  if (typeof document === 'undefined') return null;
+  const N = 256;
+  const cv = document.createElement('canvas'); cv.width = N; cv.height = N;
+  const c = cv.getContext('2d'); if (!c) return null;
+  const cl = (x: number) => (x < 0 ? 0 : x > 255 ? 255 : x | 0);
+  const hsh = (a: number, b: number) => {
+    let h = (Math.imul(a, 374761393) ^ Math.imul(b, 668265263)) | 0;
+    h = Math.imul(h ^ (h >>> 13), 1274126177);
+    return ((h ^ (h >>> 16)) >>> 0) / 4294967295;
+  };
+  const sm = (a: number, b: number, t: number) => a + (b - a) * (t * t * (3 - 2 * t));
+  // value noise (smoothed lattice). CELL=32 divides the 256px tile into exactly 8 lattice
+  // cells, and the lattice index wraps mod 8 → the tile repeats SEAMLESSLY (no visible seam
+  // when createPattern('repeat') tiles it across the ring).
+  const CELL = 32, PER = N / CELL;   // 8
+  const vn = (x: number, y: number) => {
+    const gx = x / CELL, gy = y / CELL, ix = Math.floor(gx), iy = Math.floor(gy);
+    const fx = gx - ix, fy = gy - iy, m = (n: number) => ((n % PER) + PER) % PER;
+    const t = sm(hsh(m(ix), m(iy)), hsh(m(ix + 1), m(iy)), fx);
+    const b = sm(hsh(m(ix), m(iy + 1)), hsh(m(ix + 1), m(iy + 1)), fx);
+    return sm(t, b, fy);
+  };
+  const img = c.createImageData(N, N), d = img.data;
+  const base = [122, 78, 40];   // mid packed-dirt brown
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    // symmetric (mean-0) shift: coarse patches ±10 + fine grain ±5 → subtle, not noisy
+    const shift = (vn(x, y) - 0.5) * 20 + (hsh(x, y) - 0.5) * 10;
+    const i = (y * N + x) * 4;
+    d[i] = cl(base[0] + shift);            // brown keeps R > G > B as it shifts
+    d[i + 1] = cl(base[1] + shift * 0.82);
+    d[i + 2] = cl(base[2] + shift * 0.6);
+    d[i + 3] = 255;
+  }
+  c.putImageData(img, 0, 0);
+  _dirtTile = cv;
+  return cv;
+}
+
 // Surface layer (UNDER the skids): night ground, racing ring (style-tinted),
 // racing-line grooves, infield, start/finish stripe. Recomputed from the pixel
 // size. SHARED by every stadium map — only the `style` fill/tint differs, so the
@@ -479,11 +528,25 @@ function drawStadiumSurface(
   bg.addColorStop(0, '#241a33'); bg.addColorStop(1, '#130d1d');
   ctx.fillStyle = bg; ctx.fillRect(0, 0, wPx, hPx);
 
-  // Racing ring — fill the outer stadium with the surface gradient.
-  const ring = ctx.createRadialGradient(cx, cy, IYh, cx, cy, sx + OYh);
-  ring.addColorStop(0, s.ringInner); ring.addColorStop(1, s.ringOuter);
-  ctx.fillStyle = ring;
-  stadiumPath(ctx, cx, cy, sx, OYh); ctx.fill();
+  // Racing ring. DIRT → a mottled packed-dirt texture + a gentle radial shade
+  // (keeps inner/outer depth) so it reads as real raced-in dirt, not a flat brown.
+  // ASPHALT (or dirt off-DOM) → the original surface gradient, byte-identical.
+  stadiumPath(ctx, cx, cy, sx, OYh);
+  const tile = style === 'dirt' ? dirtTile() : null;
+  if (tile) {
+    ctx.save(); ctx.clip();
+    const pat = ctx.createPattern(tile, 'repeat');
+    if (pat) { ctx.fillStyle = pat; ctx.fillRect(0, 0, wPx, hPx); }
+    const shade = ctx.createRadialGradient(cx, cy, IYh, cx, cy, sx + OYh);
+    shade.addColorStop(0, 'rgba(150,104,58,0.20)');   // subtle lighter core
+    shade.addColorStop(1, 'rgba(66,40,18,0.42)');     // darker outer sweep
+    ctx.fillStyle = shade; ctx.fillRect(0, 0, wPx, hPx);
+    ctx.restore();
+  } else {
+    const ring = ctx.createRadialGradient(cx, cy, IYh, cx, cy, sx + OYh);
+    ring.addColorStop(0, s.ringInner); ring.addColorStop(1, s.ringOuter);
+    ctx.fillStyle = ring; ctx.fill();
+  }
 
   // Worn racing line (band at mid) + faint grooves.
   ctx.lineJoin = 'round';
@@ -554,6 +617,11 @@ function makeStadiumMap(opts: {
   surface: TrackSurfaceStyle;
   smokeColor: [number, number, number];
   surfaceGroup?: SurfaceGroup;
+  // PHYSICS ground for the whole oval (per-wheel grip + drag in physics4). Given only for the
+  // DIRT oval → its band drives on 'dirt' physics; omitted (the asphalt oval) → no sampler →
+  // surfaceAt() returns 'asphalt' as before → asphalt physics, byte-identical. The band is
+  // barrier-bounded (inner+outer walls), so a constant is equivalent to a point-in-band test.
+  physicsSurface?: Surface;
 }): MapDefinition {
   return {
     id: opts.id,
@@ -563,6 +631,10 @@ function makeStadiumMap(opts: {
     surfaceGroup: opts.surfaceGroup,
 
     smokeColor: opts.smokeColor,
+
+    ...(opts.physicsSurface
+      ? { surfaceAt: (_x: number, _y: number): Surface => opts.physicsSurface! }
+      : {}),
 
     // Tyre-mark look (render-only): the asphalt ring lays grey rubber; the DIRT ring
     // lays a brown gouged scuff (the 'gravel' cap — a darkening multiply that keeps the
@@ -649,6 +721,7 @@ export const flatTrackMap: MapDefinition = makeStadiumMap({
   id: 'flat',
   name: 'Flat Track',
   surface: 'dirt',
+  physicsSurface: 'dirt',       // the WHOLE band drives on dirt physics (grip + drag)
   smokeColor: [170, 126, 84],   // warm brown/tan dust
   // Map-select grouping: shares the "Stadium Oval" tile; the "Flattrack" switcher
   // option (second, after Asphalt). Still registered + launched by id 'flat'.

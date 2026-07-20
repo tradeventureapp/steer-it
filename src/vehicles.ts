@@ -241,8 +241,10 @@ const STEEREX_ARCADE: Partial<Physics4Params> = {
                               // lift-off spin (β 149°→8°) without touching braking feel (brakes are a
                               // separate force path). Trail-brake rotation is slightly softer (fine —
                               // Stee-Rex drifts on the handbrake, not the brake).
-  // per-surface μ — ALL-TERRAIN: keeps meaningful grip off-tarmac (Blitz slick collapses to 0.28/0.35)
-  tire: { muScale: { asphalt: 1.0, grass: 0.60, gravel: 0.65 } },
+  // per-surface μ — ALL-TERRAIN: keeps meaningful grip off-tarmac (Blitz slick collapses to 0.28/0.35).
+  // dirt 0.85 (near-asphalt): packed flat-track dirt is Stee-Rex's PLAYGROUND — terrain tyres grip
+  // hard and drift beautifully on it (vs the Blitz slick's 0.50 struggle).
+  tire: { muScale: { asphalt: 1.0, grass: 0.60, gravel: 0.65, dirt: 0.85 } },
   // NOTE: tireBx (12) + tireCx (1.6) NOT touched — 12 is already a broad longitudinal peak; the
   // universal's softer longitudinal bite comes from tireEllipseLong (1.3 → 1.05), not tireBx.
   // --- PHASE 2.5 (power first): OWN POWER + TOP SPEED. Grip is NOT touched (high grip killed
