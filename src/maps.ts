@@ -487,7 +487,7 @@ function dirtTile(): HTMLCanvasElement | null {
   // value noise (smoothed lattice). CELL=32 divides the 256px tile into exactly 8 lattice
   // cells, and the lattice index wraps mod 8 → the tile repeats SEAMLESSLY (no visible seam
   // when createPattern('repeat') tiles it across the ring).
-  const CELL = 32, PER = N / CELL;   // 8
+  const CELL = 64, PER = N / CELL;   // 4 large, soft tonal patches
   const vn = (x: number, y: number) => {
     const gx = x / CELL, gy = y / CELL, ix = Math.floor(gx), iy = Math.floor(gy);
     const fx = gx - ix, fy = gy - iy, m = (n: number) => ((n % PER) + PER) % PER;
@@ -496,10 +496,10 @@ function dirtTile(): HTMLCanvasElement | null {
     return sm(t, b, fy);
   };
   const img = c.createImageData(N, N), d = img.data;
-  const base = [122, 78, 40];   // mid packed-dirt brown
+  const base = [92, 56, 29];   // deep raced-in chocolate-brown dirt (damp, not beige)
   for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
-    // symmetric (mean-0) shift: coarse patches ±10 + fine grain ±5 → subtle, not noisy
-    const shift = (vn(x, y) - 0.5) * 20 + (hsh(x, y) - 0.5) * 10;
+    // symmetric (mean-0) shift, gentle on the darker base: coarse patches ±6 + fine grain ±3.5
+    const shift = (vn(x, y) - 0.5) * 12 + (hsh(x, y) - 0.5) * 7;
     const i = (y * N + x) * 4;
     d[i] = cl(base[0] + shift);            // brown keeps R > G > B as it shifts
     d[i + 1] = cl(base[1] + shift * 0.82);
@@ -532,30 +532,57 @@ function drawStadiumSurface(
   // (keeps inner/outer depth) so it reads as real raced-in dirt, not a flat brown.
   // ASPHALT (or dirt off-DOM) → the original surface gradient, byte-identical.
   stadiumPath(ctx, cx, cy, sx, OYh);
+  ctx.lineJoin = 'round';
   const tile = style === 'dirt' ? dirtTile() : null;
+  const bandW = OYh - IYh;
   if (tile) {
     ctx.save(); ctx.clip();
     const pat = ctx.createPattern(tile, 'repeat');
-    if (pat) { ctx.fillStyle = pat; ctx.fillRect(0, 0, wPx, hPx); }
+    if (pat) { ctx.fillStyle = pat; ctx.fillRect(0, 0, wPx, hPx); }   // base packed-dirt mottle
+
+    // Very subtle radial depth.
     const shade = ctx.createRadialGradient(cx, cy, IYh, cx, cy, sx + OYh);
-    shade.addColorStop(0, 'rgba(150,104,58,0.20)');   // subtle lighter core
-    shade.addColorStop(1, 'rgba(66,40,18,0.42)');     // darker outer sweep
+    shade.addColorStop(0, 'rgba(120,80,44,0.10)');
+    shade.addColorStop(1, 'rgba(40,24,11,0.30)');
     ctx.fillStyle = shade; ctx.fillRect(0, 0, wPx, hPx);
+
+    // GROOMED / RAKED DIRT — the whole ring, uniformly: fine, regular concentric rake grooves
+    // (a graded/prepared track), each with RELIEF from a paired dark groove + light crest-
+    // highlight just inside it, so they read as raked ridges, not flat lines. No racing line.
+    const nRake = Math.max(12, Math.round(bandW / 7)), step = bandW / nRake;
+    ctx.lineWidth = 1;
+    for (let i = 1; i < nRake; i++) {
+      const r = IYh + step * i;
+      ctx.strokeStyle = 'rgba(26,15,7,0.14)';      // groove (shadow)
+      stadiumPath(ctx, cx, cy, sx, r); ctx.stroke();
+      ctx.strokeStyle = 'rgba(160,124,84,0.11)';   // ridge crest (highlight)
+      stadiumPath(ctx, cx, cy, sx, r - step * 0.4); ctx.stroke();
+    }
+
+    // Looser/dustier LIGHT dirt at the very inner apex + outer wall (blurred edge bands).
+    const ovalBand = (rCf: number, lwF: number, rgb: string, a: number) => {
+      ctx.save();
+      ctx.filter = `blur(${(bandW * 0.13).toFixed(1)}px)`;
+      ctx.strokeStyle = `rgba(${rgb},${a})`;
+      ctx.lineWidth = bandW * lwF;
+      stadiumPath(ctx, cx, cy, sx, IYh + bandW * rCf); ctx.stroke();
+      ctx.restore();
+    };
+    ovalBand(0.98, 0.26, '150,114,74', 0.18);   // outer wall
+    ovalBand(0.02, 0.22, '150,114,74', 0.15);   // inner apex
     ctx.restore();
   } else {
     const ring = ctx.createRadialGradient(cx, cy, IYh, cx, cy, sx + OYh);
     ring.addColorStop(0, s.ringInner); ring.addColorStop(1, s.ringOuter);
     ctx.fillStyle = ring; ctx.fill();
-  }
-
-  // Worn racing line (band at mid) + faint grooves.
-  ctx.lineJoin = 'round';
-  ctx.strokeStyle = s.lineStroke;
-  ctx.lineWidth = (OYh - IYh) * 0.32;
-  stadiumPath(ctx, cx, cy, sx, midYh); ctx.stroke();
-  ctx.strokeStyle = s.grooveStroke; ctx.lineWidth = 2;
-  for (const f of [0.72, 0.5, 0.28]) {
-    stadiumPath(ctx, cx, cy, sx, IYh + (OYh - IYh) * f); ctx.stroke();
+    // Asphalt (and dirt off-DOM fallback): the original worn line + faint grooves.
+    ctx.strokeStyle = s.lineStroke;
+    ctx.lineWidth = bandW * 0.32;
+    stadiumPath(ctx, cx, cy, sx, midYh); ctx.stroke();
+    ctx.strokeStyle = s.grooveStroke; ctx.lineWidth = 2;
+    for (const f of [0.72, 0.5, 0.28]) {
+      stadiumPath(ctx, cx, cy, sx, IYh + bandW * f); ctx.stroke();
+    }
   }
 
   // Infield — carve the dark-green centre (inner stadium).
