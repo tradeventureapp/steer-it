@@ -640,11 +640,11 @@ function drawStadiumDecor(ctx: CanvasRenderingContext2D, world: MapWorld, px: nu
 
   // Barriers (tyre walls) on the inner + outer edges — match the collision.
   drawStadiumWall(ctx, cx, cy, sx, OYh, barrierPx);
-  // Inner wall: black base → red/white DRIVE-OVER kerb (REPLACES the band-side black strip
-  // adjoining the track, abuts the neon) → magenta/cyan dashes painted on top.
+  // Inner edge: track → red/white DRIVE-OVER kerb → THICK BLACK barrier strip (the wall).
+  // The black strip is the solid wall (existing springy collision, just restyled — NO neon on
+  // the inner edge); the kerb sits on the drivable track just outside it (drive-over, no collision).
   drawStadiumWall(ctx, cx, cy, sx, IYh, barrierPx, 'base');
   drawOvalInnerKerb(ctx, g, px);
-  drawStadiumWall(ctx, cx, cy, sx, IYh, barrierPx, 'dash');
 }
 
 // Draw the inner-edge DRIVE-OVER kerb from the render's own geometry (metres → ×px):
@@ -1307,10 +1307,10 @@ function ovalInnerKerb(g: StadiumGeom): KerbQuad[] {
   const sq = Math.max(3.0, bandW * 0.16);
   const STRIPE = KERB_STRIPE * CS_SCALE;          // arc-length-constant stripe (~2.2 m)
   const SEAM = KERB_SEAM * CS_SCALE;
-  const OUT = sq / 2;                              // NARROW — exactly the old black strip's width
-                                                   // (neon centreline → the barrier's track-side face)
-  const rIn = IYh;                                 // loop on the neon centreline — kerb REPLACES the
-                                                   // band-side black up to here, abutting the dashes
+  const OUT = sq / 2;                              // NARROW kerb width (≈ the old black strip)
+  const rIn = IYh + sq / 2;                        // loop on the WALL's track-side face — the DRIVE-OVER
+                                                   // kerb sits on the drivable track just outside the
+                                                   // thick black barrier and reaches OUT into the track
   // outward normal (increasing stadium offset = toward the track): ±y on the straights, radial
   // from the nearest turn centre on the corners.
   const outN = (px: number, py: number): Pt => {
@@ -1331,12 +1331,28 @@ function ovalInnerKerb(g: StadiumGeom): KerbQuad[] {
   const N = loop.length;
   const arc = [0];
   for (let i = 1; i <= N; i++) arc.push(arc[i - 1] + Math.hypot(loop[i % N][0] - loop[i - 1][0], loop[i % N][1] - loop[i - 1][1]));
-  // alternating red/white blocks (constant arc-length). Inner edge pulled SEAM under the barrier
-  // so no background sliver; outer edge reaches KW into the track.
-  for (let i = 0; i < N; i++) {
+  const L = arc[N];
+  // Point on the closed loop at arc-length s (linear interpolation between samples).
+  const ptAt = (s: number): Pt => {
+    s = ((s % L) + L) % L;
+    let i = 0; while (i < N && arc[i + 1] < s) i++;
+    const seg = (arc[i + 1] - arc[i]) || 1, t = (s - arc[i]) / seg;
     const p = loop[i], q = loop[(i + 1) % N];
+    return [p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t];
+  };
+  // REGULAR stripes: an EVEN number of equal blocks tiling the whole loop exactly (so the
+  // colours alternate cleanly across the seam), each block = L / nStripes long. Every red and
+  // white piece is therefore identical in length. Each block is split into SUB curve-following
+  // sub-quads so the stripe hugs the corner arcs.
+  let nStripes = Math.max(2, Math.round(L / STRIPE));
+  if (nStripes % 2) nStripes++;
+  const SUB = 4, M = nStripes * SUB, ds = L / M;
+  const pts: Pt[] = [];
+  for (let j = 0; j < M; j++) pts.push(ptAt(j * ds));
+  for (let j = 0; j < M; j++) {
+    const p = pts[j], q = pts[(j + 1) % M];
     const np = outN(p[0], p[1]), nq = outN(q[0], q[1]);
-    const rw = Math.floor(arc[i] / STRIPE) % 2 === 0 ? KERB_RED : KERB_WHITE;
+    const rw = Math.floor(j / SUB) % 2 === 0 ? KERB_RED : KERB_WHITE;
     quads.push({
       a: [p[0] - np[0] * SEAM, p[1] - np[1] * SEAM],
       b: [p[0] + np[0] * OUT, p[1] + np[1] * OUT],
