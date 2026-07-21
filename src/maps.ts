@@ -2054,10 +2054,11 @@ function drawCircuitGrid(ctx: CanvasRenderingContext2D, offX: number, offY: numb
 // world.rects → the existing capsule-vs-rect springy collision, restitution 0.35). Positions are
 // SKETCH coords (track-relative, so they stay put on any screen), like CIRCUIT_FINISH.
 const BILLBOARD_SKETCH: Array<[number, number]> = [
-  [1106, 282],   // UPPER billboard (boss-placed)
-  [1065, 372],   // LOWER billboard (boss-placed)
+  [1351, 369],   // UPPER billboard (boss-placed, right-hand infield pocket)
+  [1291, 494],   // LOWER billboard (boss-placed, below-left)
 ];
-const BILLBOARD_W_M = 18.7;      // board width (metres) — big enough that the text reads top-down
+const BILLBOARD_W_M = 26.1;      // board width (metres) — sized so it reads big top-down (the size the
+                                 // boss approved on the old render, corrected for the true track scale)
 const BILLBOARD_LEG_DX_M = BILLBOARD_W_M * 0.33;   // each leg's offset from centre (matches drawBillboard)
 const BILLBOARD_LEG_R = BILLBOARD_W_M * 0.045 / 2; // collision radius = the drawn leg's (post) radius
 
@@ -2090,8 +2091,8 @@ function drawBillboardShadow(ctx: CanvasRenderingContext2D, cxPx: number, cyPx: 
 
 function drawBillboardBody(ctx: CanvasRenderingContext2D, cxPx: number, cyPx: number, px: number) {
   const W = BILLBOARD_W_M * px;
-  const boardH = 7.5 * px;       // panel height on screen
-  const postH = 4.0 * px;        // legs lift the panel above the base
+  const boardH = 10.5 * px;      // panel height on screen
+  const postH = 5.6 * px;        // legs lift the panel above the base
   const panelBottom = cyPx - postH;
   const panelTop = panelBottom - boardH;
   const halfW = W / 2;
