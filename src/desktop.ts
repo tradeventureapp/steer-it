@@ -13,6 +13,7 @@ import {
   type MapDefinition, type MapWorld, type MapObstacle, type Surface, type MarkClass,
 } from './maps';
 import { SoundEngine } from './sound';
+import { fitCanvasScale, sizeCanvasFitted, preloadSurfaceAssets } from './surfaces';
 import { Effects, FX_CONFIG, GRASS_DUST_RGB, GRAVEL_SPRAY_RGB } from './effects';
 import {
   PLAYER_CAP, LOBBY_SYNC_MS, RESILIENCE, EV, colorName, LobbyState,
@@ -679,9 +680,11 @@ function syncCanvasesAndView(): boolean {
   dpr = backingDpr();
   const W = window.innerWidth, H = window.innerHeight;
 
-  canvas.width = Math.floor(W * dpr);
-  canvas.height = Math.floor(H * dpr);
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  // Clamp the main canvas backing to safe limits (VERIFY + downscale) so a huge/high-DPI viewport
+  // can't silently blank it. Drawing stays in CSS px; the backing scale just drops (softer) if
+  // capped. On normal screens the scale equals dpr → identical.
+  const canvasScale = sizeCanvasFitted(canvas, W, H, dpr);
+  ctx.setTransform(canvasScale, 0, 0, canvasScale, 0, 0);
   canvas.style.width = W + 'px';
   canvas.style.height = H + 'px';
 
@@ -721,9 +724,11 @@ function syncCanvasesAndView(): boolean {
     [wallpaperCanvas, wallpaperCtx], [overlayCanvas, overlayCtx],
   ];
   for (const [cv, cx] of layers) {
-    cv.width = Math.floor(lpW * layerDprEff);
-    cv.height = Math.floor(lpH * layerDprEff);
-    cx.setTransform(layerDprEff, 0, 0, layerDprEff, 0, 0);
+    // Clamp each layer's backing to safe canvas limits (VERIFY + downscale). Everything draws in
+    // LOGICAL px and render() blits with an explicit dest size, so a capped backing is only
+    // lower-res, never garbled. On normal screens the fitted scale equals layerDprEff → identical.
+    const s = sizeCanvasFitted(cv, lpW, lpH, layerDprEff);
+    cx.setTransform(s, 0, 0, s, 0, 0);
   }
   return true;
 }
@@ -744,6 +749,28 @@ function clearMarkLayers() { tyreMarks.clear(); }
 /** Force a rebuild at the next map's logical size (map switch / resize). */
 function releaseMarkLayers() { tyreMarks.clear(); marksLive = false; }
 
+// Bake the current map's surface into the wallpaper layer, capping the WORKING resolution so no
+// scratch/texture/mask canvas the surface bake allocates can exceed the safe canvas limits — a
+// weak GPU can silently blank one of those and garble the whole composite (worst on the circuit,
+// which allocates many screen-sized working canvases). When a cap is needed the surface is drawn
+// into a fitted temp and blit-scaled up (a touch softer, never garbled). On normal screens the
+// cap is 1 → drawn directly into the wallpaper, byte-identical to before.
+function bakeWallpaper() {
+  if (typeof document === 'undefined' || fitCanvasScale(logicalPxW, logicalPxH, 1) >= 1) {
+    currentMap.drawBackground(wallpaperCtx, logicalPxW, logicalPxH);
+    return;
+  }
+  const tmp = document.createElement('canvas');
+  sizeCanvasFitted(tmp, logicalPxW, logicalPxH, 1);   // fitted (+ verified) working size
+  const tcx = tmp.getContext('2d');
+  if (!tcx) { currentMap.drawBackground(wallpaperCtx, logicalPxW, logicalPxH); return; }
+  currentMap.drawBackground(tcx, tmp.width, tmp.height);   // whole surface at the capped resolution
+  wallpaperCtx.save();
+  wallpaperCtx.imageSmoothingEnabled = true;
+  wallpaperCtx.drawImage(tmp, 0, 0, logicalPxW, logicalPxH);   // blit-scale to logical units
+  wallpaperCtx.restore();
+}
+
 function resize() {
   // Layers are only rebuilt when their logical size/dpr changed: every time for
   // the desktop (logical = viewport), but for the fixed oval only on first build,
@@ -755,7 +782,7 @@ function resize() {
     releaseMarkLayers();
     const { wM, hM } = logicalMeters();
     world = currentMap.createWorld(wM, hM);
-    currentMap.drawBackground(wallpaperCtx, logicalPxW, logicalPxH);
+    bakeWallpaper();
     redrawOverlay();
   }
 }
@@ -771,11 +798,13 @@ function redrawOverlay() {
   currentMap.drawObstacles(overlayCtx, world, CONFIG.pxPerMeter, draggedObstacle);
 }
 
-// A surface's fill asset loads async; when it arrives, repaint the (static) wallpaper layer
-// once so it swaps in without needing a resize. Cheap + one-shot per load.
+// The surface fill bitmap is preloaded at startup (preloadSurfaceAssets, below) so it is normally
+// already decoded before the circuit is ever reached → the first bake uses it, no grey→pop. This
+// stays as a one-shot safety net: if the circuit is somehow reached before the decode lands, this
+// repaints the (static) wallpaper once when it arrives (a clean full re-bake).
 setCircuitSurfaceReady(() => {
   if (logicalPxW > 0 && logicalPxH > 0) {
-    currentMap.drawBackground(wallpaperCtx, logicalPxW, logicalPxH);
+    bakeWallpaper();
   }
 });
 
@@ -822,6 +851,11 @@ canvas.addEventListener('pointercancel', (e) => {
   endObstacleDrag();
   void e;
 });
+
+// Start the async surface bitmap (asphalt) load+decode NOW, so it is decoded long before the
+// circuit is navigated to — the first circuit bake then uses the real texture, deterministically,
+// with no grey→pop and no reliance on the async re-bake.
+preloadSurfaceAssets();
 
 resize();
 window.addEventListener('resize', resize);

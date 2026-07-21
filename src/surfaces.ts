@@ -173,6 +173,55 @@ function makeCanvas(w: number, h: number): HTMLCanvasElement | null {
   return cv;
 }
 
+// -------------------------------------------------------- canvas size guards ---
+// A screen-resolution offscreen canvas can exceed a GPU/browser max canvas DIMENSION (~4096 on
+// weaker/older hardware) or a max AREA, at which point the browser SILENTLY clamps or blanks it →
+// garbled / duplicated geometry (worse on slower machines / high-DPI / 4K). We request a size
+// within safe limits, then VERIFY the browser didn't clamp it further; if it did, we shrink to
+// what actually stuck. Every consumer blits these canvases with an EXPLICIT destination size, so a
+// smaller backing just renders at a lower resolution (a touch softer) — never garbled. On normal
+// screens the limits aren't reached, the fitted scale equals the requested one, and NOTHING
+// changes (byte-identical output).
+export const MAX_CANVAS_DIM = 4096;
+export const MAX_CANVAS_AREA = 16_000_000;
+
+/** Largest uniform scale s ≤ want with (wLogical·s, hLogical·s) within the dim + area limits. */
+export function fitCanvasScale(wLogical: number, hLogical: number, want: number): number {
+  const w = Math.max(1, wLogical), h = Math.max(1, hLogical);
+  let s = Math.max(0.0001, want);
+  s = Math.min(s, MAX_CANVAS_DIM / w, MAX_CANVAS_DIM / h);
+  if (w * h * s * s > MAX_CANVAS_AREA) s = Math.min(s, Math.sqrt(MAX_CANVAS_AREA / (w * h)));
+  return Math.max(0.01, s);
+}
+
+/**
+ * Size `cv` to (wLogical, hLogical) × a fitted scale (≤ want), then VERIFY the browser didn't
+ * clamp it further (a lower real max / memory). Returns the ACTUAL uniform scale applied, so the
+ * caller sets a matching ctx transform: drawing stays in LOGICAL units and a later drawImage(cv,
+ * …, dw, dh) blits the possibly-smaller backing to full size — correct, never garbled.
+ */
+export function sizeCanvasFitted(
+  cv: HTMLCanvasElement, wLogical: number, hLogical: number, want: number,
+): number {
+  const w = Math.max(1, wLogical), h = Math.max(1, hLogical);
+  let s = fitCanvasScale(wLogical, hLogical, want);
+  const rw = Math.max(1, Math.round(w * s)), rh = Math.max(1, Math.round(h * s));
+  cv.width = rw; cv.height = rh;
+  if (cv.width !== rw || cv.height !== rh) {            // browser clamped beyond our limits → adapt
+    const got = Math.min((cv.width || 1) / w, (cv.height || 1) / h);
+    s = Math.max(0.01, Math.min(s, got));
+    cv.width = Math.max(1, Math.round(w * s));
+    cv.height = Math.max(1, Math.round(h * s));
+  }
+  return s;
+}
+
+/** Kick off the async surface bitmap load+decode EARLY (before any map that needs it renders), so
+ *  its first bake uses the real texture — no grey→pop flash, no async re-bake timing dependency. */
+export function preloadSurfaceAssets(): void {
+  if (typeof Image !== 'undefined') asphaltFill();
+}
+
 /** Reusable scratch buffers (allocated once, resized on demand). */
 const _scratches: Array<HTMLCanvasElement | null> = [];
 function scratch(i: number, w: number, h: number): HTMLCanvasElement | null {

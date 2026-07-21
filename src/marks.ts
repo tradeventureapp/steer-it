@@ -30,6 +30,7 @@
 
 import { CONFIG, bodyToWorld, type CarState } from './vehicle-core';
 import { wheelDebug, PHYS4 } from './physics4';
+import { sizeCanvasFitted } from './surfaces';
 import type { Surface, MarkClass } from './maps';
 
 // ---- TUNE: intensity ----------------------------------------------------------------
@@ -166,9 +167,10 @@ export class TyreMarks {
     this.wPx = wPx; this.hPx = hPx;
     for (const [cv, cx] of [[this.mul, this.mulCtx], [this.over, this.overCtx]] as
       Array<[HTMLCanvasElement, CanvasRenderingContext2D | null]>) {
-      cv.width = Math.floor(wPx * dpr);
-      cv.height = Math.floor(hPx * dpr);
-      cx?.setTransform(dpr, 0, 0, dpr, 0, 0);
+      // Clamp the backing to safe canvas limits (VERIFY + downscale); draw() blits with an
+      // explicit dest size, so a capped backing is just lower-res, never garbled.
+      const s = sizeCanvasFitted(cv, wPx, hPx, dpr);
+      cx?.setTransform(s, 0, 0, s, 0, 0);
     }
   }
   clear() {
