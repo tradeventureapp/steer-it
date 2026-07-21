@@ -18,7 +18,7 @@ import { CONFIG, type CarState, type ObstacleRect, type ObstacleArc } from './ve
 import { spawnPose } from './cars';
 import type { RaceElement } from './race';
 import {
-  SURFACES, onSurfaceAssetsReady,
+  SURFACES, onSurfaceAssetsReady, GRASS_LOOK,
   type SurfaceRC, type SurfaceShape,
 } from './surfaces';
 import {
@@ -596,11 +596,11 @@ function drawStadiumSurface(
     }
   }
 
-  // Infield — carve the dark-green centre (inner stadium).
-  const inf = ctx.createLinearGradient(0, cy - IYh, 0, cy + IYh);
-  inf.addColorStop(0, '#22382b'); inf.addColorStop(1, '#192c21');
-  ctx.fillStyle = inf;
-  stadiumPath(ctx, cx, cy, sx, IYh); ctx.fill();
+  // Infield — a tidy MOWN stadium pitch (our circuit-grass style), but DARKER for the
+  // night scene: deep night-turf greens, mower stripes running PERPENDICULAR to the
+  // straights (vertical bands across the long axis), + a subtle floodlight falloff
+  // (brighter centre where the floods hit, darker to the edges).
+  drawStadiumInfield(ctx, cx, cy, sx, IYh, px);
 
   // (The inner-edge DRIVE-OVER kerb is drawn in drawStadiumDecor — interleaved between the
   // barrier's black base and its neon dashes so it REPLACES the black strip adjoining the track.)
@@ -645,6 +645,41 @@ function drawStadiumDecor(ctx: CanvasRenderingContext2D, world: MapWorld, px: nu
   // the inner edge); the kerb sits on the drivable track just outside it (drive-over, no collision).
   drawStadiumWall(ctx, cx, cy, sx, IYh, barrierPx, 'base');
   drawOvalInnerKerb(ctx, g, px);
+}
+
+// MOWN night-turf infield (our circuit-grass style, DARKER for the lit-oval-in-the-dark look).
+// Mower stripes run PERPENDICULAR to the straights (vertical bands across the long axis) with a
+// soft-edged square-wave profile (crisp bands, no gradient look — like the circuit grass), then a
+// subtle radial floodlight falloff (brighter centre, darker edges). Clipped to the infield.
+function drawStadiumInfield(
+  ctx: CanvasRenderingContext2D, cx: number, cy: number, sx: number, IYh: number, px: number,
+) {
+  // Night-turf palette: DARK green base with a slightly lit mown stripe — same light/dark ratio
+  // as the circuit grass (GRASS_LOOK) but scaled down into the dark for the night scene.
+  const dark: [number, number, number] = [26, 46, 34];
+  const light: [number, number, number] = [38, 60, 44];
+  const bandPx = Math.max(6, GRASS_LOOK.bandM * px);   // METRES/band (world-scaled) × 2 = light+dark
+  const soft = Math.max(0.02, GRASS_LOOK.edgeSoft);
+  const x0 = cx - sx - IYh, x1 = cx + sx + IYh, y0 = cy - IYh, y1 = cy + IYh;
+
+  ctx.save();
+  stadiumPath(ctx, cx, cy, sx, IYh); ctx.clip();
+  // Vertical mown bands: sharpen a sine (in the x phase) into a soft-edged square wave and paint
+  // thin columns — flat bands, clean transitions. Anchored at cx so the pattern is symmetric.
+  const period = bandPx * 2, colW = Math.max(1, Math.round(bandPx / 6));
+  for (let x = x0; x < x1; x += colW) {
+    const ph = (((x - cx) / period) % 1 + 1) % 1;
+    const m = Math.min(1, Math.max(0, Math.sin(2 * Math.PI * ph) / soft * 0.5 + 0.5));
+    ctx.fillStyle = `rgb(${Math.round(dark[0] + (light[0] - dark[0]) * m)},${Math.round(dark[1] + (light[1] - dark[1]) * m)},${Math.round(dark[2] + (light[2] - dark[2]) * m)})`;
+    ctx.fillRect(x, y0, colW + 1, y1 - y0);
+  }
+  // Subtle floodlight falloff — brighter centre, darker at the edges.
+  const fall = ctx.createRadialGradient(cx, cy, IYh * 0.15, cx, cy, sx + IYh);
+  fall.addColorStop(0, 'rgba(232,240,210,0.07)');
+  fall.addColorStop(0.65, 'rgba(0,0,0,0)');
+  fall.addColorStop(1, 'rgba(0,0,0,0.24)');
+  ctx.fillStyle = fall; ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
+  ctx.restore();
 }
 
 // Draw the inner-edge DRIVE-OVER kerb from the render's own geometry (metres → ×px):
