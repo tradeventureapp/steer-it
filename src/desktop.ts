@@ -2031,6 +2031,7 @@ function render() {
   currentMap.drawForeground?.(ctx, world, CONFIG.pxPerMeter);
   drawRaceElements();
   for (const car of cars.values()) drawCar(car);  // paint every connected car
+  currentMap.drawAboveCars?.(ctx, world, CONFIG.pxPerMeter);  // tall props occlude cars under them
   fx.draw(ctx, CONFIG.pxPerMeter);
   ctx.restore();
 

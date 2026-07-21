@@ -121,6 +121,9 @@ export interface MapDefinition {
   // Optional dynamic foreground drawn every frame after the obstacle layer
   // (the desktop's live clock). Omit for maps without one.
   drawForeground?(ctx: CanvasRenderingContext2D, world: MapWorld, px: number): void;
+  // Optional layer drawn AFTER the cars — for tall props whose raised parts should occlude a
+  // car passing UNDER them (the circuit's standing billboards: drive under → hide behind it).
+  drawAboveCars?(ctx: CanvasRenderingContext2D, world: MapWorld, px: number): void;
 
   // ---- Spawn + bounds ----
   // Spawn pose for a slot index (per-map layout). Non-overlapping for N.
@@ -2045,6 +2048,121 @@ function drawCircuitGrid(ctx: CanvasRenderingContext2D, offX: number, offY: numb
   ctx.restore();
 }
 
+// ---- CIRCUIT BILLBOARDS ----------------------------------------------------------------------
+// Two placeholder "YOUR AD HERE" billboards standing on the inner grass infield, stacked
+// vertically (upper-middle + lower-middle). Each is a SOLID obstacle (its base footprint feeds
+// world.rects → the existing capsule-vs-rect springy collision, restitution 0.35). Positions are
+// SKETCH coords (track-relative, so they stay put on any screen), like CIRCUIT_FINISH.
+const BILLBOARD_SKETCH: Array<[number, number]> = [
+  [1106, 282],   // UPPER billboard (boss-placed)
+  [1065, 372],   // LOWER billboard (boss-placed)
+];
+const BILLBOARD_W_M = 18.7;      // board width (metres) — big enough that the text reads top-down
+const BILLBOARD_LEG_DX_M = BILLBOARD_W_M * 0.33;   // each leg's offset from centre (matches drawBillboard)
+const BILLBOARD_LEG_R = BILLBOARD_W_M * 0.045 / 2; // collision radius = the drawn leg's (post) radius
+
+// Collision: a small CIRCLE the diameter of the leg (post) at EACH leg's exact ground-contact point
+// — a solid round obstacle (full-circle arc, car stays outside), NOT a base plate. One per leg.
+function circuitBillboardArcs(): ObstacleArc[] {
+  const out: ObstacleArc[] = [];
+  for (const [sx, sy] of BILLBOARD_SKETCH) {
+    const w = circuitToWorld(sx, sy);
+    for (const dx of [-BILLBOARD_LEG_DX_M, BILLBOARD_LEG_DX_M]) {
+      out.push({ cx: w.x + dx, cy: w.y, r: BILLBOARD_LEG_R, a0: 0, a1: Math.PI * 2, inside: false });
+    }
+  }
+  return out;
+}
+
+// A standing billboard is drawn in TWO passes so a car can drive UNDER it and hide behind it:
+//   • the SHADOW sits on the grass (drawObstacles → under the cars);
+//   • the BODY (posts + raised panel) is drawn AFTER the cars (drawAboveCars → occludes a car
+//     passing under the panel). cxPx,cyPx = the ground/base centre in px.
+function drawBillboardShadow(ctx: CanvasRenderingContext2D, cxPx: number, cyPx: number, px: number) {
+  const W = BILLBOARD_W_M * px, halfW = W / 2, postH = 4.0 * px, depth = Math.max(3, W * 0.05);
+  ctx.save();
+  ctx.fillStyle = 'rgba(0,0,0,0.30)';
+  ctx.beginPath();
+  ctx.ellipse(cxPx + depth * 0.6, cyPx + depth * 0.5, halfW * 1.02, Math.max(4, postH * 0.34), 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawBillboardBody(ctx: CanvasRenderingContext2D, cxPx: number, cyPx: number, px: number) {
+  const W = BILLBOARD_W_M * px;
+  const boardH = 7.5 * px;       // panel height on screen
+  const postH = 4.0 * px;        // legs lift the panel above the base
+  const panelBottom = cyPx - postH;
+  const panelTop = panelBottom - boardH;
+  const halfW = W / 2;
+  const legX1 = cxPx - BILLBOARD_LEG_DX_M * px, legX2 = cxPx + BILLBOARD_LEG_DX_M * px;   // = the collision feet
+  const depth = Math.max(3, W * 0.05);   // extruded thickness (down/right) for the 3D read
+
+  ctx.save();
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+
+  // Posts (legs) from the base up to the panel.
+  ctx.strokeStyle = '#2c2f38';
+  ctx.lineWidth = Math.max(2, W * 0.045);
+  ctx.beginPath();
+  ctx.moveTo(legX1, cyPx); ctx.lineTo(legX1, panelBottom);
+  ctx.moveTo(legX2, cyPx); ctx.lineTo(legX2, panelBottom);
+  ctx.stroke();
+  // little feet
+  ctx.fillStyle = '#23252c';
+  ctx.fillRect(legX1 - W * 0.03, cyPx - Math.max(2, W * 0.02), W * 0.06, Math.max(3, W * 0.03));
+  ctx.fillRect(legX2 - W * 0.03, cyPx - Math.max(2, W * 0.02), W * 0.06, Math.max(3, W * 0.03));
+
+  // Extruded thickness behind the panel (bottom + right) → depth.
+  ctx.fillStyle = '#1b1d23';
+  ctx.beginPath();
+  ctx.moveTo(cxPx - halfW, panelBottom);
+  ctx.lineTo(cxPx - halfW + depth, panelBottom + depth);
+  ctx.lineTo(cxPx + halfW + depth, panelBottom + depth);
+  ctx.lineTo(cxPx + halfW + depth, panelTop + depth);
+  ctx.lineTo(cxPx + halfW, panelTop);
+  ctx.lineTo(cxPx + halfW, panelBottom);
+  ctx.closePath();
+  ctx.fill();
+
+  // Panel frame (dark) + face (light) — the readable ad surface, upright toward the camera.
+  const fr = Math.max(2, W * 0.03);
+  ctx.fillStyle = '#14161c';
+  ctx.fillRect(cxPx - halfW, panelTop, W, boardH);
+  const faceGrad = ctx.createLinearGradient(0, panelTop, 0, panelBottom);
+  faceGrad.addColorStop(0, '#fbfaf5'); faceGrad.addColorStop(1, '#e6e3d8');
+  ctx.fillStyle = faceGrad;
+  ctx.fillRect(cxPx - halfW + fr, panelTop + fr, W - 2 * fr, boardH - 2 * fr);
+
+  // Placeholder text: "YOUR AD" / "HERE", centred, bold, dark — clear from top-down.
+  const cyText = (panelTop + panelBottom) / 2;
+  ctx.fillStyle = '#20222a';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  const fs = boardH * 0.30;
+  ctx.font = `700 ${fs}px system-ui, sans-serif`;
+  ctx.fillText('YOUR AD', cxPx, cyText - fs * 0.6);
+  ctx.fillText('HERE', cxPx, cyText + fs * 0.6);
+  // a thin brand-warm accent bar under the text
+  ctx.fillStyle = 'rgba(232,120,60,0.9)';
+  ctx.fillRect(cxPx - halfW + fr * 1.5, panelBottom - fr * 1.5 - Math.max(2, boardH * 0.04), W - 3 * fr, Math.max(2, boardH * 0.04));
+  ctx.restore();
+}
+
+// Shadows on the grass (under the cars).
+function drawCircuitBillboardShadows(ctx: CanvasRenderingContext2D, px: number) {
+  for (const [sx, sy] of BILLBOARD_SKETCH) {
+    const w = circuitToWorld(sx, sy);
+    drawBillboardShadow(ctx, w.x * px, w.y * px, px);
+  }
+}
+// Bodies (posts + panel) over the cars — a car under a panel hides behind it.
+function drawCircuitBillboardsAbove(ctx: CanvasRenderingContext2D, px: number) {
+  for (const [sx, sy] of BILLBOARD_SKETCH) {
+    const w = circuitToWorld(sx, sy);
+    drawBillboardBody(ctx, w.x * px, w.y * px, px);
+  }
+}
+
 export const circuitMap: MapDefinition = {
   id: 'circuit',
   name: 'Circuit',
@@ -2059,13 +2177,18 @@ export const circuitMap: MapDefinition = {
   // is what ARMS the per-wheel grass grip/drag in physics4 — no other map defines it.
   surfaceAt: circuitSurfaceAt,
 
-  // OPEN track: NO barriers, NO collision rects — drive off onto the grass freely.
+  // OPEN track: NO edge barriers — drive off onto the grass freely. The only collision is the
+  // infield BILLBOARD LEGS — a small solid circle (leg diameter) at each grass leg's ground point.
   createWorld(widthM, heightM) {
-    return { width: widthM, height: heightM, rects: [] };
+    return { width: widthM, height: heightM, rects: [], arcs: circuitBillboardArcs() };
   },
 
   drawBackground(ctx, wPx, hPx) { drawCircuitSurface(ctx, wPx, hPx); },
-  drawObstacles() { /* no barriers / no decor this pass */ },
+  // Under the cars: the billboards' ground shadows only.
+  drawObstacles(ctx, _world, px) { drawCircuitBillboardShadows(ctx, px); },
+  // Over the cars: the raised billboard bodies (posts + panel) — a car driving under a panel
+  // passes UNDER it and hides behind it.
+  drawAboveCars(ctx, _world, px) { drawCircuitBillboardsAbove(ctx, px); },
 
   // Built-in start/finish: a START gate on the flat bottom straight, spanning the track
   // width so a car always trips it. In circuit mode this single gate is start AND finish,
