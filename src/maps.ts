@@ -1307,7 +1307,7 @@ function ovalInnerKerb(g: StadiumGeom): KerbQuad[] {
   const sq = Math.max(3.0, bandW * 0.16);
   const STRIPE = KERB_STRIPE * CS_SCALE;          // arc-length-constant stripe (~2.2 m)
   const SEAM = KERB_SEAM * CS_SCALE;
-  const OUT = sq / 2;                              // NARROW kerb width (≈ the old black strip)
+  const OUT = sq / 3;                              // NARROW kerb width (1/3 narrower than the old sq/2)
   const rIn = IYh + sq / 2;                        // loop on the WALL's track-side face — the DRIVE-OVER
                                                    // kerb sits on the drivable track just outside the
                                                    // thick black barrier and reaches OUT into the track
