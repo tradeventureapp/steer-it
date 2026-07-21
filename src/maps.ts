@@ -640,10 +640,13 @@ function drawStadiumDecor(ctx: CanvasRenderingContext2D, world: MapWorld, px: nu
 
   // Barriers (tyre walls) on the inner + outer edges — match the collision.
   drawStadiumWall(ctx, cx, cy, sx, OYh, barrierPx);
-  // Inner edge: track → red/white DRIVE-OVER kerb → THICK BLACK barrier strip (the wall).
+  // Inner edge: track → red/white DRIVE-OVER kerb → NARROW black barrier strip (the wall).
   // The black strip is the solid wall (existing springy collision, just restyled — NO neon on
-  // the inner edge); the kerb sits on the drivable track just outside it (drive-over, no collision).
-  drawStadiumWall(ctx, cx, cy, sx, IYh, barrierPx, 'base');
+  // the inner edge). It's drawn NARROWER than the collision body and pulled toward the kerb: its
+  // TRACK-side edge stays on the collision/kerb face (IYh + barrierPx/2) so the car still crashes
+  // there, while its infield edge is drawn back toward the kerb — freeing the infield for grass.
+  const innerT = barrierPx * 0.5;
+  drawStadiumWall(ctx, cx, cy, sx, IYh + (barrierPx - innerT) / 2, innerT, 'base');
   drawOvalInnerKerb(ctx, g, px);
 }
 
