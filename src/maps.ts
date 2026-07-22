@@ -2074,14 +2074,21 @@ function drawCircuitGrid(ctx: CanvasRenderingContext2D, offX: number, offY: numb
 export interface AdSlot {
   readonly img: string;   // '/ads/<file>' (in public/ads/) or a full https URL — the ad artwork
   readonly url: string;   // click-through target, opened in a new tab
+  // How the artwork fills the face. 'contain' (default) = whole logo visible, aspect kept, small
+  // margin (fully-transparent edges are auto-trimmed first so a padded logo still fills the face).
+  // 'cover' = fill the face edge-to-edge (crop the overflow) — good for a full poster/card artwork.
+  readonly fit?: 'contain' | 'cover';
 }
 interface Billboard { sx: number; sy: number; scale: number; ad?: AdSlot; }
 const CIRCUIT_BILLBOARDS: Billboard[] = [
-  { sx: 1351, sy: 369, scale: 1 },       // UPPER-right pocket
-  { sx: 1291, sy: 494, scale: 1 },       // below-left
-  { sx: 988,  sy: 195, scale: 1.333 },   // top-centre, 1.33×
-  // Example live ad (add `ad: {...}` to any entry above):
-  //   { sx: 988, sy: 195, scale: 1.333, ad: { img: '/ads/example.png', url: 'https://example.com' } }
+  // UPPER-right pocket → STEER IT (transparent wordmark, contain-fitted after trimming its padding)
+  { sx: 1351, sy: 369, scale: 1,
+    ad: { img: '/ads/Steer It Logo - Full transparent.png', url: 'https://steerit.app/' } },
+  // below-left → placeholder ("YOUR AD HERE"), not clickable
+  { sx: 1291, sy: 494, scale: 1 },
+  // top-centre (biggest, 1.33×) → TRADEVENTURE (dark link-card poster, cover-fitted edge-to-edge)
+  { sx: 988,  sy: 195, scale: 1.333,
+    ad: { img: '/ads/tradeventure-link-card-1200x675.png', url: 'https://tradeventure.app/', fit: 'cover' } },
 ];
 const BILLBOARD_W_M = 26.1;      // board width (metres) at scale 1 — sized so it reads big top-down
 const BILLBOARD_BOARD_H_M = 10.5; // panel height (metres) at scale 1
@@ -2120,22 +2127,44 @@ function circuitAdAt(xM: number, yM: number): string | null {
 }
 
 // Ad images load async; a billboard BODY is redrawn every frame (drawAboveCars), so once an image
-// decodes it simply appears next frame — no re-bake needed. Returns the image only once decoded
-// (else null → the "YOUR AD HERE" placeholder shows meanwhile / if there is no ad).
-const _adImgs = new Map<string, { img: HTMLImageElement; ready: boolean }>();
-function adImage(src: string): HTMLImageElement | null {
+// decodes it simply appears next frame — no re-bake needed. Returns the image + its opaque-content
+// crop once decoded (else null → the "YOUR AD HERE" placeholder shows meanwhile / if there's no ad).
+interface AdImg { img: HTMLImageElement; ready: boolean; crop: { x: number; y: number; w: number; h: number }; }
+const _adImgs = new Map<string, AdImg>();
+function adImage(src: string): AdImg | null {
   let e = _adImgs.get(src);
   if (!e) {
     if (typeof Image === 'undefined') return null;
     const img = new Image();
-    e = { img, ready: false };
+    e = { img, ready: false, crop: { x: 0, y: 0, w: 1, h: 1 } };
     _adImgs.set(src, e);
     img.src = src;
-    const done = () => { e!.ready = true; };
+    const done = () => {
+      const iw = img.naturalWidth || 1, ih = img.naturalHeight || 1;
+      e!.crop = { x: 0, y: 0, w: iw, h: ih };
+      // Trim FULLY-TRANSPARENT margins → the opaque content bbox, so a logo with baked-in padding
+      // still fills the face. Opaque artwork (a card/poster) has no transparent edge → no change.
+      try {
+        if (typeof document !== 'undefined') {
+          const c = document.createElement('canvas'); c.width = iw; c.height = ih;
+          const cx = c.getContext('2d');
+          if (cx) {
+            cx.drawImage(img, 0, 0);
+            const d = cx.getImageData(0, 0, iw, ih).data;
+            let x0 = iw, y0 = ih, x1 = -1, y1 = -1;
+            for (let y = 0; y < ih; y++) for (let x = 0; x < iw; x++) {
+              if (d[(y * iw + x) * 4 + 3] > 12) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+            }
+            if (x1 >= x0 && y1 >= y0) e!.crop = { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
+          }
+        }
+      } catch { /* cross-origin taint → keep the full frame */ }
+      e!.ready = true;
+    };
     if (typeof img.decode === 'function') img.decode().then(done).catch(() => { /* keep placeholder */ });
     else img.onload = () => { if (img.naturalWidth > 0) done(); };
   }
-  return e.ready ? e.img : null;
+  return e.ready ? e : null;
 }
 
 // A standing billboard is drawn in TWO passes so a car can drive UNDER it and hide behind it:
@@ -2204,14 +2233,20 @@ function drawBillboardBody(
   // the "YOUR AD HERE" placeholder. The face is a flat upright rectangle = the player-facing
   // orientation, so the ad follows the same look as the text did.
   const faceX = cxPx - halfW + fr, faceY = panelTop + fr, faceW = W - 2 * fr, faceH = boardH - 2 * fr;
-  const img = ad ? adImage(ad.img) : null;
-  if (img) {
-    const iw = img.naturalWidth || 1, ih = img.naturalHeight || 1;
-    const sc = Math.min(faceW / iw, faceH / ih);   // contain: whole artwork visible, aspect kept
+  const a = ad ? adImage(ad.img) : null;
+  if (a) {
+    const cr = a.crop, iw = cr.w, ih = cr.h;
+    let sc: number;
+    if (ad!.fit === 'cover') {
+      sc = Math.max(faceW / iw, faceH / ih);          // fill edge-to-edge, crop the overflow
+    } else {
+      const pad = 0.055;                              // small breathing margin for 'contain'
+      sc = Math.min(faceW * (1 - 2 * pad) / iw, faceH * (1 - 2 * pad) / ih);
+    }
     const dw = iw * sc, dh = ih * sc;
     ctx.save();
     ctx.beginPath(); ctx.rect(faceX, faceY, faceW, faceH); ctx.clip();
-    ctx.drawImage(img, faceX + (faceW - dw) / 2, faceY + (faceH - dh) / 2, dw, dh);
+    ctx.drawImage(a.img, cr.x, cr.y, cr.w, cr.h, faceX + (faceW - dw) / 2, faceY + (faceH - dh) / 2, dw, dh);
     ctx.restore();
   } else {
     // Placeholder text: "YOUR AD" / "HERE", centred, bold, dark — clear from top-down.
