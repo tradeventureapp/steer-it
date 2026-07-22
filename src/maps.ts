@@ -2083,7 +2083,7 @@ interface Billboard { sx: number; sy: number; scale: number; ad?: AdSlot; }
 const CIRCUIT_BILLBOARDS: Billboard[] = [
   // UPPER-right pocket → STEER IT (transparent wordmark, contain-fitted after trimming its padding)
   { sx: 1351, sy: 369, scale: 1,
-    ad: { img: '/ads/Steer It Logo - Full transparent.png', url: 'https://steerit.app/' } },
+    ad: { img: '/ads/steer-it-logo.png', url: 'https://steerit.app/' } },
   // below-left → placeholder ("YOUR AD HERE"), not clickable
   { sx: 1291, sy: 494, scale: 1 },
   // top-centre (biggest, 1.33×) → TRADEVENTURE (dark link-card poster, cover-fitted edge-to-edge)
@@ -2161,7 +2161,9 @@ function adImage(src: string): AdImg | null {
       } catch { /* cross-origin taint → keep the full frame */ }
       e!.ready = true;
     };
-    if (typeof img.decode === 'function') img.decode().then(done).catch(() => { /* keep placeholder */ });
+    const fail = (why: unknown) => console.warn(`[ad] billboard image failed to load: "${src}" —`, why);
+    img.onerror = () => fail('404 / network / bad path');
+    if (typeof img.decode === 'function') img.decode().then(done).catch((err) => fail(err));
     else img.onload = () => { if (img.naturalWidth > 0) done(); };
   }
   return e.ready ? e : null;
