@@ -2053,23 +2053,26 @@ function drawCircuitGrid(ctx: CanvasRenderingContext2D, offX: number, offY: numb
 // vertically (upper-middle + lower-middle). Each is a SOLID obstacle (its base footprint feeds
 // world.rects → the existing capsule-vs-rect springy collision, restitution 0.35). Positions are
 // SKETCH coords (track-relative, so they stay put on any screen), like CIRCUIT_FINISH.
-const BILLBOARD_SKETCH: Array<[number, number]> = [
-  [1351, 369],   // UPPER billboard (boss-placed, right-hand infield pocket)
-  [1291, 494],   // LOWER billboard (boss-placed, below-left)
+// [sketchX, sketchY, scale] — scale 1 = the reference size the two originals use; the third is 2×.
+const BILLBOARD_SKETCH: Array<[number, number, number]> = [
+  [1351, 369, 1],   // UPPER billboard (boss-placed, right-hand infield pocket)
+  [1291, 494, 1],   // LOWER billboard (boss-placed, below-left)
+  [988, 195, 1.333],  // THIRD billboard, ~1.33× (2× reduced by 1/3) — boss-placed (top-centre infield)
 ];
-const BILLBOARD_W_M = 26.1;      // board width (metres) — sized so it reads big top-down (the size the
-                                 // boss approved on the old render, corrected for the true track scale)
+const BILLBOARD_W_M = 26.1;      // board width (metres) at scale 1 — sized so it reads big top-down (the
+                                 // size the boss approved, corrected for the true track scale)
 const BILLBOARD_LEG_DX_M = BILLBOARD_W_M * 0.33;   // each leg's offset from centre (matches drawBillboard)
 const BILLBOARD_LEG_R = BILLBOARD_W_M * 0.045 / 2; // collision radius = the drawn leg's (post) radius
 
 // Collision: a small CIRCLE the diameter of the leg (post) at EACH leg's exact ground-contact point
-// — a solid round obstacle (full-circle arc, car stays outside), NOT a base plate. One per leg.
+// — a solid round obstacle (full-circle arc, car stays outside), NOT a base plate. One per leg, and
+// the whole billboard (legs + reach) scales with its per-billboard `scale`.
 function circuitBillboardArcs(): ObstacleArc[] {
   const out: ObstacleArc[] = [];
-  for (const [sx, sy] of BILLBOARD_SKETCH) {
+  for (const [sx, sy, scale] of BILLBOARD_SKETCH) {
     const w = circuitToWorld(sx, sy);
-    for (const dx of [-BILLBOARD_LEG_DX_M, BILLBOARD_LEG_DX_M]) {
-      out.push({ cx: w.x + dx, cy: w.y, r: BILLBOARD_LEG_R, a0: 0, a1: Math.PI * 2, inside: false });
+    for (const dx of [-BILLBOARD_LEG_DX_M * scale, BILLBOARD_LEG_DX_M * scale]) {
+      out.push({ cx: w.x + dx, cy: w.y, r: BILLBOARD_LEG_R * scale, a0: 0, a1: Math.PI * 2, inside: false });
     }
   }
   return out;
@@ -2149,18 +2152,19 @@ function drawBillboardBody(ctx: CanvasRenderingContext2D, cxPx: number, cyPx: nu
   ctx.restore();
 }
 
-// Shadows on the grass (under the cars).
+// Shadows on the grass (under the cars). The base sits at (w.x,w.y)·px; the billboard is drawn at
+// px·scale so every dimension scales with its per-billboard `scale` (position stays put).
 function drawCircuitBillboardShadows(ctx: CanvasRenderingContext2D, px: number) {
-  for (const [sx, sy] of BILLBOARD_SKETCH) {
+  for (const [sx, sy, scale] of BILLBOARD_SKETCH) {
     const w = circuitToWorld(sx, sy);
-    drawBillboardShadow(ctx, w.x * px, w.y * px, px);
+    drawBillboardShadow(ctx, w.x * px, w.y * px, px * scale);
   }
 }
 // Bodies (posts + panel) over the cars — a car under a panel hides behind it.
 function drawCircuitBillboardsAbove(ctx: CanvasRenderingContext2D, px: number) {
-  for (const [sx, sy] of BILLBOARD_SKETCH) {
+  for (const [sx, sy, scale] of BILLBOARD_SKETCH) {
     const w = circuitToWorld(sx, sy);
-    drawBillboardBody(ctx, w.x * px, w.y * px, px);
+    drawBillboardBody(ctx, w.x * px, w.y * px, px * scale);
   }
 }
 
