@@ -2078,12 +2078,16 @@ export interface AdSlot {
   // margin (fully-transparent edges are auto-trimmed first so a padded logo still fills the face).
   // 'cover' = fill the face edge-to-edge (crop the overflow) — good for a full poster/card artwork.
   readonly fit?: 'contain' | 'cover';
+  // Optional sub-rect of the (transparent-trimmed) artwork to actually use, as fractions 0..1
+  // [x, y, w, h] — e.g. drop a fine subtitle band that can't survive being scaled to billboard
+  // size. Default = the whole trimmed image.
+  readonly crop?: readonly [number, number, number, number];
 }
 interface Billboard { sx: number; sy: number; scale: number; ad?: AdSlot; }
 const CIRCUIT_BILLBOARDS: Billboard[] = [
   // UPPER-right pocket → STEER IT (transparent wordmark, contain-fitted after trimming its padding)
   { sx: 1351, sy: 369, scale: 1,
-    ad: { img: '/ads/steer-it-logo.png', url: 'https://steerit.app/' } },
+    ad: { img: '/ads/steer-it-logo.png', url: 'https://steerit.app/', crop: [0, 0, 1, 0.62] } },   // wordmark only (drop the fine subtitle)
   // below-left → placeholder ("YOUR AD HERE"), not clickable
   { sx: 1291, sy: 494, scale: 1 },
   // top-centre (biggest, 1.33×) → TRADEVENTURE (dark link-card poster, cover-fitted edge-to-edge)
@@ -2126,47 +2130,68 @@ function circuitAdAt(xM: number, yM: number): string | null {
   return null;
 }
 
-// Ad images load async; a billboard BODY is redrawn every frame (drawAboveCars), so once an image
-// decodes it simply appears next frame — no re-bake needed. Returns the image + its opaque-content
-// crop once decoded (else null → the "YOUR AD HERE" placeholder shows meanwhile / if there's no ad).
-interface AdImg { img: HTMLImageElement; ready: boolean; crop: { x: number; y: number; w: number; h: number }; }
-const _adImgs = new Map<string, AdImg>();
-function adImage(src: string): AdImg | null {
-  let e = _adImgs.get(src);
+// Ad artwork is PRE-BAKED once (async) into a small, crisp canvas: trim transparent margins → apply
+// the optional crop (drop e.g. an unreadable subtitle) → PROGRESSIVELY downscale (repeated halving
+// with high-quality smoothing) to a sane max size. That fixes the "shrink a 3450 px image straight
+// to ~200 px at draw time" smudge — the billboard then blits a canvas already near its on-screen
+// size, so it stays sharp. Drawn every frame (drawAboveCars) → appears next frame once baked; null
+// until then / on failure (→ the "YOUR AD HERE" placeholder, plus a console.warn — never silent).
+interface AdArt { canvas: HTMLCanvasElement; ready: boolean; }
+const AD_ART_MAX = 700;   // max baked artwork dimension (px) — headroom above any on-screen face size
+const _adArt = new Map<string, AdArt>();
+function adArt(ad: AdSlot): HTMLCanvasElement | null {
+  let e = _adArt.get(ad.img);
   if (!e) {
-    if (typeof Image === 'undefined') return null;
+    if (typeof Image === 'undefined' || typeof document === 'undefined') return null;
     const img = new Image();
-    e = { img, ready: false, crop: { x: 0, y: 0, w: 1, h: 1 } };
-    _adImgs.set(src, e);
-    img.src = src;
-    const done = () => {
-      const iw = img.naturalWidth || 1, ih = img.naturalHeight || 1;
-      e!.crop = { x: 0, y: 0, w: iw, h: ih };
-      // Trim FULLY-TRANSPARENT margins → the opaque content bbox, so a logo with baked-in padding
-      // still fills the face. Opaque artwork (a card/poster) has no transparent edge → no change.
-      try {
-        if (typeof document !== 'undefined') {
-          const c = document.createElement('canvas'); c.width = iw; c.height = ih;
-          const cx = c.getContext('2d');
-          if (cx) {
-            cx.drawImage(img, 0, 0);
-            const d = cx.getImageData(0, 0, iw, ih).data;
-            let x0 = iw, y0 = ih, x1 = -1, y1 = -1;
-            for (let y = 0; y < ih; y++) for (let x = 0; x < iw; x++) {
-              if (d[(y * iw + x) * 4 + 3] > 12) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
-            }
-            if (x1 >= x0 && y1 >= y0) e!.crop = { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
-          }
-        }
-      } catch { /* cross-origin taint → keep the full frame */ }
-      e!.ready = true;
-    };
-    const fail = (why: unknown) => console.warn(`[ad] billboard image failed to load: "${src}" —`, why);
+    e = { canvas: document.createElement('canvas'), ready: false };
+    _adArt.set(ad.img, e);
+    img.src = ad.img;
+    const fail = (why: unknown) => console.warn(`[ad] billboard image failed to load: "${ad.img}" —`, why);
     img.onerror = () => fail('404 / network / bad path');
+    const done = () => { try { bakeAdArt(e!.canvas, img, ad.crop); e!.ready = true; } catch (err) { fail(err); } };
     if (typeof img.decode === 'function') img.decode().then(done).catch((err) => fail(err));
     else img.onload = () => { if (img.naturalWidth > 0) done(); };
   }
-  return e.ready ? e : null;
+  return e.ready ? e.canvas : null;
+}
+function bakeAdArt(out: HTMLCanvasElement, img: HTMLImageElement, crop?: readonly [number, number, number, number]) {
+  const iw = img.naturalWidth || 1, ih = img.naturalHeight || 1;
+  // Trim fully-transparent margins → the opaque content bbox (a padded logo still fills the face).
+  let bx = 0, by = 0, bw = iw, bh = ih;
+  const c = document.createElement('canvas'); c.width = iw; c.height = ih;
+  const g = c.getContext('2d');
+  if (g) {
+    g.drawImage(img, 0, 0);
+    const d = g.getImageData(0, 0, iw, ih).data;
+    let x0 = iw, y0 = ih, x1 = -1, y1 = -1;
+    for (let y = 0; y < ih; y++) for (let x = 0; x < iw; x++) {
+      if (d[(y * iw + x) * 4 + 3] > 12) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+    }
+    if (x1 >= x0 && y1 >= y0) { bx = x0; by = y0; bw = x1 - x0 + 1; bh = y1 - y0 + 1; }
+  }
+  // Optional crop (fractions of the trimmed bbox) — e.g. keep only the wordmark, drop the subtitle.
+  let sx = bx, sy = by, sw = bw, sh = bh;
+  if (crop) { sx = bx + crop[0] * bw; sy = by + crop[1] * bh; sw = crop[2] * bw; sh = crop[3] * bh; }
+  sw = Math.max(1, sw); sh = Math.max(1, sh);
+  // Extract the crop, then halve toward the target with high-quality smoothing (no one-step smudge).
+  const scale = Math.min(1, AD_ART_MAX / Math.max(sw, sh));
+  const tw = Math.max(1, Math.round(sw * scale)), th = Math.max(1, Math.round(sh * scale));
+  let cur = document.createElement('canvas'); cur.width = Math.max(1, Math.round(sw)); cur.height = Math.max(1, Math.round(sh));
+  let cg = cur.getContext('2d');
+  if (cg) { cg.imageSmoothingEnabled = true; cg.imageSmoothingQuality = 'high'; cg.drawImage(img, sx, sy, sw, sh, 0, 0, cur.width, cur.height); }
+  while (cur.width > tw * 2 && cur.height > th * 2) {
+    const nw = Math.max(tw, Math.round(cur.width / 2)), nh = Math.max(th, Math.round(cur.height / 2));
+    const nx = document.createElement('canvas'); nx.width = nw; nx.height = nh;
+    const ng = nx.getContext('2d');
+    if (!ng) break;
+    ng.imageSmoothingEnabled = true; ng.imageSmoothingQuality = 'high';
+    ng.drawImage(cur, 0, 0, cur.width, cur.height, 0, 0, nw, nh);
+    cur = nx;
+  }
+  out.width = tw; out.height = th;
+  const fg = out.getContext('2d');
+  if (fg) { fg.imageSmoothingEnabled = true; fg.imageSmoothingQuality = 'high'; fg.drawImage(cur, 0, 0, cur.width, cur.height, 0, 0, tw, th); }
 }
 
 // A standing billboard is drawn in TWO passes so a car can drive UNDER it and hide behind it:
@@ -2235,20 +2260,21 @@ function drawBillboardBody(
   // the "YOUR AD HERE" placeholder. The face is a flat upright rectangle = the player-facing
   // orientation, so the ad follows the same look as the text did.
   const faceX = cxPx - halfW + fr, faceY = panelTop + fr, faceW = W - 2 * fr, faceH = boardH - 2 * fr;
-  const a = ad ? adImage(ad.img) : null;
-  if (a) {
-    const cr = a.crop, iw = cr.w, ih = cr.h;
+  const art = ad ? adArt(ad) : null;
+  if (art) {
+    const iw = art.width, ih = art.height;
     let sc: number;
     if (ad!.fit === 'cover') {
       sc = Math.max(faceW / iw, faceH / ih);          // fill edge-to-edge, crop the overflow
     } else {
-      const pad = 0.055;                              // small breathing margin for 'contain'
+      const pad = 0.04;                               // small breathing margin for 'contain'
       sc = Math.min(faceW * (1 - 2 * pad) / iw, faceH * (1 - 2 * pad) / ih);
     }
     const dw = iw * sc, dh = ih * sc;
     ctx.save();
+    ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
     ctx.beginPath(); ctx.rect(faceX, faceY, faceW, faceH); ctx.clip();
-    ctx.drawImage(a.img, cr.x, cr.y, cr.w, cr.h, faceX + (faceW - dw) / 2, faceY + (faceH - dh) / 2, dw, dh);
+    ctx.drawImage(art, faceX + (faceW - dw) / 2, faceY + (faceH - dh) / 2, dw, dh);
     ctx.restore();
   } else {
     // Placeholder text: "YOUR AD" / "HERE", centred, bold, dark — clear from top-down.
