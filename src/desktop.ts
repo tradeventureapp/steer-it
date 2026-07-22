@@ -852,6 +852,23 @@ canvas.addEventListener('pointercancel', (e) => {
   void e;
 });
 
+// ---------- Clickable AD billboards (canvas hit-test) ----------
+// Billboards with a configured ad are clickable AT ALL TIMES (incl. during a race — players use
+// phones, the mouse is free). Hover shows a pointer cursor; a click opens the ad URL in a new tab.
+// Hit-testing maps the screen point to WORLD metres and asks the map (adAt) for the ad on the
+// billboard's oriented on-screen face. Maps without ads (adAt undefined) are unaffected.
+canvas.addEventListener('pointermove', (e) => {
+  if (editorMode || draggedObstacle || !currentMap.adAt) return;   // editor/drag own the cursor
+  const { x, y } = screenToWorld(e.clientX, e.clientY);
+  canvas.style.cursor = currentMap.adAt(x, y) ? 'pointer' : 'default';
+});
+canvas.addEventListener('click', (e) => {
+  if (editorMode || !currentMap.adAt) return;
+  const { x, y } = screenToWorld(e.clientX, e.clientY);
+  const url = currentMap.adAt(x, y);
+  if (url) window.open(url, '_blank', 'noopener,noreferrer');
+});
+
 // Start the async surface bitmap (asphalt) load+decode NOW, so it is decoded long before the
 // circuit is navigated to — the first circuit bake then uses the real texture, deterministically,
 // with no grey→pop and no reliance on the async re-bake.

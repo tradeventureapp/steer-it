@@ -124,6 +124,9 @@ export interface MapDefinition {
   // Optional layer drawn AFTER the cars — for tall props whose raised parts should occlude a
   // car passing UNDER them (the circuit's standing billboards: drive under → hide behind it).
   drawAboveCars?(ctx: CanvasRenderingContext2D, world: MapWorld, px: number): void;
+  // Optional AD hit-test: the click URL of a clickable ad billboard whose on-screen face contains
+  // the WORLD point (xM,yM), else null. The host uses it for a pointer cursor + click-to-open.
+  adAt?(xM: number, yM: number): string | null;
 
   // ---- Spawn + bounds ----
   // Spawn pose for a slot index (per-map layout). Non-overlapping for N.
@@ -2053,14 +2056,36 @@ function drawCircuitGrid(ctx: CanvasRenderingContext2D, offX: number, offY: numb
 // vertically (upper-middle + lower-middle). Each is a SOLID obstacle (its base footprint feeds
 // world.rects → the existing capsule-vs-rect springy collision, restitution 0.35). Positions are
 // SKETCH coords (track-relative, so they stay put on any screen), like CIRCUIT_FINISH.
-// [sketchX, sketchY, scale] — scale 1 = the reference size the two originals use; the third is 2×.
-const BILLBOARD_SKETCH: Array<[number, number, number]> = [
-  [1351, 369, 1],   // UPPER billboard (boss-placed, right-hand infield pocket)
-  [1291, 494, 1],   // LOWER billboard (boss-placed, below-left)
-  [988, 195, 1.333],  // THIRD billboard, ~1.33× (2× reduced by 1/3) — boss-placed (top-centre infield)
+// ============================================================================================
+//  BILLBOARDS = AD SLOTS.  Each billboard is a stand-on-the-grass ad slot.
+//
+//  HOW TO PUT AN AD IN A SLOT (no DB, no admin — just edit this list):
+//    add an `ad` to the entry, e.g.
+//      { sx: 988, sy: 195, scale: 1.333, ad: { img: '/ads/steerit.png', url: 'https://steerit.app' } }
+//    • `img`  = the artwork/logo. Drop the file in `public/ads/` and reference it as
+//               '/ads/<file>' (Vite serves public/ at the site root), or use a full https URL.
+//    • `url`  = where clicking the billboard sends the player (opens in a NEW TAB).
+//    No `ad` ⇒ the slot shows the "YOUR AD HERE" placeholder and is NOT clickable.
+//
+//  Positions are SKETCH coords (track-relative → stable on any screen); scale 1 = the reference
+//  size of the two originals. This plain list maps 1:1 to a future Supabase row
+//  (map_id, sx, sy, scale, ad_img, ad_url) — moving it there is a data-source swap, not a rewrite.
+// ============================================================================================
+export interface AdSlot {
+  readonly img: string;   // '/ads/<file>' (in public/ads/) or a full https URL — the ad artwork
+  readonly url: string;   // click-through target, opened in a new tab
+}
+interface Billboard { sx: number; sy: number; scale: number; ad?: AdSlot; }
+const CIRCUIT_BILLBOARDS: Billboard[] = [
+  { sx: 1351, sy: 369, scale: 1 },       // UPPER-right pocket
+  { sx: 1291, sy: 494, scale: 1 },       // below-left
+  { sx: 988,  sy: 195, scale: 1.333 },   // top-centre, 1.33×
+  // Example live ad (add `ad: {...}` to any entry above):
+  //   { sx: 988, sy: 195, scale: 1.333, ad: { img: '/ads/example.png', url: 'https://example.com' } }
 ];
-const BILLBOARD_W_M = 26.1;      // board width (metres) at scale 1 — sized so it reads big top-down (the
-                                 // size the boss approved, corrected for the true track scale)
+const BILLBOARD_W_M = 26.1;      // board width (metres) at scale 1 — sized so it reads big top-down
+const BILLBOARD_BOARD_H_M = 10.5; // panel height (metres) at scale 1
+const BILLBOARD_POST_H_M = 5.6;   // legs lift the panel this far above the base (metres) at scale 1
 const BILLBOARD_LEG_DX_M = BILLBOARD_W_M * 0.33;   // each leg's offset from centre (matches drawBillboard)
 const BILLBOARD_LEG_R = BILLBOARD_W_M * 0.045 / 2; // collision radius = the drawn leg's (post) radius
 
@@ -2069,13 +2094,48 @@ const BILLBOARD_LEG_R = BILLBOARD_W_M * 0.045 / 2; // collision radius = the dra
 // the whole billboard (legs + reach) scales with its per-billboard `scale`.
 function circuitBillboardArcs(): ObstacleArc[] {
   const out: ObstacleArc[] = [];
-  for (const [sx, sy, scale] of BILLBOARD_SKETCH) {
-    const w = circuitToWorld(sx, sy);
-    for (const dx of [-BILLBOARD_LEG_DX_M * scale, BILLBOARD_LEG_DX_M * scale]) {
-      out.push({ cx: w.x + dx, cy: w.y, r: BILLBOARD_LEG_R * scale, a0: 0, a1: Math.PI * 2, inside: false });
+  for (const bb of CIRCUIT_BILLBOARDS) {
+    const w = circuitToWorld(bb.sx, bb.sy);
+    for (const dx of [-BILLBOARD_LEG_DX_M * bb.scale, BILLBOARD_LEG_DX_M * bb.scale]) {
+      out.push({ cx: w.x + dx, cy: w.y, r: BILLBOARD_LEG_R * bb.scale, a0: 0, a1: Math.PI * 2, inside: false });
     }
   }
   return out;
+}
+
+// An ad's click URL if a WORLD point falls on a configured billboard's clickable PANEL FACE, else
+// null (placeholders and non-face points are not clickable). Face rect = the drawn panel, in world
+// metres — kept in sync with drawBillboardBody via the shared BILLBOARD_*_M constants.
+function circuitAdAt(xM: number, yM: number): string | null {
+  for (let i = CIRCUIT_BILLBOARDS.length - 1; i >= 0; i--) {   // topmost (last-drawn) first
+    const bb = CIRCUIT_BILLBOARDS[i];
+    if (!bb.ad) continue;
+    const w = circuitToWorld(bb.sx, bb.sy);
+    const halfW = BILLBOARD_W_M * bb.scale / 2;
+    const panelBottom = w.y - BILLBOARD_POST_H_M * bb.scale;
+    const panelTop = panelBottom - BILLBOARD_BOARD_H_M * bb.scale;
+    if (xM >= w.x - halfW && xM <= w.x + halfW && yM >= panelTop && yM <= panelBottom) return bb.ad.url;
+  }
+  return null;
+}
+
+// Ad images load async; a billboard BODY is redrawn every frame (drawAboveCars), so once an image
+// decodes it simply appears next frame — no re-bake needed. Returns the image only once decoded
+// (else null → the "YOUR AD HERE" placeholder shows meanwhile / if there is no ad).
+const _adImgs = new Map<string, { img: HTMLImageElement; ready: boolean }>();
+function adImage(src: string): HTMLImageElement | null {
+  let e = _adImgs.get(src);
+  if (!e) {
+    if (typeof Image === 'undefined') return null;
+    const img = new Image();
+    e = { img, ready: false };
+    _adImgs.set(src, e);
+    img.src = src;
+    const done = () => { e!.ready = true; };
+    if (typeof img.decode === 'function') img.decode().then(done).catch(() => { /* keep placeholder */ });
+    else img.onload = () => { if (img.naturalWidth > 0) done(); };
+  }
+  return e.ready ? e.img : null;
 }
 
 // A standing billboard is drawn in TWO passes so a car can drive UNDER it and hide behind it:
@@ -2092,10 +2152,12 @@ function drawBillboardShadow(ctx: CanvasRenderingContext2D, cxPx: number, cyPx: 
   ctx.restore();
 }
 
-function drawBillboardBody(ctx: CanvasRenderingContext2D, cxPx: number, cyPx: number, px: number) {
+function drawBillboardBody(
+  ctx: CanvasRenderingContext2D, cxPx: number, cyPx: number, px: number, ad?: AdSlot,
+) {
   const W = BILLBOARD_W_M * px;
-  const boardH = 10.5 * px;      // panel height on screen
-  const postH = 5.6 * px;        // legs lift the panel above the base
+  const boardH = BILLBOARD_BOARD_H_M * px;   // panel height on screen
+  const postH = BILLBOARD_POST_H_M * px;     // legs lift the panel above the base
   const panelBottom = cyPx - postH;
   const panelTop = panelBottom - boardH;
   const halfW = W / 2;
@@ -2138,33 +2200,48 @@ function drawBillboardBody(ctx: CanvasRenderingContext2D, cxPx: number, cyPx: nu
   ctx.fillStyle = faceGrad;
   ctx.fillRect(cxPx - halfW + fr, panelTop + fr, W - 2 * fr, boardH - 2 * fr);
 
-  // Placeholder text: "YOUR AD" / "HERE", centred, bold, dark — clear from top-down.
-  const cyText = (panelTop + panelBottom) / 2;
-  ctx.fillStyle = '#20222a';
-  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  const fs = boardH * 0.30;
-  ctx.font = `700 ${fs}px system-ui, sans-serif`;
-  ctx.fillText('YOUR AD', cxPx, cyText - fs * 0.6);
-  ctx.fillText('HERE', cxPx, cyText + fs * 0.6);
-  // a thin brand-warm accent bar under the text
-  ctx.fillStyle = 'rgba(232,120,60,0.9)';
-  ctx.fillRect(cxPx - halfW + fr * 1.5, panelBottom - fr * 1.5 - Math.max(2, boardH * 0.04), W - 3 * fr, Math.max(2, boardH * 0.04));
+  // Face content: a configured AD image (fitted + centred, "printed" on the upright face), else
+  // the "YOUR AD HERE" placeholder. The face is a flat upright rectangle = the player-facing
+  // orientation, so the ad follows the same look as the text did.
+  const faceX = cxPx - halfW + fr, faceY = panelTop + fr, faceW = W - 2 * fr, faceH = boardH - 2 * fr;
+  const img = ad ? adImage(ad.img) : null;
+  if (img) {
+    const iw = img.naturalWidth || 1, ih = img.naturalHeight || 1;
+    const sc = Math.min(faceW / iw, faceH / ih);   // contain: whole artwork visible, aspect kept
+    const dw = iw * sc, dh = ih * sc;
+    ctx.save();
+    ctx.beginPath(); ctx.rect(faceX, faceY, faceW, faceH); ctx.clip();
+    ctx.drawImage(img, faceX + (faceW - dw) / 2, faceY + (faceH - dh) / 2, dw, dh);
+    ctx.restore();
+  } else {
+    // Placeholder text: "YOUR AD" / "HERE", centred, bold, dark — clear from top-down.
+    const cyText = (panelTop + panelBottom) / 2;
+    ctx.fillStyle = '#20222a';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const fs = boardH * 0.30;
+    ctx.font = `700 ${fs}px system-ui, sans-serif`;
+    ctx.fillText('YOUR AD', cxPx, cyText - fs * 0.6);
+    ctx.fillText('HERE', cxPx, cyText + fs * 0.6);
+    // a thin brand-warm accent bar under the text
+    ctx.fillStyle = 'rgba(232,120,60,0.9)';
+    ctx.fillRect(cxPx - halfW + fr * 1.5, panelBottom - fr * 1.5 - Math.max(2, boardH * 0.04), W - 3 * fr, Math.max(2, boardH * 0.04));
+  }
   ctx.restore();
 }
 
 // Shadows on the grass (under the cars). The base sits at (w.x,w.y)·px; the billboard is drawn at
 // px·scale so every dimension scales with its per-billboard `scale` (position stays put).
 function drawCircuitBillboardShadows(ctx: CanvasRenderingContext2D, px: number) {
-  for (const [sx, sy, scale] of BILLBOARD_SKETCH) {
-    const w = circuitToWorld(sx, sy);
-    drawBillboardShadow(ctx, w.x * px, w.y * px, px * scale);
+  for (const bb of CIRCUIT_BILLBOARDS) {
+    const w = circuitToWorld(bb.sx, bb.sy);
+    drawBillboardShadow(ctx, w.x * px, w.y * px, px * bb.scale);
   }
 }
-// Bodies (posts + panel) over the cars — a car under a panel hides behind it.
+// Bodies (posts + panel + ad/placeholder) over the cars — a car under a panel hides behind it.
 function drawCircuitBillboardsAbove(ctx: CanvasRenderingContext2D, px: number) {
-  for (const [sx, sy, scale] of BILLBOARD_SKETCH) {
-    const w = circuitToWorld(sx, sy);
-    drawBillboardBody(ctx, w.x * px, w.y * px, px * scale);
+  for (const bb of CIRCUIT_BILLBOARDS) {
+    const w = circuitToWorld(bb.sx, bb.sy);
+    drawBillboardBody(ctx, w.x * px, w.y * px, px * bb.scale, bb.ad);
   }
 }
 
@@ -2191,9 +2268,11 @@ export const circuitMap: MapDefinition = {
   drawBackground(ctx, wPx, hPx) { drawCircuitSurface(ctx, wPx, hPx); },
   // Under the cars: the billboards' ground shadows only.
   drawObstacles(ctx, _world, px) { drawCircuitBillboardShadows(ctx, px); },
-  // Over the cars: the raised billboard bodies (posts + panel) — a car driving under a panel
-  // passes UNDER it and hides behind it.
+  // Over the cars: the raised billboard bodies (posts + panel + ad) — a car driving under a
+  // panel passes UNDER it and hides behind it.
   drawAboveCars(ctx, _world, px) { drawCircuitBillboardsAbove(ctx, px); },
+  // Ad click hit-test (billboard faces) — for the pointer cursor + click-to-open in desktop.ts.
+  adAt(xM, yM) { return circuitAdAt(xM, yM); },
 
   // Built-in start/finish: a START gate on the flat bottom straight, spanning the track
   // width so a car always trips it. In circuit mode this single gate is start AND finish,
