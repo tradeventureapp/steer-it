@@ -2097,7 +2097,7 @@ function drawBillboardBody(ctx: CanvasRenderingContext2D, cxPx: number, cyPx: nu
   const panelTop = panelBottom - boardH;
   const halfW = W / 2;
   const legX1 = cxPx - BILLBOARD_LEG_DX_M * px, legX2 = cxPx + BILLBOARD_LEG_DX_M * px;   // = the collision feet
-  const depth = Math.max(3, W * 0.05);   // extruded thickness (down/right) for the 3D read
+  const depth = Math.max(2, W * 0.0333); // extruded thickness (down/right) for the 3D read (2/3 = thinner)
 
   ctx.save();
   ctx.lineJoin = 'round'; ctx.lineCap = 'round';
@@ -2127,7 +2127,7 @@ function drawBillboardBody(ctx: CanvasRenderingContext2D, cxPx: number, cyPx: nu
   ctx.fill();
 
   // Panel frame (dark) + face (light) — the readable ad surface, upright toward the camera.
-  const fr = Math.max(2, W * 0.03);
+  const fr = Math.max(1.5, W * 0.02);   // panel frame width (2/3 = thinner)
   ctx.fillStyle = '#14161c';
   ctx.fillRect(cxPx - halfW, panelTop, W, boardH);
   const faceGrad = ctx.createLinearGradient(0, panelTop, 0, panelBottom);
