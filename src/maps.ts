@@ -1479,17 +1479,24 @@ function circuitMask(): Uint8Array | null {
     c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.lineTo(d[0], d[1]); c.lineTo(e[0], e[1]);
     c.closePath(); c.fill();
   }
-  const img = c.getImageData(0, 0, W, H).data;
-  const mask = new Uint8Array(W * H);
-  // Thresholds sit midway between the painted tones, so an anti-aliased edge resolves to
-  // whichever side covers it more — the same half-coverage rule the single-tone mask used.
-  for (let i = 0; i < W * H; i++) {
-    const t = img[i * 4];
-    mask[i] = t > 160 ? MASK_KERB : t > 40 ? MASK_ASPHALT : MASK_GRASS;
+  try {
+    const img = c.getImageData(0, 0, W, H).data;
+    const mask = new Uint8Array(W * H);
+    // Thresholds sit midway between the painted tones, so an anti-aliased edge resolves to
+    // whichever side covers it more — the same half-coverage rule the single-tone mask used.
+    for (let i = 0; i < W * H; i++) {
+      const t = img[i * 4];
+      mask[i] = t > 160 ? MASK_KERB : t > 40 ? MASK_ASPHALT : MASK_GRASS;
+    }
+    _maskW = W; _maskH = H;
+    _circuitMask = mask;
+    return mask;
+  } catch (err) {
+    // getImageData failed (memory) — DON'T cache the failure; a later call retries when
+    // memory frees. surfaceAt then reads null (asphalt-everywhere fallback), never crashes.
+    console.warn('[circuit] surface mask build failed (getImageData):', err);
+    return null;
   }
-  _maskW = W; _maskH = H;
-  _circuitMask = mask;
-  return mask;
 }
 // Ground lookup: ASPHALT (ribbon + kerbs) wins, else GRAVEL (the traps), else grass. Both
 // masks are baked on the SAME grid (CIRCUIT_MASK_PPM === GRAVEL_MASK_PPM over the same world),
@@ -1732,8 +1739,12 @@ function gravelMask(): Uint8Array | null {
     c.globalCompositeOperation = 'source-over';
   };
   carveGap();
-  // 3. read the alpha out
-  const px = c.getImageData(0, 0, W, H).data;
+  // 3. read the alpha out. getImageData can throw under memory pressure — DON'T cache the
+  //    failure (leave _gravelMask undefined so a later call retries); the circuit still renders
+  //    (gravelShape sees null → no gravel this frame) rather than crashing the surface bake.
+  let px: Uint8ClampedArray;
+  try { px = c.getImageData(0, 0, W, H).data; }
+  catch (err) { console.warn('[circuit] gravel mask build failed (getImageData):', err); return null; }
   let m = new Uint8Array(W * H);
   for (let i = 0; i < W * H; i++) m[i] = px[i * 4 + 3] > 127 ? 1 : 0;
   // 4. SMOOTH — separable box blur + threshold ⇒ rounded organic boundaries, thin necks pinched off
@@ -1766,7 +1777,9 @@ function gravelMask(): Uint8Array | null {
   c.globalCompositeOperation = 'copy'; c.putImageData(img, 0, 0);
   c.globalCompositeOperation = 'source-over';
   carveGap();
-  const px2 = c.getImageData(0, 0, W, H).data;
+  let px2: Uint8ClampedArray;
+  try { px2 = c.getImageData(0, 0, W, H).data; }
+  catch (err) { console.warn('[circuit] gravel mask build failed (getImageData 2):', err); return null; }
   for (let i = 0; i < W * H; i++) m[i] = px2[i * 4 + 3] > 127 ? 1 : 0;
   // 6. DROP small fragments — flood-fill connected components, keep only real traps
   const minPx = GRAVEL_MIN_AREA * P * P;
@@ -1801,30 +1814,51 @@ function gravelMask(): Uint8Array | null {
 const GRAVEL_EDGE_SMOOTH_PX = 6;   // screen px — blur that averages the raster's step away
 const GRAVEL_EDGE_AA_PX = 1.4;     // screen px — the AA ramp left on the re-sharpened curve
 
-const gravelShape: SurfaceShape = (m, rc) => {
+// The mask → opaque-alpha bitmap depends ONLY on the (immutable, once-baked) gravel mask,
+// so it is built ONCE and reused across every bake — instead of allocating a fresh
+// _gvW×_gvH canvas + createImageData loop on every drawBackground (the old churn that,
+// map-switch after map-switch, drove the canvas-memory pressure that made images fail).
+let _gravelAlpha: HTMLCanvasElement | null = null;
+function gravelAlphaCanvas(): HTMLCanvasElement | null {
+  if (_gravelAlpha) return _gravelAlpha;
   const mask = gravelMask();
-  if (!mask || typeof document === 'undefined') return;
+  if (!mask || typeof document === 'undefined') return null;
   const mc = document.createElement('canvas'); mc.width = _gvW; mc.height = _gvH;
-  const mcx = mc.getContext('2d'); if (!mcx) return;
+  const mcx = mc.getContext('2d'); if (!mcx) return null;
   const img = mcx.createImageData(_gvW, _gvH);
   for (let i = 0; i < _gvW * _gvH; i++) if (mask[i]) img.data[i * 4 + 3] = 255;
   mcx.putImageData(img, 0, 0);
+  _gravelAlpha = mc;
+  return mc;
+}
+
+const gravelShape: SurfaceShape = (m, rc) => {
+  const alpha = gravelAlphaCanvas();
+  if (!alpha) return;
 
   m.filter = `blur(${GRAVEL_EDGE_SMOOTH_PX}px)`;             // destination px
-  m.drawImage(mc, 0, 0, rc.wPx, rc.hPx);
+  m.drawImage(alpha, 0, 0, rc.wPx, rc.hPx);
   m.filter = 'none';
 
   // Re-sharpen: smoothstep the blurred alpha about 0.5 over a band narrow enough to leave
   // ~GRAVEL_EDGE_AA_PX of ramp (the blur's ramp spans ≈GRAVEL_EDGE_SMOOTH_PX, so the band
   // is that ratio of it). Alpha only — the fill is composited in later, source-in.
-  const big = m.getImageData(0, 0, rc.wPx, rc.hPx), d = big.data;
-  const w = Math.max(0.01, 0.5 * GRAVEL_EDGE_AA_PX / GRAVEL_EDGE_SMOOTH_PX);
-  for (let i = 3; i < d.length; i += 4) {
-    let t = (d[i] / 255 - (0.5 - w)) / (2 * w);
-    t = t < 0 ? 0 : t > 1 ? 1 : t;
-    d[i] = 255 * t * t * (3 - 2 * t);
+  // getImageData can THROW under memory pressure / on a huge or tainted canvas; if it does,
+  // keep the (already-drawn) blurred gravel edge rather than throwing the whole surface bake
+  // (which would abort drawBackground → a black track). A slightly softer kerb-side edge, not
+  // a missing surface.
+  try {
+    const big = m.getImageData(0, 0, rc.wPx, rc.hPx), d = big.data;
+    const w = Math.max(0.01, 0.5 * GRAVEL_EDGE_AA_PX / GRAVEL_EDGE_SMOOTH_PX);
+    for (let i = 3; i < d.length; i += 4) {
+      let t = (d[i] / 255 - (0.5 - w)) / (2 * w);
+      t = t < 0 ? 0 : t > 1 ? 1 : t;
+      d[i] = 255 * t * t * (3 - 2 * t);
+    }
+    m.putImageData(big, 0, 0);
+  } catch (err) {
+    console.warn('[circuit] gravel edge re-sharpen skipped (getImageData failed):', err);
   }
-  m.putImageData(big, 0, 0);
 };
 
 // One surface (asphalt) fills from an image asset, which arrives async. Re-export the library's

@@ -13,7 +13,8 @@ import {
   type MapDefinition, type MapWorld, type MapObstacle, type Surface, type MarkClass,
 } from './maps';
 import { SoundEngine } from './sound';
-import { fitCanvasScale, sizeCanvasFitted, preloadSurfaceAssets } from './surfaces';
+import { fitCanvasScale, sizeCanvasFitted, preloadSurfaceAssets, clearSurfaceCaches,
+  surfaceCacheStats } from './surfaces';
 import { Effects, FX_CONFIG, GRASS_DUST_RGB, GRAVEL_SPRAY_RGB } from './effects';
 import {
   PLAYER_CAP, LOBBY_SYNC_MS, RESILIENCE, EV, colorName, LobbyState,
@@ -943,7 +944,8 @@ function releaseMarkLayers() { tyreMarks.clear(); marksLive = false; }
 // which allocates many screen-sized working canvases). When a cap is needed the surface is drawn
 // into a fitted temp and blit-scaled up (a touch softer, never garbled). On normal screens the
 // cap is 1 → drawn directly into the wallpaper, byte-identical to before.
-function bakeWallpaper() {
+let _wallpaperRetry = 0;   // one-shot re-bake scheduled after a failed bake (memory transient)
+function bakeWallpaperRaw() {
   if (typeof document === 'undefined' || fitCanvasScale(logicalPxW, logicalPxH, 1) >= 1) {
     currentMap.drawBackground(wallpaperCtx, logicalPxW, logicalPxH);
     return;
@@ -958,6 +960,31 @@ function bakeWallpaper() {
   wallpaperCtx.drawImage(tmp, 0, 0, logicalPxW, logicalPxH);   // blit-scale to logical units
   wallpaperCtx.restore();
 }
+// DEFENSIVE: a surface-bake exception (a canvas allocation / getImageData failing under memory
+// pressure) must NEVER leave the wallpaper cleared → a BLACK track. If drawBackground throws,
+// we (1) fill a neutral ground tone so something sensible shows, (2) log, and (3) schedule ONE
+// re-bake shortly after (by which point the churn we just fixed has usually freed the memory).
+function bakeWallpaper() {
+  try {
+    bakeWallpaperRaw();
+  } catch (err) {
+    console.warn('[map] wallpaper bake failed — filling fallback ground + retrying:', err);
+    try {
+      wallpaperCtx.save();
+      wallpaperCtx.setTransform(layerDpr, 0, 0, layerDpr, 0, 0);
+      wallpaperCtx.fillStyle = '#141c12';   // dark grass/ground — never pure black
+      wallpaperCtx.fillRect(0, 0, logicalPxW, logicalPxH);
+      wallpaperCtx.restore();
+    } catch { /* even the fallback fill failed — leave as-is */ }
+    if (!_wallpaperRetry) {
+      _wallpaperRetry = window.setTimeout(() => {
+        _wallpaperRetry = 0;
+        clearSurfaceCaches();   // drop any half-baked cached textures before retrying
+        try { bakeWallpaperRaw(); } catch (e) { console.warn('[map] wallpaper re-bake failed:', e); }
+      }, 250);
+    }
+  }
+}
 
 function resize() {
   // Layers are only rebuilt when their logical size/dpr changed: every time for
@@ -968,6 +995,10 @@ function resize() {
     // The logical grid changed, so the mark layers are the wrong size: drop them and let
     // ensureMarkLayers() rebuild at the new one (same as every other layer being cleared).
     releaseMarkLayers();
+    // Evict the surface texture caches — they key a full screen-sized canvas per (size, angle)
+    // and would otherwise accumulate one per resize / map-switch (the leak behind the failing
+    // allocations). The next bakeWallpaper re-bakes exactly the current size on demand.
+    clearSurfaceCaches();
     const { wM, hM } = logicalMeters();
     world = currentMap.createWorld(wM, hM);
     bakeWallpaper();
@@ -2857,5 +2888,19 @@ function switchMap(id: string): boolean {
     if (markMode === 'race') ensureMarkLayers();
     return markMode;
   };
+// DEV hook: report live offscreen-canvas memory so a long session can be checked for a leak.
+// `steerMemStats()` → surface-texture cache footprint + the fixed layer bytes. Should stay FLAT
+// across map switches / resizes / races (the caches are now evicted + capped).
+(window as unknown as { steerMemStats: () => object }).steerMemStats = () => {
+  const s = surfaceCacheStats();
+  const layerPx = logicalPxW * logicalPxH * (layerDpr * layerDpr);
+  const layerBytes = layerPx * 4 * 3;   // skid + wallpaper + overlay
+  const markBytes = marksLive ? layerPx * 4 * 2 : 0;   // two mark layers
+  return {
+    surfaceCache: { grass: s.grass, gravel: s.gravel, asphalt: s.asphalt, MB: +(s.bytes / 1e6).toFixed(2) },
+    layersMB: +((layerBytes + markBytes) / 1e6).toFixed(2),
+    totalMB: +((s.bytes + layerBytes + markBytes) / 1e6).toFixed(2),
+  };
+};
 // Warm both Stee-Rex skins so the arcade car shows its sprite immediately (never blank).
 preloadSteerex();

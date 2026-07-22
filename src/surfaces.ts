@@ -278,12 +278,21 @@ function cleanFill(shape: SurfaceShape, rc: SurfaceRC, tex: CanvasImageSource,
   return D;
 }
 
+// A baked texture is a FULL canvas at the render size, so each distinct (size, angle)
+// costs ~w·h·4 B. Without a bound these accumulate one screen-sized canvas per size
+// seen across every resize + map-switch + menu-preview → unbounded growth that shows
+// up as silently-failing allocations ("images sometimes don't appear", "black track").
+// Two guards: an explicit evict on map-switch/resize (clearSurfaceCaches, called by the
+// host) AND a hard per-cache cap here so a single churny path can never balloon.
+const SURF_CACHE_MAX = 4;
+
 /** Cache a baked texture per (canvas size, angle). */
 function cached(store: Map<string, HTMLCanvasElement>, rc: SurfaceRC, angle: number,
   bake: (c: CanvasRenderingContext2D, rc: SurfaceRC, angle: number) => void): HTMLCanvasElement | null {
   const key = rc.wPx + 'x' + rc.hPx + '@' + angle.toFixed(2);
   const hit = store.get(key);
   if (hit) return hit;
+  if (store.size >= SURF_CACHE_MAX) store.clear();   // bounded — never accumulate screen-sized canvases
   const cv = makeCanvas(rc.wPx, rc.hPx); if (!cv) return null;
   const c = cv.getContext('2d'); if (!c) return null;
   bake(c, rc, angle);
@@ -311,6 +320,20 @@ function paintThrough(
 const _grassTex = new Map<string, HTMLCanvasElement>();
 const _gravelTex = new Map<string, HTMLCanvasElement>();
 const _asphaltTex = new Map<string, HTMLCanvasElement>();
+
+/** Drop every cached surface texture (call on map-switch / resize so the caches never
+ *  accumulate a full screen-sized canvas per size). The next paint re-bakes on demand. */
+export function clearSurfaceCaches(): void {
+  _grassTex.clear(); _gravelTex.clear(); _asphaltTex.clear();
+}
+
+/** DEV: live texture-cache footprint (entry counts + summed backing bytes) for leak checks. */
+export function surfaceCacheStats(): { grass: number; gravel: number; asphalt: number; bytes: number } {
+  let bytes = 0;
+  for (const store of [_grassTex, _gravelTex, _asphaltTex])
+    for (const cv of store.values()) bytes += cv.width * cv.height * 4;
+  return { grass: _grassTex.size, gravel: _gravelTex.size, asphalt: _asphaltTex.size, bytes };
+}
 
 const GRASS: SurfaceDef = {
   id: 'grass',

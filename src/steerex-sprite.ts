@@ -195,18 +195,26 @@ export function steerexSprite(skin: SteerexSkin): HTMLCanvasElement | null {
     const img = new Image();
     img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgFor(skin));
     const bake = () => {
-      const cv = document.createElement('canvas');
-      cv.width = Math.round(VB.w * STEEREX_RASTER);
-      cv.height = Math.round(VB.h * STEEREX_RASTER);
-      const c = cv.getContext('2d');
-      if (!c) return;
-      c.drawImage(img, 0, 0, cv.width, cv.height);
-      _cache.set(skin, cv);
-      if (!_opaque) measureOpaque(cv);   // both skins share the geometry → measure once
+      try {
+        const cv = document.createElement('canvas');
+        cv.width = Math.round(VB.w * STEEREX_RASTER);
+        cv.height = Math.round(VB.h * STEEREX_RASTER);
+        const c = cv.getContext('2d');
+        if (!c) { _loading.delete(skin); return; }   // no ctx (memory) → allow a later retry
+        c.drawImage(img, 0, 0, cv.width, cv.height);
+        _cache.set(skin, cv);
+        if (!_opaque) measureOpaque(cv);   // both skins share the geometry → measure once
+      } catch {
+        _loading.delete(skin);             // bake threw (memory) → don't get stuck; retry next call
+      }
     };
+    // A decode/load FAILURE (memory pressure, transient) must RELEASE the skin from _loading —
+    // otherwise it stays "loading" forever and the sprite never reappears for the session (the
+    // "car image sometimes doesn't show" bug). Releasing lets the next steerexSprite() retry.
+    const fail = () => { _loading.delete(skin); };
     // decode() gates on the bitmap being canvas-paintable (WebKit fires load early).
-    if (typeof img.decode === 'function') img.decode().then(bake).catch(() => { /* keep null */ });
-    else img.onload = bake;
+    if (typeof img.decode === 'function') img.decode().then(bake).catch(fail);
+    else { img.onload = bake; img.onerror = fail; }
   }
   return null;
 }
