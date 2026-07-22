@@ -581,61 +581,74 @@ function buildMapTiles() {
 }
 
 // ---- CAR tiles (left column) — data-driven per mode so more cars slot in. ----
-interface MenuCar { key: string; name: string; body: string; roof: string; }
+// Collapsed = the NAME only (a small tile). HOVER = a detail flyout with the
+// full spec sheet + description, and (if `image`) the car's sprite. Every field
+// lives in the data here so a new car is one more MenuCar entry.
+interface CarSpec { label: string; value: string; }
+interface MenuCar {
+  key: string;
+  name: string;
+  image?: SteerexSkin;   // sprite skin shown in the flyout; omit → no image (Blitz has no art yet)
+  specs: CarSpec[];
+  blurb: string;
+}
 function modeCars(mode: RaceMode): MenuCar[] {
-  return mode === 'arcade'
-    ? [{ key: 'steerex', name: 'Stee-Rex', body: '#c9ced6', roof: '#3a3f47' }]
-    : [{ key: 'blitz',   name: 'Blitz RS', body: '#c4202a', roof: '#241016' }];
+  if (mode === 'arcade') return [{
+    key: 'steerex', name: 'Stee-Rex', image: 'silver',
+    specs: [
+      { label: 'ENGINE',    value: 'Hydrogen fusion spiral' },
+      { label: 'POWER',     value: '666 kW (893 hp)' },
+      { label: 'DRIVE',     value: 'AWD 40:60' },
+      { label: 'WEIGHT',    value: '900 kg' },
+      { label: '0-100',     value: '2.1 s' },
+      { label: '0-200',     value: '4.6 s' },
+      { label: 'TOP SPEED', value: '300 km/h' },
+      { label: 'TIRES',     value: 'Universal - all surfaces' },
+      { label: 'ORIGIN',    value: '███ CLASSIFIED ███' },
+    ],
+    blurb: "A secret project developed with involvement from a space program. "
+      + "Officially, it doesn't exist.",
+  }];
+  // SIM — Blitz RS. 0-100 + top speed MEASURED from the car (step4 / PHYS4, full
+  // throttle on asphalt): 3.05 s, 246 km/h. No image (no finished design yet).
+  return [{
+    key: 'blitz', name: 'Blitz RS',
+    specs: [
+      { label: 'ENGINE',    value: '2.5L I4 - naturally aspirated' },
+      { label: 'POWER',     value: '276 kW (370 hp)' },
+      { label: 'DRIVE',     value: 'RWD' },
+      { label: 'WEIGHT',    value: '1020 kg' },
+      { label: '0-100',     value: '3.0 s' },
+      { label: 'TOP SPEED', value: '246 km/h' },
+      { label: 'TIRES',     value: 'Slicks - asphalt only' },
+      { label: 'ORIGIN',    value: 'Europe' },
+    ],
+    blurb: '90s European touring car. Group A pedigree - raw, rear-driven, unforgiving. '
+      + 'Brilliant on asphalt, a struggle anywhere else.',
+  }];
 }
-// A simple top-down car thumbnail (no async sprite dependency) in the car's tone.
-function renderCarThumb(c: CanvasRenderingContext2D, RW: number, RH: number, body: string, roof: string) {
-  c.clearRect(0, 0, RW, RH);
-  const bg = c.createRadialGradient(RW / 2, RH * 0.42, 10, RW / 2, RH / 2, RH * 0.8);
-  bg.addColorStop(0, '#241633'); bg.addColorStop(1, '#0a0616');
-  c.fillStyle = bg; c.fillRect(0, 0, RW, RH);
-  const cx = RW / 2, cy = RH / 2;
-  const L = RH * 0.68, W = RW * 0.42, r = W * 0.24;
-  c.save();
-  c.translate(cx, cy);
-  // shadow
-  c.fillStyle = 'rgba(0,0,0,0.45)';
-  roundRectPath(c, -W / 2 + 3, -L / 2 + 6, W, L, r); c.fill();
-  // wheels
-  c.fillStyle = '#15151b';
-  const ww = W * 0.16, wl = L * 0.2;
-  for (const sx of [-1, 1]) for (const sy of [-0.62, 0.62]) {
-    roundRectPath(c, sx * (W / 2 - ww * 0.35) - ww / 2, sy * (L / 2) - wl / 2 - L * 0.03, ww, wl, ww * 0.4);
-    c.fill();
-  }
-  // body
-  const bodyGrad = c.createLinearGradient(-W / 2, 0, W / 2, 0);
-  bodyGrad.addColorStop(0, shadeHex(body, 0.72));
-  bodyGrad.addColorStop(0.5, body);
-  bodyGrad.addColorStop(1, shadeHex(body, 0.72));
-  c.fillStyle = bodyGrad;
-  roundRectPath(c, -W / 2, -L / 2, W, L, r); c.fill();
-  c.strokeStyle = 'rgba(255,255,255,0.16)'; c.lineWidth = 1.5;
-  roundRectPath(c, -W / 2, -L / 2, W, L, r); c.stroke();
-  // windshield + roof
-  c.fillStyle = shadeHex(roof, 1.25);
-  roundRectPath(c, -W * 0.34, -L * 0.24, W * 0.68, L * 0.14, 4); c.fill();
-  c.fillStyle = roof;
-  roundRectPath(c, -W * 0.32, -L * 0.1, W * 0.64, L * 0.26, 4); c.fill();
-  // hood highlight
-  c.fillStyle = 'rgba(255,255,255,0.1)';
-  roundRectPath(c, -W * 0.3, -L * 0.44, W * 0.6, L * 0.12, 4); c.fill();
-  c.restore();
+
+// Draw the car's sprite (cropped to its opaque bbox, nose UP) into a flyout canvas.
+// The sprite bakes async — if it isn't decoded yet, redraw shortly (preloadSteerex
+// warms it at startup, so this is usually a no-op).
+function drawCarImage(cvs: HTMLCanvasElement, skin: SteerexSkin, dpr: number) {
+  const c = cvs.getContext('2d'); if (!c) return;
+  const W = cvs.width / dpr, H = cvs.height / dpr;
+  c.setTransform(dpr, 0, 0, dpr, 0, 0);
+  c.clearRect(0, 0, W, H);
+  const sprite = steerexSprite(skin);
+  if (!sprite) { window.setTimeout(() => drawCarImage(cvs, skin, dpr), 120); return; }
+  const op = steerexOpaque();
+  const sx = op ? op.cxPx - op.widPx / 2 : 0;
+  const sy = op ? op.cyPx - op.lenPx / 2 : 0;
+  const sw = op ? op.widPx : sprite.width;
+  const sh = op ? op.lenPx : sprite.height;
+  const scale = Math.min(W / sw, H / sh) * 0.94;
+  const dw = sw * scale, dh = sh * scale;
+  c.imageSmoothingEnabled = true; c.imageSmoothingQuality = 'high';
+  c.drawImage(sprite, sx, sy, sw, sh, (W - dw) / 2, (H - dh) / 2, dw, dh);
 }
-function roundRectPath(c: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
-  const rr = Math.min(r, w / 2, h / 2);
-  c.beginPath();
-  c.moveTo(x + rr, y);
-  c.arcTo(x + w, y, x + w, y + h, rr);
-  c.arcTo(x + w, y + h, x, y + h, rr);
-  c.arcTo(x, y + h, x, y, rr);
-  c.arcTo(x, y, x + w, y, rr);
-  c.closePath();
-}
+
 function selectCar(key: string) {
   selectedCarKey = key;
   if (carTilesEl) for (const el of Array.from(carTilesEl.children))
@@ -646,31 +659,55 @@ function buildCarTiles() {
   if (!carTilesEl) return;
   carTilesEl.innerHTML = '';
   const dpr = backingDpr();
-  const RW = 360, RH = 240, DW = 180, DH = 120;
   const cars = modeCars(raceMode);
   for (const car of cars) {
-    const tile = document.createElement('button');
-    tile.type = 'button';
-    tile.className = 'map-tile';
-    tile.dataset.carKey = car.key;
+    const card = document.createElement('div');
+    card.className = 'map-tile car-card';
+    card.tabIndex = 0;
+    card.setAttribute('role', 'button');
+    card.dataset.carKey = car.key;
 
-    const thumb = document.createElement('span');
-    thumb.className = 'map-thumb';
-    const cvs = document.createElement('canvas');
-    cvs.width = Math.floor(RW * dpr); cvs.height = Math.floor(RH * dpr);
-    cvs.style.width = DW + 'px'; cvs.style.height = DH + 'px';
-    const cc = cvs.getContext('2d');
-    if (cc) { cc.setTransform(dpr, 0, 0, dpr, 0, 0); renderCarThumb(cc, RW, RH, car.body, car.roof); }
-    thumb.appendChild(cvs);
+    const name = document.createElement('span');
+    name.className = 'map-name car-card-name';
+    name.textContent = car.name;
+    card.appendChild(name);
 
-    const label = document.createElement('span');
-    label.className = 'map-name';
-    label.textContent = car.name;
+    // Detail flyout (revealed on hover / focus — see .car-detail in style.css).
+    const detail = document.createElement('div');
+    detail.className = 'car-detail';
 
-    tile.appendChild(thumb);
-    tile.appendChild(label);
-    tile.addEventListener('click', () => selectCar(car.key));
-    carTilesEl.appendChild(tile);
+    if (car.image) {
+      const imgWrap = document.createElement('span');
+      imgWrap.className = 'car-image';
+      const DW = 150, DH = 190;
+      const cvs = document.createElement('canvas');
+      cvs.width = Math.floor(DW * dpr); cvs.height = Math.floor(DH * dpr);
+      cvs.style.width = DW + 'px'; cvs.style.height = DH + 'px';
+      drawCarImage(cvs, car.image, dpr);
+      imgWrap.appendChild(cvs);
+      detail.appendChild(imgWrap);
+    }
+
+    const specs = document.createElement('dl');
+    specs.className = 'car-specs';
+    for (const s of car.specs) {
+      const dt = document.createElement('dt'); dt.textContent = s.label;
+      const dd = document.createElement('dd'); dd.textContent = s.value;
+      specs.appendChild(dt); specs.appendChild(dd);
+    }
+    detail.appendChild(specs);
+
+    const blurb = document.createElement('p');
+    blurb.className = 'car-blurb';
+    blurb.textContent = car.blurb;
+    detail.appendChild(blurb);
+
+    card.appendChild(detail);
+    card.addEventListener('click', () => selectCar(car.key));
+    card.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectCar(car.key); }
+    });
+    carTilesEl.appendChild(card);
   }
   // Auto-select the first (only) car so START just needs a map.
   if (cars.length) selectCar(cars[0].key);

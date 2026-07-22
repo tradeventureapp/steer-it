@@ -318,6 +318,49 @@ body.desktop #game { display: block; width: 100vw; height: 100vh; }
 }
 .map-tile.is-selected .map-name { color: #fff; }
 
+/* ===== CAR CARD — small name tile, full spec flyout on hover =============== */
+.car-card {
+  position: relative; width: 100%;
+  padding: 15px 20px; gap: 0; cursor: pointer;
+}
+.car-card-name { font-size: 16px; letter-spacing: 4px; }
+/* The flyout — anchored to the RIGHT of the name tile, floats over the map area
+   while hovering (transient). Hidden until hover / keyboard focus. */
+.car-detail {
+  position: absolute; left: calc(100% + 14px); top: 0; z-index: 30;
+  width: 300px; text-align: left;
+  padding: 16px 18px; border-radius: 16px;
+  background:
+    radial-gradient(120% 70% at 50% 0%, rgba(255, 45, 149, 0.14), transparent 60%),
+    linear-gradient(180deg, var(--panel-top) 0%, var(--panel-bot) 100%);
+  border: 1.5px solid rgba(255, 45, 149, 0.6);
+  box-shadow: 0 0 30px rgba(255, 45, 149, 0.4), 0 20px 54px rgba(0, 0, 0, 0.6);
+  opacity: 0; visibility: hidden; pointer-events: none;
+  transform: translateX(-8px);
+  transition: opacity 140ms, transform 140ms, visibility 140ms;
+}
+.car-card:hover .car-detail,
+.car-card:focus-within .car-detail { opacity: 1; visibility: visible; transform: translateX(0); }
+.car-image {
+  display: block; line-height: 0; margin: 0 auto 12px; border-radius: 10px; overflow: hidden;
+  background: radial-gradient(120% 90% at 50% 40%, #241633, #0a0616);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.car-image canvas { display: block; margin: 0 auto; }
+.car-specs { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 0 0 12px; }
+.car-specs dt {
+  font-family: var(--font-display); font-weight: 800; font-size: 10px; letter-spacing: 2px;
+  color: var(--gold); white-space: nowrap; align-self: center;
+}
+.car-specs dd {
+  margin: 0; font-family: var(--font-body); font-size: 12.5px; color: #ffe9f4; align-self: center;
+}
+.car-blurb {
+  margin: 0; padding-top: 11px; border-top: 1px solid var(--border-dim);
+  font-family: var(--font-body); font-size: 12px; font-style: italic; line-height: 1.5;
+  color: rgba(232, 214, 244, 0.86);
+}
+
 body.desktop #hud-tr {
   position: fixed; top: 20px; right: 20px;
   z-index: 10; pointer-events: none;
