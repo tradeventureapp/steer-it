@@ -29,12 +29,44 @@
       </div>
     </div>
 
-    <div id="map-select" class="menu-screen" hidden>
+    <!-- Step 1: pick the driving MODE (= the physics branch + the car family). -->
+    <div id="mode-select" class="menu-screen" hidden>
+      <div class="menu-card">
+        <div class="menu-title">CHOOSE MODE</div>
+        <div class="mode-actions">
+          <button type="button" class="menu-btn primary mode-btn" id="btn-mode-arcade">
+            <span class="mode-name">ARCADE</span>
+            <span class="mode-sub">Stee-Rex · easy drift</span>
+          </button>
+          <button type="button" class="menu-btn primary mode-btn" id="btn-mode-sim">
+            <span class="mode-name">SIM</span>
+            <span class="mode-sub">Blitz RS · pure grip</span>
+          </button>
+        </div>
+        <button type="button" class="menu-btn ghost" id="btn-mode-back">◄ BACK</button>
+      </div>
+    </div>
+
+    <!-- Step 2: pick the CAR (left) and the MAP (right), then START. -->
+    <div id="car-map-select" class="menu-screen" hidden>
       <div class="menu-card wide">
-        <div class="menu-title">CHOOSE MAP</div>
-        <!-- Tiles injected from the maps registry (listMaps()). -->
-        <div id="map-tiles" class="map-tiles"></div>
-        <button type="button" class="menu-btn ghost" id="btn-map-back">◄ BACK</button>
+        <div class="menu-title">CAR &amp; MAP</div>
+        <div class="cms-cols">
+          <section class="cms-col">
+            <div class="cms-head">CAR</div>
+            <!-- Tiles injected per mode (buildCarTiles()). -->
+            <div id="car-tiles" class="map-tiles cms-list"></div>
+          </section>
+          <section class="cms-col cms-col-map">
+            <div class="cms-head">MAP</div>
+            <!-- Tiles injected from the maps registry (listMaps()). -->
+            <div id="map-tiles" class="map-tiles cms-list"></div>
+          </section>
+        </div>
+        <div class="cms-foot">
+          <button type="button" class="menu-btn ghost" id="btn-cms-back">◄ BACK</button>
+          <button type="button" class="menu-btn primary" id="btn-cms-start" disabled>START</button>
+        </div>
       </div>
     </div>
 

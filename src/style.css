@@ -278,6 +278,46 @@ body.desktop #game { display: block; width: 100vw; height: 100vh; }
   .map-switch { opacity: 1; transform: none; }
 }
 
+/* ===== MODE SELECT (ARCADE / SIM) — two big branch buttons ================== */
+.mode-actions { display: flex; gap: 20px; margin-top: 6px; flex-wrap: wrap; justify-content: center; }
+.mode-btn {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  min-width: 210px; padding: 22px 34px;
+}
+.mode-btn .mode-name { font-size: 26px; letter-spacing: 6px; line-height: 1; }
+.mode-btn .mode-sub {
+  font-size: 11px; letter-spacing: 2px; font-weight: 600;
+  color: rgba(255, 255, 255, 0.82); text-transform: uppercase;
+}
+
+/* ===== CAR & MAP SELECT — cars left, maps right, START/BACK footer ========== */
+.cms-cols { display: flex; gap: 30px; align-items: flex-start; justify-content: center; flex-wrap: wrap; }
+.cms-col { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.cms-col-map { flex: 1 1 auto; min-width: 0; }
+.cms-head {
+  font-family: var(--font-display);
+  font-weight: 800; font-size: 13px; letter-spacing: 5px; color: var(--gold);
+  text-shadow: var(--glow-gold);
+}
+/* Car column = a single vertical stack; map column keeps its wrapping grid. */
+#car-tiles.cms-list { flex-direction: column; flex-wrap: nowrap; max-width: 240px; }
+#map-tiles.cms-list { max-width: 560px; }
+.cms-foot {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 22px; width: 100%; margin-top: 18px;
+}
+.menu-btn.primary[disabled] {
+  opacity: 0.38; cursor: not-allowed; filter: grayscale(0.4);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+}
+.menu-btn.primary[disabled]:hover { transform: none; filter: grayscale(0.4); }
+/* Selected tile (car OR map) — the accent border + glow, held on (not just hover). */
+.map-tile.is-selected {
+  border-color: rgba(255, 45, 149, 0.95);
+  box-shadow: 0 0 26px rgba(255, 45, 149, 0.55), inset 0 0 0 1px rgba(255, 45, 149, 0.5);
+}
+.map-tile.is-selected .map-name { color: #fff; }
+
 body.desktop #hud-tr {
   position: fixed; top: 20px; right: 20px;
   z-index: 10; pointer-events: none;

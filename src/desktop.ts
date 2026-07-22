@@ -18,7 +18,8 @@ import { Effects, FX_CONFIG, GRASS_DUST_RGB, GRAVEL_SPRAY_RGB } from './effects'
 import {
   PLAYER_CAP, LOBBY_SYNC_MS, RESILIENCE, EV, colorName, LobbyState,
 } from './lobby';
-import { ROAD_SPEC, STEEREX_SILVER, STEEREX_BLACK, type VehicleSpec } from './vehicles';
+import { ROAD_SPEC, STEEREX_SILVER, STEEREX_BLACK, STEEREX_SKIN_COLORS, BLITZ_RS_COLORS,
+  type VehicleSpec, type CarColor } from './vehicles';
 import { steerexSprite, steerexScaled, steerexOpaque, preloadSteerex, type SteerexSkin } from './steerex-sprite';
 import { step4, PHYS4, wheelDebug, type Physics4Params } from './physics4';
 
@@ -95,8 +96,11 @@ const editorEl       = document.getElementById('editor')         as HTMLElement 
 const editorStatusEl = document.getElementById('editor-status')  as HTMLDivElement | null;
 const editorHintEl   = document.getElementById('editor-hint')    as HTMLDivElement | null;
 const mainMenuEl     = document.getElementById('main-menu')       as HTMLElement | null;
-const mapSelectEl    = document.getElementById('map-select')      as HTMLElement | null;
+const modeSelectEl   = document.getElementById('mode-select')     as HTMLElement | null;
+const carMapSelectEl = document.getElementById('car-map-select')  as HTMLElement | null;
 const mapTilesEl     = document.getElementById('map-tiles')       as HTMLElement | null;
+const carTilesEl     = document.getElementById('car-tiles')       as HTMLElement | null;
+const cmsStartBtn    = document.getElementById('btn-cms-start')   as HTMLButtonElement | null;
 
 // ---------- Freeze: the main menu, pause (P), and the editor (E) each halt the
 // simulation + race timer (not the render). isPaused is the combined gate. ----
@@ -277,11 +281,6 @@ window.addEventListener('keydown', (e) => {
     qrOn = !qrOn;
     updateQrVisibility();
   }
-  if (e.key === 'v' || e.key === 'V') {
-    // Cycle the VEHICLE for every car + new spawns: Blitz RS → Stee-Rex Silver →
-    // Stee-Rex Black. VISUAL ONLY (all share the global PHYS4 physics for now).
-    setVehicle(VEHICLE_CYCLE[(VEHICLE_CYCLE.indexOf(currentVariant) + 1) % VEHICLE_CYCLE.length]);
-  }
   if (e.key === 'p' || e.key === 'P' || e.key === 'Escape') {
     if (e.key === 'Escape') e.preventDefault();   // just toggle the menu, nothing else
     if (!editorMode) { userPaused = !userPaused; refreshFreeze(); }  // no-op in the editor
@@ -319,32 +318,62 @@ window.addEventListener('keyup', (e) => onDriveKey(e, false));
 codeText.textContent = code;
 QRCode.toCanvas(qrCanvas, playUrl, { width: 160, margin: 1 }).catch(console.error);
 
-// ================= HOST FRONT-END: main menu → map select =================
-// The desktop (host) picks the map for everyone. Phones are controllers only.
-// At startup the menu holds the game frozen (no QR yet); choosing a map calls
-// switchMap(id) — which respawns connected cars — and drops into gameplay.
+// ============ HOST FRONT-END: main menu → MODE → CAR & MAP → race ============
+// The desktop (host) picks the MODE (= physics branch + car family) and the map
+// for everyone; phones are controllers only. Flow:
+//   MAIN MENU → START RACE → MODE [ARCADE|SIM] → CAR (left) + MAP (right) → START.
+// The chosen MODE decides which cars are offered AND which physics branch every
+// phone drives (arcade = Stee-Rex, sim = Blitz RS); each phone then picks its own
+// colour/skin after joining. At startup the menu holds the game frozen (no QR
+// yet); START respawns connected cars in the chosen variant and drops into play.
+type RaceMode = 'arcade' | 'sim';
+let selectedMapId: string | null = null;
+let selectedCarKey: string | null = null;
+
+function hideAllMenus() {
+  if (mainMenuEl) mainMenuEl.hidden = true;
+  if (modeSelectEl) modeSelectEl.hidden = true;
+  if (carMapSelectEl) carMapSelectEl.hidden = true;
+}
 function openMainMenu() {
   menuOpen = true;
+  hideAllMenus();
   if (mainMenuEl) mainMenuEl.hidden = false;
-  if (mapSelectEl) mapSelectEl.hidden = true;
   refreshFreeze();
   updateQrVisibility();
 }
-function openMapSelect() {
-  if (mainMenuEl) mainMenuEl.hidden = true;
-  if (mapSelectEl) mapSelectEl.hidden = false;
+function openModeSelect() {
+  menuOpen = true;
+  hideAllMenus();
+  if (modeSelectEl) modeSelectEl.hidden = false;
+}
+// Choosing the mode fixes the branch + car family, then opens the CAR & MAP screen.
+function chooseMode(mode: RaceMode) {
+  raceMode = mode;
+  selectedMapId = null;
+  selectedCarKey = null;
+  hideAllMenus();
+  if (carMapSelectEl) carMapSelectEl.hidden = false;
+  buildCarTiles();
   buildMapTiles();
+  updateStartEnabled();
 }
 function closeMenusIntoGame() {
   menuOpen = false;
-  if (mainMenuEl) mainMenuEl.hidden = true;
-  if (mapSelectEl) mapSelectEl.hidden = true;
+  hideAllMenus();
   refreshFreeze();
   updateQrVisibility();   // QR/join panel appears now a map is live
 }
-function chooseMap(id: string) {
+function updateStartEnabled() {
+  if (cmsStartBtn) cmsStartBtn.disabled = !(selectedMapId && selectedCarKey);
+}
+// START: commit the mode to every car, load the map (respawns cars), enter play.
+function launchSelected() {
+  if (!selectedMapId) return;
   goFullscreen();         // gameplay starts — fill the host screen (gesture)
-  switchMap(id);          // load the map + respawn any connected cars
+  applyModeToAllCars();   // re-spec any already-connected cars to the chosen mode
+  broadcastLobby();       // phones learn the mode + its colour palette
+  switchMap(selectedMapId);   // load the map + respawn any connected cars
   closeMenusIntoGame();
 }
 
@@ -411,13 +440,29 @@ function renderMapPreview(c: CanvasRenderingContext2D, def: MapDefinition, RW: n
   } catch { /* a preview must never break the menu */ }
 }
 
+// The map tiles register here so the selection highlight can be toggled across
+// all of them (a group tile's effective id changes with its surface switcher, so
+// each entry reports its CURRENT id via getId()).
+type MapTileEntry = { el: HTMLElement; getId: () => string };
+let mapTileEntries: MapTileEntry[] = [];
+function highlightMapTiles() {
+  for (const e of mapTileEntries) e.el.classList.toggle('is-selected', e.getId() === selectedMapId);
+}
+// Pick a map (does NOT launch — START does). Highlights the tile + enables START.
+function selectMap(id: string) {
+  selectedMapId = id;
+  highlightMapTiles();
+  updateStartEnabled();
+}
+
 // Build the map-select tiles from the registry (so new maps appear here
 // automatically). Each tile renders a REAL mini-preview of the map. Maps that
 // share a surfaceGroup.key collapse into ONE tile with an in-tile surface
-// switcher (presentation only — each member is still launched by its own id).
+// switcher (presentation only — each member is still selected by its own id).
 function buildMapTiles() {
   if (!mapTilesEl) return;
   mapTilesEl.innerHTML = '';
+  mapTileEntries = [];
   const dpr = backingDpr();
   const RW = 440, RH = 240, DW = 220, DH = 120;   // render 2×, display 1× (crisp)
   const renderedGroups = new Set<string>();
@@ -475,13 +520,16 @@ function buildMapTiles() {
           const cur = selectedSurfaceId(grp.key);
           for (const s of segs) s.classList.toggle('is-active', s.dataset.id === cur);
         };
-        // Tap/click a segment → select that surface (works on touch + mouse);
-        // never bubbles to the tile body (so it doesn't launch the race).
+        // Tap/click a segment → switch that surface (works on touch + mouse);
+        // never bubbles to the tile body. If this tile is the currently-selected
+        // map, switching surface moves the selection to the new surface id.
         seg.addEventListener('click', (e) => {
           e.stopPropagation();
+          const wasSelected = selectedMapId === selectedSurfaceId(grp.key);
           groupSurface.set(grp.key, member.id);
           refreshActive();
           renderSelected();
+          if (wasSelected) selectMap(member.id);
         });
         segs.push(seg);
         sw.appendChild(seg);
@@ -491,23 +539,24 @@ function buildMapTiles() {
       for (const s of segs) s.classList.toggle('is-active', s.dataset.id === cur0);
       renderSelected();
 
-      // Clicking the tile body (not a segment) launches the selected surface.
+      // Clicking the tile body (not a segment) SELECTS the current surface.
       tile.addEventListener('click', (e) => {
         if ((e.target as HTMLElement).closest('.map-switch')) return;
-        chooseMap(selectedSurfaceId(grp.key));
+        selectMap(selectedSurfaceId(grp.key));
       });
       tile.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); chooseMap(selectedSurfaceId(grp.key)); }
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectMap(selectedSurfaceId(grp.key)); }
       });
 
       tile.appendChild(thumb);
       tile.appendChild(label);
       tile.appendChild(sw);
       mapTilesEl.appendChild(tile);
+      mapTileEntries.push({ el: tile, getId: () => selectedSurfaceId(grp.key) });
       continue;
     }
 
-    // ---- Ungrouped map → a plain tile (unchanged behaviour) ----
+    // ---- Ungrouped map → a plain tile ----
     const tile = document.createElement('button');
     tile.type = 'button';
     tile.className = 'map-tile';
@@ -524,16 +573,118 @@ function buildMapTiles() {
 
     tile.appendChild(thumb);
     tile.appendChild(label);
-    tile.addEventListener('click', () => chooseMap(def.id));
+    tile.addEventListener('click', () => selectMap(def.id));
     mapTilesEl.appendChild(tile);
+    mapTileEntries.push({ el: tile, getId: () => def.id });
   }
+  highlightMapTiles();
+}
+
+// ---- CAR tiles (left column) — data-driven per mode so more cars slot in. ----
+interface MenuCar { key: string; name: string; body: string; roof: string; }
+function modeCars(mode: RaceMode): MenuCar[] {
+  return mode === 'arcade'
+    ? [{ key: 'steerex', name: 'Stee-Rex', body: '#c9ced6', roof: '#3a3f47' }]
+    : [{ key: 'blitz',   name: 'Blitz RS', body: '#c4202a', roof: '#241016' }];
+}
+// A simple top-down car thumbnail (no async sprite dependency) in the car's tone.
+function renderCarThumb(c: CanvasRenderingContext2D, RW: number, RH: number, body: string, roof: string) {
+  c.clearRect(0, 0, RW, RH);
+  const bg = c.createRadialGradient(RW / 2, RH * 0.42, 10, RW / 2, RH / 2, RH * 0.8);
+  bg.addColorStop(0, '#241633'); bg.addColorStop(1, '#0a0616');
+  c.fillStyle = bg; c.fillRect(0, 0, RW, RH);
+  const cx = RW / 2, cy = RH / 2;
+  const L = RH * 0.68, W = RW * 0.42, r = W * 0.24;
+  c.save();
+  c.translate(cx, cy);
+  // shadow
+  c.fillStyle = 'rgba(0,0,0,0.45)';
+  roundRectPath(c, -W / 2 + 3, -L / 2 + 6, W, L, r); c.fill();
+  // wheels
+  c.fillStyle = '#15151b';
+  const ww = W * 0.16, wl = L * 0.2;
+  for (const sx of [-1, 1]) for (const sy of [-0.62, 0.62]) {
+    roundRectPath(c, sx * (W / 2 - ww * 0.35) - ww / 2, sy * (L / 2) - wl / 2 - L * 0.03, ww, wl, ww * 0.4);
+    c.fill();
+  }
+  // body
+  const bodyGrad = c.createLinearGradient(-W / 2, 0, W / 2, 0);
+  bodyGrad.addColorStop(0, shadeHex(body, 0.72));
+  bodyGrad.addColorStop(0.5, body);
+  bodyGrad.addColorStop(1, shadeHex(body, 0.72));
+  c.fillStyle = bodyGrad;
+  roundRectPath(c, -W / 2, -L / 2, W, L, r); c.fill();
+  c.strokeStyle = 'rgba(255,255,255,0.16)'; c.lineWidth = 1.5;
+  roundRectPath(c, -W / 2, -L / 2, W, L, r); c.stroke();
+  // windshield + roof
+  c.fillStyle = shadeHex(roof, 1.25);
+  roundRectPath(c, -W * 0.34, -L * 0.24, W * 0.68, L * 0.14, 4); c.fill();
+  c.fillStyle = roof;
+  roundRectPath(c, -W * 0.32, -L * 0.1, W * 0.64, L * 0.26, 4); c.fill();
+  // hood highlight
+  c.fillStyle = 'rgba(255,255,255,0.1)';
+  roundRectPath(c, -W * 0.3, -L * 0.44, W * 0.6, L * 0.12, 4); c.fill();
+  c.restore();
+}
+function roundRectPath(c: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  const rr = Math.min(r, w / 2, h / 2);
+  c.beginPath();
+  c.moveTo(x + rr, y);
+  c.arcTo(x + w, y, x + w, y + h, rr);
+  c.arcTo(x + w, y + h, x, y + h, rr);
+  c.arcTo(x, y + h, x, y, rr);
+  c.arcTo(x, y, x + w, y, rr);
+  c.closePath();
+}
+function selectCar(key: string) {
+  selectedCarKey = key;
+  if (carTilesEl) for (const el of Array.from(carTilesEl.children))
+    el.classList.toggle('is-selected', (el as HTMLElement).dataset.carKey === key);
+  updateStartEnabled();
+}
+function buildCarTiles() {
+  if (!carTilesEl) return;
+  carTilesEl.innerHTML = '';
+  const dpr = backingDpr();
+  const RW = 360, RH = 240, DW = 180, DH = 120;
+  const cars = modeCars(raceMode);
+  for (const car of cars) {
+    const tile = document.createElement('button');
+    tile.type = 'button';
+    tile.className = 'map-tile';
+    tile.dataset.carKey = car.key;
+
+    const thumb = document.createElement('span');
+    thumb.className = 'map-thumb';
+    const cvs = document.createElement('canvas');
+    cvs.width = Math.floor(RW * dpr); cvs.height = Math.floor(RH * dpr);
+    cvs.style.width = DW + 'px'; cvs.style.height = DH + 'px';
+    const cc = cvs.getContext('2d');
+    if (cc) { cc.setTransform(dpr, 0, 0, dpr, 0, 0); renderCarThumb(cc, RW, RH, car.body, car.roof); }
+    thumb.appendChild(cvs);
+
+    const label = document.createElement('span');
+    label.className = 'map-name';
+    label.textContent = car.name;
+
+    tile.appendChild(thumb);
+    tile.appendChild(label);
+    tile.addEventListener('click', () => selectCar(car.key));
+    carTilesEl.appendChild(tile);
+  }
+  // Auto-select the first (only) car so START just needs a map.
+  if (cars.length) selectCar(cars[0].key);
 }
 
 document.getElementById('btn-start-race')?.addEventListener('click', () => {
   goFullscreen();   // START RACE is the user gesture — fill the host screen
-  openMapSelect();
+  openModeSelect();
 });
-document.getElementById('btn-map-back')?.addEventListener('click', openMainMenu);
+document.getElementById('btn-mode-arcade')?.addEventListener('click', () => chooseMode('arcade'));
+document.getElementById('btn-mode-sim')?.addEventListener('click', () => chooseMode('sim'));
+document.getElementById('btn-mode-back')?.addEventListener('click', openMainMenu);
+document.getElementById('btn-cms-back')?.addEventListener('click', openModeSelect);
+cmsStartBtn?.addEventListener('click', launchSelected);
 openMainMenu();   // show the host menu at startup
 
 // ---------- Pause menu (P / Esc) — RESUME / RESTART / EXIT TO MENU ----------
@@ -954,14 +1105,29 @@ function applyVariant(car: Car, spec: VehicleSpec) {
 // Keyed by slot so routing/lookup is O(1) and nothing is hardcoded to 2 cars.
 const cars = new Map<number, Car>();
 const DEFAULT_CAR_COLOR = '#1d3fa0';
-// The active vehicle for new spawns. Cycled by the V key / steerSetVehicle() so the
-// boss can switch between Blitz RS and the two Stee-Rex skins and SEE them in game.
-let currentVariant: VehicleSpec = ROAD_SPEC;
-const VEHICLE_CYCLE: VehicleSpec[] = [ROAD_SPEC, STEEREX_SILVER, STEEREX_BLACK];
-// Set the active vehicle: applies it to every live car AND makes new spawns use it.
-function setVehicle(spec: VehicleSpec) {
-  currentVariant = spec;
-  for (const c of cars.values()) applyVariant(c, spec);
+
+// The race MODE, chosen in the menu, IS the physics branch + car family for
+// EVERY car: SIM → Blitz RS (sim branch, its colour palette); ARCADE → Stee-Rex
+// (arcade branch, silver/black skins). Each phone then picks its own colour/skin.
+let raceMode: RaceMode = 'sim';
+// The colour palette offered for the current mode (sent to phones; the picker).
+function activePalette(): CarColor[] {
+  return raceMode === 'arcade' ? STEEREX_SKIN_COLORS : BLITZ_RS_COLORS;
+}
+// Resolve a car's VehicleSpec from the mode + its chosen colour. SIM → always
+// Blitz RS (colour tints the vector body). ARCADE → the Stee-Rex skin whose
+// swatch matches the colour (Graphite → black, anything else → silver default).
+function specForColor(hex: string): VehicleSpec {
+  if (raceMode !== 'arcade') return ROAD_SPEC;
+  return hex.toLowerCase() === STEEREX_SKIN_COLORS[1].hex.toLowerCase()
+    ? STEEREX_BLACK : STEEREX_SILVER;
+}
+// Representative spec for the mode (both Stee-Rex skins share dims) — used for the
+// car-car collision radius (all cars in a race share the mode's footprint).
+function modeSpec(): VehicleSpec { return raceMode === 'arcade' ? STEEREX_SILVER : ROAD_SPEC; }
+// Re-spec every live car to the current mode + its own colour (on mode launch).
+function applyModeToAllCars() {
+  for (const c of cars.values()) applyVariant(c, specForColor(c.color));
 }
 // Input behaviour through a packet gap is governed by the UNIFIED lifecycle —
 // hold (coast) → ramp to neutral → parked-in-place — all keyed off RESILIENCE
@@ -988,7 +1154,7 @@ function makeManagedCar(slot: number, color: string): Car {
     phys: PHYS4,                                // ditto
     fxScale: 1,                                 // ditto
   };
-  applyVariant(car, currentVariant);   // spawn in the active variant (livery + collision + phys)
+  applyVariant(car, specForColor(color));   // spawn in the mode's variant for this colour
   return car;
 }
 
@@ -1037,6 +1203,7 @@ function syncCars() {
     } else if (existing.color !== p.color) {
       existing.color = p.color;            // live colour change
       existing.skidStyle = skidColorFor(p.color);
+      applyVariant(existing, specForColor(p.color));   // ARCADE: colour = skin, re-spec
     }
   }
   for (const slot of [...cars.keys()]) {
@@ -1418,7 +1585,9 @@ let sweepGraceUntil = 0;
 const nowIso = () => new Date().toISOString();
 
 function broadcastLobby() {
-  const payload = { players: lobby.snapshot(), cap: PLAYER_CAP };
+  // mode + palette ride along so each phone builds the RIGHT colour picker
+  // (SIM → Blitz colours, ARCADE → Stee-Rex silver/black) and drives the right car.
+  const payload = { players: lobby.snapshot(), cap: PLAYER_CAP, mode: raceMode, colors: activePalette() };
   // BOTH transports: Realtime for fallback/mid-pairing phones, the reliable
   // "state" DataChannel for P2P phones (they LEFT the Realtime channel).
   rc.send({ type: 'broadcast', event: EV.lobby, payload });
@@ -1935,7 +2104,7 @@ function frame(now: number) {
         // per-wheel grass/gravel grip+drag; every map except the circuit passes undefined
         // → the off-asphalt branches never run (byte-identical on desktop + both ovals).
         step4(car.state, current, FIXED_DT, car.phys, currentMap.surfaceAt);
-        const he = carHalfExtents(currentVariant);
+        const he = carHalfExtents(car.spec);
         let impact = collideWithRects(car.state, world.rects, CONFIG, he.halfLen, he.halfWidth);
         if (world.arcs) {
           impact = Math.max(impact,
@@ -1950,8 +2119,8 @@ function frame(now: number) {
 
       // Cars bounce off EACH OTHER (arcade, clamped) after all have integrated.
       if (cars.size > 1) {
-        // All cars share the active vehicle, so one radius covers every pair.
-        const carImpact = collideCars([...cars.values()].map((c) => c.state), collisionRadiusFor(currentVariant));
+        // All cars share the mode's footprint, so one radius covers every pair.
+        const carImpact = collideCars([...cars.values()].map((c) => c.state), collisionRadiusFor(modeSpec()));
         if (carImpact > 0.8 && lead) fx.impact(lead.state.x, lead.state.y, carImpact);
       }
 
@@ -2651,14 +2820,5 @@ function switchMap(id: string): boolean {
     if (markMode === 'race') ensureMarkLayers();
     return markMode;
   };
-// DEV hook: switch the vehicle so the boss can SEE Stee-Rex in game (no picker UI yet).
-//   steerSetVehicle('blitz' | 'steerex-silver' | 'steerex-black')  — or press V to cycle.
-(window as unknown as { steerSetVehicle: (id: string) => string }).steerSetVehicle =
-  (id: string) => {
-    const spec = id === 'steerex-silver' ? STEEREX_SILVER
-      : id === 'steerex-black' ? STEEREX_BLACK : ROAD_SPEC;
-    setVehicle(spec);
-    return spec.name;
-  };
-// Warm both Stee-Rex skins so a switch shows the sprite immediately (never a blank car).
+// Warm both Stee-Rex skins so the arcade car shows its sprite immediately (never blank).
 preloadSteerex();

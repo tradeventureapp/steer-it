@@ -173,6 +173,9 @@ function startLobby() {
 // channel AND the reliable "state" DataChannel).
 function handleLobby(payload: unknown) {
   const list = ((payload as { players?: LobbyPlayer[] })?.players ?? []) as LobbyPlayer[];
+  // Rebuild the colour picker for the host's chosen mode's palette (if sent).
+  const colors = (payload as { colors?: { name: string; hex: string }[] })?.colors;
+  if (Array.isArray(colors) && colors.length) buildColorPicker(colors);
   const me = list.find((p) => p.id === clientId);
   if (me) {
     lobbyFull = false;
@@ -282,9 +285,16 @@ document.addEventListener('visibilitychange', () => {
 });
 
 // ---------- Colour picker (on the TAP TO STEER screen) ----------
-function buildColorPicker() {
-  if (!lobbyColorsEl || lobbyColorsEl.childElementCount > 0) return;
-  for (const c of CAR_COLORS) {
+// The palette is MODE-dependent: the desktop sends it in the lobby payload
+// (SIM → Blitz colours, ARCADE → Stee-Rex silver/black). Rebuilt when it changes.
+let paletteSig = '';
+function buildColorPicker(colors: { name: string; hex: string }[] = CAR_COLORS) {
+  if (!lobbyColorsEl) return;
+  const sig = colors.map((c) => c.hex).join(',');
+  if (sig === paletteSig && lobbyColorsEl.childElementCount > 0) return;
+  paletteSig = sig;
+  lobbyColorsEl.innerHTML = '';
+  for (const c of colors) {
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'swatch';
@@ -294,6 +304,7 @@ function buildColorPicker() {
     b.addEventListener('click', (e) => { e.preventDefault(); pickColor(c.hex); });
     lobbyColorsEl.appendChild(b);
   }
+  highlightSwatch();
 }
 function pickColor(hex: string) {
   selectedColor = hex;

@@ -52,6 +52,15 @@ export const BLITZ_RS_COLORS: CarColor[] = [
   { name: 'Sky Blue',       hex: '#5b8cb3' },
 ];
 
+// ---- Stee-Rex skin "colours" (the ARCADE car has two fixed liveries) -----------
+// The phone colour picker in ARCADE mode offers these; each maps to a sprite skin
+// (Silver → STEEREX_SILVER, Graphite → STEEREX_BLACK) via desktop.ts specForColor().
+// Hexes are just swatch tones for the picker — the sprite skin is what actually draws.
+export const STEEREX_SKIN_COLORS: CarColor[] = [
+  { name: 'Silver',   hex: '#c9ced6' },
+  { name: 'Graphite', hex: '#2a2d34' },
+];
+
 // One car's public spec sheet. Pure data — no physics, no behaviour, no DOM.
 export interface VehicleIdentity {
   /** Stable internal key (URLs / save data / registry lookups). */
