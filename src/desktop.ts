@@ -357,17 +357,29 @@ function openModeSelect() {
   hideAllMenus();
   if (modeSelectEl) modeSelectEl.hidden = false;
 }
-// Choosing the mode fixes the branch + car family, then opens the CAR & MAP screen.
-function chooseMode(mode: RaceMode) {
-  raceMode = mode;
-  renderQr();             // the join URL carries the mode → phones paint the right colours
-  selectedMapId = null;
-  selectedCarKey = null;
+// Show the CAR & MAP screen for the CURRENT mode. Rebuilds the tiles and restores the
+// highlight for whatever is still selected — so returning here mid-session (EXIT TO MENU)
+// lands on the right mode's screen with the last car/map still picked, ready to re-START.
+// Safe to call from GAMEPLAY (sets menuOpen + freezes + hides the QR) as well as from the
+// mode screen (where those are already the case).
+function openCarMapSelect() {
+  menuOpen = true;
   hideAllMenus();
   if (carMapSelectEl) carMapSelectEl.hidden = false;
   buildCarTiles();
   buildMapTiles();
   updateStartEnabled();
+  refreshFreeze();
+  updateQrVisibility();
+}
+// Choosing the mode fixes the branch + car family, then opens the CAR & MAP screen.
+// A FRESH mode choice clears the previous car/map pick (a new mode = a new selection).
+function chooseMode(mode: RaceMode) {
+  raceMode = mode;
+  renderQr();             // the join URL carries the mode → phones paint the right colours
+  selectedMapId = null;
+  selectedCarKey = null;
+  openCarMapSelect();
 }
 function closeMenusIntoGame() {
   menuOpen = false;
@@ -720,8 +732,10 @@ function buildCarTiles() {
     });
     carTilesEl.appendChild(card);
   }
-  // Auto-select the first (only) car so START just needs a map.
-  if (cars.length) selectCar(cars[0].key);
+  // Keep a still-valid pick (returning here via EXIT TO MENU), else auto-select the first
+  // car so START just needs a map. Matters once a mode offers more than one car.
+  const keep = cars.some((c) => c.key === selectedCarKey) ? selectedCarKey! : cars[0]?.key;
+  if (keep) selectCar(keep);
 }
 
 document.getElementById('btn-start-race')?.addEventListener('click', () => {
@@ -766,21 +780,24 @@ function restartRace() {
   userPaused = false;
   refreshFreeze();
 }
-// Back to the MAIN MENU. Players stay connected (lobby/cars preserved); the game
-// is held (menuOpen freeze, QR hidden) until the host picks a map again, which
-// respawns the cars via switchMap. No phone is dropped, no QR rescan.
-function exitToMainMenu() {
+// EXIT TO MENU → back to the CAR & MAP SELECTION screen for the SAME mode (Arcade race
+// → Arcade selection, Sim → Sim), with the mode and the last car/map pick kept, so the
+// host can immediately pick something else and re-START. BACK from there still walks
+// further out (selection → mode choice → main menu). Players stay connected (lobby/cars
+// preserved); the game is held (menuOpen freeze, QR hidden) until a map is launched
+// again, which respawns the cars via switchMap. No phone is dropped, no QR rescan.
+function exitToSelection() {
   userPaused = false;
   resetRaceFeed();   // drop any finish feed / podium so it's clean next race
-  openMainMenu();
+  openCarMapSelect();
 }
 document.getElementById('btn-resume')?.addEventListener('click', resumeGame);
 document.getElementById('btn-restart')?.addEventListener('click', restartRace);
-document.getElementById('btn-exit-menu')?.addEventListener('click', exitToMainMenu);
-// Race results (podium): REMATCH re-runs the race (reuses restartRace); EXIT goes
-// to the main menu. Both clear the podium + feed.
+document.getElementById('btn-exit-menu')?.addEventListener('click', exitToSelection);
+// Race results (podium): REMATCH re-runs the race (reuses restartRace); EXIT goes back
+// to the CAR & MAP selection for the same mode. Both clear the podium + feed.
 document.getElementById('btn-rematch')?.addEventListener('click', restartRace);
-document.getElementById('btn-results-menu')?.addEventListener('click', exitToMainMenu);
+document.getElementById('btn-results-menu')?.addEventListener('click', exitToSelection);
 
 // ---------- Canvases ----------
 // Layered rendering (back to front):
