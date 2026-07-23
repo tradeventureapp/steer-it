@@ -107,10 +107,26 @@ export async function fetchTurnServers(
   }
 }
 
-// Which path did an open connection take? Reads the nominated candidate pair
-// from getStats: local candidate type 'relay' = TURN, anything else = direct.
-export async function connectionPathOf(pc: PeerLike): Promise<'direct' | 'relay' | 'unknown'> {
-  if (!pc.getStats) return 'unknown';
+/**
+ * Which path did an open connection take? Reads the nominated candidate pair from getStats.
+ *
+ * A connection is RELAYED if EITHER end of the pair is a 'relay' candidate — this is the
+ * whole point: only ONE side needs TURN. A phone on CGNAT gets a relay candidate while the
+ * desktop still offers a plain host candidate, so the winning pair is host↔relay and the
+ * traffic goes through the TURN server.
+ *
+ * (Reading only the LOCAL candidate — as this did originally — makes the DESKTOP, which is
+ * never relay-restricted, report "direct" for a connection that is in fact fully relayed.
+ * That is exactly why forcing ?rtc=relay on the phone still logged "direct".)
+ */
+export interface ConnectionInfo {
+  path: 'direct' | 'relay' | 'unknown';
+  local: string | null;    // candidate type at this end  (host / srflx / prflx / relay)
+  remote: string | null;   // …and at the far end
+}
+export async function connectionInfoOf(pc: PeerLike): Promise<ConnectionInfo> {
+  const none: ConnectionInfo = { path: 'unknown', local: null, remote: null };
+  if (!pc.getStats) return none;
   try {
     const stats = await pc.getStats();
     const byId = new Map<string, Record<string, unknown>>();
@@ -126,13 +142,21 @@ export async function connectionPathOf(pc: PeerLike): Promise<'direct' | 'relay'
       }
     });
     const pair = (pairId ? byId.get(pairId) : undefined) ?? pairs[0];
-    if (!pair) return 'unknown';
+    if (!pair) return none;
     const local = byId.get(String(pair.localCandidateId));
-    if (!local) return 'unknown';
-    return local.candidateType === 'relay' ? 'relay' : 'direct';
+    const remote = byId.get(String(pair.remoteCandidateId));
+    const lt = local ? String(local.candidateType) : null;
+    const rt = remote ? String(remote.candidateType) : null;
+    if (lt === null && rt === null) return none;
+    return { path: (lt === 'relay' || rt === 'relay') ? 'relay' : 'direct', local: lt, remote: rt };
   } catch {
-    return 'unknown';
+    return none;
   }
+}
+
+/** Convenience wrapper — just the path. */
+export async function connectionPathOf(pc: PeerLike): Promise<'direct' | 'relay' | 'unknown'> {
+  return (await connectionInfoOf(pc)).path;
 }
 
 // Fallback detector (desktop): a phone still driving over Realtime with no RTC

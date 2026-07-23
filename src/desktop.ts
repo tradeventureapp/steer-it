@@ -1,7 +1,7 @@
 import QRCode from 'qrcode';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { channelName, createResilientChannel } from './supabase';
-import { createRtcHost, connectionPathOf, createFallbackTracker, RTC_EV } from './rtc';
+import { createRtcHost, connectionInfoOf, createFallbackTracker, RTC_EV } from './rtc';
 import {
   CONFIG, makeCar, bodyToWorld, collideWithRects, collideWithArcs,
   type CarState, type Inputs,
@@ -1824,9 +1824,15 @@ const rtcHost = createRtcHost({
   // STEP 3: per-pairing connection-path log — the boss-visible split. 'relay'
   // = the TURN relay carried it; 'direct' = pure P2P; 'unknown' = stats absent.
   onPeerConnected: (id, pc) => {
-    connectionPathOf(pc).then((path) => {
-      const label = path === 'relay' ? 'relay (TURN)' : path;
-      console.info(`[rtc] ${nowIso()} player ${id} connected via ${label}`);
+    connectionInfoOf(pc).then((info) => {
+      const label = info.path === 'relay' ? 'relay (TURN)' : info.path;
+      // The candidate types are printed so the path is VERIFIABLE, not just asserted:
+      // a relayed pairing shows `relay` on at least one end (a phone forced with
+      // ?rtc=relay shows remote=relay while this desktop stays host/srflx).
+      console.info(
+        `[rtc] ${nowIso()} player ${id} connected via ${label}`
+        + ` [local=${info.local ?? '?'} remote=${info.remote ?? '?'}]`,
+      );
     });
   },
 });
