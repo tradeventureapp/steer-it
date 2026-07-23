@@ -236,7 +236,11 @@ function startRtc() {
   rtcStarting = true;
   // STEP 3: fetch short-lived TURN creds (2 s timeout). null on ANY failure →
   // STUN-only (the V1 behavior) — TURN being down never blocks pairing.
-  fetchTurnServers().then((turn) => {
+  // Pass the room code so the endpoint can tie each issuance to a room in its
+  // logs (abuse = one IP pulling creds for many/random codes). It is NOT a gate:
+  // an old cached build with no code still gets creds (see api/turn.js).
+  const turnUrl = code ? `/api/turn?s=${encodeURIComponent(code)}` : '/api/turn';
+  fetchTurnServers(fetch, 2000, turnUrl).then((turn) => {
     rtcStarting = false;
     if (rtc) return;
     rtc = connectPhoneRtc({
