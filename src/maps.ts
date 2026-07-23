@@ -885,33 +885,12 @@ const CIRCUIT_SKETCH: Array<[number, number]> = [
 ];
 const CS_BAND = 124;
 
-// Track width = 2/3 of the asphalt oval's band, in real metres. The band px value
-// (124) only sets the SCALE — the width in metres is ALWAYS 2/3 of the oval.
-const _bandScale = computeStadium(FLAT_LOGICAL.widthM, FLAT_LOGICAL.heightM).bandW * (2 / 3) / CS_BAND;
-
-// ---- ASPECT-RATIO FIT (the "works on my machine" bug) -------------------------
-// The oval's bandW derives from the screen HEIGHT only, while the world's width comes
-// from the screen WIDTH — so the track's size and the space it has to fit in scale on
-// DIFFERENT axes. The shape was squeezed to fill a 16:9 screen with only ~5 % margin,
-// so ANY narrower aspect overflowed and the track ran off the world:
-//     16:9  1.78 → fits (the machine it was tuned on)
-//     16:10 1.60 → over by  6 %   (MacBook Air/Pro, 1920x1200 Windows laptops)
-//     3:2   1.50 → over by 13 %   (MacBook Pro 14, Surface)
-//     5:4   1.25 → over by 36 %
-// Fix: cap the scale so the whole ribbon always fits BOTH axes. On 16:9 the band-based
-// scale is already the binding one, so 16:9 renders byte-identically to before; on a
-// narrower screen the track scales down just enough to fit (its width stays a constant
-// fraction of the track, so the course is identical, only smaller in metres).
-const _sxs = CIRCUIT_SKETCH.map((p) => p[0]), _sys = CIRCUIT_SKETCH.map((p) => p[1]);
-const _sketchW = Math.max(..._sxs) - Math.min(..._sxs) + CS_BAND;   // + the band's own width
-const _sketchH = Math.max(..._sys) - Math.min(..._sys) + CS_BAND;
-const CIRCUIT_FIT = 0.98;                        // leave a sliver of grass at the edge
-const CS_SCALE = Math.min(                       // metres per sketch unit
-  _bandScale,
-  FLAT_LOGICAL.widthM * CIRCUIT_FIT / _sketchW,
-  FLAT_LOGICAL.heightM * CIRCUIT_FIT / _sketchH,
-);
-const CIRCUIT_TRACK_W = CS_SCALE * CS_BAND;
+// The band-derived "natural" scale (metres per sketch unit): the size the track WANTS
+// to be from the oval's band. It is the binding scale on a 16:9 screen. `_bandScale`,
+// the aspect-ratio FIT cap, CS_SCALE and CIRCUIT_TRACK_W are ALL computed lower down —
+// under "===== CIRCUIT FIT" — because the fit must measure the TRUE drawn bounding box
+// (road ribbon + KERBS + GRAVEL run-off), and that geometry doesn't exist yet here. The
+// first attempt fit only the road centreline + band, so kerbs still hung off the edges.
 
 // The shape was designed (in the editor's screen-frame) to FIT one screen at this
 // width, so the world = one screen (FLAT_LOGICAL) and it renders exactly like the
@@ -1571,15 +1550,59 @@ export function circuitDebugMapping() {
  * true means this screen needed the fit cap (i.e. it is NOT a 16:9 machine).
  */
 export function circuitFitDebug() {
-  const extentW = _sketchW * CS_SCALE, extentH = _sketchH * CS_SCALE;
+  const extentW = _trueExtent.w * CS_SCALE, extentH = _trueExtent.h * CS_SCALE;
+  const marginX = (FLAT_LOGICAL.widthM - extentW) / 2, marginY = (FLAT_LOGICAL.heightM - extentH) / 2;
   return {
     screenAspect: +(FLAT_LOGICAL.widthM / FLAT_LOGICAL.heightM).toFixed(3),
     worldM: `${FLAT_LOGICAL.widthM.toFixed(1)} x ${FLAT_LOGICAL.heightM.toFixed(1)}`,
-    trackExtentM: `${extentW.toFixed(1)} x ${extentH.toFixed(1)}`,
+    trackExtentM: `${extentW.toFixed(1)} x ${extentH.toFixed(1)}`,   // road + kerbs + gravel
     trackWidthM: +CIRCUIT_TRACK_W.toFixed(2),
+    marginM: `${marginX.toFixed(1)} L/R · ${marginY.toFixed(1)} T/B`,
     scaleCappedByFit: CS_SCALE < _bandScale - 1e-9,
-    fitsWidth: extentW <= FLAT_LOGICAL.widthM,
-    fitsHeight: extentH <= FLAT_LOGICAL.heightM,
+    fits: marginX >= 0 && marginY >= 0,
+  };
+}
+
+/**
+ * DIAGNOSTICS / HARNESS: the TRUE drawn bounding box vs the world, in METRES, per source,
+ * so a test can assert a positive margin on all four sides for any screen aspect. This is
+ * the ground truth the fit is built on — kerbs and gravel included, not just the road.
+ */
+export function circuitDrawnExtent() {
+  const s = CS_SCALE;
+  // per-source extents (sketch → metres), to prove which piece is the binding one
+  const box = (pts: Array<[number, number]>) => {
+    let a = Infinity, b = Infinity, c = -Infinity, d = -Infinity;
+    for (const [x, y] of pts) { if (x < a) a = x; if (x > c) c = x; if (y < b) b = y; if (y > d) d = y; }
+    return { minX: a, minY: b, maxX: c, maxY: d };
+  };
+  const half = CS_BAND / 2;
+  const roadPts: Array<[number, number]> = [];
+  for (const p of CIRCUIT_PATH) { roadPts.push([p[0] - half, p[1] - half], [p[0] + half, p[1] + half]); }
+  const kerbPts: Array<[number, number]> = [];
+  for (const q of CIRCUIT_KERBS) kerbPts.push(q.a, q.b, q.c, q.d);
+  const gravPts: Array<[number, number]> = [];
+  for (const [x, y, r] of GRAVEL_DISCS) gravPts.push([x - r, y - r], [x + r, y + r]);
+  const toWorld = (bx: { minX: number; minY: number; maxX: number; maxY: number }) => ({
+    minX: (bx.minX - CS_BCX) * s + CIRCUIT_LOGICAL.widthM / 2,
+    maxX: (bx.maxX - CS_BCX) * s + CIRCUIT_LOGICAL.widthM / 2,
+    minY: (bx.minY - CS_BCY) * s + CIRCUIT_LOGICAL.heightM / 2,
+    maxY: (bx.maxY - CS_BCY) * s + CIRCUIT_LOGICAL.heightM / 2,
+  });
+  const all = toWorld(_trueExtent);
+  return {
+    world: { w: FLAT_LOGICAL.widthM, h: FLAT_LOGICAL.heightM },
+    scaleCappedByFit: CS_SCALE < _bandScale - 1e-9,
+    all,                                   // union bbox in world metres
+    margins: {                             // >0 on every side ⇒ nothing cut off
+      left: all.minX, right: FLAT_LOGICAL.widthM - all.maxX,
+      top: all.minY, bottom: FLAT_LOGICAL.heightM - all.maxY,
+    },
+    perSource: {
+      road: toWorld(box(roadPts)),
+      kerbs: toWorld(box(kerbPts)),
+      gravel: toWorld(box(gravPts)),
+    },
   };
 }
 /** Debug: the circuit centreline in world METRES (lets a harness drive the real racing line). */
@@ -1692,6 +1715,46 @@ function strokeDiscs(): Array<[number, number, number]> {
 }
 /** Every marked disc: the hand-placed traps + the expanded revision-2 strokes. */
 const GRAVEL_DISCS: Array<[number, number, number]> = [...GRAVEL_BLOBS, ...strokeDiscs()];
+
+// ===== CIRCUIT FIT — scale the track so the WHOLE drawn thing fits the screen ======
+// THE BUG (v1 fit): the fit measured only the road centreline + band width, so on any
+// aspect narrower than 16:9 the KERBS (which reach KERB_FULL_W beyond the road edge) and
+// the GRAVEL run-off still hung off the left/right edges.
+//
+// THE FIX: measure the TRUE bounding box of the TRACK — the road ribbon AND its kerbs —
+// in sketch units, and fit THAT (v1 fit only the road centreline + band, which is why the
+// kerbs, reaching KERB_FULL_W further out, still hung off the sides):
+//   • road ribbon — every CIRCUIT_PATH point, inflated by CS_BAND/2 (the stroke half-width)
+//   • kerbs       — every KerbQuad vertex (they extend band/2 + KERB_FULL_W outward)
+// GRAVEL run-off is deliberately NOT in the binding box: the traps sit out in the grass and
+// the bottom-straight trap already bleeds a touch past the bottom edge on 16:9 today (the
+// shipped, accepted look). Fitting gravel would shrink the 16:9 track ~27 % and break the
+// "16:9 unchanged" guarantee. `circuitDrawnExtent()` still reports gravel so a regression
+// can be seen. The road+kerb box is what must never be cut — that IS the reported bug.
+const _trueExtent = (() => {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  const acc = (x: number, y: number) => {
+    if (x < minX) minX = x; if (x > maxX) maxX = x;
+    if (y < minY) minY = y; if (y > maxY) maxY = y;
+  };
+  const half = CS_BAND / 2;
+  for (const p of CIRCUIT_PATH) { acc(p[0] - half, p[1] - half); acc(p[0] + half, p[1] + half); }
+  for (const q of CIRCUIT_KERBS) { acc(q.a[0], q.a[1]); acc(q.b[0], q.b[1]); acc(q.c[0], q.c[1]); acc(q.d[0], q.d[1]); }
+  return { minX, minY, maxX, maxY, w: maxX - minX, h: maxY - minY };
+})();
+
+const _bandScale = computeStadium(FLAT_LOGICAL.widthM, FLAT_LOGICAL.heightM).bandW * (2 / 3) / CS_BAND;
+// Safety margin: the true extent must occupy at most this fraction of the world on each
+// axis, so a strip of grass always frames the track and nothing can touch the edge. On a
+// 16:9 screen `_bandScale` is still the binding (smaller) scale, so 16:9 stays EXACTLY as
+// shipped; only narrower ratios hit the fit cap and scale down.
+const CIRCUIT_FIT = 0.988;                       // 16:9 fills ~98.7%, so this keeps it band-bound (identical); narrower ratios scale down to fit
+const CS_SCALE = Math.min(                       // metres per sketch unit
+  _bandScale,
+  (FLAT_LOGICAL.widthM * CIRCUIT_FIT) / _trueExtent.w,
+  (FLAT_LOGICAL.heightM * CIRCUIT_FIT) / _trueExtent.h,
+);
+const CIRCUIT_TRACK_W = CS_SCALE * CS_BAND;
 
 let _gravelMask: Uint8Array | null | undefined;
 let _gvW = 0, _gvH = 0;
