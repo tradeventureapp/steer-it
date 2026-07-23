@@ -12,7 +12,6 @@ import {
   getMap, listMaps, DEFAULT_MAP_ID, markClassAt, setCircuitSurfaceReady,
   type MapDefinition, type MapWorld, type MapObstacle, type Surface, type MarkClass,
 } from './maps';
-import { SoundEngine } from './sound';
 import { fitCanvasScale, sizeCanvasFitted, preloadSurfaceAssets, clearSurfaceCaches,
   surfaceCacheStats } from './surfaces';
 import { Effects, FX_CONFIG, GRASS_DUST_RGB, GRAVEL_SPRAY_RGB } from './effects';
@@ -89,7 +88,6 @@ const handbrakeHudEl = document.getElementById('handbrake-hud') as HTMLDivElemen
 const steerMarkerEl  = document.getElementById('steer-marker')  as HTMLDivElement | null;
 const rearSlipValEl  = document.getElementById('rear-slip-val') as HTMLSpanElement | null;
 const wspinValEl     = document.getElementById('wspin-val')     as HTMLSpanElement | null;
-const soundBtn       = document.getElementById('sound-toggle')  as HTMLButtonElement | null;
 const hudBlEl        = document.getElementById('hud-bl')         as HTMLElement | null;
 const hudTrEl        = document.getElementById('hud-tr')         as HTMLElement | null;
 const pauseOverlayEl = document.getElementById('pause-overlay')  as HTMLElement | null;
@@ -140,6 +138,18 @@ debugEl.style.cssText =
 document.body.appendChild(debugEl);
 let debugOn = false;
 
+// =============================================================================
+//  DEV TUNER FLAG — the D-key debug HUD + the PHYSICS4 TUNE panel are OFF for
+//  players. Everything below is kept intact and disabled by this ONE constant:
+//    • false → the tuner rows are never built, the panels never show, and the
+//      D key does nothing at all.
+//    • true  → the full debug HUD + live knob panel come back exactly as before.
+//  TO RESTORE LATER (once accounts/login exist): flip this to true and gate it on
+//  the dev-account flag instead — no other change is needed anywhere.
+//  Typed `boolean` (not the literal `false`) so TS keeps type-checking both branches.
+// =============================================================================
+const DEV_TUNER: boolean = false;
+
 // ---------- Live BRAKE tuners (p21) — shown with the D debug HUD ----------
 // Clickable +/- steppers that mutate CONFIG in memory (resets on reload) so the
 // foot-brake feel can be dialled mid-drive on the PC, then baked into physics.ts.
@@ -152,7 +162,7 @@ brakeTunerEl.style.cssText =
   'padding:8px 10px;border-radius:6px;border:1px solid rgba(255,138,61,.5);' +
   'pointer-events:auto;user-select:none;min-width:230px;';
 document.body.appendChild(brakeTunerEl);
-{
+if (DEV_TUNER) {
   const title = document.createElement('div');
   title.style.cssText = 'font-weight:700;letter-spacing:.5px;margin-bottom:6px;color:#ff8a3d;';
   brakeTunerEl.appendChild(title);
@@ -240,27 +250,14 @@ document.body.appendChild(brakeTunerEl);
   title.textContent = 'PHYSICS4 TUNE — per-wheel (live, resets on reload)';
 }
 
-// ---------- Sound + visual effects ----------
-const sound = new SoundEngine();
+// ---------- Visual effects ----------
+// SOUND IS REMOVED (parked): there is no audio in the game for now — no engine note,
+// no impact sound, no toggle button, no M key. `src/sound.ts` (the WebAudio SoundEngine)
+// is deliberately LEFT IN THE REPO but is no longer imported or instantiated, so nothing
+// can play and it tree-shakes out of the bundle. To bring sound back: re-import
+// SoundEngine here, re-add `const sound = new SoundEngine()`, the sound.update(...) calls
+// in the loop, sound.impact(...) on collisions, and the toggle button + M key.
 const fx = new Effects();
-
-function updateSoundButton() {
-  if (!soundBtn) return;
-  soundBtn.textContent = sound.enabled && !sound.muted ? '🔊' : '🔇';
-  soundBtn.classList.toggle('off', !sound.enabled || sound.muted);
-  soundBtn.title = sound.enabled
-    ? 'Sound on/off (M)'
-    : 'Tap for sound (M)';
-}
-sound.onChange = updateSoundButton;
-updateSoundButton();
-
-// Sound is OFF BY DEFAULT — only the visible toggle (or the M key)
-// enables it. No auto-enable on random clicks.
-soundBtn?.addEventListener('click', (e) => {
-  e.stopPropagation();
-  sound.toggleMute();
-});
 // QR join panel is visible by default; Q toggles it. The gameplay HUD
 // (speedo / SLIP / WSPIN / pedal bars / phys-debug) is HIDDEN by default and
 // revealed by D — so by default the screen is just the game world + QR.
@@ -271,8 +268,9 @@ function updateQrVisibility() {
 }
 window.addEventListener('keydown', (e) => {
   if (menuOpen) return;   // game keys are inert while the host menu is open
-  if (e.key === 'm' || e.key === 'M') sound.toggleMute();
-  if (e.key === 'd' || e.key === 'D') {
+  // D = debug HUD + PHYSICS4 TUNE panel — DEV ONLY (see DEV_TUNER above). With the
+  // flag off the key is inert; flip DEV_TUNER to true to get the whole thing back.
+  if (DEV_TUNER && (e.key === 'd' || e.key === 'D')) {
     debugOn = !debugOn;
     debugEl.style.display = debugOn ? 'block' : 'none';
     brakeTunerEl.style.display = debugOn ? 'block' : 'none';
@@ -2179,7 +2177,6 @@ function frame(now: number) {
             collideWithArcs(car.state, world.arcs, CONFIG, he.halfLen, he.halfWidth));
         }
         if (impact > 0.8) {
-          sound.impact(impact);
           fx.impact(car.state.x, car.state.y, impact);
         }
         if (car === lead && impact > XP_CONFIG.crashImpact) xpCrash = true;
@@ -2231,26 +2228,12 @@ function frame(now: number) {
       if (xpRun.ended && !xpEndHandled) handleXpEnd();
     }
 
-    // ---- Engine sound: the primary car only (one engine; keeps it cheap). ----
-    if (lead) {
-      sound.update({
-        wheelSpeed: lead.state.rearWheelSpeed,
-        speed: lead.state.speed,
-        slipAngle: lead.state.rearSlip,
-        wheelSpin: lead.state.wheelSpin,
-        throttle: lead.current.throttle,
-      });
-    } else {
-      sound.update({ wheelSpeed: 0, speed: 0, slipAngle: 0, wheelSpin: 0, throttle: 0 });
-    }
+    // (Engine sound removed — no audio; see the SOUND IS REMOVED note above.)
 
     // ---- Tire smoke — emitted PER CAR. The Effects pool is hard-capped
     // (FX_CONFIG.maxParticles) and shared, so N cars can't blow the budget.
     for (const car of cars.values()) emitCarSmoke(car, realDt);
     fx.update(realDt);
-  } else {
-    // Paused: idle the engine so it doesn't hold a note. Everything else frozen.
-    sound.update({ wheelSpeed: 0, speed: 0, slipAngle: 0, wheelSpin: 0, throttle: 0 });
   }
 
   // Render ALWAYS (paused frame still draws the frozen car + overlay on top).

@@ -792,22 +792,7 @@ body.desktop #hud-bl {
 }
 #speed-unit { font-size: 12px; letter-spacing: 2px; color: var(--text-dim); }
 
-/* Sound toggle — the one HUD element that takes clicks. */
-#sound-toggle {
-  pointer-events: auto;
-  appearance: none;
-  border: 1px solid var(--border-dim);
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 8px;
-  font-size: 16px;
-  line-height: 1;
-  padding: 6px 8px;
-  margin-left: 6px;
-  cursor: pointer;
-  align-self: center;
-}
-#sound-toggle:hover { background: rgba(255, 255, 255, 0.1); }
-#sound-toggle.off { opacity: 0.55; }
+/* (#sound-toggle styles removed with the audio system — no sound button in the HUD.) */
 #drift {
   font-family: var(--font-body);
   font-weight: 700; font-size: 12px; letter-spacing: 4px;
