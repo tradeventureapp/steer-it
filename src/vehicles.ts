@@ -191,7 +191,7 @@ export const ROAD_SPEC: VehicleSpec = {
 // Real dimensions (measured from the designer's NEW narrower render, sprite ratio
 // L/W = 2.0137 kept exactly, width anchored to a clean 2.000 m): wide but realistic —
 // vs Blitz RS (4.35×1.68) = ~same length, a touch wider.
-const STEEREX_DIMS: VehicleDims = {
+export const STEEREX_DIMS: VehicleDims = {
   lengthM: 4.027, widthM: 2.000, wheelbaseM: 2.571, bodyWidthM: 1.672,
 };
 // STEE-REX arcade tune (physics4 knob overrides on top of PHYS4, arcade branch).

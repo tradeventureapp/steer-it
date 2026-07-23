@@ -160,6 +160,16 @@ body.desktop #game { display: block; width: 100vw; height: 100vh; }
   filter: blur(20px);
 }
 
+/* Decorative hero animation (Stee-Rex drifting around the headline). Two IDs beat
+   `.menu-screen > *`, so it stays absolutely positioned. Same z-index as the card but
+   EARLIER in the DOM → it paints above the grid and behind the logo/CTA. It never takes
+   a pointer event, so START RACE is always clickable straight through it. */
+#main-menu #hero-drift {
+  position: absolute; inset: 0; z-index: 1;
+  width: 100%; height: 100%;
+  pointer-events: none;
+}
+
 /* ===== HERO LOGO — the STEER IT + tagline lockup is an IMAGE (the real design
    font, baked dark outline + sunset fill). We just place + light it. ========= */
 .hero-logo {

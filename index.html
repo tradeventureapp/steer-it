@@ -18,6 +18,9 @@
     <!-- ===== Host front-end: main menu → map select (synthwave). Shown at
          startup; dismissed into gameplay once a map is chosen. ===== -->
     <div id="main-menu" class="menu-screen">
+      <!-- Decorative Stee-Rex drifting around the headline. Behind the card (DOM order)
+           and pointer-events:none, so it never covers or blocks the logo / START RACE. -->
+      <canvas id="hero-drift" aria-hidden="true"></canvas>
       <div class="menu-card">
         <img class="hero-logo" src="/logos/steer-it-logo.png"
              alt="STEER IT — Drift Your Desktop" width="3450" height="1142" />

@@ -15,6 +15,7 @@ import {
 import { fitCanvasScale, sizeCanvasFitted, preloadSurfaceAssets, clearSurfaceCaches,
   surfaceCacheStats } from './surfaces';
 import { Effects, FX_CONFIG, GRASS_DUST_RGB, GRAVEL_SPRAY_RGB } from './effects';
+import { startHeroDrift } from './hero-drift';
 import {
   PLAYER_CAP, LOBBY_SYNC_MS, RESILIENCE, EV, colorName, LobbyState, paletteForMode,
 } from './lobby';
@@ -101,6 +102,7 @@ const editorEl       = document.getElementById('editor')         as HTMLElement 
 const editorStatusEl = document.getElementById('editor-status')  as HTMLDivElement | null;
 const editorHintEl   = document.getElementById('editor-hint')    as HTMLDivElement | null;
 const mainMenuEl     = document.getElementById('main-menu')       as HTMLElement | null;
+const heroCanvasEl   = document.getElementById('hero-drift')      as HTMLCanvasElement | null;
 const modeSelectEl   = document.getElementById('mode-select')     as HTMLElement | null;
 const carMapSelectEl = document.getElementById('car-map-select')  as HTMLElement | null;
 const mapTilesEl     = document.getElementById('map-tiles')       as HTMLElement | null;
@@ -341,14 +343,23 @@ let selectedMapId: string | null = null;
 let selectedCarKey: string | null = null;
 
 function hideAllMenus() {
+  heroDrift?.setActive(false);   // the hero animation only runs on the landing screen
   if (mainMenuEl) mainMenuEl.hidden = true;
   if (modeSelectEl) modeSelectEl.hidden = true;
   if (carMapSelectEl) carMapSelectEl.hidden = true;
 }
+// Decorative hero animation — runs ONLY while the landing/main menu is on screen
+// (the rAF is fully stopped otherwise, so it costs nothing in-game or on the other
+// screens). Purely client-side; no state, no network.
+const heroDrift = heroCanvasEl
+  ? startHeroDrift(heroCanvasEl, { keepOut: mainMenuEl?.querySelector('.menu-card') ?? null })
+  : null;
+
 function openMainMenu() {
   menuOpen = true;
   hideAllMenus();
   if (mainMenuEl) mainMenuEl.hidden = false;
+  heroDrift?.setActive(true);
   refreshFreeze();
   updateQrVisibility();
 }
