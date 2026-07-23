@@ -49,8 +49,8 @@ export interface HeroDriftHandle {
 
 // ---- tunables ---------------------------------------------------------------
 const LOOK = {
-  carLenPx: GAME_CAR_PX,       // EXACTLY the in-game car size (never larger)
-  carLenPxSmall: GAME_CAR_PX,  // same on touch — it's already small
+  carLenPx: GAME_CAR_PX,             // EXACTLY the in-game car size (never larger)
+  carLenPxSmall: GAME_CAR_PX * 0.8,  // a touch smaller on phones (thinner margins around the card)
   cruise: GAME_CRUISE_PX,      // px/s along the loop (game pace on the game's ruler)
   vRef: 70,                // speed at which steering reaches full authority
   omegaMax: 3.1,           // rad/s max yaw
@@ -452,16 +452,21 @@ export function startHeroDrift(
     ctx.restore();
   }
 
+  // Phones run the loop at ~30 fps (a frame cap) to halve the battery/CPU cost — the
+  // drift still reads smooth at 30. Desktop stays uncapped (0). rAF is always scheduled so
+  // it keeps polling; a capped frame just returns early, leaving `last` so dt accumulates.
+  const FRAME_MIN_MS = small ? 33 : 0;
   function frame(now: number) {
     if (!running) return;
+    raf = requestAnimationFrame(frame);
+    if (FRAME_MIN_MS && (now - last) < FRAME_MIN_MS) return;   // not time yet → skip (fps cap)
     const dt = Math.min(0.05, (now - last) / 1000 || 0.016);
     last = now;
     // adaptive quality — if we're consistently missing the budget, drop effects
-    if (dt > 0.034) { if (++slowFrames > 45) { effects = false; marks.length = 0; puffs.length = 0; } }
+    if (dt > 0.05) { if (++slowFrames > 45) { effects = false; marks.length = 0; puffs.length = 0; } }
     else if (slowFrames > 0) slowFrames--;
     step(dt);
     draw();
-    raf = requestAnimationFrame(frame);
   }
 
   function start() {

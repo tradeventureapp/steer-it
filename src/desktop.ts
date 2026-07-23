@@ -356,6 +356,9 @@ function hideAllMenus() {
 const heroDrift = heroCanvasEl
   ? startHeroDrift(heroCanvasEl, { keepOut: mainMenuEl?.querySelector('.menu-card') ?? null })
   : null;
+// The drifting car runs on EVERY device (it's the page's hook) — on phones it's smaller,
+// 30fps-capped and softened (see hero-drift.ts + the mobile CSS). The module itself falls
+// back to a single static frame under prefers-reduced-motion, so that case is handled there.
 
 function openMainMenu() {
   menuOpen = true;
