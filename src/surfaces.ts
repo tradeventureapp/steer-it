@@ -20,6 +20,7 @@
 // =============================================================================
 
 import { FX_CONFIG, GRASS_DUST_RGB, GRAVEL_SPRAY_RGB, DEFAULT_SMOKE_RGB } from './effects';
+import { noteCanvas, noteError } from './diag';
 import type { Surface, MarkClass } from './maps';   // type-only ⇒ erased, no import cycle
 
 export type SurfaceId = 'grass' | 'gravel' | 'asphalt';
@@ -145,7 +146,7 @@ function asphaltFill(): HTMLImageElement | null {
     // returns null so the flat preload tarmac tone fills the ribbon, never transparent-to-grass.
     img.src = ASPHALT_FILL_SRC;
     if (typeof img.decode === 'function') {
-      img.decode().then(markAsphaltReady).catch(() => { /* failed → keep the preload tone */ });
+      img.decode().then(markAsphaltReady).catch((e) => { noteError('asphalt-decode', e); });
     } else {
       // Ancient engines without decode(): fall back to onload + a natural-size check.
       img.onload = () => { if (img.naturalWidth > 0) markAsphaltReady(); };
@@ -170,6 +171,7 @@ function makeCanvas(w: number, h: number): HTMLCanvasElement | null {
   if (typeof document === 'undefined') return null;
   const cv = document.createElement('canvas');
   cv.width = Math.max(1, Math.round(w)); cv.height = Math.max(1, Math.round(h));
+  noteCanvas('surface-tex', w, h, cv);   // requested vs what the browser actually gave
   return cv;
 }
 
@@ -213,6 +215,7 @@ export function sizeCanvasFitted(
     cv.width = Math.max(1, Math.round(w * s));
     cv.height = Math.max(1, Math.round(h * s));
   }
+  noteCanvas('fitted-layer', w * s, h * s, cv);
   return s;
 }
 

@@ -16,6 +16,7 @@
 
 import { CONFIG, type CarState, type ObstacleRect, type ObstacleArc } from './vehicle-core';
 import { spawnPose } from './cars';
+import { noteError } from './diag';
 import type { RaceElement } from './race';
 import {
   SURFACES, onSurfaceAssetsReady, GRASS_LOOK,
@@ -886,8 +887,31 @@ const CS_BAND = 124;
 
 // Track width = 2/3 of the asphalt oval's band, in real metres. The band px value
 // (124) only sets the SCALE — the width in metres is ALWAYS 2/3 of the oval.
-const CIRCUIT_TRACK_W = computeStadium(FLAT_LOGICAL.widthM, FLAT_LOGICAL.heightM).bandW * (2 / 3);
-const CS_SCALE = CIRCUIT_TRACK_W / CS_BAND;      // metres per sketch unit
+const _bandScale = computeStadium(FLAT_LOGICAL.widthM, FLAT_LOGICAL.heightM).bandW * (2 / 3) / CS_BAND;
+
+// ---- ASPECT-RATIO FIT (the "works on my machine" bug) -------------------------
+// The oval's bandW derives from the screen HEIGHT only, while the world's width comes
+// from the screen WIDTH — so the track's size and the space it has to fit in scale on
+// DIFFERENT axes. The shape was squeezed to fill a 16:9 screen with only ~5 % margin,
+// so ANY narrower aspect overflowed and the track ran off the world:
+//     16:9  1.78 → fits (the machine it was tuned on)
+//     16:10 1.60 → over by  6 %   (MacBook Air/Pro, 1920x1200 Windows laptops)
+//     3:2   1.50 → over by 13 %   (MacBook Pro 14, Surface)
+//     5:4   1.25 → over by 36 %
+// Fix: cap the scale so the whole ribbon always fits BOTH axes. On 16:9 the band-based
+// scale is already the binding one, so 16:9 renders byte-identically to before; on a
+// narrower screen the track scales down just enough to fit (its width stays a constant
+// fraction of the track, so the course is identical, only smaller in metres).
+const _sxs = CIRCUIT_SKETCH.map((p) => p[0]), _sys = CIRCUIT_SKETCH.map((p) => p[1]);
+const _sketchW = Math.max(..._sxs) - Math.min(..._sxs) + CS_BAND;   // + the band's own width
+const _sketchH = Math.max(..._sys) - Math.min(..._sys) + CS_BAND;
+const CIRCUIT_FIT = 0.98;                        // leave a sliver of grass at the edge
+const CS_SCALE = Math.min(                       // metres per sketch unit
+  _bandScale,
+  FLAT_LOGICAL.widthM * CIRCUIT_FIT / _sketchW,
+  FLAT_LOGICAL.heightM * CIRCUIT_FIT / _sketchH,
+);
+const CIRCUIT_TRACK_W = CS_SCALE * CS_BAND;
 
 // The shape was designed (in the editor's screen-frame) to FIT one screen at this
 // width, so the world = one screen (FLAT_LOGICAL) and it renders exactly like the
@@ -1494,7 +1518,7 @@ function circuitMask(): Uint8Array | null {
   } catch (err) {
     // getImageData failed (memory) — DON'T cache the failure; a later call retries when
     // memory frees. surfaceAt then reads null (asphalt-everywhere fallback), never crashes.
-    console.warn('[circuit] surface mask build failed (getImageData):', err);
+    noteError('circuit-mask', err); console.warn('[circuit] surface mask build failed (getImageData):', err);
     return null;
   }
 }
@@ -1538,6 +1562,25 @@ export function circuitMaskDebug(): { mask: Uint8Array | null; w: number; h: num
 /** Debug/authoring: the sketch↔world mapping (lets a harness convert screen px → sketch coords). */
 export function circuitDebugMapping() {
   return { bcx: CS_BCX, bcy: CS_BCY, scale: CS_SCALE, world: CIRCUIT_LOGICAL };
+}
+
+/**
+ * DIAGNOSTICS: does the circuit actually FIT this machine's screen? The track's size
+ * derives from the screen HEIGHT (via the oval band) while the world's width comes from
+ * the screen WIDTH, so a narrow aspect used to push the track off the world. `scaleCappedByFit`
+ * true means this screen needed the fit cap (i.e. it is NOT a 16:9 machine).
+ */
+export function circuitFitDebug() {
+  const extentW = _sketchW * CS_SCALE, extentH = _sketchH * CS_SCALE;
+  return {
+    screenAspect: +(FLAT_LOGICAL.widthM / FLAT_LOGICAL.heightM).toFixed(3),
+    worldM: `${FLAT_LOGICAL.widthM.toFixed(1)} x ${FLAT_LOGICAL.heightM.toFixed(1)}`,
+    trackExtentM: `${extentW.toFixed(1)} x ${extentH.toFixed(1)}`,
+    trackWidthM: +CIRCUIT_TRACK_W.toFixed(2),
+    scaleCappedByFit: CS_SCALE < _bandScale - 1e-9,
+    fitsWidth: extentW <= FLAT_LOGICAL.widthM,
+    fitsHeight: extentH <= FLAT_LOGICAL.heightM,
+  };
 }
 /** Debug: the circuit centreline in world METRES (lets a harness drive the real racing line). */
 export function circuitCentreline(): Array<[number, number]> {
@@ -1744,7 +1787,7 @@ function gravelMask(): Uint8Array | null {
   //    (gravelShape sees null → no gravel this frame) rather than crashing the surface bake.
   let px: Uint8ClampedArray;
   try { px = c.getImageData(0, 0, W, H).data; }
-  catch (err) { console.warn('[circuit] gravel mask build failed (getImageData):', err); return null; }
+  catch (err) { noteError('gravel-mask', err); console.warn('[circuit] gravel mask build failed (getImageData):', err); return null; }
   let m = new Uint8Array(W * H);
   for (let i = 0; i < W * H; i++) m[i] = px[i * 4 + 3] > 127 ? 1 : 0;
   // 4. SMOOTH — separable box blur + threshold ⇒ rounded organic boundaries, thin necks pinched off
@@ -1779,7 +1822,7 @@ function gravelMask(): Uint8Array | null {
   carveGap();
   let px2: Uint8ClampedArray;
   try { px2 = c.getImageData(0, 0, W, H).data; }
-  catch (err) { console.warn('[circuit] gravel mask build failed (getImageData 2):', err); return null; }
+  catch (err) { noteError('gravel-mask-2', err); console.warn('[circuit] gravel mask build failed (getImageData 2):', err); return null; }
   for (let i = 0; i < W * H; i++) m[i] = px2[i * 4 + 3] > 127 ? 1 : 0;
   // 6. DROP small fragments — flood-fill connected components, keep only real traps
   const minPx = GRAVEL_MIN_AREA * P * P;
@@ -1857,7 +1900,7 @@ const gravelShape: SurfaceShape = (m, rc) => {
     }
     m.putImageData(big, 0, 0);
   } catch (err) {
-    console.warn('[circuit] gravel edge re-sharpen skipped (getImageData failed):', err);
+    noteError('gravel-edge', err); console.warn('[circuit] gravel edge re-sharpen skipped (getImageData failed):', err);
   }
 };
 

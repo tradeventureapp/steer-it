@@ -10,12 +10,14 @@ import { collideCars, applyInputs } from './cars';
 import { TyreMarks } from './marks';
 import {
   getMap, listMaps, DEFAULT_MAP_ID, markClassAt, setCircuitSurfaceReady,
+  circuitFitDebug,
   type MapDefinition, type MapWorld, type MapObstacle, type Surface, type MarkClass,
 } from './maps';
 import { fitCanvasScale, sizeCanvasFitted, preloadSurfaceAssets, clearSurfaceCaches,
   surfaceCacheStats } from './surfaces';
 import { Effects, FX_CONFIG, GRASS_DUST_RGB, GRAVEL_SPRAY_RGB } from './effects';
 import { startHeroDrift } from './hero-drift';
+import { collectDiag, noteError, noteStep } from './diag';
 import {
   PLAYER_CAP, LOBBY_SYNC_MS, RESILIENCE, EV, colorName, LobbyState, paletteForMode,
 } from './lobby';
@@ -1004,8 +1006,9 @@ function bakeWallpaperRaw() {
 // re-bake shortly after (by which point the churn we just fixed has usually freed the memory).
 function bakeWallpaper() {
   try {
-    bakeWallpaperRaw();
+    noteStep(`bake:${currentMap.id}`, bakeWallpaperRaw);
   } catch (err) {
+    noteError('wallpaper-bake', err);
     console.warn('[map] wallpaper bake failed — filling fallback ground + retrying:', err);
     try {
       wallpaperCtx.save();
@@ -2932,5 +2935,49 @@ function switchMap(id: string): boolean {
     totalMB: +((s.bytes + layerBytes + markBytes) / 1e6).toFixed(2),
   };
 };
+// DIAGNOSTICS: `steerDiag()` in the console, or load the page with ?diag=1, prints ONE
+// copy-pasteable block (screen/aspect/DPI, GPU, real canvas limits, every canvas
+// allocation requested-vs-actual, each bake step ok/threw, caught errors, memory). Built for
+// "works on my machine" reports — the numbers that differ between machines.
+(window as unknown as { steerDiag: () => string }).steerDiag = () => {
+  let mem: Record<string, unknown> = {};
+  try { mem = (window as unknown as { steerMemStats: () => Record<string, unknown> }).steerMemStats(); }
+  catch (e) { noteError('memstats', e); }
+  let fit: Record<string, unknown> = {};
+  try { fit = circuitFitDebug() as unknown as Record<string, unknown>; }
+  catch (e) { noteError('circuit-fit', e); }
+  const report = collectDiag({
+    'circuit fit (screen-aspect dependent)': fit,
+    'render layers': {
+      map: currentMap.id,
+      logicalPx: `${logicalPxW} x ${logicalPxH}`,
+      layerDpr,
+      backingDprCap: MAX_BACKING_DPR,
+      viewScale: +viewScale.toFixed(4),
+      marksLive,
+    },
+    memory: mem,
+  });
+  console.log(report);
+  return report;
+};
+try {
+  if (new URLSearchParams(location.search).get('diag') === '1') {
+    // Give the map a moment to build so the block includes the real bake results.
+    setTimeout(() => {
+      const r = (window as unknown as { steerDiag: () => string }).steerDiag();
+      const box = document.createElement('textarea');
+      box.value = r;
+      box.setAttribute('readonly', '');
+      box.style.cssText = 'position:fixed;inset:5% 5% auto 5%;height:82vh;z-index:99999;'
+        + 'font:11px/1.4 ui-monospace,monospace;background:#0b0616;color:#d8ffd8;'
+        + 'border:1px solid #ff2d95;border-radius:10px;padding:12px;white-space:pre;';
+      box.addEventListener('click', () => box.select());
+      document.body.appendChild(box);
+      box.select();
+    }, 2500);
+  }
+} catch (e) { noteError('diag-autorun', e); }
+
 // Warm both Stee-Rex skins so the arcade car shows its sprite immediately (never blank).
 preloadSteerex();
