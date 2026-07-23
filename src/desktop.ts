@@ -16,7 +16,7 @@ import { fitCanvasScale, sizeCanvasFitted, preloadSurfaceAssets, clearSurfaceCac
   surfaceCacheStats } from './surfaces';
 import { Effects, FX_CONFIG, GRASS_DUST_RGB, GRAVEL_SPRAY_RGB } from './effects';
 import {
-  PLAYER_CAP, LOBBY_SYNC_MS, RESILIENCE, EV, colorName, LobbyState,
+  PLAYER_CAP, LOBBY_SYNC_MS, RESILIENCE, EV, colorName, LobbyState, paletteForMode,
 } from './lobby';
 import { ROAD_SPEC, STEEREX_SILVER, STEEREX_BLACK, STEEREX_SKIN_COLORS, BLITZ_RS_COLORS,
   type VehicleSpec, type CarColor } from './vehicles';
@@ -56,7 +56,13 @@ const code = Array.from(
 const publicBase = (
   import.meta.env.VITE_PUBLIC_BASE_URL || window.location.origin
 ).replace(/\/+$/, '');
-const playUrl = `${publicBase}/play?s=${code}`;
+// The race MODE (= physics branch + car family), chosen in the menu. Declared HERE, above
+// the QR, because the join URL carries it: `?m=arcade|sim` lets a scanning phone paint the
+// RIGHT car's colour picker on its very first frame (no flash of the other car's palette
+// while it waits for the host's first lobby message). The lobby message remains the
+// authority and corrects a stale URL; the param is purely a first-paint hint.
+let raceMode: RaceMode = 'sim';
+const playUrl = () => `${publicBase}/play?s=${code}&m=${raceMode}`;
 
 const qrCanvas = document.getElementById('qr') as HTMLCanvasElement;
 const codeText = document.getElementById('code-text') as HTMLDivElement;
@@ -315,7 +321,12 @@ window.addEventListener('keydown', (e) => onDriveKey(e, true));
 window.addEventListener('keyup', (e) => onDriveKey(e, false));
 
 codeText.textContent = code;
-QRCode.toCanvas(qrCanvas, playUrl, { width: 160, margin: 1 }).catch(console.error);
+// Re-rendered whenever the mode changes (chooseMode) so the QR always encodes the mode the
+// phones are about to join — the QR is only ever VISIBLE after a mode + map are chosen.
+function renderQr() {
+  QRCode.toCanvas(qrCanvas, playUrl(), { width: 160, margin: 1 }).catch(console.error);
+}
+renderQr();
 
 // ============ HOST FRONT-END: main menu → MODE → CAR & MAP → race ============
 // The desktop (host) picks the MODE (= physics branch + car family) and the map
@@ -349,6 +360,7 @@ function openModeSelect() {
 // Choosing the mode fixes the branch + car family, then opens the CAR & MAP screen.
 function chooseMode(mode: RaceMode) {
   raceMode = mode;
+  renderQr();             // the join URL carries the mode → phones paint the right colours
   selectedMapId = null;
   selectedCarKey = null;
   hideAllMenus();
@@ -1175,10 +1187,11 @@ const DEFAULT_CAR_COLOR = '#1d3fa0';
 // The race MODE, chosen in the menu, IS the physics branch + car family for
 // EVERY car: SIM → Blitz RS (sim branch, its colour palette); ARCADE → Stee-Rex
 // (arcade branch, silver/black skins). Each phone then picks its own colour/skin.
-let raceMode: RaceMode = 'sim';
-// The colour palette offered for the current mode (sent to phones; the picker).
+// (`raceMode` itself is declared up by the join URL — it is encoded into the QR.)
+// The colour palette offered for the current mode (sent to phones; the picker). ONE mapping
+// (lobby.paletteForMode) shared with the phone's `?m=` first-paint hint so they can't drift.
 function activePalette(): CarColor[] {
-  return raceMode === 'arcade' ? STEEREX_SKIN_COLORS : BLITZ_RS_COLORS;
+  return paletteForMode(raceMode) ?? BLITZ_RS_COLORS;
 }
 // Resolve a car's VehicleSpec from the mode + its chosen colour. SIM → always
 // Blitz RS (colour tints the vector body). ARCADE → the Stee-Rex skin whose

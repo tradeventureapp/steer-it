@@ -93,6 +93,21 @@ export function shouldSendControl(
 // slots; per-slot recolour is unchanged (each car renders its own hex).
 export type { CarColor } from './vehicles';
 export { BLITZ_RS_COLORS as CAR_COLORS } from './vehicles';
+// The ARCADE car's two skins, offered as its "colours" — re-exported here so the phone
+// can build the RIGHT picker on its FIRST paint from the mode in the join URL (?m=arcade),
+// with no flash of the other car's palette while it waits for the host's lobby message.
+export { STEEREX_SKIN_COLORS } from './vehicles';
+
+import { BLITZ_RS_COLORS as _BLITZ, STEEREX_SKIN_COLORS as _REX, type CarColor as _CarColor } from './vehicles';
+/**
+ * The colour palette a race MODE offers — the ONE mapping, shared by the host (what it
+ * sends + shows) and the phone (what it paints from the `?m=` join-URL hint), so the two
+ * can never disagree. Returns null for an unknown/absent mode, which the phone treats as
+ * "car not known yet → draw no swatches" (rather than flashing the wrong car's colours).
+ */
+export function paletteForMode(mode: string | null | undefined): _CarColor[] | null {
+  return mode === 'arcade' ? _REX : mode === 'sim' ? _BLITZ : null;
+}
 import { BLITZ_RS_COLORS } from './vehicles';
 
 // Player names: short, sanitized (also HTML-unsafe chars stripped because the

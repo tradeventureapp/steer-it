@@ -5,7 +5,7 @@ import {
   type PhoneRtc, type StateMsg,
 } from './rtc';
 import {
-  getClientId, CAR_COLORS, EV, PHONE_HEARTBEAT_MS, sanitizeName,
+  getClientId, paletteForMode, EV, PHONE_HEARTBEAT_MS, sanitizeName,
   quantizeControl, shouldSendControl,
   type LobbyPlayer, type ControlSample,
 } from './lobby';
@@ -61,6 +61,11 @@ const ORIENTATION_HYSTERESIS = 1.6;
 // ---------- DOM ----------
 const params = new URLSearchParams(window.location.search);
 const code = (params.get('s') || '').toUpperCase();
+// FIRST-PAINT CAR HINT: the host encodes the chosen mode in the QR/join URL (?m=arcade|sim),
+// so we know which car's colours to draw BEFORE the first lobby message arrives — no flash of
+// the other car's palette. Unknown/absent (an old QR, a hand-typed link) → we render NO
+// swatches at all and wait for the host's palette, which is still the authority either way.
+const urlPalette = paletteForMode(params.get('m'));
 
 const stageEl     = document.getElementById('phone-stage')    as HTMLDivElement;
 const unlockBtn   = document.getElementById('unlock')         as HTMLButtonElement;
@@ -288,8 +293,8 @@ document.addEventListener('visibilitychange', () => {
 // The palette is MODE-dependent: the desktop sends it in the lobby payload
 // (SIM → Blitz colours, ARCADE → Stee-Rex silver/black). Rebuilt when it changes.
 let paletteSig = '';
-function buildColorPicker(colors: { name: string; hex: string }[] = CAR_COLORS) {
-  if (!lobbyColorsEl) return;
+function buildColorPicker(colors: { name: string; hex: string }[] | null = urlPalette) {
+  if (!lobbyColorsEl || !colors) return;   // car unknown yet → draw nothing (no wrong-car flash)
   const sig = colors.map((c) => c.hex).join(',');
   if (sig === paletteSig && lobbyColorsEl.childElementCount > 0) return;
   paletteSig = sig;
@@ -349,6 +354,9 @@ if (lobbyNameEl) {
   });
 }
 
+// First paint: the URL's mode hint (?m=) gives us the RIGHT car's colours immediately.
+// Without it nothing is drawn until the host's lobby message lands (a beat later) — either
+// way the player never sees the wrong car's palette.
 buildColorPicker();
 
 // ---------- Render ----------
