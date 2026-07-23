@@ -778,26 +778,27 @@ function hostScreenBigEnough(): boolean {
   return long >= HOST_MIN_SCREEN.longPx && short >= HOST_MIN_SCREEN.shortPx;
 }
 
-// Toggle the main menu between START and the "bigger screen needed" note. Only ever
-// affects the MENU (never a running game — see the resize note), so re-checking on
-// resize/orientation is safe: it can't lock anyone out mid-session.
-function applyHostGate() {
-  const ok = hostScreenBigEnough();
-  if (mainMenuEl) mainMenuEl.classList.toggle('too-small', !ok);
-  const btn = document.getElementById('btn-start-race') as HTMLButtonElement | null;
-  if (btn) btn.disabled = !ok;
+// The "too small" note is a DISMISSIBLE POPUP shown ONLY at the moment the user tries
+// to play — not a passive menu state. Dismiss via the button or by tapping the backdrop.
+const hostTooSmallEl = document.getElementById('host-too-small') as HTMLElement | null;
+function hideHostTooSmall() { if (hostTooSmallEl) hostTooSmallEl.hidden = true; }
+document.getElementById('host-note-dismiss')?.addEventListener('click', hideHostTooSmall);
+hostTooSmallEl?.addEventListener('click', (e) => { if (e.target === hostTooSmallEl) hideHostTooSmall(); });
+
+// THE PLAY GUARD — call this at every "I want to play" entry point. Runs the action on
+// a big-enough host; otherwise pops the "bigger screen" note. Used by START RACE now;
+// the future free-play-from-page and post-login "start game" buttons call the SAME guard.
+// `action` runs synchronously so it stays inside the click gesture (fullscreen needs that).
+function requireHostScreen(action: () => void) {
+  if (hostScreenBigEnough()) action();
+  else if (hostTooSmallEl) hostTooSmallEl.hidden = false;
 }
-applyHostGate();
-// Re-evaluate only when the SCREEN could actually have changed (a display swap /
-// orientation flip). It reads window.screen, so an in-app window resize won't flip it,
-// and the gate is menu-only — a mid-race resize never blocks anything.
-window.addEventListener('resize', applyHostGate);
-window.addEventListener('orientationchange', applyHostGate);
 
 document.getElementById('btn-start-race')?.addEventListener('click', () => {
-  if (!hostScreenBigEnough()) return;   // belt-and-suspenders: never host on a tiny screen
-  goFullscreen();   // START RACE is the user gesture — fill the host screen
-  openModeSelect();
+  requireHostScreen(() => {
+    goFullscreen();   // START RACE is the user gesture — fill the host screen
+    openModeSelect();
+  });
 });
 document.getElementById('btn-mode-arcade')?.addEventListener('click', () => chooseMode('arcade'));
 document.getElementById('btn-mode-sim')?.addEventListener('click', () => chooseMode('sim'));

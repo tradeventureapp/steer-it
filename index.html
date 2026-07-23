@@ -29,17 +29,21 @@
           <!-- More items (OPTIONS, LEADERBOARDS) slot in here later — none yet. -->
         </div>
         <div class="menu-foot">HOST SCREEN <span class="dot">·</span> PHONES JOIN ONCE A MAP LOADS</div>
+      </div>
+    </div>
 
-        <!-- Shown INSTEAD of START RACE when the host screen is too small to play on
-             (a phone can't be the shared racetrack). Positive: explains the concept so a
-             phone visitor comes back on a laptop. Toggled by desktop.ts (#main-menu.too-small). -->
-        <div id="host-too-small" class="host-note">
-          <div class="host-note-title">Open on a bigger screen</div>
-          <p>Steer It is a <b>shared-screen</b> party game — the big screen is the racetrack
-             everyone watches. Open it on a <b>laptop, desktop, or tablet</b>.</p>
-          <p><b>Your phone is the controller.</b> On the big screen, scan the QR code and tilt
-             your phone to steer your car — grab some friends and drift across the desktop!</p>
-        </div>
+    <!-- POPUP: appears only when the user tries to PLAY on a host screen too small to
+         play on (now: START RACE; later: free-play-from-page / post-login "start"). A
+         dismissible overlay, NOT a passive menu state — shown by desktop.ts on the play
+         action. Positive: explains the concept so a phone visitor comes back on a laptop. -->
+    <div id="host-too-small" class="modal-overlay" hidden>
+      <div class="host-note">
+        <div class="host-note-title">Open on a bigger screen</div>
+        <p>Steer It is a <b>shared-screen</b> party game — the big screen is the racetrack
+           everyone watches. Open it on a <b>laptop, desktop, or tablet</b>.</p>
+        <p><b>Your phone is the controller.</b> Scan the QR code and tilt your phone to steer
+           your car — grab some friends and drift across the desktop!</p>
+        <button type="button" class="menu-btn ghost" id="host-note-dismiss">GOT IT</button>
       </div>
     </div>
 
