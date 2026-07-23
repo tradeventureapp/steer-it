@@ -751,7 +751,51 @@ function buildCarTiles() {
   if (keep) selectCar(keep);
 }
 
+// ---- HOST-SCREEN-SIZE GATE ----------------------------------------------------
+// Steer It is a shared-screen party game: the host screen is the racetrack a group
+// watches, so it must be big enough to read. A phone as the host is unplayable (the
+// phone is the CONTROLLER — a separate page, play.html, entirely unaffected by this).
+//
+// Based on SCREEN SIZE, not device sniffing (iPads report as desktop, phones request
+// desktop mode — UA is unreliable, and size is the real constraint). We read
+// window.screen (the DEVICE screen, CSS px), not the window, so a desktop user with a
+// small browser window is NOT blocked (their screen is big, and START goes fullscreen
+// anyway). We use the LONG and SHORT sides (orientation-agnostic) because the width
+// alone can't separate an iPad mini (1024) from a big phone in landscape (930) — the
+// HEIGHT does (768 vs 430). One tunable constant:
+//   • longPx 1000  — screen's longer side (landscape width). iPad mini 1024 clears it;
+//                    a landscape phone (~930) does not.
+//   • shortPx 600  — screen's shorter side (landscape height). iPad mini 768 clears it;
+//                    a landscape phone (~430) does not. This is the clean discriminator.
+// At/above 1024×768 the track + cars render readably (iPad mini is a real target); below
+// ~600 tall the whole course is scaled down too far to watch from across a table.
+const HOST_MIN_SCREEN = { longPx: 1000, shortPx: 600 };
+
+function hostScreenBigEnough(): boolean {
+  const w = window.screen?.width || window.innerWidth;
+  const h = window.screen?.height || window.innerHeight;
+  const long = Math.max(w, h), short = Math.min(w, h);
+  return long >= HOST_MIN_SCREEN.longPx && short >= HOST_MIN_SCREEN.shortPx;
+}
+
+// Toggle the main menu between START and the "bigger screen needed" note. Only ever
+// affects the MENU (never a running game — see the resize note), so re-checking on
+// resize/orientation is safe: it can't lock anyone out mid-session.
+function applyHostGate() {
+  const ok = hostScreenBigEnough();
+  if (mainMenuEl) mainMenuEl.classList.toggle('too-small', !ok);
+  const btn = document.getElementById('btn-start-race') as HTMLButtonElement | null;
+  if (btn) btn.disabled = !ok;
+}
+applyHostGate();
+// Re-evaluate only when the SCREEN could actually have changed (a display swap /
+// orientation flip). It reads window.screen, so an in-app window resize won't flip it,
+// and the gate is menu-only — a mid-race resize never blocks anything.
+window.addEventListener('resize', applyHostGate);
+window.addEventListener('orientationchange', applyHostGate);
+
 document.getElementById('btn-start-race')?.addEventListener('click', () => {
+  if (!hostScreenBigEnough()) return;   // belt-and-suspenders: never host on a tiny screen
   goFullscreen();   // START RACE is the user gesture — fill the host screen
   openModeSelect();
 });
