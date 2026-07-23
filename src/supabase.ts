@@ -84,39 +84,62 @@ export function createResilientChannel(
 ): ResilientChannel {
   const label = hooks.label;
   let ch: RealtimeChannel;
+  let gen = 0;           // generation of the CURRENT channel instance (stale-callback guard)
   let ready = false;
   let attempts = 0;
+  let subscribedAt = 0;  // when the current instance reached SUBSCRIBED (stability check)
   let stopped = false;   // deliberate leave (WebRTC up) — suppress auto-reconnect
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+  // A subscribe that survives this long counts as a HEALTHY session: only then is the
+  // backoff allowed to reset. Anything shorter is flapping and must keep escalating.
+  const STABLE_MS = 10_000;
+  // Backoff ceiling. Kept BELOW RESILIENCE.PRESENCE_GRACE_MS (20 s) so even a fully
+  // backed-off channel still recovers before the desktop would call anyone departed.
+  const MAX_BACKOFF_MS = 8_000;
 
   const log = (msg: string) => console.info(`[${label}] ${isoNow()} ${msg}`);
 
   function scheduleReconnect(reason: string) {
     if (stopped || reconnectTimer) return;
-    // Fast, short backoff (the socket itself reconnects fast via reconnectAfterMs;
-    // this just re-creates the channel on top). 250ms→3s cap.
-    const delay = Math.min(250 * 2 ** attempts, 3000); // 250,500,1000,2000,3000…
+    const delay = Math.min(250 * 2 ** attempts, MAX_BACKOFF_MS); // 250,500,1k,2k,4k,8k…
     attempts++;
     log(`reconnecting in ${delay}ms (attempt ${attempts}) after ${reason}`);
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null;
-      try { supabase.removeChannel(ch); } catch { /* ignore */ }
       connect();
     }, delay);
   }
 
   function connect() {
+    // Bump the generation FIRST: every callback still registered on the previous
+    // instance is now stale and will be ignored. Removing a channel makes it emit
+    // CLOSED — without this guard that CLOSED re-entered the reconnect path and, worse,
+    // tore down the channel we had just created (the outer `ch` had already been
+    // reassigned), which is what turned a single blip into an endless
+    // SUBSCRIBED→CLOSED→"attempt 1" storm several times a second.
+    const myGen = ++gen;
+    const prev: RealtimeChannel | undefined = ch;
+    // Drop the OLD instance (captured by reference — never the current `ch`) BEFORE
+    // creating the new one, so the socket never holds two channels on the same topic.
+    if (prev) { try { supabase.removeChannel(prev); } catch { /* ignore */ } }
+
     ch = supabase.channel(name, { config });
     wire(ch);
     ch.subscribe((status, err) => {
+      if (stopped || myGen !== gen) return;   // stale instance → ignore completely
       log(`status=${status}${err ? ` err=${(err as Error)?.message ?? err}` : ''}`);
       if (status === 'SUBSCRIBED') {
         ready = true;
-        attempts = 0;
+        subscribedAt = Date.now();
         hooks.onReady?.();
       } else if (status === 'CLOSED' || status === 'TIMED_OUT' || status === 'CHANNEL_ERROR') {
         const wasReady = ready;
         ready = false;
+        // Reset the backoff ONLY after a genuinely stable session. A connect-then-drop
+        // cycle keeps `attempts` climbing, so a flapping link backs off instead of
+        // hammering Realtime (and burning quota) at 4 reconnects a second.
+        if (wasReady && Date.now() - subscribedAt >= STABLE_MS) attempts = 0;
         if (wasReady) hooks.onDrop?.(status);
         scheduleReconnect(status);
       }
@@ -137,6 +160,9 @@ export function createResilientChannel(
       stopped = true;
       ready = false;
       if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+      // Invalidate this instance's callbacks BEFORE removing it — removal emits CLOSED,
+      // and a deliberate leave must never look like a drop worth reconnecting.
+      gen++;
       try { supabase.removeChannel(ch); } catch { /* ignore */ }
       log('stopped (deliberate leave — P2P transport up)');
     },
@@ -144,6 +170,7 @@ export function createResilientChannel(
       if (!stopped) return;
       stopped = false;
       attempts = 0;
+      subscribedAt = 0;
       log('resuming (re-signaling)');
       connect();
     },
