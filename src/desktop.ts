@@ -42,7 +42,7 @@ import {
 import { inject } from '@vercel/analytics';
 import {
   initAuth, onAuthChange, getAuthState, signIn, signUp, signOut,
-  sendPasswordReset, updatePassword, type AuthState,
+  sendPasswordReset, updatePassword, checkEntitlement, type AuthState,
 } from './auth';
 
 // Vercel Web Analytics — framework-agnostic vanilla init (NOT the React
@@ -1180,6 +1180,11 @@ upsellAct(document.getElementById('upsell-secondary'));
 
 initAuth();
 onAuthChange(renderAccount);
+// Manual entitlement check for the host to verify premium is recognised:
+// run `steerCheckEntitlement()` in the browser console → logs what the client
+// actually read from `profiles` and refreshes the FREE/PREMIUM chip.
+(window as unknown as { steerCheckEntitlement: () => void }).steerCheckEntitlement =
+  () => { void checkEntitlement(); };
 
 openMainMenu();   // show the host menu at startup
 

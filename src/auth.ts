@@ -51,14 +51,38 @@ function deviceId(): string {
 }
 
 // After a session exists: read the entitlement + register this device (rolling
-// 5-cap). Both are best-effort — a network hiccup just leaves is_premium false
-// (fail-closed: you never accidentally get premium).
-async function refreshEntitlement(user: AuthUser) {
+// 5-cap). Fail-closed on a genuine error, but LOUD — every read logs exactly what
+// the client got back (data + error + whether it's authenticated), so a premium
+// account that reads as FREE is diagnosable (RLS blocking, missing row, etc.).
+async function refreshEntitlement(user: AuthUser): Promise<boolean> {
   let premium = false;
   try {
-    const { data } = await supabase.from('profiles').select('is_premium').eq('id', user.id).single();
-    premium = !!data?.is_premium;
-  } catch { /* fail closed */ }
+    // `.maybeSingle()` → 0 rows returns { data: null, error: null } (RLS block or
+    // missing row) INSTEAD of `.single()`'s spurious PGRST116 error. We check error
+    // explicitly (the old code dropped it → silent FREE).
+    const { data, error, status } = await supabase
+      .from('profiles').select('is_premium').eq('id', user.id).maybeSingle();
+    // Confirm we're querying with the AUTHENTICATED session (RLS auth.uid()), not anon.
+    const { data: authData } = await supabase.auth.getUser();
+    const authedId = authData.user?.id ?? null;
+
+    if (error) {
+      console.error('[auth] profiles read FAILED (HTTP %s, code %s): %s',
+        status, error.code, error.message, { details: error.details, hint: error.hint });
+    } else if (!data) {
+      console.warn(
+        '[auth] profiles returned NO ROW for id=%s (authed uid=%s). Either the row ' +
+        'is missing OR the RLS SELECT policy is blocking the authenticated read — ' +
+        'a service-role SELECT in the dashboard would still see it. Defaulting to FREE.',
+        user.id, authedId);
+    } else {
+      premium = data.is_premium === true;
+    }
+    console.info('[auth] entitlement = %s  (is_premium=%o, row=%o, authed=%s, email=%s)',
+      premium ? 'PREMIUM' : 'FREE', data?.is_premium, !!data, authedId === user.id, user.email);
+  } catch (e) {
+    console.error('[auth] profiles read threw:', e);
+  }
   // Register/refresh this device + prune to the newest MAX_DEVICES (server-side).
   try {
     await supabase.rpc('register_device', {
@@ -67,6 +91,16 @@ async function refreshEntitlement(user: AuthUser) {
     });
   } catch { /* the cap RPC is best-effort; entitlement still applies */ }
   if (state.user?.id === user.id) set({ isPremium: premium });
+  return premium;
+}
+
+// Manual re-check (exposed on window in desktop.ts) — re-reads the profile, logs
+// what came back, and updates the chip. Lets the host verify entitlement live.
+export async function checkEntitlement(): Promise<AuthState> {
+  if (!state.user) { console.info('[auth] not logged in → FREE'); return state; }
+  await refreshEntitlement(state.user);
+  console.info('[auth] state now:', { email: state.user.email, isPremium: state.isPremium });
+  return state;
 }
 
 function toUser(u: { id: string; email?: string } | null | undefined): AuthUser | null {
@@ -86,7 +120,11 @@ export function initAuth() {
     const user = toUser(session?.user);
     if (user) {
       set({ user, emailVerified: !!session?.user?.email_confirmed_at, loading: false });
-      void refreshEntitlement(user);
+      // Defer OUT of the onAuthStateChange callback: supabase-js holds an auth lock
+      // while the callback runs, and awaiting a DB read (which needs the session) from
+      // inside it can hang / read with no session in some versions. setTimeout(0) runs
+      // it after the lock releases, with the session fully applied.
+      setTimeout(() => { void refreshEntitlement(user); }, 0);
     } else {
       set({ user: null, isPremium: false, emailVerified: false, loading: false });
     }
