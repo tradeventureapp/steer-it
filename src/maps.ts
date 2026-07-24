@@ -71,6 +71,13 @@ export interface MapDefinition {
   name: string;
   trackType: TrackType;
 
+  // Game modes this map supports, by key (the mode registry lives in the menu — desktop.ts —
+  // so a NEW mode/map slots in by editing DATA only, never menu logic). Empty/omitted ⇒ the
+  // map is FREE ROAM only (the desktop): the menu offers no mode choice and START just launches
+  // it. The ovals + circuit list ['race','xp']. Keys are plain strings so maps stay decoupled
+  // from the mode registry.
+  gameModes?: readonly string[];
+
   // See SurfaceGroup — optional map-select grouping metadata (presentation only).
   surfaceGroup?: SurfaceGroup;
 
@@ -178,6 +185,7 @@ export const desktopMap: MapDefinition = {
   id: 'desktop',
   name: 'Desktop',
   trackType: 'open',   // free surface → full place-elements editor
+  gameModes: [],       // FREE ROAM only — its own place-elements editor (E), no RACE/XP
 
   createWorld(widthM, heightM) {
     return layoutDesktop(widthM, heightM);
@@ -736,6 +744,7 @@ function makeStadiumMap(opts: {
     id: opts.id,
     name: opts.name,
     trackType: 'circuit',   // bounded oval → laps-only editor; built-in start line
+    gameModes: ['race', 'xp'],   // both RACE (laps) and XP MODE (solo score run)
 
     surfaceGroup: opts.surfaceGroup,
 
@@ -2451,6 +2460,7 @@ function drawCircuitBillboardsAbove(ctx: CanvasRenderingContext2D, px: number) {
 export const circuitMap: MapDefinition = {
   id: 'circuit',
   name: 'Circuit',
+  gameModes: ['race', 'xp'],   // both RACE (laps) and XP MODE (solo score run)
   // CIRCUIT: the built-in start/finish below is start AND finish, so the editor shows the
   // LAPS panel (0 = free-roam, N = an N-lap race) instead of the place-elements palette —
   // exactly like the ovals.

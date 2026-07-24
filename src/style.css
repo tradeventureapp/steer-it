@@ -414,6 +414,91 @@ body.desktop #game { display: block; width: 100vw; height: 100vh; }
   box-shadow: 0 0 26px rgba(255, 45, 149, 0.55), inset 0 0 0 1px rgba(255, 45, 149, 0.5);
 }
 .map-tile.is-selected .map-name { color: #fff; }
+/* Filtered OUT by the chosen game mode (the mode→map half of the two-way filter):
+   dimmed so it's clearly unavailable, but still clickable (clicking it clears the
+   conflicting mode). */
+.map-tile.is-filtered { opacity: 0.32; filter: grayscale(0.55); }
+.map-tile.is-filtered:hover { opacity: 0.55; transform: none; box-shadow: none; }
+
+/* ===== MODE picker (collapsible) — the two-way mode↔map filter ============== */
+.cms-mode {
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  margin: 2px auto 22px; width: 100%; max-width: 460px;
+}
+.cms-mode-toggle {
+  position: relative; width: 100%; cursor: pointer;
+  appearance: none; -webkit-appearance: none; font-family: var(--font-display);
+  display: grid; grid-template-columns: 1fr auto; align-items: center;
+  row-gap: 2px; column-gap: 12px; text-align: left;
+  padding: 12px 18px; border-radius: 14px;
+  background: linear-gradient(180deg, rgba(255, 45, 149, 0.08), rgba(10, 6, 24, 0.6));
+  border: 1.5px solid var(--border-dim);
+  transition: transform 100ms, box-shadow 160ms, border-color 160ms;
+}
+.cms-mode-toggle:hover {
+  border-color: rgba(255, 45, 149, 0.7);
+  box-shadow: 0 0 22px rgba(255, 45, 149, 0.35);
+}
+.cms-mode-kicker {
+  grid-column: 1; font-size: 10px; letter-spacing: 4px; font-weight: 800;
+  color: var(--gold); text-shadow: var(--glow-gold);
+}
+.cms-mode-value {
+  grid-column: 1; font-size: 20px; letter-spacing: 4px; font-weight: 800; color: #ffe9f4;
+  text-shadow: 0 0 9px rgba(255, 45, 149, 0.55);
+}
+.cms-mode-hint {
+  grid-column: 1; font-family: var(--font-body); font-size: 11px; letter-spacing: 1px;
+  color: rgba(255, 255, 255, 0.6);
+}
+.cms-mode-caret {
+  grid-column: 2; grid-row: 1 / span 3; align-self: center;
+  font-size: 16px; color: var(--gold); transition: transform 160ms;
+}
+.cms-mode-toggle.is-open .cms-mode-caret { transform: rotate(180deg); }
+/* A mode is chosen → the toggle carries the accent, like a selected tile. */
+.cms-mode-toggle.has-mode {
+  border-color: rgba(255, 45, 149, 0.9);
+  box-shadow: 0 0 22px rgba(255, 45, 149, 0.45), inset 0 0 0 1px rgba(255, 45, 149, 0.45);
+}
+.cms-mode-toggle.has-mode .cms-mode-value { color: #fff; }
+/* Free-roam map (Desktop) → no mode to choose. */
+.cms-mode-toggle:disabled {
+  cursor: default; opacity: 0.5; filter: grayscale(0.5);
+  border-color: var(--border-dim); box-shadow: none;
+}
+.cms-mode-toggle:disabled .cms-mode-caret { display: none; }
+
+.cms-mode-panel {
+  display: flex; flex-direction: column; gap: 8px; width: 100%;
+  animation: modePanelIn 140ms ease-out;
+}
+@keyframes modePanelIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .cms-mode-panel { animation: none; } }
+.mode-opt {
+  appearance: none; -webkit-appearance: none; cursor: pointer; text-align: left;
+  font-family: var(--font-display);
+  display: flex; flex-direction: column; gap: 4px; padding: 12px 16px; border-radius: 12px;
+  background: var(--glass-soft); border: 1.5px solid var(--border-dim);
+  transition: transform 100ms, box-shadow 160ms, border-color 160ms, opacity 160ms;
+}
+.mode-opt:hover { border-color: rgba(255, 45, 149, 0.7); box-shadow: 0 0 18px rgba(255, 45, 149, 0.3); }
+.mode-opt-head { display: flex; align-items: baseline; gap: 12px; }
+.mode-opt-name { font-size: 17px; letter-spacing: 3px; font-weight: 800; color: #ffe9f4; }
+.mode-opt-tag {
+  font-family: var(--font-display); font-size: 9px; letter-spacing: 2px; font-weight: 800;
+  padding: 2px 8px; border-radius: 999px; color: var(--ink);
+  background: var(--grad-cta); white-space: nowrap;
+}
+.mode-opt-desc { font-family: var(--font-body); font-size: 12px; color: rgba(255, 255, 255, 0.72); }
+.mode-opt.is-selected {
+  border-color: rgba(255, 45, 149, 0.95);
+  box-shadow: 0 0 22px rgba(255, 45, 149, 0.5), inset 0 0 0 1px rgba(255, 45, 149, 0.5);
+}
+.mode-opt.is-selected .mode-opt-name { color: #fff; }
+/* Filtered OUT by the chosen map (the map→mode half): dimmed but clickable. */
+.mode-opt.is-filtered { opacity: 0.34; filter: grayscale(0.5); }
+.mode-opt.is-filtered:hover { opacity: 0.55; box-shadow: none; }
 
 /* ===== CAR CARD — small name tile, full spec flyout on hover =============== */
 .car-card {
@@ -589,6 +674,18 @@ body.desktop #pause-overlay {
   backdrop-filter: blur(2px);
 }
 #pause-title { font-size: clamp(40px, 7vw, 72px); letter-spacing: 8px; margin-bottom: 4px; }
+/* Discoverable shortcut hint under the pause actions (E = switch mode / edit). */
+.pause-hint {
+  margin-top: 16px; font-family: var(--font-body); font-size: 12px; letter-spacing: 1px;
+  color: rgba(255, 255, 255, 0.6); text-align: center;
+}
+.pause-hint .dot { color: var(--orange-hot); }
+.pause-hint kbd {
+  font-family: var(--font-display); font-size: 11px; font-weight: 800; letter-spacing: 1px;
+  color: var(--gold); background: rgba(255, 194, 74, 0.12);
+  border: 1px solid rgba(255, 194, 74, 0.5); border-radius: 6px;
+  padding: 2px 8px; margin-right: 6px;
+}
 /* RESTART — warm GOLD accent, between the magenta RESUME and the ghost EXIT. */
 .menu-btn.alt {
   background: rgba(255, 194, 74, 0.12); color: #ffe6b3;

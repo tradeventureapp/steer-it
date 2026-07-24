@@ -70,6 +70,19 @@
     <div id="car-map-select" class="menu-screen" hidden>
       <div class="menu-card wide">
         <div class="menu-title">CAR &amp; MAP</div>
+        <!-- MODE picker — collapsible. Modes stay hidden behind this button so the menu
+             scales as more arrive. Two-way filter: choosing a mode dims maps that can't
+             host it; choosing a map filters the modes it supports. Options injected by
+             buildModeOptions() from the GAME_MODES registry. -->
+        <div class="cms-mode">
+          <button type="button" class="cms-mode-toggle" id="btn-mode-toggle" aria-expanded="false">
+            <span class="cms-mode-kicker">MODE</span>
+            <span class="cms-mode-value" id="mode-toggle-label">CHOOSE MODE</span>
+            <span class="cms-mode-hint" id="mode-toggle-hint">RACE friends · or solo XP</span>
+            <span class="cms-mode-caret" aria-hidden="true">▾</span>
+          </button>
+          <div class="cms-mode-panel" id="mode-panel" hidden></div>
+        </div>
         <div class="cms-cols">
           <section class="cms-col">
             <div class="cms-head">CAR</div>
@@ -191,6 +204,9 @@
           <button type="button" class="menu-btn alt" id="btn-restart">RESTART</button>
           <button type="button" class="menu-btn ghost" id="btn-exit-menu">EXIT TO MENU</button>
         </div>
+        <!-- Discoverable shortcut: E opens the editor, where the circuit LAPS / XP MODE
+             toggle lives (and the desktop's place-elements tools). -->
+        <div class="pause-hint"><kbd>E</kbd> switch game mode <span class="dot">·</span> edit track</div>
       </div>
     </div>
 

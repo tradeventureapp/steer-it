@@ -112,6 +112,10 @@ const carMapSelectEl = document.getElementById('car-map-select')  as HTMLElement
 const mapTilesEl     = document.getElementById('map-tiles')       as HTMLElement | null;
 const carTilesEl     = document.getElementById('car-tiles')       as HTMLElement | null;
 const cmsStartBtn    = document.getElementById('btn-cms-start')   as HTMLButtonElement | null;
+const modeToggleBtn  = document.getElementById('btn-mode-toggle') as HTMLButtonElement | null;
+const modeToggleLbl  = document.getElementById('mode-toggle-label') as HTMLElement | null;
+const modeToggleHint = document.getElementById('mode-toggle-hint')  as HTMLElement | null;
+const modePanelEl    = document.getElementById('mode-panel')      as HTMLElement | null;
 
 // ---------- Freeze: the main menu, pause (P), and the editor (E) each halt the
 // simulation + race timer (not the render). isPaused is the combined gate. ----
@@ -346,6 +350,30 @@ type RaceMode = 'arcade' | 'sim';
 let selectedMapId: string | null = null;
 let selectedCarKey: string | null = null;
 
+// ---- GAME MODES (RACE / XP …) — the in-game mode picked on the CAR & MAP screen.
+// This is a DIFFERENT axis from RaceMode (arcade/sim = the car family): a GameMode
+// is what you DO on a track. It maps onto the existing circuit `circuitMode`
+// ('race' → 'laps', 'xp' → 'xp'). The registry is the single source of truth so a
+// NEW mode is one entry here + listing its key in the supporting maps' `gameModes`
+// (maps.ts) — the menu filter logic never changes.
+interface GameMode {
+  key: string;          // matches MapDefinition.gameModes entries
+  name: string;         // shown on the picker button/option
+  desc: string;         // one-line description under the name
+  players: string;      // MULTIPLAYER / SOLO tag — makes the distinction clear
+}
+const GAME_MODES: GameMode[] = [
+  { key: 'race', name: 'RACE', desc: 'Race your friends — first to finish wins', players: 'MULTIPLAYER' },
+  { key: 'xp', name: 'XP MODE', desc: "Solo. Chain drifts, don't crash, beat your best.", players: 'SOLO' },
+];
+const MENU_RACE_LAPS = 3;   // default lap count when a RACE is launched from the menu
+let selectedGameMode: string | null = null;
+
+// The modes a map supports (empty ⇒ FREE ROAM only — the desktop).
+function mapGameModes(id: string | null): readonly string[] {
+  return (id && getMap(id)?.gameModes) || [];
+}
+
 function hideAllMenus() {
   heroDrift?.setActive(false);   // the hero animation only runs on the landing screen
   if (mainMenuEl) mainMenuEl.hidden = true;
@@ -386,17 +414,20 @@ function openCarMapSelect() {
   if (carMapSelectEl) carMapSelectEl.hidden = false;
   buildCarTiles();
   buildMapTiles();
-  updateStartEnabled();
+  buildModeOptions();
+  closeModePanel();       // start collapsed each time the screen opens
+  refreshSelectionUi();
   refreshFreeze();
   updateQrVisibility();
 }
 // Choosing the mode fixes the branch + car family, then opens the CAR & MAP screen.
-// A FRESH mode choice clears the previous car/map pick (a new mode = a new selection).
+// A FRESH mode choice clears the previous car/map/game-mode pick (a new selection).
 function chooseMode(mode: RaceMode) {
   raceMode = mode;
   renderQr();             // the join URL carries the mode → phones paint the right colours
   selectedMapId = null;
   selectedCarKey = null;
+  selectedGameMode = null;
   openCarMapSelect();
 }
 function closeMenusIntoGame() {
@@ -405,17 +436,37 @@ function closeMenusIntoGame() {
   refreshFreeze();
   updateQrVisibility();   // QR/join panel appears now a map is live
 }
+// START is enabled once a car AND a map are chosen, AND — for a map that offers
+// game modes — a game mode is chosen too. A free-roam map (no modes) needs none.
 function updateStartEnabled() {
-  if (cmsStartBtn) cmsStartBtn.disabled = !(selectedMapId && selectedCarKey);
+  const modes = mapGameModes(selectedMapId);
+  const modeOk = modes.length === 0 || !!selectedGameMode;
+  if (cmsStartBtn) cmsStartBtn.disabled = !(selectedMapId && selectedCarKey && modeOk);
 }
 // START: commit the mode to every car, load the map (respawns cars), enter play.
 function launchSelected() {
   if (!selectedMapId) return;
+  const modes = mapGameModes(selectedMapId);
+  if (modes.length && !selectedGameMode) return;   // must pick a game mode first
   goFullscreen();         // gameplay starts — fill the host screen (gesture)
   applyModeToAllCars();   // re-spec any already-connected cars to the chosen mode
   broadcastLobby();       // phones learn the mode + its colour palette
-  switchMap(selectedMapId);   // load the map + respawn any connected cars
+  switchMap(selectedMapId);   // load the map + respawn any connected cars (resets to laps/free-roam)
+  applySelectedGameMode();    // then commit RACE (laps) / XP on top
   closeMenusIntoGame();
+}
+// Translate the chosen GameMode onto the loaded map's circuit mode. Free-roam maps
+// (no gameModes) keep switchMap's default (their own editor / cruise); RACE sets a
+// real lap race (default laps), XP starts a score run.
+function applySelectedGameMode() {
+  const modes = mapGameModes(selectedMapId);
+  if (!modes.length) return;                    // free roam — nothing to apply
+  if (selectedGameMode === 'xp') {
+    setCircuitMode('xp');
+  } else {                                      // 'race' → a timed lap race
+    editorLaps = Math.max(1, MENU_RACE_LAPS);
+    setCircuitMode('laps');                     // rebuilds the race with the lap count
+  }
 }
 
 // Fullscreen on the HOST PC only (phones never call this). MUST run inside a
@@ -486,13 +537,106 @@ function renderMapPreview(c: CanvasRenderingContext2D, def: MapDefinition, RW: n
 // each entry reports its CURRENT id via getId()).
 type MapTileEntry = { el: HTMLElement; getId: () => string };
 let mapTileEntries: MapTileEntry[] = [];
+// Highlight the selected map, and DIM (filter) any map that doesn't support the
+// selected game mode — the mode→map half of the two-way filter.
 function highlightMapTiles() {
-  for (const e of mapTileEntries) e.el.classList.toggle('is-selected', e.getId() === selectedMapId);
+  for (const e of mapTileEntries) {
+    const id = e.getId();
+    e.el.classList.toggle('is-selected', id === selectedMapId);
+    const filtered = !!selectedGameMode && !mapGameModes(id).includes(selectedGameMode);
+    e.el.classList.toggle('is-filtered', filtered);
+  }
 }
-// Pick a map (does NOT launch — START does). Highlights the tile + enables START.
+// Pick a map (does NOT launch — START does). If it can't host the currently-chosen
+// game mode (e.g. Desktop = free roam, or a mode-only map), the MAP wins and the
+// game mode is cleared — so clicking is always allowed and both orders work.
 function selectMap(id: string) {
   selectedMapId = id;
+  if (selectedGameMode && !mapGameModes(id).includes(selectedGameMode)) selectedGameMode = null;
+  refreshSelectionUi();
+}
+
+// ---- MODE picker (collapsible; the map→mode half of the two-way filter) ----
+let modeOptEls: HTMLButtonElement[] = [];
+let modePanelOpen = false;
+function openModePanel() {
+  if (!modePanelEl || !modeToggleBtn) return;
+  modePanelOpen = true;
+  modePanelEl.hidden = false;
+  modeToggleBtn.setAttribute('aria-expanded', 'true');
+  modeToggleBtn.classList.add('is-open');
+}
+function closeModePanel() {
+  if (!modePanelEl || !modeToggleBtn) return;
+  modePanelOpen = false;
+  modePanelEl.hidden = true;
+  modeToggleBtn.setAttribute('aria-expanded', 'false');
+  modeToggleBtn.classList.remove('is-open');
+}
+// Build the mode option rows once (data-driven from GAME_MODES).
+function buildModeOptions() {
+  if (!modePanelEl) return;
+  modePanelEl.innerHTML = '';
+  modeOptEls = [];
+  for (const m of GAME_MODES) {
+    const opt = document.createElement('button');
+    opt.type = 'button';
+    opt.className = 'mode-opt';
+    opt.dataset.mode = m.key;
+    opt.innerHTML =
+      `<span class="mode-opt-head"><span class="mode-opt-name">${m.name}</span>` +
+      `<span class="mode-opt-tag">${m.players}</span></span>` +
+      `<span class="mode-opt-desc">${m.desc}</span>`;
+    opt.addEventListener('click', () => selectGameMode(m.key));
+    modePanelEl.appendChild(opt);
+    modeOptEls.push(opt);
+  }
+}
+// Pick a game mode. If the currently-selected map can't host it, the MODE wins and
+// the map is cleared (both orders work). Collapses the panel afterwards.
+function selectGameMode(key: string) {
+  selectedGameMode = selectedGameMode === key ? null : key;   // re-click clears
+  if (selectedGameMode && selectedMapId && !mapGameModes(selectedMapId).includes(selectedGameMode)) {
+    selectedMapId = null;
+  }
+  closeModePanel();
+  refreshSelectionUi();
+}
+// Refresh the mode toggle label + option highlight/filter from the current state.
+function refreshModePicker() {
+  const mapModes = mapGameModes(selectedMapId);
+  const freeRoam = !!selectedMapId && mapModes.length === 0;   // Desktop → no modes
+  if (freeRoam) selectedGameMode = null;
+
+  // Toggle button: disabled + "FREE ROAM" for a mode-less map; else the chosen
+  // mode's name, or "CHOOSE MODE" prompt.
+  if (modeToggleBtn) {
+    modeToggleBtn.disabled = freeRoam;
+    modeToggleBtn.classList.toggle('has-mode', !!selectedGameMode);
+  }
+  if (freeRoam) closeModePanel();
+  if (modeToggleLbl) {
+    const chosen = GAME_MODES.find((m) => m.key === selectedGameMode);
+    modeToggleLbl.textContent = freeRoam ? 'FREE ROAM' : (chosen ? chosen.name : 'CHOOSE MODE');
+  }
+  if (modeToggleHint) {
+    const chosen = GAME_MODES.find((m) => m.key === selectedGameMode);
+    modeToggleHint.textContent = freeRoam
+      ? 'Desktop is free roam — no mode needed'
+      : (chosen ? chosen.players : 'RACE friends · or solo XP');
+  }
+  // Options: highlight the chosen one; dim any the selected map can't host.
+  for (const el of modeOptEls) {
+    const key = el.dataset.mode!;
+    el.classList.toggle('is-selected', key === selectedGameMode);
+    const filtered = !!selectedMapId && !mapModes.includes(key);
+    el.classList.toggle('is-filtered', filtered);
+  }
+}
+// One call refreshes both halves of the two-way filter + the START button.
+function refreshSelectionUi() {
   highlightMapTiles();
+  refreshModePicker();
   updateStartEnabled();
 }
 
@@ -810,6 +954,7 @@ document.getElementById('btn-mode-sim')?.addEventListener('click', () => chooseM
 document.getElementById('btn-mode-back')?.addEventListener('click', openMainMenu);
 document.getElementById('btn-cms-back')?.addEventListener('click', openModeSelect);
 cmsStartBtn?.addEventListener('click', launchSelected);
+modeToggleBtn?.addEventListener('click', () => (modePanelOpen ? closeModePanel() : openModePanel()));
 openMainMenu();   // show the host menu at startup
 
 // ---------- Pause menu (P / Esc) — RESUME / RESTART / EXIT TO MENU ----------
