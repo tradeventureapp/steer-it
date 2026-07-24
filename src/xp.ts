@@ -35,9 +35,16 @@
 export const XP_CONFIG = {
   // ---- speed (was tuned to the old 30 m/s car) --------------------------------
   maxSpeed: 83,             // m/s — Stee-Rex real top (300 km/h). Sets the slow floor + speedF.
-  slowSpeedFrac: 0.27,      // slow floor = 0.27 × 83 ≈ 22.4 m/s ≈ 81 km/h — BELOW drift speed
-                            //   (~125 km/h, so drifting never trips it) yet catches real crawling.
-  slowGraceMs: 2000,        // ms allowed below the floor before the run ends.
+  slowSpeedFrac: 0.27,      // NORMAL slow floor = 0.27 × 83 ≈ 22.4 m/s ≈ 81 km/h — catches crawling
+                            //   when NOT drifting; also the arm speed.
+  driftSlowSpeedFrac: 0.15, // LOWER floor WHILE DRIFTING = 0.15 × 83 ≈ 12.4 m/s ≈ 45 km/h. A proper
+                            //   drift scrubs speed in a tight corner — measured worst-case min ~71 km/h
+                            //   (deep β60-70° drift, low throttle) — which would trip the 81 floor. 45
+                            //   sits ~26 km/h BELOW that worst-case min (comfortable margin, so correct
+                            //   driving never ends), yet a sustained slide crawling below 45 still ends.
+                            //   The TIMER is NOT paused — it just runs against this lower threshold; on
+                            //   drift exit the 81 floor + the 2 s grace apply again.
+  slowGraceMs: 2000,        // ms allowed below the (applicable) floor before the run ends.
   // XP/sec = this × min(speed, maxSpeed) × mult. Speed is CAPPED at the top (no overspeed
   // exploit) and the rate is LOWERED (2.5 → 1.0) so score reflects skill (the chained-drift
   // multiplier), not just that the car is fast. Max rate 1.0 × 83 × 8 ≈ 664 XP/s (only at a
@@ -112,11 +119,11 @@ export function updateXpRun(
   if (crashed) { endRun(run, 'crash'); return; }                    // barrier hit (ovals)
   if (wheelsOff > cfg.offTrackWheels) { endRun(run, 'offtrack'); return; }  // 3+ wheels off (circuit)
 
-  // ARM: nothing accrues until the car FIRST reaches the slow floor (getting up to speed
-  // off the line). Once crossed, the run is active and stays active.
-  const floor = cfg.maxSpeed * cfg.slowSpeedFrac;
+  // ARM: nothing accrues until the car FIRST reaches the NORMAL slow floor (getting up to
+  // speed off the line). Once crossed, the run is active and stays active.
+  const normalFloor = cfg.maxSpeed * cfg.slowSpeedFrac;
   if (!run.started) {
-    if (speed >= floor) run.started = true;
+    if (speed >= normalFloor) run.started = true;
     else return;
   }
 
@@ -138,9 +145,13 @@ export function updateXpRun(
   // XP accrues with (capped) SPEED × multiplier.
   run.xp += cfg.xpPerSecPerSpeed * Math.min(speed, cfg.maxSpeed) * run.mult * dt;
 
-  // SLOW-SPEED end (only reachable once armed): below the floor → blink; sustained past the
-  // grace window → end + bank. Above it → reset.
-  if (speed >= floor) {
+  // SLOW-SPEED end (only reachable once armed). The floor is LOWER while drifting so a proper
+  // drift's speed scrub through a tight corner never trips it — the timer is NOT paused, it just
+  // runs against the lower threshold. On drift exit the NORMAL floor + the 2 s grace apply again
+  // (so leaving a slow corner isn't an instant end). Below → blink + count; sustained past the
+  // grace → end + bank. Above → reset.
+  const slowFloor = drifting ? cfg.maxSpeed * cfg.driftSlowSpeedFrac : normalFloor;
+  if (speed >= slowFloor) {
     run.slowMs = 0;
     run.warning = false;
   } else {
