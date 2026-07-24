@@ -842,6 +842,36 @@ body.desktop.editing #game { cursor: crosshair; }
   #countdown-n, #countdown.go #countdown-n { animation: none; }
 }
 
+/* RACE WARM-UP: the READY button that starts the race. Top-centre banner so it's
+   unmissable and obviously the thing that starts the race; the container ignores
+   pointer events so only the button is clickable, cars stay drivable underneath. */
+#race-ready {
+  position: fixed; top: clamp(16px, 4.5vh, 44px); left: 50%; transform: translateX(-50%);
+  z-index: 45; pointer-events: none; text-align: center;
+  display: flex; flex-direction: column; align-items: center; gap: 9px;
+  animation: readyIn 0.25s ease-out both;
+}
+#btn-ready {
+  pointer-events: auto; font-size: 13px; letter-spacing: 3px; padding: 10px 24px;
+  box-shadow: 0 0 18px rgba(255, 45, 149, 0.55), 0 6px 18px rgba(0, 0, 0, 0.45);
+  animation: readyPulse 1.8s ease-in-out infinite;
+}
+.ready-hint {
+  font-family: var(--font-body); font-size: 10.5px; letter-spacing: 0.5px;
+  color: rgba(255, 255, 255, 0.72); text-shadow: 0 1px 6px rgba(0, 0, 0, 0.75);
+}
+@keyframes readyIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(-10px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+@keyframes readyPulse {
+  0%, 100% { box-shadow: 0 0 15px rgba(255, 45, 149, 0.45), 0 6px 18px rgba(0, 0, 0, 0.45); }
+  50%      { box-shadow: 0 0 26px rgba(255, 45, 149, 0.8), 0 6px 18px rgba(0, 0, 0, 0.45); }
+}
+@media (prefers-reduced-motion: reduce) {
+  #race-ready { animation: none; } #btn-ready { animation: none; }
+}
+
 #xp-hud {
   position: fixed; top: 18px; left: 50%; transform: translateX(-50%);
   z-index: 30; pointer-events: none; text-align: center;

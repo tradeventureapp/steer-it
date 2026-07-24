@@ -120,6 +120,13 @@
          XP HUD) so it stays crisp and matches the HUD's type; the cars are held by
          race.ts's countdown phase, not by this. -->
     <div id="countdown" hidden><span id="countdown-n">3</span></div>
+    <!-- RACE WARM-UP: cars drive freely until the host presses READY, which snaps
+         everyone to the grid + starts the 3-2-1-GO. Screen-space HTML (like the
+         countdown / XP HUD) so it stays crisp and on-brand. -->
+    <div id="race-ready" hidden>
+      <button type="button" class="menu-btn primary" id="btn-ready">READY — START RACE ▸</button>
+      <div class="ready-hint">Everyone can warm up · press when the grid is set</div>
+    </div>
     <!-- XP MODE HUD (circuit + XP mode only): big score top-centre + drift
          multiplier. Blinks red under the slow-speed warning. -->
     <div id="xp-hud" hidden>
@@ -161,7 +168,7 @@
         </div>
         <div id="results-rest"></div>
         <div class="menu-actions">
-          <button type="button" class="menu-btn primary" id="btn-rematch">REMATCH ▸</button>
+          <button type="button" class="menu-btn primary" id="btn-rematch">RACE AGAIN ▸</button>
           <button type="button" class="menu-btn ghost" id="btn-results-menu">EXIT TO MENU</button>
         </div>
       </div>

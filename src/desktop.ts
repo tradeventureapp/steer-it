@@ -116,6 +116,8 @@ const modeToggleBtn  = document.getElementById('btn-mode-toggle') as HTMLButtonE
 const modeToggleLbl  = document.getElementById('mode-toggle-label') as HTMLElement | null;
 const modeToggleHint = document.getElementById('mode-toggle-hint')  as HTMLElement | null;
 const modePanelEl    = document.getElementById('mode-panel')      as HTMLElement | null;
+const raceReadyEl    = document.getElementById('race-ready')      as HTMLElement | null;
+const readyBtn       = document.getElementById('btn-ready')       as HTMLButtonElement | null;
 
 // ---------- Freeze: the main menu, pause (P), and the editor (E) each halt the
 // simulation + race timer (not the render). isPaused is the combined gate. ----
@@ -123,6 +125,12 @@ let userPaused = false;  // toggled by P
 let editorMode = false;  // toggled by E
 let menuOpen = true;     // the host front-end (menu) shows at startup
 let raceResultsOpen = false;  // the multi-car podium is up (freezes the sim)
+// RACE WARM-UP: a race map is loaded and cars drive FREELY (no countdown, no lap
+// counting) until the host presses READY — which snaps everyone to the grid and
+// starts the 3-2-1-GO. While true the race is in its free-roam state (no elements),
+// so late joiners can warm up; `pendingRaceLaps` is the lap count READY commits.
+let raceWarmup = false;
+let pendingRaceLaps = 3;   // overwritten on each warm-up entry (default = MENU_RACE_LAPS)
 let isPaused = false;    // = userPaused || editorMode || menuOpen || results (loop gate)
 let pausedAccumMs = 0;   // total frozen time, subtracted from the game clock
 let pauseStartedAt = 0;  // performance.now() when the current freeze began
@@ -139,6 +147,14 @@ function refreshFreeze() {
   if (pauseOverlayEl) pauseOverlayEl.hidden = !(userPaused && !editorMode && !menuOpen);
   if (editorEl) editorEl.hidden = !editorMode;
   document.body.classList.toggle('editing', editorMode);
+  updateReadyButton();
+}
+
+// The READY button shows ONLY during a race warm-up and only when nothing else is
+// on top (menu / pause / editor / results). Pressing it starts the race.
+function updateReadyButton() {
+  const show = raceWarmup && !menuOpen && !userPaused && !editorMode && !raceResultsOpen;
+  if (raceReadyEl) raceReadyEl.hidden = !show;
 }
 
 // Physics-input debug overlay (toggle with D). Shows the steer/throttle as the
@@ -462,8 +478,7 @@ function applySelectedGameMode() {
   if (selectedGameMode === 'xp') {
     setCircuitMode('xp');
   } else if (selectedGameMode === 'race') {
-    editorLaps = Math.max(1, MENU_RACE_LAPS);
-    setCircuitMode('laps');                     // rebuilds the race with the lap count
+    enterRaceWarmup(Math.max(1, MENU_RACE_LAPS));   // free driving + READY (no countdown yet)
   }
   // 'free' → nothing: switchMap already left the map in its free-roam default.
 }
@@ -986,10 +1001,13 @@ function exitToSelection() {
 document.getElementById('btn-resume')?.addEventListener('click', resumeGame);
 document.getElementById('btn-restart')?.addEventListener('click', restartRace);
 document.getElementById('btn-exit-menu')?.addEventListener('click', exitToSelection);
-// Race results (podium): REMATCH re-runs the race (reuses restartRace); EXIT goes back
-// to the CAR & MAP selection for the same mode. Both clear the podium + feed.
-document.getElementById('btn-rematch')?.addEventListener('click', restartRace);
+// Race results (podium): RACE AGAIN returns to the warm-up (cars drive freely, READY
+// starts the next race — the same flow); EXIT goes back to the CAR & MAP selection.
+// Both clear the podium + feed.
+document.getElementById('btn-rematch')?.addEventListener('click', backToRaceWarmup);
 document.getElementById('btn-results-menu')?.addEventListener('click', exitToSelection);
+// READY (host) — line everyone up on the grid and start the 3-2-1-GO.
+readyBtn?.addEventListener('click', startRaceFromWarmup);
 
 // ---------- Canvases ----------
 // Layered rendering (back to front):
@@ -1687,6 +1705,53 @@ let pendingStandingStart = false;
 function armStandingStart() {
   pendingStandingStart = isRaceLive() && isCircuitMap();
   if (!pendingStandingStart) hideCountdown();
+}
+
+// ---- RACE WARM-UP → READY → GO ------------------------------------------------
+// A race doesn't start on load. The cars spawn on track and drive FREELY (the map
+// sits in its free-roam state: no start line in the race logic ⇒ isRaceLive() false
+// ⇒ no countdown, no lap counting, no HUD) while everyone joins and warms up. The
+// host presses READY, which lines everyone up on the grid and runs the 3-2-1-GO.
+function enterRaceWarmup(laps: number) {
+  pendingRaceLaps = Math.max(1, laps);
+  raceWarmup = true;
+  circuitMode = 'laps';        // not XP
+  editorLaps = 0;              // free roam: no start line ⇒ free driving, no counting
+  document.body.classList.remove('circuit-xp');
+  if (xpEndEl) xpEndEl.hidden = true;
+  syncModeButtons();
+  rebuildRace();               // builds NO elements at laps 0 ⇒ isRaceLive() false, cars free
+  updateEditorStatus();
+  updateReadyButton();
+}
+// READY: snap every car back to its grid slot (clean pose, zeroed velocity + inputs),
+// commit the lap count, and arm the standing start → the 3-2-1-GO countdown begins,
+// then the race proper (lap counting, positions) runs.
+function startRaceFromWarmup() {
+  if (!raceWarmup) return;
+  raceWarmup = false;
+  skidCtx.clearRect(0, 0, logicalPxW, logicalPxH);   // wipe warm-up skids/marks
+  clearMarkLayers();
+  for (const car of cars.values()) {
+    const pose = currentMap.spawn(car.slot, world);
+    car.state = makeCar(pose.x, pose.y, pose.heading);   // fresh state ⇒ velocity + yaw zeroed
+    car.target = { steer: 0, throttle: 0, brake: 0, handbrake: false };
+    car.current = { steer: 0, throttle: 0, brake: 0, handbrake: false };
+    invalidateSkidTrails(car);
+    car.lastInputAt = performance.now();
+  }
+  editorLaps = pendingRaceLaps;
+  rebuildRace();               // builds the start line + arms the standing start (countdown)
+  updateEditorStatus();
+  updateReadyButton();
+}
+// After a race FINISHES the podium shows the result; its main action returns to the
+// warm-up so cars can drive freely again and READY starts the next race — the same flow.
+function backToRaceWarmup() {
+  resetRaceFeed();             // close the podium (raceResultsOpen → false)
+  enterRaceWarmup(pendingRaceLaps);
+  userPaused = false;
+  refreshFreeze();             // unfreeze now the podium is gone
 }
 
 // How long "GO!" lingers after the grid unlocks. Display only — the cars are already free
@@ -3080,6 +3145,8 @@ function switchMap(id: string): boolean {
   editorLaps = currentMap.trackType === 'circuit' ? 0 : RACE_CONFIG.laps;
   // Every map starts in LAPS mode; the host opts into XP mode via the editor.
   circuitMode = 'laps';
+  raceWarmup = false;   // a fresh map is free-roam until a RACE launch arms the warm-up
+  updateReadyButton();
   document.body.classList.remove('circuit-xp');
   if (xpEndEl) xpEndEl.hidden = true;
   syncModeButtons();
