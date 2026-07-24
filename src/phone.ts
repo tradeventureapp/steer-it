@@ -38,7 +38,10 @@ const STEER_EXPO = 1.0;
 // (left-right) axis, whose sign depends on which way the player turned the phone
 // into landscape, so ONE constant flips left/right for the whole app if a real
 // device reads mirrored. +1 = roll right → +steer, roll left → −steer.
-const STEER_SIGN = -1;   // -1: real hardware read mirrored (left↔right) → flipped
+const STEER_SIGN = +1;   // +1: roll RIGHT → +steer on BOTH platforms. The iOS↔Android
+                         // sensor difference (frame + sign) is normalised INSIDE
+                         // steeringRollDeg, so this is one global flip; set -1 only if
+                         // BOTH platforms ever read mirrored.
 const SEND_HZ              = 30;
 // Analog pedal mapping: the top of the strip (player's visual outer edge,
 // away from the handbrake) is a saturation zone — any touch there pins the
@@ -57,6 +60,17 @@ const ROT_SMOOTHING_ALPHA  = 0.12;
 // axis by this factor before we accept it. Prevents borderline tilts from
 // flipping the visual frame mid-drive.
 const ORIENTATION_HYSTERESIS = 1.6;
+
+// PLATFORM SENSOR DIFFERENCE (the Android steering bug). iOS Safari (WebKit) reports
+// DeviceMotion.accelerationIncludingGravity (a) NEGATED vs the W3C sign convention and
+// (b) in the DEVICE (natural-portrait) frame — so in the landscape hold, device Y is
+// the screen's HORIZONTAL axis = the steering roll (works). Android/Chromium report the
+// W3C sign AND the reading ALREADY ROTATED to the SCREEN frame — so device Y there is
+// the screen's VERTICAL = PITCH (wrong axis), and the opposite sign = INVERTED. Reading
+// raw `lastAy` for everyone is why Android steers on pitch + reversed. We normalise this
+// explicitly in steeringRollDeg() (iOS path kept byte-identical).
+const IS_IOS = /iP(hone|od|ad)/.test(navigator.userAgent)
+  || (navigator.platform === 'MacIntel' && (navigator.maxTouchPoints || 0) > 1);  // iPadOS
 
 // ---------- DOM ----------
 const params = new URLSearchParams(window.location.search);
@@ -470,28 +484,49 @@ function scheduleApplyTransform() {
   });
 }
 
+// The extra rotation the CSS force-landscape applies: when the VIEWPORT is portrait
+// the stage is rotated 90° to fake landscape (see style.css `--rot`), so the axis the
+// PLAYER sees as horizontal is rotated by that much. 0 in the normal landscape hold.
+function cssExtraRad(): number {
+  const portrait = window.matchMedia('(orientation: portrait)').matches;
+  return portrait ? Math.PI / 2 : 0;
+}
+
 // ----------------------------------------------------------------------
-//  Steering — PITCH-INVARIANT left/right ROLL angle (degrees).
+//  Steering — PITCH-INVARIANT left/right ROLL angle (degrees), PLATFORM-CORRECT.
 //
-//  The steering axis is the device's LONG axis (device Y = the screen's
-//  horizontal / left-right axis in the landscape hold). `lastAy` is the gravity
-//  component along that axis: it is 0 when the phone is level (no roll) and
-//  grows toward ±g as you roll it like a steering wheel.
+//  The steering axis is ALWAYS the axis the player sees as HORIZONTAL (rolling the
+//  phone like a steering wheel), on BOTH platforms and in any screen orientation.
+//  We derive the gravity component along that view-horizontal axis, then
+//  asin(component / |g|) gives a true roll angle — symmetric about level, PITCH-
+//  INVARIANT (pitch is a rotation about the horizontal axis, so it can't change that
+//  axis's own gravity component), and needing NO baseline / per-user calibration.
 //
-//  Crucially it is INVARIANT TO PITCH: tilting the phone toward/away from you
-//  is a rotation ABOUT this same long axis, and a rotation about an axis cannot
-//  change that axis's own gravity component. So pure pitch leaves `ay` (and thus
-//  steer) at its current value — pitch contributes ZERO steering. Only true
-//  left/right roll moves `ay`. asin(ay / |g|) turns it into a real roll angle,
-//  symmetric about level, with NO baseline / no per-user neutral snapshot. The
-//  full 3-axis magnitude normalises it so the value is a true angle regardless of
-//  how far the phone is pitched (which only bleeds gravity into the Z axis).
+//  The platform difference is handled EXPLICITLY (see IS_IOS above):
+//   • iOS  — accelerationIncludingGravity is in the DEVICE frame; the view-horizontal
+//            is device Y. We use `-lastAy` (roll-right → positive). This is EXACTLY
+//            the previous iOS computation (the −1 that used to live in STEER_SIGN is
+//            folded in here), so iOS is unchanged.
+//   • else — Android/Chromium report the reading ALREADY in the SCREEN frame with the
+//            W3C sign, so the view-horizontal is the SCREEN's horizontal = `lastAx`
+//            (device Y there is the screen VERTICAL = pitch — the bug). We rotate by
+//            the CSS force-landscape extra so it stays the axis the player sees as
+//            left/right even when holding the phone portrait.
+//  Returns POSITIVE for a RIGHT roll on both platforms; STEER_SIGN (+1) is the single
+//  global left/right flip.
 // ----------------------------------------------------------------------
 function steeringRollDeg(): number {
   if (!hasMotionReading) return 0;
   const g = Math.hypot(lastAx, lastAy, lastAz);
   if (g < 1) return 0;                                   // free-fall / no signal
-  const ratio = Math.max(-1, Math.min(1, lastAy / g));   // sin(roll), clamped
+  let comp: number;
+  if (IS_IOS) {
+    comp = -lastAy;                                      // device frame — unchanged from before
+  } else {
+    const c = cssExtraRad();                             // screen frame → view horizontal
+    comp = lastAx * Math.cos(c) + lastAy * Math.sin(c);
+  }
+  const ratio = Math.max(-1, Math.min(1, comp / g));     // sin(roll), clamped
   return Math.asin(ratio) * 180 / Math.PI;
 }
 
@@ -518,7 +553,7 @@ function updateDebug() {
   const roll = steeringRollDeg();
   const steer = steerFromTilt();
   debugEl.textContent =
-    `stage=${stage} perm=${permState}\n` +
+    `stage=${stage} perm=${permState}  plat=${IS_IOS ? 'iOS' : 'Android'}\n` +
     `phys=${currentPhys}  viewport=${browserLandscape ? 'L' : 'P'}  rot=${cssRot}\n` +
     `ax=${lastAx.toFixed(1)} ay=${lastAy.toFixed(1)} az=${lastAz.toFixed(1)}  ` +
     `sm=(${smoothedAx.toFixed(1)},${smoothedAy.toFixed(1)})\n` +
