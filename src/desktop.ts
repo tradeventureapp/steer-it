@@ -40,6 +40,10 @@ import {
   type XpRunState,
 } from './xp';
 import { inject } from '@vercel/analytics';
+import {
+  initAuth, onAuthChange, getAuthState, signIn, signUp, signOut,
+  sendPasswordReset, updatePassword, type AuthState,
+} from './auth';
 
 // Vercel Web Analytics — framework-agnostic vanilla init (NOT the React
 // <Analytics/> component). Injects the tracking script for the desktop/host
@@ -120,6 +124,7 @@ const raceReadyEl    = document.getElementById('race-ready')      as HTMLElement
 const readyBtn       = document.getElementById('btn-ready')       as HTMLButtonElement | null;
 const raceLapsEl     = document.getElementById('race-laps')       as HTMLElement | null;
 const raceLapsOptsEl = document.getElementById('race-laps-opts')  as HTMLElement | null;
+const accountBarEl   = document.getElementById('account-bar')     as HTMLElement | null;
 
 // ---------- Freeze: the main menu, pause (P), and the editor (E) each halt the
 // simulation + race timer (not the render). isPaused is the combined gate. ----
@@ -150,6 +155,7 @@ function refreshFreeze() {
   if (editorEl) editorEl.hidden = !editorMode;
   document.body.classList.toggle('editing', editorMode);
   updateReadyButton();
+  if (accountBarEl) accountBarEl.hidden = !menuOpen;   // host account chip — menu screens only
 }
 
 // The READY button shows ONLY during a race warm-up and only when nothing else is
@@ -396,6 +402,18 @@ function mapGameModes(id: string | null): readonly string[] {
   return (id && getMap(id)?.gameModes) || [DEFAULT_GAME_MODE];
 }
 
+// ---- FREE vs PREMIUM gating (host-account entitlement) -----------------------
+// FREE needs no account: Desktop + Asphalt Oval, FREE RIDE only, unlimited
+// players. Everything else (Circuit, Flat-track dirt oval, RACE, XP MODE, global
+// leaderboards) is PREMIUM. The entitlement is server truth (auth.isPremium, read
+// from an RLS-protected Supabase row); the checks below gate the UI, and the
+// leaderboard write is enforced server-side so a hacked client gains nothing online.
+const FREE_MAP_IDS = ['desktop', 'asphalt'];
+const FREE_MODE_KEYS = ['free'];
+const isPremium = () => getAuthState().isPremium;
+const isMapLocked  = (id: string)  => !isPremium() && !FREE_MAP_IDS.includes(id);
+const isModeLocked = (key: string) => !isPremium() && !FREE_MODE_KEYS.includes(key);
+
 function hideAllMenus() {
   heroDrift?.setActive(false);   // the hero animation only runs on the landing screen
   if (mainMenuEl) mainMenuEl.hidden = true;
@@ -467,6 +485,10 @@ function updateStartEnabled() {
 // START: commit the mode to every car, load the map (respawns cars), enter play.
 function launchSelected() {
   if (!selectedMapId) return;
+  // Entitlement gate (defense-in-depth on top of the locked tiles): never launch a
+  // premium map/mode for a non-premium host — pitch premium instead.
+  if (isMapLocked(selectedMapId)) { openUpsell('map', selectedMapId); return; }
+  if (isModeLocked(selectedGameMode)) { openUpsell('mode', selectedGameMode); return; }
   goFullscreen();         // gameplay starts — fill the host screen (gesture)
   applyModeToAllCars();   // re-spec any already-connected cars to the chosen mode
   broadcastLobby();       // phones learn the mode + its colour palette
@@ -606,7 +628,11 @@ function buildModeOptions() {
       `<span class="mode-opt-head"><span class="mode-opt-name">${m.name}</span>` +
       `<span class="mode-opt-tag">${m.players}</span></span>` +
       `<span class="mode-opt-desc">${m.desc}</span>`;
-    opt.addEventListener('click', () => selectGameMode(m.key));
+    if (isModeLocked(m.key)) { opt.classList.add('is-locked'); opt.appendChild(lockBadge()); }
+    opt.addEventListener('click', () => {
+      if (isModeLocked(m.key)) { openUpsell('mode', m.key); return; }   // locked mode → pitch premium
+      selectGameMode(m.key);
+    });
     modePanelEl.appendChild(opt);
     modeOptEls.push(opt);
   }
@@ -673,6 +699,12 @@ function refreshSelectionUi() {
 // automatically). Each tile renders a REAL mini-preview of the map. Maps that
 // share a surfaceGroup.key collapse into ONE tile with an in-tile surface
 // switcher (presentation only — each member is still selected by its own id).
+function lockBadge(): HTMLSpanElement {
+  const b = document.createElement('span');
+  b.className = 'lock-badge';
+  b.textContent = '🔒';
+  return b;
+}
 function buildMapTiles() {
   if (!mapTilesEl) return;
   mapTilesEl.innerHTML = '';
@@ -737,8 +769,10 @@ function buildMapTiles() {
         // Tap/click a segment → switch that surface (works on touch + mouse);
         // never bubbles to the tile body. If this tile is the currently-selected
         // map, switching surface moves the selection to the new surface id.
+        if (isMapLocked(member.id)) { seg.classList.add('is-locked'); seg.appendChild(lockBadge()); }
         seg.addEventListener('click', (e) => {
           e.stopPropagation();
+          if (isMapLocked(member.id)) { openUpsell('map', member.id); return; }   // locked surface → pitch
           const wasSelected = selectedMapId === selectedSurfaceId(grp.key);
           groupSurface.set(grp.key, member.id);
           refreshActive();
@@ -753,13 +787,18 @@ function buildMapTiles() {
       for (const s of segs) s.classList.toggle('is-active', s.dataset.id === cur0);
       renderSelected();
 
-      // Clicking the tile body (not a segment) SELECTS the current surface.
+      // Clicking the tile body (not a segment) SELECTS the current surface — or,
+      // if the current surface is locked (Flattrack for a free host), pitches premium.
+      const chooseGroup = () => {
+        const id = selectedSurfaceId(grp.key);
+        if (isMapLocked(id)) openUpsell('map', id); else selectMap(id);
+      };
       tile.addEventListener('click', (e) => {
         if ((e.target as HTMLElement).closest('.map-switch')) return;
-        selectMap(selectedSurfaceId(grp.key));
+        chooseGroup();
       });
       tile.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectMap(selectedSurfaceId(grp.key)); }
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); chooseGroup(); }
       });
 
       tile.appendChild(thumb);
@@ -787,7 +826,10 @@ function buildMapTiles() {
 
     tile.appendChild(thumb);
     tile.appendChild(label);
-    tile.addEventListener('click', () => selectMap(def.id));
+    if (isMapLocked(def.id)) { tile.classList.add('is-locked'); tile.appendChild(lockBadge()); }
+    tile.addEventListener('click', () => {
+      if (isMapLocked(def.id)) openUpsell('map', def.id); else selectMap(def.id);
+    });
     mapTilesEl.appendChild(tile);
     mapTileEntries.push({ el: tile, getId: () => def.id });
   }
@@ -984,6 +1026,189 @@ document.getElementById('btn-mode-back')?.addEventListener('click', openMainMenu
 document.getElementById('btn-cms-back')?.addEventListener('click', openModeSelect);
 cmsStartBtn?.addEventListener('click', launchSelected);
 modeToggleBtn?.addEventListener('click', () => (modePanelOpen ? closeModePanel() : openModePanel()));
+
+// ================= HOST ACCOUNT · AUTH · PAYWALL UPSELL =================
+// Only the host uses this. Login/signup/verification/reset all ride Supabase Auth
+// (src/auth.ts). The account chip shows the state; locked tiles open the upsell.
+const authModalEl   = document.getElementById('auth-modal')     as HTMLElement | null;
+const upsellEl      = document.getElementById('upsell-modal')   as HTMLElement | null;
+const authMsgEl     = document.getElementById('auth-msg')       as HTMLElement | null;
+const accountLabel  = document.getElementById('account-label')  as HTMLElement | null;
+const accountBadge  = document.getElementById('account-badge')  as HTMLElement | null;
+let authMode: 'login' | 'signup' = 'login';
+
+function authSection(name: string) {
+  for (const s of Array.from(document.querySelectorAll('#auth-modal .auth-sec')) as HTMLElement[]) {
+    (s).hidden = s.dataset.sec !== name;
+  }
+  setAuthMsg('', false);
+}
+function setAuthMsg(text: string, isError: boolean) {
+  if (!authMsgEl) return;
+  authMsgEl.textContent = text;
+  authMsgEl.hidden = !text;
+  authMsgEl.classList.toggle('is-error', isError);
+}
+function openAuthModal(section: 'form' | 'forgot' | 'account' | 'recovery') {
+  if (!authModalEl) return;
+  if (section === 'form') applyAuthMode();
+  authSection(section);
+  authModalEl.hidden = false;
+}
+function closeAuthModal() { if (authModalEl) authModalEl.hidden = true; }
+function applyAuthMode() {
+  const login = authMode === 'login';
+  const t = document.getElementById('auth-title');
+  const sub = document.getElementById('auth-sub');
+  const submit = document.getElementById('auth-submit');
+  const toggle = document.getElementById('auth-toggle');
+  const pw = document.getElementById('auth-password') as HTMLInputElement | null;
+  if (t) t.textContent = login ? 'LOG IN' : 'CREATE ACCOUNT';
+  if (sub) sub.textContent = login
+    ? 'Only the host needs an account — players just scan the QR.'
+    : "Free needs no account — sign up only to unlock premium maps, modes & leaderboards.";
+  if (submit) submit.textContent = login ? 'LOG IN' : 'SIGN UP';
+  if (toggle) toggle.innerHTML = login ? 'Need an account? <b>Sign up</b>' : 'Have an account? <b>Log in</b>';
+  if (pw) pw.autocomplete = login ? 'current-password' : 'new-password';
+}
+
+// The account chip (menu) + the account panel reflect the live auth state.
+function renderAccount(s: AuthState) {
+  const email = s.user?.email || '';
+  if (accountLabel) accountLabel.textContent = s.user ? (email.split('@')[0] || 'ACCOUNT') : 'LOG IN';
+  if (accountBadge) {
+    accountBadge.hidden = !s.user;
+    accountBadge.textContent = s.isPremium ? 'PREMIUM' : 'FREE';
+    accountBadge.classList.toggle('is-premium', s.isPremium);
+  }
+  // Account panel fields
+  const emailEl = document.getElementById('account-email');
+  const pill = document.getElementById('plan-pill');
+  const note = document.getElementById('plan-note');
+  const upgrade = document.getElementById('account-upgrade') as HTMLButtonElement | null;
+  if (emailEl) emailEl.textContent = email || '—';
+  if (pill) { pill.textContent = s.isPremium ? 'PREMIUM' : 'FREE'; pill.classList.toggle('is-premium', s.isPremium); }
+  if (note) note.textContent = s.isPremium
+    ? 'All maps & modes · global leaderboards'
+    : 'Desktop & Asphalt Oval · Free Ride';
+  if (upgrade) upgrade.hidden = s.isPremium;
+
+  // Arrived via a password-reset link → jump straight to the set-new-password form.
+  if (s.recovery && authModalEl) openAuthModal('recovery');
+
+  // Re-gate the CAR & MAP screen when the plan changes (unlock/lock tiles). If a
+  // now-locked item was selected (e.g. logged out), fall back to a free choice.
+  if (carMapSelectEl && !carMapSelectEl.hidden) {
+    if (selectedMapId && isMapLocked(selectedMapId)) selectedMapId = null;
+    if (isModeLocked(selectedGameMode)) selectedGameMode = DEFAULT_GAME_MODE;
+    buildMapTiles();
+    buildModeOptions();
+    refreshSelectionUi();
+  }
+}
+
+// ---- Paywall upsell — a positive pitch, not a wall. Adapts to the auth state. ----
+function openUpsell(kind: 'map' | 'mode' | 'generic', id?: string) {
+  if (!upsellEl) return;
+  const titleEl = document.getElementById('upsell-title');
+  const leadEl  = document.getElementById('upsell-lead');
+  const primary = document.getElementById('upsell-primary') as HTMLButtonElement | null;
+  const secondary = document.getElementById('upsell-secondary') as HTMLButtonElement | null;
+  let what = 'the full game';
+  if (kind === 'map' && id) what = getMap(id)?.name ? `the ${getMap(id)!.name}` : 'this map';
+  else if (kind === 'mode' && id) what = `${GAME_MODES.find((m) => m.key === id)?.name ?? 'this mode'}`;
+  if (titleEl) titleEl.textContent = `Unlock ${what}`;
+
+  const s = getAuthState();
+  if (leadEl) leadEl.textContent = s.user
+    ? "You're signed in! Premium purchasing arrives soon — here's what it unlocks:"
+    : "That's a premium track. Here's everything premium adds:";
+  if (primary && secondary) {
+    if (!s.user) {
+      primary.textContent = 'CREATE ACCOUNT'; primary.dataset.act = 'signup';
+      secondary.textContent = 'LOG IN';       secondary.dataset.act = 'login'; secondary.hidden = false;
+    } else {
+      primary.textContent = 'GOT IT'; primary.dataset.act = 'close';
+      secondary.hidden = true;
+    }
+  }
+  upsellEl.hidden = false;
+}
+function closeUpsell() { if (upsellEl) upsellEl.hidden = true; }
+
+// ---- Wire the controls ----
+document.getElementById('account-btn')?.addEventListener('click', () => {
+  openAuthModal(getAuthState().user ? 'account' : 'form');
+});
+document.getElementById('auth-close')?.addEventListener('click', closeAuthModal);
+authModalEl?.addEventListener('click', (e) => { if (e.target === authModalEl) closeAuthModal(); });
+document.getElementById('auth-toggle')?.addEventListener('click', () => {
+  authMode = authMode === 'login' ? 'signup' : 'login'; applyAuthMode();
+});
+document.getElementById('auth-forgot')?.addEventListener('click', () => authSection('forgot'));
+document.getElementById('forgot-back')?.addEventListener('click', () => authSection('form'));
+
+document.getElementById('auth-form')?.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const email = (document.getElementById('auth-email') as HTMLInputElement).value.trim();
+  const pw = (document.getElementById('auth-password') as HTMLInputElement).value;
+  const submit = document.getElementById('auth-submit') as HTMLButtonElement;
+  submit.disabled = true; setAuthMsg('Working…', false);
+  const done = (err?: string, ok?: string) => {
+    submit.disabled = false;
+    if (err) setAuthMsg(err, true); else if (ok) setAuthMsg(ok, false);
+  };
+  if (authMode === 'signup') {
+    void signUp(email, pw).then((r) => {
+      if (r.error) return done(r.error);
+      if (r.needsVerification) done(undefined, 'Check your email to verify your account, then log in.');
+      else { closeAuthModal(); done(); }
+    });
+  } else {
+    void signIn(email, pw).then((r) => {
+      if (r.error) return done(r.error);
+      closeAuthModal(); done();
+    });
+  }
+});
+document.getElementById('forgot-form')?.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const email = (document.getElementById('forgot-email') as HTMLInputElement).value.trim();
+  setAuthMsg('Sending…', false);
+  void sendPasswordReset(email).then((r) => {
+    if (r.error) setAuthMsg(r.error, true);
+    else setAuthMsg('If that email has an account, a reset link is on its way.', false);
+  });
+});
+document.getElementById('recovery-form')?.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const pw = (document.getElementById('recovery-password') as HTMLInputElement).value;
+  setAuthMsg('Saving…', false);
+  void updatePassword(pw).then((r) => {
+    if (r.error) setAuthMsg(r.error, true);
+    else { setAuthMsg('Password updated — you\'re logged in.', false); setTimeout(closeAuthModal, 900); }
+  });
+});
+document.getElementById('account-signout')?.addEventListener('click', () => {
+  void signOut().then(closeAuthModal);
+});
+document.getElementById('account-upgrade')?.addEventListener('click', () => { closeAuthModal(); openUpsell('generic'); });
+
+document.getElementById('upsell-close')?.addEventListener('click', closeUpsell);
+upsellEl?.addEventListener('click', (e) => { if (e.target === upsellEl) closeUpsell(); });
+const upsellAct = (btn: HTMLElement | null) => btn?.addEventListener('click', () => {
+  const act = btn.dataset.act;
+  closeUpsell();
+  if (act === 'signup') { authMode = 'signup'; openAuthModal('form'); }
+  else if (act === 'login') { authMode = 'login'; openAuthModal('form'); }
+  // 'close' → just closed above
+});
+upsellAct(document.getElementById('upsell-primary'));
+upsellAct(document.getElementById('upsell-secondary'));
+
+initAuth();
+onAuthChange(renderAccount);
+
 openMainMenu();   // show the host menu at startup
 
 // ---------- Pause menu (P / Esc) — RESUME / RESTART / EXIT TO MENU ----------

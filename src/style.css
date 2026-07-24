@@ -221,6 +221,120 @@ body.desktop #game { display: block; width: 100vw; height: 100vh; }
 .host-note b { color: #fff; }
 .host-note #host-note-dismiss { margin-top: 18px; }
 
+/* ===== HOST ACCOUNT chip (top-right on the menu screens) =================== */
+#account-bar { position: fixed; top: 16px; right: 18px; z-index: 120; }
+#account-bar[hidden] { display: none; }
+.account-chip {
+  appearance: none; -webkit-appearance: none; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 8px;
+  font-family: var(--font-display); font-weight: 800; font-size: 12px; letter-spacing: 2px;
+  color: #ffe9f4; padding: 9px 15px; border-radius: 999px;
+  background: linear-gradient(180deg, rgba(255, 45, 149, 0.12), rgba(10, 6, 24, 0.72));
+  border: 1.5px solid var(--border-dim);
+  transition: border-color 160ms, box-shadow 160ms, transform 100ms;
+}
+.account-chip:hover { border-color: rgba(255, 45, 149, 0.7); box-shadow: 0 0 18px rgba(255, 45, 149, 0.35); }
+.account-badge {
+  font-size: 9px; letter-spacing: 1.5px; padding: 2px 7px; border-radius: 999px;
+  color: var(--text-dim); background: rgba(255, 255, 255, 0.08); border: 1px solid var(--border-dim);
+}
+.account-badge.is-premium { color: var(--ink); background: linear-gradient(180deg, #fff2b0, var(--gold)); border-color: var(--gold); }
+
+/* ===== AUTH modal (login / signup / forgot / recovery / account) =========== */
+.auth-card, .upsell-card {
+  position: relative; width: min(400px, 94vw); text-align: center;
+  padding: 26px 28px 22px; border-radius: 18px;
+  background:
+    radial-gradient(130% 80% at 50% 0%, rgba(255, 45, 149, 0.14), transparent 60%),
+    linear-gradient(180deg, var(--panel-top) 0%, var(--panel-bot) 100%);
+  border: 1.5px solid var(--border);
+  box-shadow: 0 0 30px rgba(255, 45, 149, 0.28), 0 16px 44px rgba(0, 0, 0, 0.55);
+}
+.auth-x {
+  position: absolute; top: 10px; right: 12px; appearance: none; cursor: pointer;
+  background: none; border: none; color: var(--text-dim); font-size: 22px; line-height: 1;
+  width: 30px; height: 30px; border-radius: 8px;
+}
+.auth-x:hover { color: #fff; background: rgba(255, 255, 255, 0.08); }
+.auth-title {
+  font-family: var(--font-display); font-weight: 800; font-size: 18px; letter-spacing: 4px;
+  color: var(--gold); text-shadow: var(--glow-gold); margin-bottom: 6px;
+}
+.auth-sub {
+  font-family: var(--font-body); font-size: 12.5px; line-height: 1.5;
+  color: rgba(240, 228, 250, 0.82); margin: 0 0 16px;
+}
+.auth-sec form { display: flex; flex-direction: column; gap: 10px; }
+.auth-sec input {
+  font-family: var(--font-body); font-size: 15px; color: #fff;
+  padding: 12px 14px; border-radius: 10px;
+  background: rgba(8, 4, 18, 0.6); border: 1.5px solid var(--border-dim);
+}
+.auth-sec input:focus { outline: none; border-color: rgba(255, 45, 149, 0.7); box-shadow: 0 0 12px rgba(255, 45, 149, 0.3); }
+.auth-sec input::placeholder { color: rgba(197, 182, 230, 0.55); }
+.auth-sec .menu-btn { width: 100%; margin-top: 2px; }
+.auth-links { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+.auth-link {
+  appearance: none; background: none; border: none; cursor: pointer;
+  font-family: var(--font-body); font-size: 12.5px; color: var(--text-dim);
+}
+.auth-link:hover { color: #fff; } .auth-link b { color: var(--gold); }
+.auth-msg {
+  margin-top: 14px; font-family: var(--font-body); font-size: 12.5px; line-height: 1.45;
+  color: var(--ok); padding: 9px 12px; border-radius: 9px; background: rgba(93, 255, 176, 0.08);
+  border: 1px solid rgba(93, 255, 176, 0.3);
+}
+.auth-msg.is-error { color: #ffb3b3; background: rgba(255, 90, 90, 0.1); border-color: rgba(255, 90, 90, 0.4); }
+.account-email { font-family: var(--font-body); font-size: 15px; color: #fff; margin-bottom: 10px; word-break: break-all; }
+.account-plan { display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 18px; flex-wrap: wrap; }
+.plan-pill {
+  font-family: var(--font-display); font-weight: 800; font-size: 11px; letter-spacing: 2px;
+  padding: 4px 10px; border-radius: 999px; color: var(--text-dim);
+  background: rgba(255, 255, 255, 0.08); border: 1px solid var(--border-dim);
+}
+.plan-pill.is-premium { color: var(--ink); background: linear-gradient(180deg, #fff2b0, var(--gold)); border-color: var(--gold); }
+#plan-note { font-family: var(--font-body); font-size: 12.5px; color: rgba(240, 228, 250, 0.8); }
+.auth-sec[data-sec="account"] .menu-btn { width: 100%; margin-top: 10px; }
+
+/* ===== UPSELL modal (locked map/mode → positive premium pitch) ============= */
+.upsell-badge {
+  display: inline-block; font-family: var(--font-display); font-weight: 800; font-size: 11px;
+  letter-spacing: 2px; padding: 4px 12px; border-radius: 999px; margin-bottom: 12px;
+  color: var(--ink); background: linear-gradient(180deg, #fff2b0, var(--gold));
+  box-shadow: 0 0 16px rgba(255, 194, 74, 0.5);
+}
+.upsell-title {
+  font-family: var(--font-display); font-weight: 800; font-size: 20px; letter-spacing: 2px;
+  color: #ffe9f4; text-shadow: 0 0 12px rgba(255, 45, 149, 0.5); margin-bottom: 8px;
+}
+.upsell-lead { font-family: var(--font-body); font-size: 13.5px; line-height: 1.5; color: rgba(240, 228, 250, 0.88); margin: 0 0 14px; }
+.upsell-list { list-style: none; margin: 0 0 14px; padding: 0; text-align: left; display: flex; flex-direction: column; gap: 9px; }
+.upsell-list li {
+  font-family: var(--font-body); font-size: 13.5px; color: rgba(240, 228, 250, 0.9);
+  padding-left: 26px; position: relative;
+}
+.upsell-list li::before { content: '★'; position: absolute; left: 4px; color: var(--gold); }
+.upsell-list b { color: #fff; }
+.upsell-free {
+  font-family: var(--font-body); font-size: 12px; color: var(--text-dim); margin: 0 0 18px;
+  padding-top: 12px; border-top: 1px solid var(--border-dim);
+}
+.upsell-actions { display: flex; flex-direction: column; gap: 10px; }
+.upsell-actions .menu-btn { width: 100%; }
+
+/* ===== LOCK badge on gated map tiles + mode options ======================== */
+.map-tile.is-locked, .mode-opt.is-locked { position: relative; }
+.map-tile.is-locked .map-thumb, .map-tile.is-locked .map-name { opacity: 0.62; }
+.mode-opt.is-locked .mode-opt-name, .mode-opt.is-locked .mode-opt-desc { opacity: 0.72; }
+.lock-badge {
+  position: absolute; top: 8px; right: 8px; z-index: 3;
+  font-size: 13px; line-height: 1; padding: 4px 6px; border-radius: 8px;
+  background: rgba(8, 4, 18, 0.82); border: 1px solid var(--border-soft);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+.map-seg.is-locked { position: relative; opacity: 0.8; }
+.map-seg.is-locked .lock-badge { position: static; padding: 0 0 0 4px; background: none; border: none; box-shadow: none; font-size: 10px; }
+
 /* Other big headings (PAUSED / FINISH) — clean sunset gradient text, no outline. */
 #pause-title, #race-finish .rf-title {
   font-family: var(--font-display); font-weight: 900; line-height: 1;

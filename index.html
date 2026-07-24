@@ -108,6 +108,93 @@
       </div>
     </div>
 
+    <!-- ===== HOST ACCOUNT (login + free/premium state) — main-menu only.
+         Players on phones NEVER see or need this. ===== -->
+    <div id="account-bar" hidden>
+      <button type="button" id="account-btn" class="account-chip">
+        <span id="account-label">LOG IN</span>
+        <span id="account-badge" class="account-badge" hidden>FREE</span>
+      </button>
+    </div>
+
+    <!-- Auth modal: login / signup / forgot-password / set-new-password (recovery)
+         / logged-in account panel. One card; JS shows the active section. -->
+    <div id="auth-modal" class="modal-overlay" hidden>
+      <div class="auth-card">
+        <button type="button" class="auth-x" id="auth-close" aria-label="Close">×</button>
+
+        <!-- LOGIN / SIGNUP (shared email+password form) -->
+        <section class="auth-sec" data-sec="form">
+          <div class="auth-title" id="auth-title">LOG IN</div>
+          <p class="auth-sub" id="auth-sub">Only the host needs an account — players just scan the QR.</p>
+          <form id="auth-form" autocomplete="on">
+            <input id="auth-email" type="email" placeholder="Email" autocomplete="email" required />
+            <input id="auth-password" type="password" placeholder="Password" autocomplete="current-password" required minlength="6" />
+            <button type="submit" class="menu-btn primary" id="auth-submit">LOG IN</button>
+          </form>
+          <div class="auth-links">
+            <button type="button" id="auth-forgot" class="auth-link">Forgot password?</button>
+            <button type="button" id="auth-toggle" class="auth-link">Need an account? <b>Sign up</b></button>
+          </div>
+        </section>
+
+        <!-- FORGOT PASSWORD (email only) -->
+        <section class="auth-sec" data-sec="forgot" hidden>
+          <div class="auth-title">RESET PASSWORD</div>
+          <p class="auth-sub">We'll email you a link to set a new password.</p>
+          <form id="forgot-form">
+            <input id="forgot-email" type="email" placeholder="Email" autocomplete="email" required />
+            <button type="submit" class="menu-btn primary">SEND RESET LINK</button>
+          </form>
+          <div class="auth-links"><button type="button" id="forgot-back" class="auth-link">◄ Back to log in</button></div>
+        </section>
+
+        <!-- SET NEW PASSWORD (arrived via the reset link) -->
+        <section class="auth-sec" data-sec="recovery" hidden>
+          <div class="auth-title">SET NEW PASSWORD</div>
+          <form id="recovery-form">
+            <input id="recovery-password" type="password" placeholder="New password" autocomplete="new-password" required minlength="6" />
+            <button type="submit" class="menu-btn primary">SAVE PASSWORD</button>
+          </form>
+        </section>
+
+        <!-- LOGGED-IN ACCOUNT PANEL -->
+        <section class="auth-sec" data-sec="account" hidden>
+          <div class="auth-title">ACCOUNT</div>
+          <div class="account-email" id="account-email">—</div>
+          <div class="account-plan" id="account-plan">
+            <span class="plan-pill" id="plan-pill">FREE</span>
+            <span id="plan-note">Desktop &amp; Asphalt Oval · Free Ride</span>
+          </div>
+          <button type="button" class="menu-btn primary" id="account-upgrade">UNLOCK PREMIUM</button>
+          <button type="button" class="menu-btn ghost" id="account-signout">SIGN OUT</button>
+        </section>
+
+        <div id="auth-msg" class="auth-msg" hidden></div>
+      </div>
+    </div>
+
+    <!-- Upsell modal: shown when a LOCKED map/mode is clicked. A positive pitch of
+         what premium unlocks, not a wall. -->
+    <div id="upsell-modal" class="modal-overlay" hidden>
+      <div class="upsell-card">
+        <button type="button" class="auth-x" id="upsell-close" aria-label="Close">×</button>
+        <div class="upsell-badge">★ PREMIUM</div>
+        <div class="upsell-title" id="upsell-title">Unlock the full game</div>
+        <p class="upsell-lead" id="upsell-lead">You found a premium track. Here's everything premium adds:</p>
+        <ul class="upsell-list">
+          <li><b>All maps</b> — Circuit + Flat-track dirt oval</li>
+          <li><b>All modes</b> — RACE + XP MODE</li>
+          <li><b>Global leaderboards</b> — your scores, ranked online</li>
+        </ul>
+        <p class="upsell-free">Free forever: Desktop &amp; Asphalt Oval, Free Ride, unlimited players.</p>
+        <div class="upsell-actions">
+          <button type="button" class="menu-btn primary" id="upsell-primary">CREATE ACCOUNT</button>
+          <button type="button" class="menu-btn ghost" id="upsell-secondary">LOG IN</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Race readout (functional, on-brand). Shown only while race elements
          are active; independent of the D/Q debug toggles. -->
     <aside id="race-hud" hidden>
