@@ -118,6 +118,8 @@ const modeToggleHint = document.getElementById('mode-toggle-hint')  as HTMLEleme
 const modePanelEl    = document.getElementById('mode-panel')      as HTMLElement | null;
 const raceReadyEl    = document.getElementById('race-ready')      as HTMLElement | null;
 const readyBtn       = document.getElementById('btn-ready')       as HTMLButtonElement | null;
+const raceLapsEl     = document.getElementById('race-laps')       as HTMLElement | null;
+const raceLapsOptsEl = document.getElementById('race-laps-opts')  as HTMLElement | null;
 
 // ---------- Freeze: the main menu, pause (P), and the editor (E) each halt the
 // simulation + race timer (not the render). isPaused is the combined gate. ----
@@ -384,8 +386,10 @@ const GAME_MODES: GameMode[] = [
   { key: 'xp', name: 'XP MODE', desc: "Solo. Chain drifts, don't crash, beat your best.", players: 'SOLO' },
 ];
 const DEFAULT_GAME_MODE = 'free';   // FREE RIDE — every map supports it; the resting default
-const MENU_RACE_LAPS = 3;           // default lap count when a RACE is launched from the menu
+const RACE_LAP_OPTIONS = [1, 3, 5, 10] as const;   // menu lap-count choices for RACE
+const MENU_RACE_LAPS = 3;           // default lap count (must be one of RACE_LAP_OPTIONS)
 let selectedGameMode: string = DEFAULT_GAME_MODE;
+let selectedRaceLaps = MENU_RACE_LAPS;   // the lap count RACE will run (set in the menu)
 
 // The modes a map supports. Every map includes 'free'; the desktop is 'free' ONLY.
 function mapGameModes(id: string | null): readonly string[] {
@@ -433,6 +437,7 @@ function openCarMapSelect() {
   buildCarTiles();
   buildMapTiles();
   buildModeOptions();
+  buildRaceLaps();
   closeModePanel();       // start collapsed each time the screen opens
   refreshSelectionUi();
   refreshFreeze();
@@ -478,7 +483,7 @@ function applySelectedGameMode() {
   if (selectedGameMode === 'xp') {
     setCircuitMode('xp');
   } else if (selectedGameMode === 'race') {
-    enterRaceWarmup(Math.max(1, MENU_RACE_LAPS));   // free driving + READY (no countdown yet)
+    enterRaceWarmup(selectedRaceLaps);   // free driving + READY (no countdown yet), the menu's lap count
   }
   // 'free' → nothing: switchMap already left the map in its free-roam default.
 }
@@ -606,6 +611,30 @@ function buildModeOptions() {
     modeOptEls.push(opt);
   }
 }
+// Build the LAP COUNT segments once (data-driven from RACE_LAP_OPTIONS).
+let raceLapEls: HTMLButtonElement[] = [];
+function buildRaceLaps() {
+  if (!raceLapsOptsEl) return;
+  raceLapsOptsEl.innerHTML = '';
+  raceLapEls = [];
+  for (const n of RACE_LAP_OPTIONS) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'cms-laps-opt';
+    b.textContent = String(n);
+    b.dataset.laps = String(n);
+    b.addEventListener('click', (e) => { e.stopPropagation(); selectedRaceLaps = n; refreshRaceLaps(); });
+    raceLapsOptsEl.appendChild(b);
+    raceLapEls.push(b);
+  }
+}
+// Show the lap selector only while RACE is the chosen mode; highlight the pick.
+function refreshRaceLaps() {
+  const show = selectedGameMode === 'race';
+  if (raceLapsEl) raceLapsEl.hidden = !show;
+  for (const b of raceLapEls) b.classList.toggle('is-active', Number(b.dataset.laps) === selectedRaceLaps);
+}
+
 // Pick a game mode. If the currently-selected map can't host it (RACE/XP on a
 // free-ride-only map), the MODE wins and the map is cleared (both orders work).
 // Collapses the panel afterwards. There's no "deselect to nothing" — FREE RIDE IS
@@ -636,6 +665,7 @@ function refreshModePicker() {
 function refreshSelectionUi() {
   highlightMapTiles();
   refreshModePicker();
+  refreshRaceLaps();
   updateStartEnabled();
 }
 

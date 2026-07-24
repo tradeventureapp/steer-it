@@ -500,6 +500,34 @@ body.desktop #game { display: block; width: 100vw; height: 100vh; }
 .mode-opt.is-filtered { opacity: 0.34; filter: grayscale(0.5); }
 .mode-opt.is-filtered:hover { opacity: 0.55; box-shadow: none; }
 
+/* LAP COUNT selector — shown under the toggle when RACE is chosen. A glass
+   segmented control (the active segment carries the accent), like the map switcher. */
+.cms-laps {
+  display: flex; align-items: center; justify-content: center; gap: 12px;
+  padding: 4px 2px 2px;
+}
+.cms-laps-label {
+  font-family: var(--font-display); font-weight: 800; font-size: 11px; letter-spacing: 3px;
+  color: var(--gold); text-shadow: var(--glow-gold);
+}
+.cms-laps-opts {
+  display: inline-flex; gap: 4px; padding: 3px; border-radius: 10px;
+  background: var(--glass-soft); border: 1px solid var(--border-soft);
+}
+.cms-laps-opt {
+  appearance: none; -webkit-appearance: none; cursor: pointer; min-width: 40px;
+  font-family: var(--font-display); font-weight: 800; font-size: 13px; letter-spacing: 1px;
+  padding: 6px 12px; border-radius: 7px; color: #ffdcec;
+  background: transparent; border: 1px solid transparent;
+  font-variant-numeric: tabular-nums;
+  transition: background 120ms, color 120ms, box-shadow 140ms, border-color 140ms;
+}
+.cms-laps-opt:hover { color: #fff; }
+.cms-laps-opt.is-active {
+  color: #fff; background: var(--grad-cta);
+  border-color: rgba(255, 45, 149, 0.85); box-shadow: 0 0 12px rgba(255, 45, 149, 0.6);
+}
+
 /* ===== CAR CARD — small name tile, full spec flyout on hover =============== */
 .car-card {
   position: relative; width: 100%;
