@@ -363,8 +363,8 @@ interface GameMode {
   players: string;      // MULTIPLAYER / SOLO tag — makes the distinction clear
 }
 const GAME_MODES: GameMode[] = [
-  { key: 'free', name: 'FREE RIDE', desc: 'Just drive. No rules, no timer.', players: 'ANY' },
-  { key: 'race', name: 'RACE', desc: 'Race your friends — first to finish wins', players: 'MULTIPLAYER' },
+  { key: 'free', name: 'FREE RIDE', desc: 'Just drive. No rules, no timer.', players: 'SOLO/MULTI' },
+  { key: 'race', name: 'RACE', desc: 'Race your friends — or set your own best time.', players: 'SOLO/MULTI' },
   { key: 'xp', name: 'XP MODE', desc: "Solo. Chain drifts, don't crash, beat your best.", players: 'SOLO' },
 ];
 const DEFAULT_GAME_MODE = 'free';   // FREE RIDE — every map supports it; the resting default
