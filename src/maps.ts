@@ -185,7 +185,7 @@ export const desktopMap: MapDefinition = {
   id: 'desktop',
   name: 'Desktop',
   trackType: 'open',   // free surface → full place-elements editor
-  gameModes: [],       // FREE ROAM only — its own place-elements editor (E), no RACE/XP
+  gameModes: ['free'], // FREE RIDE only — its own place-elements editor (E), no RACE/XP
 
   createWorld(widthM, heightM) {
     return layoutDesktop(widthM, heightM);
@@ -744,7 +744,7 @@ function makeStadiumMap(opts: {
     id: opts.id,
     name: opts.name,
     trackType: 'circuit',   // bounded oval → laps-only editor; built-in start line
-    gameModes: ['race', 'xp'],   // both RACE (laps) and XP MODE (solo score run)
+    gameModes: ['free', 'race', 'xp'],   // FREE RIDE + RACE (laps) + XP MODE (solo score run)
 
     surfaceGroup: opts.surfaceGroup,
 
@@ -2460,7 +2460,7 @@ function drawCircuitBillboardsAbove(ctx: CanvasRenderingContext2D, px: number) {
 export const circuitMap: MapDefinition = {
   id: 'circuit',
   name: 'Circuit',
-  gameModes: ['race', 'xp'],   // both RACE (laps) and XP MODE (solo score run)
+  gameModes: ['free', 'race', 'xp'],   // FREE RIDE + RACE (laps) + XP MODE (solo score run)
   // CIRCUIT: the built-in start/finish below is start AND finish, so the editor shows the
   // LAPS panel (0 = free-roam, N = an N-lap race) instead of the place-elements palette —
   // exactly like the ovals.

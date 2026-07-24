@@ -363,15 +363,17 @@ interface GameMode {
   players: string;      // MULTIPLAYER / SOLO tag — makes the distinction clear
 }
 const GAME_MODES: GameMode[] = [
+  { key: 'free', name: 'FREE RIDE', desc: 'Just drive. No rules, no timer.', players: 'ANY' },
   { key: 'race', name: 'RACE', desc: 'Race your friends — first to finish wins', players: 'MULTIPLAYER' },
   { key: 'xp', name: 'XP MODE', desc: "Solo. Chain drifts, don't crash, beat your best.", players: 'SOLO' },
 ];
-const MENU_RACE_LAPS = 3;   // default lap count when a RACE is launched from the menu
-let selectedGameMode: string | null = null;
+const DEFAULT_GAME_MODE = 'free';   // FREE RIDE — every map supports it; the resting default
+const MENU_RACE_LAPS = 3;           // default lap count when a RACE is launched from the menu
+let selectedGameMode: string = DEFAULT_GAME_MODE;
 
-// The modes a map supports (empty ⇒ FREE ROAM only — the desktop).
+// The modes a map supports. Every map includes 'free'; the desktop is 'free' ONLY.
 function mapGameModes(id: string | null): readonly string[] {
-  return (id && getMap(id)?.gameModes) || [];
+  return (id && getMap(id)?.gameModes) || [DEFAULT_GAME_MODE];
 }
 
 function hideAllMenus() {
@@ -427,7 +429,7 @@ function chooseMode(mode: RaceMode) {
   renderQr();             // the join URL carries the mode → phones paint the right colours
   selectedMapId = null;
   selectedCarKey = null;
-  selectedGameMode = null;
+  selectedGameMode = DEFAULT_GAME_MODE;   // FREE RIDE is the resting default
   openCarMapSelect();
 }
 function closeMenusIntoGame() {
@@ -436,37 +438,34 @@ function closeMenusIntoGame() {
   refreshFreeze();
   updateQrVisibility();   // QR/join panel appears now a map is live
 }
-// START is enabled once a car AND a map are chosen, AND — for a map that offers
-// game modes — a game mode is chosen too. A free-roam map (no modes) needs none.
+// START is enabled once a car AND a map are chosen. A game mode is ALWAYS set
+// (FREE RIDE is the default), so it never gates START.
 function updateStartEnabled() {
-  const modes = mapGameModes(selectedMapId);
-  const modeOk = modes.length === 0 || !!selectedGameMode;
-  if (cmsStartBtn) cmsStartBtn.disabled = !(selectedMapId && selectedCarKey && modeOk);
+  if (cmsStartBtn) cmsStartBtn.disabled = !(selectedMapId && selectedCarKey);
 }
 // START: commit the mode to every car, load the map (respawns cars), enter play.
 function launchSelected() {
   if (!selectedMapId) return;
-  const modes = mapGameModes(selectedMapId);
-  if (modes.length && !selectedGameMode) return;   // must pick a game mode first
   goFullscreen();         // gameplay starts — fill the host screen (gesture)
   applyModeToAllCars();   // re-spec any already-connected cars to the chosen mode
   broadcastLobby();       // phones learn the mode + its colour palette
-  switchMap(selectedMapId);   // load the map + respawn any connected cars (resets to laps/free-roam)
-  applySelectedGameMode();    // then commit RACE (laps) / XP on top
+  switchMap(selectedMapId);   // load the map + respawn any connected cars (resets to free-roam)
+  applySelectedGameMode();    // then commit RACE (laps) / XP on top of the free-roam default
   closeMenusIntoGame();
 }
-// Translate the chosen GameMode onto the loaded map's circuit mode. Free-roam maps
-// (no gameModes) keep switchMap's default (their own editor / cruise); RACE sets a
-// real lap race (default laps), XP starts a score run.
+// Translate the chosen GameMode onto the loaded map. FREE RIDE keeps switchMap's
+// default (the desktop's editor / a circuit's free-roam cruise — no rules, no
+// timer). RACE sets a real lap race (default laps); XP starts a score run. RACE/XP
+// only ever reach a circuit-type map (the picker filters them off free-ride-only
+// maps), and setCircuitMode itself no-ops on a non-circuit map, so this is safe.
 function applySelectedGameMode() {
-  const modes = mapGameModes(selectedMapId);
-  if (!modes.length) return;                    // free roam — nothing to apply
   if (selectedGameMode === 'xp') {
     setCircuitMode('xp');
-  } else {                                      // 'race' → a timed lap race
+  } else if (selectedGameMode === 'race') {
     editorLaps = Math.max(1, MENU_RACE_LAPS);
     setCircuitMode('laps');                     // rebuilds the race with the lap count
   }
+  // 'free' → nothing: switchMap already left the map in its free-roam default.
 }
 
 // Fullscreen on the HOST PC only (phones never call this). MUST run inside a
@@ -538,21 +537,21 @@ function renderMapPreview(c: CanvasRenderingContext2D, def: MapDefinition, RW: n
 type MapTileEntry = { el: HTMLElement; getId: () => string };
 let mapTileEntries: MapTileEntry[] = [];
 // Highlight the selected map, and DIM (filter) any map that doesn't support the
-// selected game mode — the mode→map half of the two-way filter.
+// selected game mode — the mode→map half of the two-way filter. FREE RIDE is in
+// every map's list, so the resting default dims nothing.
 function highlightMapTiles() {
   for (const e of mapTileEntries) {
     const id = e.getId();
     e.el.classList.toggle('is-selected', id === selectedMapId);
-    const filtered = !!selectedGameMode && !mapGameModes(id).includes(selectedGameMode);
-    e.el.classList.toggle('is-filtered', filtered);
+    e.el.classList.toggle('is-filtered', !mapGameModes(id).includes(selectedGameMode));
   }
 }
 // Pick a map (does NOT launch — START does). If it can't host the currently-chosen
-// game mode (e.g. Desktop = free roam, or a mode-only map), the MAP wins and the
-// game mode is cleared — so clicking is always allowed and both orders work.
+// game mode (e.g. Desktop supports only FREE RIDE), the MAP wins and the mode falls
+// back to FREE RIDE — so clicking is always allowed and both orders work.
 function selectMap(id: string) {
   selectedMapId = id;
-  if (selectedGameMode && !mapGameModes(id).includes(selectedGameMode)) selectedGameMode = null;
+  if (!mapGameModes(id).includes(selectedGameMode)) selectedGameMode = DEFAULT_GAME_MODE;
   refreshSelectionUi();
 }
 
@@ -592,45 +591,30 @@ function buildModeOptions() {
     modeOptEls.push(opt);
   }
 }
-// Pick a game mode. If the currently-selected map can't host it, the MODE wins and
-// the map is cleared (both orders work). Collapses the panel afterwards.
+// Pick a game mode. If the currently-selected map can't host it (RACE/XP on a
+// free-ride-only map), the MODE wins and the map is cleared (both orders work).
+// Collapses the panel afterwards. There's no "deselect to nothing" — FREE RIDE IS
+// the cleared state, so choose it to clear.
 function selectGameMode(key: string) {
-  selectedGameMode = selectedGameMode === key ? null : key;   // re-click clears
-  if (selectedGameMode && selectedMapId && !mapGameModes(selectedMapId).includes(selectedGameMode)) {
-    selectedMapId = null;
-  }
+  selectedGameMode = key;
+  if (selectedMapId && !mapGameModes(selectedMapId).includes(key)) selectedMapId = null;
   closeModePanel();
   refreshSelectionUi();
 }
 // Refresh the mode toggle label + option highlight/filter from the current state.
+// A mode is ALWAYS set (FREE RIDE by default), so the toggle always shows the
+// current mode — no disabled/empty state.
 function refreshModePicker() {
   const mapModes = mapGameModes(selectedMapId);
-  const freeRoam = !!selectedMapId && mapModes.length === 0;   // Desktop → no modes
-  if (freeRoam) selectedGameMode = null;
-
-  // Toggle button: disabled + "FREE ROAM" for a mode-less map; else the chosen
-  // mode's name, or "CHOOSE MODE" prompt.
-  if (modeToggleBtn) {
-    modeToggleBtn.disabled = freeRoam;
-    modeToggleBtn.classList.toggle('has-mode', !!selectedGameMode);
-  }
-  if (freeRoam) closeModePanel();
-  if (modeToggleLbl) {
-    const chosen = GAME_MODES.find((m) => m.key === selectedGameMode);
-    modeToggleLbl.textContent = freeRoam ? 'FREE ROAM' : (chosen ? chosen.name : 'CHOOSE MODE');
-  }
-  if (modeToggleHint) {
-    const chosen = GAME_MODES.find((m) => m.key === selectedGameMode);
-    modeToggleHint.textContent = freeRoam
-      ? 'Desktop is free roam — no mode needed'
-      : (chosen ? chosen.players : 'RACE friends · or solo XP');
-  }
+  const chosen = GAME_MODES.find((m) => m.key === selectedGameMode);
+  if (modeToggleBtn) modeToggleBtn.classList.toggle('has-mode', !!chosen);
+  if (modeToggleLbl) modeToggleLbl.textContent = chosen ? chosen.name : 'FREE RIDE';
+  if (modeToggleHint) modeToggleHint.textContent = chosen ? chosen.desc : '';
   // Options: highlight the chosen one; dim any the selected map can't host.
   for (const el of modeOptEls) {
     const key = el.dataset.mode!;
     el.classList.toggle('is-selected', key === selectedGameMode);
-    const filtered = !!selectedMapId && !mapModes.includes(key);
-    el.classList.toggle('is-filtered', filtered);
+    el.classList.toggle('is-filtered', !!selectedMapId && !mapModes.includes(key));
   }
 }
 // One call refreshes both halves of the two-way filter + the START button.
