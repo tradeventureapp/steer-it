@@ -86,6 +86,12 @@ export interface MapDefinition {
   // so the whole grass path is dead code and those maps stay byte-identical.
   surfaceAt?(x: number, y: number): Surface;
 
+  // The RACING surface(s) — a wheel on one of these is ON TRACK; anything else is
+  // OFF track (used by XP mode's off-track end so it's per-map, not "asphalt = track"
+  // hardcoded). Default ['asphalt'] (the asphalt oval + circuit). The DIRT oval, where
+  // dirt IS the track, declares ['dirt']. Data-driven ⇒ new surfaces work automatically.
+  trackSurfaces?: readonly Surface[];
+
   // RENDER-ONLY tyre-mark class for a map with NO per-point mask (desktop, ovals).
   // The saturation mark system stamps the whole map in this class (rubber on
   // asphalt, a brown dirt scuff on the flat oval). Default 'asphalt'. NEVER read
@@ -753,6 +759,10 @@ function makeStadiumMap(opts: {
     ...(opts.physicsSurface
       ? { surfaceAt: (_x: number, _y: number): Surface => opts.physicsSurface! }
       : {}),
+
+    // Racing surface for the off-track check: the DIRT oval's track IS dirt, so a
+    // wheel on dirt is ON track there; the asphalt oval defaults to ['asphalt'].
+    trackSurfaces: [opts.physicsSurface ?? 'asphalt'],
 
     // Tyre-mark look (render-only): the asphalt ring lays grey rubber; the DIRT ring
     // lays a brown gouged scuff (the 'gravel' cap — a darkening multiply that keeps the

@@ -2551,10 +2551,12 @@ function frame(now: number) {
     // ---- XP MODE: read the SOLO car's speed + sideways slip + off-track wheels and
     // accrue score. Pure read — physics/drift untouched. Banks + shows the end card on end.
     if (isXpMode() && lead && xpRun.active) {
-      // Off-track = a wheel on grass/gravel (asphalt+kerbs read 'asphalt'). >2 off ends the
-      // run. Only meaningful where the map has a surface mask (the circuit); the ovals return
-      // all-asphalt here, so their barrier crash-end is what bounds them.
-      const off = wheelSurfaces(lead).filter((s) => s !== 'asphalt').length;
+      // Off-track = a wheel on a surface that is NOT one of THIS map's racing surfaces
+      // (per-map, not "asphalt = track" hardcoded — so the dirt oval, where dirt IS the
+      // track, doesn't read as off-track). >2 off ends the run. Only bites where the map
+      // has a surface mask (the circuit); the barrier-bounded ovals lean on their crash-end.
+      const onTrack = currentMap.trackSurfaces ?? ['asphalt'];
+      const off = wheelSurfaces(lead).filter((s) => !onTrack.includes(s)).length;
       updateXpRun(xpRun, realDt, lead.state.speed, lead.state.rearSlip, xpCrash, off);
       if (xpRun.ended && !xpEndHandled) handleXpEnd();
     }
