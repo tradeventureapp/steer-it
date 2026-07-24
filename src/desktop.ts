@@ -1007,6 +1007,8 @@ const upsellEl      = document.getElementById('upsell-modal')   as HTMLElement |
 const authMsgEl     = document.getElementById('auth-msg')       as HTMLElement | null;
 const accountLabel  = document.getElementById('account-label')  as HTMLElement | null;
 const accountBadge  = document.getElementById('account-badge')  as HTMLElement | null;
+const accountAuthEl = document.getElementById('account-auth')   as HTMLElement | null;
+const accountChip   = document.getElementById('account-btn')    as HTMLButtonElement | null;
 let authMode: 'login' | 'signup' = 'login';
 
 function authSection(name: string) {
@@ -1047,7 +1049,10 @@ function applyAuthMode() {
 // The account chip (menu) + the account panel reflect the live auth state.
 function renderAccount(s: AuthState) {
   const email = s.user?.email || '';
-  if (accountLabel) accountLabel.textContent = s.user ? (email.split('@')[0] || 'ACCOUNT') : 'LOG IN';
+  // Logged OUT → SIGN UP + LOG IN buttons; logged IN → the account chip.
+  if (accountAuthEl) accountAuthEl.hidden = !!s.user;
+  if (accountChip) accountChip.hidden = !s.user;
+  if (accountLabel) accountLabel.textContent = s.user ? (email.split('@')[0] || 'ACCOUNT') : 'ACCOUNT';
   if (accountBadge) {
     accountBadge.hidden = !s.user;
     accountBadge.textContent = s.isPremium ? 'PREMIUM' : 'FREE';
@@ -1109,6 +1114,14 @@ function openUpsell(kind: 'map' | 'mode' | 'generic', id?: string) {
 function closeUpsell() { if (upsellEl) upsellEl.hidden = true; }
 
 // ---- Wire the controls ----
+// Logged-out entry points open the auth modal on the right tab; the chip (logged in)
+// opens the account panel.
+document.getElementById('account-signup')?.addEventListener('click', () => {
+  authMode = 'signup'; openAuthModal('form');
+});
+document.getElementById('account-login')?.addEventListener('click', () => {
+  authMode = 'login'; openAuthModal('form');
+});
 document.getElementById('account-btn')?.addEventListener('click', () => {
   openAuthModal(getAuthState().user ? 'account' : 'form');
 });

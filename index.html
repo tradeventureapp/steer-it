@@ -110,8 +110,14 @@
     <!-- ===== HOST ACCOUNT (login + free/premium state) — main-menu only.
          Players on phones NEVER see or need this. ===== -->
     <div id="account-bar" hidden>
-      <button type="button" id="account-btn" class="account-chip">
-        <span id="account-label">LOG IN</span>
+      <!-- Logged OUT: both entry points up front so a new visitor sees SIGN UP. -->
+      <div class="account-auth" id="account-auth">
+        <button type="button" class="account-cta signup" id="account-signup">SIGN UP</button>
+        <button type="button" class="account-cta login" id="account-login">LOG IN</button>
+      </div>
+      <!-- Logged IN: the account chip (email + FREE/PREMIUM) replaces the buttons. -->
+      <button type="button" id="account-btn" class="account-chip" hidden>
+        <span id="account-label">ACCOUNT</span>
         <span id="account-badge" class="account-badge" hidden>FREE</span>
       </button>
     </div>

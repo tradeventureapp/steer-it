@@ -224,6 +224,27 @@ body.desktop #game { display: block; width: 100vw; height: 100vh; }
 /* ===== HOST ACCOUNT chip (top-right on the menu screens) =================== */
 #account-bar { position: fixed; top: 16px; right: 18px; z-index: 120; }
 #account-bar[hidden] { display: none; }
+/* Logged-out entry: SIGN UP (inviting, accent) + LOG IN (ghost), side by side. */
+.account-auth { display: inline-flex; gap: 9px; align-items: center; }
+.account-auth[hidden] { display: none; }
+.account-cta {
+  appearance: none; -webkit-appearance: none; cursor: pointer;
+  font-family: var(--font-display); font-weight: 800; font-size: 12px; letter-spacing: 2px;
+  padding: 9px 17px; border-radius: 999px; border: 1.5px solid transparent;
+  transition: box-shadow 160ms, transform 100ms, border-color 160ms, filter 160ms;
+}
+.account-cta:active { transform: translateY(1px); }
+.account-cta.signup {
+  color: #fff; background: var(--grad-cta);
+  box-shadow: 0 0 18px rgba(255, 45, 149, 0.5);
+}
+.account-cta.signup:hover { transform: translateY(-1px); box-shadow: 0 0 24px rgba(255, 45, 149, 0.7); }
+.account-cta.login {
+  color: #ffe9f4; background: linear-gradient(180deg, rgba(255, 45, 149, 0.12), rgba(10, 6, 24, 0.72));
+  border-color: var(--border-dim);
+}
+.account-cta.login:hover { border-color: rgba(255, 45, 149, 0.7); box-shadow: 0 0 16px rgba(255, 45, 149, 0.35); }
+.account-chip[hidden] { display: none; }
 .account-chip {
   appearance: none; -webkit-appearance: none; cursor: pointer;
   display: inline-flex; align-items: center; gap: 8px;
