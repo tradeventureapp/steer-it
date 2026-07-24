@@ -761,6 +761,24 @@ body.desktop.editing #game { cursor: crosshair; }
   font-weight: 900; font-size: clamp(20px, 3vw, 38px); letter-spacing: 2px;
   color: var(--gold); text-shadow: 0 0 12px rgba(255, 194, 74, 0.9), 0 0 30px rgba(255, 138, 61, 0.6);
 }
+/* GRID combo countdown bar under the multiplier — full while drifting, drains during the
+   hold window, and pulses when it's nearly gone (the "keep the chain alive" pressure). */
+#xp-combo {
+  width: clamp(120px, 22vw, 220px); height: 7px; margin-top: 5px;
+  border-radius: 4px; overflow: hidden;
+  background: rgba(255, 255, 255, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12), 0 0 10px rgba(255, 45, 149, 0.35);
+}
+#xp-combo-fill {
+  height: 100%; width: 100%;
+  background: linear-gradient(90deg, #ff8a3d, #ff2d95);
+  box-shadow: 0 0 10px rgba(255, 45, 149, 0.7);
+  transition: width 80ms linear;
+}
+#xp-combo.low #xp-combo-fill { background: var(--danger); box-shadow: 0 0 12px rgba(255, 59, 59, 0.85); }
+#xp-combo.low { animation: xpComboPulse 0.4s steps(1) infinite; }
+@keyframes xpComboPulse { 0% { opacity: 1; } 50% { opacity: 0.45; } 100% { opacity: 1; } }
+
 /* Slow-speed warning → the whole HUD blinks red. */
 #xp-hud.warn #xp-score,
 #xp-hud.warn #xp-mult { animation: xpWarn 0.5s steps(1) infinite; }

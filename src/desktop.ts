@@ -84,6 +84,8 @@ const countdownNEl  = document.getElementById('countdown-n')   as HTMLElement | 
 const xpHudEl       = document.getElementById('xp-hud')        as HTMLElement | null;
 const xpScoreEl     = document.getElementById('xp-score')      as HTMLDivElement | null;
 const xpMultEl      = document.getElementById('xp-mult')       as HTMLDivElement | null;
+const xpComboEl     = document.getElementById('xp-combo')      as HTMLDivElement | null;
+const xpComboFillEl = document.getElementById('xp-combo-fill') as HTMLDivElement | null;
 const xpEndEl       = document.getElementById('xp-end')        as HTMLElement | null;
 const xpEndRecordEl = document.getElementById('xp-end-record') as HTMLDivElement | null;
 const xpEndLabelEl  = document.getElementById('xp-end-label')  as HTMLDivElement | null;
@@ -1521,7 +1523,10 @@ function handleXpEnd() {
   const isRecord = score > xpBest;
   if (isRecord) { xpBest = score; saveXpBest(score); }
   if (xpEndRecordEl) xpEndRecordEl.hidden = !isRecord;
-  if (xpEndLabelEl)  xpEndLabelEl.textContent = xpRun.endReason === 'crash' ? 'CRASHED' : 'TOO SLOW';
+  if (xpEndLabelEl) {
+    xpEndLabelEl.textContent = xpRun.endReason === 'crash' ? 'CRASHED'
+      : xpRun.endReason === 'offtrack' ? 'OFF TRACK' : 'TOO SLOW';
+  }
   if (xpEndScoreEl)  xpEndScoreEl.textContent = formatXp(score);
   if (xpEndBestEl)   xpEndBestEl.textContent  = `BEST ${formatXp(xpBest)}`;
   if (xpEndEl) xpEndEl.hidden = false;
@@ -2319,10 +2324,14 @@ function frame(now: number) {
       if (!raceResultsOpen && raceManager.isComplete(cars.keys())) openRaceResults();
     }
 
-    // ---- XP MODE: read the SOLO car's speed + sideways slip and accrue score.
-    // Pure read — physics/drift untouched. Banks + shows the end card on end.
+    // ---- XP MODE: read the SOLO car's speed + sideways slip + off-track wheels and
+    // accrue score. Pure read — physics/drift untouched. Banks + shows the end card on end.
     if (isXpMode() && lead && xpRun.active) {
-      updateXpRun(xpRun, realDt, lead.state.speed, lead.state.rearSlip, xpCrash);
+      // Off-track = a wheel on grass/gravel (asphalt+kerbs read 'asphalt'). >2 off ends the
+      // run. Only meaningful where the map has a surface mask (the circuit); the ovals return
+      // all-asphalt here, so their barrier crash-end is what bounds them.
+      const off = wheelSurfaces(lead).filter((s) => s !== 'asphalt').length;
+      updateXpRun(xpRun, realDt, lead.state.speed, lead.state.rearSlip, xpCrash, off);
       if (xpRun.ended && !xpEndHandled) handleXpEnd();
     }
 
@@ -2606,10 +2615,22 @@ function updateXpHud() {
   }
   if (!playing || xpRun.ended) return;
   if (xpScoreEl) xpScoreEl.textContent = formatXp(xpRun.xp);
+  const hasMult = xpRun.mult > 1.05;
   if (xpMultEl) {
-    const drifting = xpRun.mult > 1.05;
-    xpMultEl.hidden = !drifting;
-    if (drifting) xpMultEl.textContent = '×' + xpRun.mult.toFixed(1);
+    xpMultEl.hidden = !hasMult;
+    if (hasMult) xpMultEl.textContent = '×' + xpRun.mult.toFixed(1);
+  }
+  // GRID combo indicator: a bar that's FULL while drifting (window re-armed each frame) and
+  // DRAINS during the hold — the visible countdown pressure. Hidden with no combo.
+  if (xpComboEl && xpComboFillEl) {
+    const active = hasMult && xpRun.comboMs > 0;
+    xpComboEl.hidden = !active;
+    if (active) {
+      const frac = Math.max(0, Math.min(1, xpRun.comboMs / XP_CONFIG.comboWindowMs));
+      xpComboFillEl.style.width = (frac * 100).toFixed(1) + '%';
+      // pulse red when the window is nearly gone (< ~0.8 s) so the pressure reads at a glance
+      xpComboEl.classList.toggle('low', xpRun.comboMs < 800);
+    }
   }
   if (xpHudEl) xpHudEl.classList.toggle('warn', xpRun.warning);
 }
