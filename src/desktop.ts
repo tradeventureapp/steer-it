@@ -116,9 +116,6 @@ const carMapSelectEl = document.getElementById('car-map-select')  as HTMLElement
 const mapTilesEl     = document.getElementById('map-tiles')       as HTMLElement | null;
 const carTilesEl     = document.getElementById('car-tiles')       as HTMLElement | null;
 const cmsStartBtn    = document.getElementById('btn-cms-start')   as HTMLButtonElement | null;
-const modeToggleBtn  = document.getElementById('btn-mode-toggle') as HTMLButtonElement | null;
-const modeToggleLbl  = document.getElementById('mode-toggle-label') as HTMLElement | null;
-const modeToggleHint = document.getElementById('mode-toggle-hint')  as HTMLElement | null;
 const modePanelEl    = document.getElementById('mode-panel')      as HTMLElement | null;
 const raceReadyEl    = document.getElementById('race-ready')      as HTMLElement | null;
 const readyBtn       = document.getElementById('btn-ready')       as HTMLButtonElement | null;
@@ -456,7 +453,6 @@ function openCarMapSelect() {
   buildMapTiles();
   buildModeOptions();
   buildRaceLaps();
-  closeModePanel();       // start collapsed each time the screen opens
   refreshSelectionUi();
   refreshFreeze();
   updateQrVisibility();
@@ -597,23 +593,8 @@ function selectMap(id: string) {
   refreshSelectionUi();
 }
 
-// ---- MODE picker (collapsible; the map→mode half of the two-way filter) ----
+// ---- MODE panel (always-visible list; the map→mode half of the two-way filter) ----
 let modeOptEls: HTMLButtonElement[] = [];
-let modePanelOpen = false;
-function openModePanel() {
-  if (!modePanelEl || !modeToggleBtn) return;
-  modePanelOpen = true;
-  modePanelEl.hidden = false;
-  modeToggleBtn.setAttribute('aria-expanded', 'true');
-  modeToggleBtn.classList.add('is-open');
-}
-function closeModePanel() {
-  if (!modePanelEl || !modeToggleBtn) return;
-  modePanelOpen = false;
-  modePanelEl.hidden = true;
-  modeToggleBtn.setAttribute('aria-expanded', 'false');
-  modeToggleBtn.classList.remove('is-open');
-}
 // Build the mode option rows once (data-driven from GAME_MODES).
 function buildModeOptions() {
   if (!modePanelEl) return;
@@ -663,24 +644,16 @@ function refreshRaceLaps() {
 
 // Pick a game mode. If the currently-selected map can't host it (RACE/XP on a
 // free-ride-only map), the MODE wins and the map is cleared (both orders work).
-// Collapses the panel afterwards. There's no "deselect to nothing" — FREE RIDE IS
-// the cleared state, so choose it to clear.
+// There's no "deselect to nothing" — FREE RIDE IS the cleared state, so choose it.
 function selectGameMode(key: string) {
   selectedGameMode = key;
   if (selectedMapId && !mapGameModes(selectedMapId).includes(key)) selectedMapId = null;
-  closeModePanel();
   refreshSelectionUi();
 }
-// Refresh the mode toggle label + option highlight/filter from the current state.
-// A mode is ALWAYS set (FREE RIDE by default), so the toggle always shows the
-// current mode — no disabled/empty state.
+// Highlight the chosen mode option + dim any the selected map can't host (the
+// map→mode half of the two-way filter). A mode is ALWAYS set (FREE RIDE default).
 function refreshModePicker() {
   const mapModes = mapGameModes(selectedMapId);
-  const chosen = GAME_MODES.find((m) => m.key === selectedGameMode);
-  if (modeToggleBtn) modeToggleBtn.classList.toggle('has-mode', !!chosen);
-  if (modeToggleLbl) modeToggleLbl.textContent = chosen ? chosen.name : 'FREE RIDE';
-  if (modeToggleHint) modeToggleHint.textContent = chosen ? chosen.desc : '';
-  // Options: highlight the chosen one; dim any the selected map can't host.
   for (const el of modeOptEls) {
     const key = el.dataset.mode!;
     el.classList.toggle('is-selected', key === selectedGameMode);
@@ -1025,7 +998,6 @@ document.getElementById('btn-mode-sim')?.addEventListener('click', () => chooseM
 document.getElementById('btn-mode-back')?.addEventListener('click', openMainMenu);
 document.getElementById('btn-cms-back')?.addEventListener('click', openModeSelect);
 cmsStartBtn?.addEventListener('click', launchSelected);
-modeToggleBtn?.addEventListener('click', () => (modePanelOpen ? closeModePanel() : openModePanel()));
 
 // ================= HOST ACCOUNT · AUTH · PAYWALL UPSELL =================
 // Only the host uses this. Login/signup/verification/reset all ride Supabase Auth

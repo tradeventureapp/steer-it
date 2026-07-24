@@ -501,21 +501,54 @@ body.desktop #game { display: block; width: 100vw; height: 100vh; }
   color: rgba(255, 255, 255, 0.82); text-transform: uppercase;
 }
 
-/* ===== CAR & MAP SELECT — cars left, maps right, START/BACK footer ========== */
-.cms-cols { display: flex; gap: 30px; align-items: flex-start; justify-content: center; flex-wrap: wrap; }
-.cms-col { display: flex; flex-direction: column; align-items: center; gap: 12px; }
-.cms-col-map { flex: 1 1 auto; min-width: 0; }
-.cms-head {
-  font-family: var(--font-display);
-  font-weight: 800; font-size: 13px; letter-spacing: 5px; color: var(--gold);
-  text-shadow: var(--glow-gold);
+/* ===== SELECT SCREEN — three independent panels (MODE · CAR · MAP) side by side.
+   The card fits the viewport (the PAGE never scrolls); each panel scrolls on its own
+   when its content overflows; BACK/START are pinned in the footer, always on screen. */
+#car-map-select .menu-card.cms-card {
+  display: flex; flex-direction: column;
+  width: min(1200px, 96vw);
+  height: min(820px, 92vh);          /* definite, viewport-bounded height → panels can scroll */
+  padding: 20px 22px 16px;
 }
-/* Car column = a single vertical stack; map column keeps its wrapping grid. */
-#car-tiles.cms-list { flex-direction: column; flex-wrap: nowrap; max-width: 240px; }
-#map-tiles.cms-list { max-width: 560px; }
+#car-map-select .menu-title { flex: 0 0 auto; margin-bottom: 14px; }
+.cms-panels {
+  flex: 1 1 auto; min-height: 0;     /* min-height:0 lets the panels shrink + scroll */
+  display: flex; gap: 14px; align-items: stretch;
+}
+.cms-panel {
+  flex: 1 1 0; min-width: 0; min-height: 0;
+  display: flex; flex-direction: column;
+  border: 1.5px solid var(--border-dim); border-radius: 14px;
+  background: rgba(8, 4, 18, 0.42);
+  overflow: hidden;                  /* clip the scrolling body to the rounded frame */
+}
+.cms-panel-modes { flex: 1.15; }
+.cms-panel-cars  { flex: 0.85; overflow: visible; }   /* 1–2 cars: no scroll; let the hover flyout escape */
+.cms-panel-maps  { flex: 1.75; }     /* the map grid needs the most width */
+.cms-panel-head {
+  flex: 0 0 auto; padding: 11px 10px;
+  font-family: var(--font-display); font-weight: 800; font-size: 13px; letter-spacing: 4px;
+  color: var(--gold); text-shadow: var(--glow-gold); text-align: center;
+  border-bottom: 1px solid var(--border-dim);
+  background: linear-gradient(180deg, rgba(255, 45, 149, 0.08), transparent);
+}
+.cms-panel-body {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden;
+  padding: 14px 12px; display: flex; flex-direction: column; align-items: center; gap: 12px;
+  scrollbar-width: thin; scrollbar-color: rgba(255, 45, 149, 0.4) transparent;
+}
+.cms-panel-cars .cms-panel-body { overflow: visible; }
+.cms-panel-body::-webkit-scrollbar { width: 9px; }
+.cms-panel-body::-webkit-scrollbar-thumb { background: rgba(255, 45, 149, 0.38); border-radius: 8px; }
+.cms-panel-body::-webkit-scrollbar-thumb:hover { background: rgba(255, 45, 149, 0.6); }
+.cms-panel-body::-webkit-scrollbar-track { background: transparent; }
+.cms-mode-list { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+#car-tiles.cms-list { flex-direction: column; flex-wrap: nowrap; width: 100%; gap: 12px; }
+#map-tiles.cms-list { max-width: 100%; }
 .cms-foot {
+  flex: 0 0 auto;
   display: flex; align-items: center; justify-content: space-between;
-  gap: 22px; width: 100%; margin-top: 18px;
+  gap: 22px; width: 100%; margin-top: 14px;
 }
 .menu-btn.primary[disabled] {
   opacity: 0.38; cursor: not-allowed; filter: grayscale(0.4);
