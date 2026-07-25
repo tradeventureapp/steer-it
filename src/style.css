@@ -762,6 +762,97 @@ body.desktop #game { display: block; width: 100vw; height: 100vh; }
   .pr-row { min-height: 46px; }
 }
 
+/* ============ ROADMAP — the road ahead (supporting, light) ============
+   A left→right journey: icon + title + one-liner per stop, joined by a sunset
+   path. Deliberately quieter than the sales sections. Draws in on scroll via the
+   `.rm-anim`/`.in` classes added in desktop.ts — but is FULLY VISIBLE by default
+   (no JS / reduced-motion never hides it). Becomes a vertical timeline on mobile. */
+.roadmap {
+  position: relative; z-index: 1; background: transparent;
+  padding: 6px 24px 76px; max-width: 1120px; margin: 0 auto;
+}
+.roadmap .how-head { margin-bottom: 26px; }
+.rm-track {
+  position: relative; display: flex; align-items: flex-start; gap: 6px;
+  max-width: 1080px; margin: 0 auto; padding: 6px 6px 0;
+}
+/* the connecting path — a sunset line through the icon centres, fading at the ends */
+.rm-line {
+  position: absolute; left: 8.33%; right: 8.33%; top: 34px; height: 2px; z-index: 0;
+  background: linear-gradient(90deg, transparent,
+    rgba(255, 138, 61, 0.55) 12%, rgba(255, 45, 149, 0.6) 50%, rgba(255, 138, 61, 0.55) 88%, transparent);
+  border-radius: 2px;
+}
+.rm-item {
+  position: relative; z-index: 1; flex: 1 1 0; min-width: 0;
+  display: flex; flex-direction: column; align-items: center; text-align: center; gap: 12px;
+  padding: 0 6px;
+}
+/* icon badge — dark disc, sunset gradient ring, gold glyph. Smaller than pricing. */
+.rm-ico {
+  position: relative; width: 56px; height: 56px; border-radius: 50%;
+  display: grid; place-items: center; color: var(--gold);
+  background: radial-gradient(circle at 50% 34%, rgba(37, 15, 60, 0.92), rgba(11, 6, 28, 0.96));
+  box-shadow: 0 0 0 1px rgba(255, 138, 61, 0.32), 0 6px 20px rgba(0, 0, 0, 0.45);
+  animation: rmGlow 5s ease-in-out infinite;
+}
+.rm-ico::before {
+  content: ''; position: absolute; inset: 0; border-radius: 50%; padding: 1.5px;
+  background: var(--grad-cta); pointer-events: none; opacity: 0.85;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor; mask-composite: exclude;
+}
+.rm-ico svg {
+  width: 27px; height: 27px; fill: none; stroke: currentColor;
+  stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round;
+  filter: drop-shadow(0 0 5px rgba(255, 194, 74, 0.4));
+}
+@keyframes rmGlow {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(255, 138, 61, 0.32), 0 6px 20px rgba(0, 0, 0, 0.45); }
+  50%      { box-shadow: 0 0 0 1px rgba(255, 138, 61, 0.5), 0 0 20px rgba(255, 45, 149, 0.32), 0 6px 20px rgba(0, 0, 0, 0.45); }
+}
+.rm-title {
+  font-family: var(--font-display); font-weight: 800; font-size: 13px; letter-spacing: 0.6px;
+  color: var(--text); text-transform: uppercase;
+}
+.rm-desc {
+  margin-top: 5px; font-family: var(--font-body); font-size: 12.5px; line-height: 1.45;
+  color: var(--text-muted); text-wrap: balance; max-width: 20ch;
+}
+
+/* draw-in (progressive enhancement). Base = visible; only hidden once JS marks the
+   track `.rm-anim`, then revealed on `.in`. */
+.rm-anim .rm-line { transform: scaleX(0); transform-origin: left center; }
+.rm-anim .rm-item { opacity: 0; transform: translateY(12px); }
+.rm-anim.in .rm-line { transform: scaleX(1); transition: transform 1.05s ease 0.05s; }
+.rm-anim.in .rm-item {
+  opacity: 1; transform: none;
+  transition: opacity 0.5s ease, transform 0.5s ease;
+  transition-delay: calc(var(--i) * 0.09s + 0.15s);
+}
+
+@media (max-width: 760px) {
+  .roadmap { padding: 4px 18px 52px; }
+  .roadmap .how-head { margin-bottom: 20px; }
+  /* vertical timeline — icon left, text right, a sunset line down the icon column */
+  .rm-track { flex-direction: column; align-items: stretch; gap: 20px; max-width: 360px; padding: 4px 4px 4px 0; }
+  .rm-item { flex-direction: row; align-items: center; text-align: left; gap: 15px; padding: 0; }
+  .rm-ico { flex: 0 0 auto; }
+  .rm-desc { max-width: none; }
+  .rm-line {
+    left: 28px; top: 26px; bottom: 26px; right: auto; width: 2px; height: auto;
+    background: linear-gradient(180deg, transparent,
+      rgba(255, 138, 61, 0.55) 10%, rgba(255, 45, 149, 0.6) 50%, rgba(255, 138, 61, 0.55) 90%, transparent);
+  }
+  .rm-anim .rm-line { transform: scaleY(0); transform-origin: top center; }
+  .rm-anim.in .rm-line { transform: scaleY(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rm-ico { animation: none; }
+  .rm-anim .rm-line, .rm-anim .rm-item { opacity: 1 !important; transform: none !important; transition: none !important; }
+}
+
 
 /* ===== MOBILE LANDING — the hero is the first impression for link/social visitors,
    so it's laid out FOR a narrow screen, not a squeezed desktop. Bigger logo, readable

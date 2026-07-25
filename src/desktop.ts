@@ -434,6 +434,21 @@ const heroDrift = (() => {
   return startPageEscort(heroCanvasEl, { scroller: mainMenuEl, sections, heroKeepOut: card, loops: [], skin: 'silver' });
 })();
 (window as unknown as { steerEscort?: unknown }).steerEscort = heroDrift;  // preview/editor hook
+
+// ROADMAP draw-in — a one-shot reveal when the section scrolls into view. Pure
+// progressive enhancement: the section is fully visible by default (no JS / under
+// reduced-motion it never hides), and only with both JS + motion does the path +
+// items animate in once. No ongoing cost (the observer disconnects after firing).
+(() => {
+  const track = document.querySelector('#roadmap .rm-track') as HTMLElement | null;
+  if (!track || typeof IntersectionObserver === 'undefined') return;
+  if (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  track.classList.add('rm-anim');
+  const io = new IntersectionObserver((entries, obs) => {
+    for (const e of entries) if (e.isIntersecting) { track.classList.add('in'); obs.disconnect(); break; }
+  }, { threshold: 0.25 });
+  io.observe(track);
+})();
 // HOW IT WORKS: the single-rAF demo (car laps the circuit's SVG path; the SAME
 // steering value tilts the wheel phone). Runs only while the landing shows AND
 // the section is scrolled into view (its own IntersectionObserver).
