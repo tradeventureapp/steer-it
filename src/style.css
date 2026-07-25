@@ -164,11 +164,67 @@ body.desktop #game { display: block; width: 100vw; height: 100vh; }
    `.menu-screen > *`, so it stays absolutely positioned. Same z-index as the card but
    EARLIER in the DOM → it paints above the grid and behind the logo/CTA. It never takes
    a pointer event, so START RACE is always clickable straight through it. */
-#main-menu #hero-drift {
+/* The landing (main menu) SCROLLS: the hero fills the first viewport, HOW IT WORKS
+   flows in below it. Other menu screens (mode/car-map) stay fixed + centred. */
+#main-menu.menu-screen { display: block; overflow-y: auto; overflow-x: hidden; scroll-behavior: smooth; }
+/* LAYERING: the landing's gradient + grids live on ONE shared fixed layer behind
+   ALL sections (no per-section backgrounds, no seams); sections are transparent.
+   #main-menu keeps only the solid base colour. */
+#main-menu.menu-screen { background-image: none; }
+#main-menu.menu-screen::before, #main-menu.menu-screen::after { content: none; }
+#main-menu .page-bg {
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background: #040208; background-image: var(--screen-bg);
+}
+#main-menu .page-bg::before, #main-menu .page-bg::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background-size: 54px 54px;
+}
+#main-menu .page-bg::before {
+  background-image:
+    linear-gradient(to right, rgba(180, 150, 255, 0.13) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(180, 150, 255, 0.13) 1px, transparent 1px);
+  -webkit-mask: radial-gradient(120% 95% at 50% 44%, #000 30%, rgba(0, 0, 0, 0.4) 66%, transparent 100%);
+          mask: radial-gradient(120% 95% at 50% 44%, #000 30%, rgba(0, 0, 0, 0.4) 66%, transparent 100%);
+}
+#main-menu .page-bg::after {
+  opacity: 0.55;
+  background-image:
+    linear-gradient(to right, rgba(255, 120, 180, 0.5) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 150, 90, 0.5) 1px, transparent 1px);
+  -webkit-mask: radial-gradient(46% 40% at 50% 40%, #000 0%, transparent 72%);
+          mask: radial-gradient(46% 40% at 50% 40%, #000 0%, transparent 72%);
+}
+/* EMPTY overlay ABOVE all landing content (a future car will cross sections here).
+   Below the account bar (120) and modals (200); above sections (z 1). */
+#main-menu .page-fx {
+  position: fixed; inset: 0; z-index: 40; pointer-events: none;
+}
+/* Sections are transparent layers over the shared background. */
+.hero-wrap, #main-menu .how { position: relative; z-index: 1; background: transparent; }
+.hero-wrap {
+  position: relative; min-height: 100svh;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+}
+.hero-wrap #hero-drift {
   position: absolute; inset: 0; z-index: 1;
   width: 100%; height: 100%;
   pointer-events: none;
 }
+/* A quiet nudge to scroll for the concept below the fold. */
+.scroll-cue {
+  position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 2;
+  font-family: var(--font-display); font-weight: 800; font-size: 11px; letter-spacing: 3px;
+  color: rgba(255, 233, 244, 0.72); text-decoration: none;
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 8px 15px; border-radius: 999px;
+  background: rgba(8, 4, 18, 0.4); border: 1px solid var(--border-dim);
+  animation: cueBob 1.8s ease-in-out infinite;
+}
+.scroll-cue span { font-size: 13px; }
+.scroll-cue:hover { color: #fff; border-color: rgba(255, 45, 149, 0.6); }
+@keyframes cueBob { 0%, 100% { transform: translate(-50%, 0); } 50% { transform: translate(-50%, 4px); } }
+@media (prefers-reduced-motion: reduce) { .scroll-cue { animation: none; } }
 
 /* ===== HERO LOGO — the STEER IT + tagline lockup is an IMAGE (the real design
    font, baked dark outline + sunset fill). We just place + light it. ========= */
@@ -402,6 +458,169 @@ body.desktop #game { display: block; width: 100vw; height: 100vh; }
   padding: 0 20px; text-align: center; text-wrap: balance;   /* never touch the screen edge */
 }
 .menu-foot .dot { color: var(--orange-hot); }
+/* ============ HOW IT WORKS — one composition: scan → MONITOR → wheel ============
+   [phone scanning QR] [MONITOR with the circuit + live demo car] [wheel phone].
+   ONE rAF loop (src/how-anim.ts) samples the SVG circuit loop; a single steering
+   value turns the car on the monitor AND tilts the wheel phone (TILT_SCALE there).
+   Everything else here is presentation: device frames, glows, badges, captions. */
+.how {
+  position: relative; z-index: 1; background: transparent;
+  padding: 34px 24px 84px; max-width: 1240px; margin: 0 auto;
+}
+
+/* Head — gold kicker flanked by fading sunset rules (horizon-line language). */
+.how-head { display: flex; align-items: center; justify-content: center; gap: 22px; margin-bottom: 40px; }
+.how-title {
+  margin: 0; font-family: var(--font-display); font-weight: 800;
+  font-size: 16px; letter-spacing: 7px; color: var(--gold); text-shadow: var(--glow-gold);
+}
+.how-rule {
+  height: 1px; width: min(180px, 18vw); border-radius: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 138, 61, 0.65));
+}
+.how-rule.flip { transform: scaleX(-1); }
+
+/* ---- the scene: monitor dominant with the scanning phone AIMED at its QR
+   panel (top-right), and the wheel phone DIRECTLY BELOW the monitor ---- */
+.how-scene {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 34px;
+}
+.scene-item { position: relative; display: flex; align-items: center; justify-content: center; }
+/* the scanning phone hovers beside the on-screen QR panel (the panel sits at the
+   screenshot's top-right), tilted toward it = "aiming at the code" */
+.scene-scan {
+  position: absolute; left: 100%; top: -6px; margin-left: -18px; z-index: 5;
+  transform: rotate(-13deg); transform-origin: left top;
+}
+
+/* Number badges pinned ON the elements. */
+.how-badge {
+  position: absolute; top: -10px; left: -10px; z-index: 6;
+  width: 32px; height: 32px; border-radius: 999px; display: grid; place-items: center;
+  font-family: var(--font-display); font-weight: 800; font-size: 13px;
+  color: var(--ink); background: linear-gradient(180deg, #fff2b0, var(--gold));
+  box-shadow: 0 0 18px rgba(255, 194, 74, 0.55), 0 0 0 1px rgba(255, 194, 74, 0.35);
+}
+.scene-monitor .how-badge { left: 6px; top: -12px; }
+
+/* Ambient glow behind the monitor (breathes gently). */
+.how-glow {
+  position: absolute; width: 86%; height: 90%; border-radius: 50%;
+  filter: blur(48px); z-index: 0; pointer-events: none;
+  animation: glowBreathe 5.5s ease-in-out infinite;
+}
+.glow-track { background: radial-gradient(closest-side, rgba(255, 45, 149, 0.42), rgba(122, 31, 255, 0.22), transparent 74%); }
+@keyframes glowBreathe {
+  0%, 100% { opacity: 0.62; transform: scale(0.97); }
+  50%      { opacity: 1;    transform: scale(1); }
+}
+
+/* Grounding floor shadow under each element. */
+.how-floor {
+  position: absolute; bottom: -10px; left: 50%; transform: translateX(-50%);
+  width: 76%; height: 16px; border-radius: 50%; z-index: 0; pointer-events: none;
+  background: radial-gradient(closest-side, rgba(0, 0, 0, 0.55), transparent 72%);
+}
+
+/* ---- MONITOR — slim bezel, metal stand, glass sheen; holds the demo layers ---- */
+.dev-monitor { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; }
+.dev-screen {
+  position: relative; border-radius: 12px; padding: 7px 7px 10px;
+  background: linear-gradient(180deg, #262331 0%, #0b0913 55%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow:
+    0 26px 48px -20px rgba(0, 0, 0, 0.8),
+    0 0 46px rgba(255, 45, 149, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+.dev-screen img { display: block; width: clamp(340px, 32vw, 470px); height: auto; border-radius: 6px; }
+/* the loop path (source of truth, invisible) + the car canvas, over the screenshot */
+.how-loop, #how-car {
+  position: absolute; left: 7px; top: 7px; z-index: 2; pointer-events: none;
+  width: calc(100% - 14px); height: calc(100% - 17px);
+}
+.how-loop { visibility: hidden; }
+.dev-sheen {
+  position: absolute; inset: 7px 7px 10px; border-radius: 6px; pointer-events: none; z-index: 3;
+  background: linear-gradient(115deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.03) 26%, transparent 44%);
+}
+.dev-neck {
+  width: 22px; height: 16px; margin-top: -1px;
+  background: linear-gradient(180deg, #2a2734, #141019);
+  clip-path: polygon(10% 0, 90% 0, 100% 100%, 0 100%);
+}
+.dev-foot {
+  width: 104px; height: 9px; border-radius: 3px 3px 12px 12px;
+  background: linear-gradient(180deg, #322d3d, #141019);
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.5);
+}
+
+/* ---- PHONES — shared body (portrait scan / landscape wheel) ---- */
+.pp-body {
+  position: relative; z-index: 1; border-radius: 18px; padding: 12px 7px;
+  background: linear-gradient(180deg, #2b2836 0%, #0d0b14 60%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow:
+    0 22px 42px -18px rgba(0, 0, 0, 0.8),
+    0 0 34px rgba(255, 45, 149, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+.pp-body.landscape { padding: 7px 12px; box-shadow:
+  0 22px 42px -18px rgba(0, 0, 0, 0.8),
+  0 0 34px rgba(93, 255, 176, 0.16),
+  inset 0 1px 0 rgba(255, 255, 255, 0.12); }
+.pp-cam {
+  position: absolute; top: 5px; left: 50%; transform: translateX(-50%);
+  width: 5px; height: 5px; border-radius: 50%;
+  background: #1c1a26; box-shadow: inset 0 0 2px #000, 0 0 2px rgba(120, 160, 255, 0.6);
+}
+.pp-body.landscape .pp-cam { top: 50%; left: 6px; transform: translateY(-50%); }
+.pp-screen { position: relative; border-radius: 10px; overflow: hidden; }
+.pp-screen img { display: block; height: auto; }
+.scene-scan .pp-screen img { width: clamp(88px, 8.5vw, 112px); }
+.scene-wheel .pp-screen img { width: clamp(190px, 18vw, 250px); }
+/* camera scan-frame corners over the QR (reads as "scanning") */
+.pp-scanframe { position: absolute; inset: 9% 8%; pointer-events: none; }
+.pp-scanframe::before, .pp-scanframe::after {
+  content: ''; position: absolute; width: 22px; height: 22px;
+  border: 2.5px solid var(--gold); filter: drop-shadow(0 0 5px rgba(255, 194, 74, 0.8));
+}
+.pp-scanframe::before { left: 0; top: 0; border-right: none; border-bottom: none; border-radius: 5px 0 0 0; }
+.pp-scanframe::after { right: 0; bottom: 0; border-left: none; border-top: none; border-radius: 0 0 5px 0; }
+
+/* the wheel phone's tilt wrapper — rotated by the rAF loop (transform only) */
+.wp-tilt { will-change: transform; }
+
+/* ---- captions strip below the whole block ---- */
+.how-caps {
+  list-style: none; margin: 40px auto 0; padding: 0;
+  display: flex; justify-content: center; gap: clamp(18px, 4vw, 54px); flex-wrap: wrap;
+}
+.how-caps li {
+  display: flex; align-items: center; gap: 10px;
+  font-family: var(--font-body); font-size: 14.5px; color: rgba(240, 228, 250, 0.9);
+}
+.how-badge.inline { position: static; width: 26px; height: 26px; font-size: 12px; flex: 0 0 auto; }
+
+@media (prefers-reduced-motion: reduce) {
+  .how-glow { animation: none; }
+}
+
+/* ---- MOBILE (~380px): separate layout — monitor full width on top (the scan
+   phone tucks over its top-right corner, still aiming at the QR), the wheel phone
+   below it proportionally LARGER so the tilt stays readable. */
+@media (max-width: 760px) {
+  .how { padding: 20px 16px 56px; }
+  .how-head { margin-bottom: 26px; }
+  .how-scene { gap: 30px; }
+  .dev-screen img { width: min(78vw, 430px); }
+  .scene-scan { left: auto; right: -2px; top: -30px; margin-left: 0; transform: rotate(-10deg); transform-origin: right top; }
+  .scene-scan .pp-screen img { width: min(21vw, 96px); }
+  .scene-wheel .pp-screen img { width: min(52vw, 260px); }
+  .how-caps { flex-direction: column; align-items: flex-start; gap: 12px; margin-top: 30px; width: fit-content; }
+}
+
 
 /* ===== MOBILE LANDING — the hero is the first impression for link/social visitors,
    so it's laid out FOR a narrow screen, not a squeezed desktop. Bigger logo, readable

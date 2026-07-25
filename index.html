@@ -18,19 +18,101 @@
     <!-- ===== Host front-end: main menu → map select (synthwave). Shown at
          startup; dismissed into gameplay once a map is chosen. ===== -->
     <div id="main-menu" class="menu-screen">
-      <!-- Decorative Stee-Rex drifting around the headline. Behind the card (DOM order)
-           and pointer-events:none, so it never covers or blocks the logo / START RACE. -->
-      <canvas id="hero-drift" aria-hidden="true"></canvas>
-      <div class="menu-card">
-        <img class="hero-logo" src="/logos/steer-it-logo.png"
-             alt="STEER IT — Drift Your Desktop" width="3450" height="1142" />
-        <p class="hero-sub">Your phone is the wheel — grab some friends and drift across the desktop.</p>
-        <div class="menu-actions">
-          <button type="button" class="menu-btn primary" id="btn-start-race">START RACE</button>
-          <!-- More items (OPTIONS, LEADERBOARDS) slot in here later — none yet. -->
+      <!-- ONE continuous background for the whole landing page (gradient + grids),
+           shared by every section — sections themselves are transparent. -->
+      <div class="page-bg" aria-hidden="true"></div>
+      <!-- HERO — fills the first viewport; HOW IT WORKS scrolls in below it. -->
+      <div class="hero-wrap">
+        <!-- Decorative Stee-Rex drifting around the headline. Behind the card (DOM order)
+             and pointer-events:none, so it never covers or blocks the logo / START RACE. -->
+        <canvas id="hero-drift" aria-hidden="true"></canvas>
+        <div class="menu-card">
+          <img class="hero-logo" src="/logos/steer-it-logo.png"
+               alt="STEER IT — Drift Your Desktop" width="3450" height="1142" />
+          <p class="hero-sub">Your phone is the wheel — grab some friends and drift across the desktop.</p>
+          <div class="menu-actions">
+            <button type="button" class="menu-btn primary" id="btn-start-race">START RACE</button>
+            <!-- More items (OPTIONS, LEADERBOARDS) slot in here later — none yet. -->
+          </div>
+          <div class="menu-foot">Host on a laptop, desktop <span class="dot">·</span> or tablet</div>
         </div>
-        <div class="menu-foot">Host on a laptop, desktop <span class="dot">·</span> or tablet</div>
+        <a class="scroll-cue" href="#how" aria-label="How it works">HOW IT WORKS <span aria-hidden="true">▾</span></a>
       </div>
+
+      <!-- ===== HOW IT WORKS — ONE composition: [scan phone] [MONITOR] [wheel phone].
+           A single rAF loop (src/how-anim.ts) samples the SVG circuit loop inside
+           the monitor; ONE steering value turns the car AND tilts the wheel phone. -->
+      <section class="how" id="how">
+        <div class="how-head">
+          <span class="how-rule" aria-hidden="true"></span>
+          <h2 class="how-title">HOW IT WORKS</h2>
+          <span class="how-rule flip" aria-hidden="true"></span>
+        </div>
+
+        <div class="how-scene">
+          <!-- ① the monitor — the circuit map with the live demo car. The scanning
+               phone (②) is anchored NEXT TO the on-screen QR panel, aiming at it. -->
+          <div class="scene-item scene-monitor">
+            <span class="how-badge">1</span>
+            <span class="how-glow glow-track" aria-hidden="true"></span>
+            <!-- ② the phone scanning the QR — hovers beside the panel (top-right) -->
+            <div class="scene-scan" aria-hidden="false">
+              <span class="how-badge">2</span>
+              <div class="pp-body">
+                <span class="pp-cam" aria-hidden="true"></span>
+                <div class="pp-screen">
+                  <img src="/how-qr.webp" width="226" height="411" loading="lazy" decoding="async"
+                       alt="Phone scanning the SCAN TO PLAY QR panel" />
+                  <span class="pp-scanframe" aria-hidden="true"></span>
+                </div>
+              </div>
+            </div>
+            <div class="dev-monitor">
+              <div class="dev-screen">
+                <img id="how-screen-img" src="/how-circuit.webp" width="1536" height="864"
+                     loading="lazy" decoding="async"
+                     alt="Steer It — the Circuit map on the host screen with the join QR panel" />
+                <!-- the circuit loop: THE single source of truth for the animation -->
+                <svg class="how-loop" viewBox="0 0 1536 864" aria-hidden="true">
+                  <path id="how-loop-path" fill="none" stroke="none"
+                        d="M1150 757C1074 764 880 760 760 758C640 757 515 754 430 748C345 742 298 734 250 720C202 706 169 690 140 665C111 640 88 608 75 572C62 536 62 491 62 450C63 409 68 363 78 325C88 287 101 248 122 220C143 192 175 174 205 158C235 142 270 128 300 126C331 124 363 132 388 148C413 164 436 193 448 222C460 251 458 286 462 320C466 354 462 396 470 425C478 454 488 474 510 492C532 510 570 525 600 533C630 541 660 544 690 540C720 537 753 525 778 512C803 499 823 482 838 462C853 442 863 419 870 392C877 365 877 330 882 300C887 271 888 240 900 215C912 190 928 166 955 150C982 135 1024 127 1060 122C1096 117 1139 115 1172 120C1205 125 1230 135 1258 150C1286 165 1315 185 1338 208C1361 231 1383 259 1398 288C1413 318 1425 353 1430 385C1435 417 1435 450 1428 482C1421 514 1408 549 1390 578C1372 607 1347 635 1318 658C1289 681 1246 700 1218 716C1190 733 1226 750 1150 757Z"/>
+                </svg>
+                <canvas id="how-car" aria-hidden="true"></canvas>
+                <span class="dev-sheen" aria-hidden="true"></span>
+              </div>
+              <span class="dev-neck" aria-hidden="true"></span>
+              <span class="dev-foot" aria-hidden="true"></span>
+            </div>
+            <span class="how-floor" aria-hidden="true"></span>
+          </div>
+
+          <!-- ③ the phone held as a steering wheel (tilted by the SAME steering value) -->
+          <div class="scene-item scene-wheel">
+            <span class="how-badge">3</span>
+            <div class="wp-tilt" id="how-wheel">
+              <div class="pp-body landscape">
+                <span class="pp-cam" aria-hidden="true"></span>
+                <div class="pp-screen">
+                  <img src="/how-phone.webp" width="1360" height="760" loading="lazy" decoding="async"
+                       alt="The phone controller — GAS, BRAKE and E-BRAKE pedals — held like a wheel" />
+                </div>
+              </div>
+            </div>
+            <span class="how-floor" aria-hidden="true"></span>
+          </div>
+        </div>
+
+        <!-- captions for all three, below the whole block -->
+        <ul class="how-caps">
+          <li><span class="how-badge inline">1</span>Open your PC and choose your map</li>
+          <li><span class="how-badge inline">2</span>Scan the QR — no app, no download</li>
+          <li><span class="how-badge inline">3</span>Tilt your phone to steer</li>
+        </ul>
+      </section>
+
+      <!-- EMPTY overlay above the whole page's content — reserved for a future
+           effect (a car crossing between sections). Deliberately empty. -->
+      <div class="page-fx" aria-hidden="true"></div>
     </div>
 
     <!-- POPUP: appears only when the user tries to PLAY on a host screen too small to

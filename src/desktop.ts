@@ -17,6 +17,7 @@ import { fitCanvasScale, sizeCanvasFitted, preloadSurfaceAssets, clearSurfaceCac
   surfaceCacheStats } from './surfaces';
 import { Effects, FX_CONFIG, GRASS_DUST_RGB, GRAVEL_SPRAY_RGB } from './effects';
 import { startHeroDrift } from './hero-drift';
+import { startHowScene } from './how-anim';
 import { collectDiag, noteError, noteStep } from './diag';
 import {
   PLAYER_CAP, LOBBY_SYNC_MS, RESILIENCE, EV, colorName, LobbyState, paletteForMode,
@@ -413,6 +414,7 @@ const isModeLocked = (key: string) => !isPremium() && !FREE_MODE_KEYS.includes(k
 
 function hideAllMenus() {
   heroDrift?.setActive(false);   // the hero animation only runs on the landing screen
+  howScene?.setEnabled(false);   // ...and so does the HOW IT WORKS demo loop
   if (mainMenuEl) mainMenuEl.hidden = true;
   if (modeSelectEl) modeSelectEl.hidden = true;
   if (carMapSelectEl) carMapSelectEl.hidden = true;
@@ -423,6 +425,18 @@ function hideAllMenus() {
 const heroDrift = heroCanvasEl
   ? startHeroDrift(heroCanvasEl, { keepOut: mainMenuEl?.querySelector('.menu-card') ?? null })
   : null;
+// HOW IT WORKS: the single-rAF demo (car laps the circuit's SVG path; the SAME
+// steering value tilts the wheel phone). Runs only while the landing shows AND
+// the section is scrolled into view (its own IntersectionObserver).
+const howScene = (() => {
+  const pathEl = document.getElementById('how-loop-path') as unknown as SVGPathElement | null;
+  const cv = document.getElementById('how-car') as HTMLCanvasElement | null;
+  const img = document.getElementById('how-screen-img') as HTMLImageElement | null;
+  const wheel = document.getElementById('how-wheel') as HTMLElement | null;
+  return (pathEl && cv && img && wheel)
+    ? startHowScene({ pathEl, canvas: cv, screenImg: img, wheelEl: wheel, skin: 'silver' })
+    : null;
+})();
 // The drifting car runs on EVERY device (it's the page's hook) — on phones it's smaller,
 // 30fps-capped and softened (see hero-drift.ts + the mobile CSS). The module itself falls
 // back to a single static frame under prefers-reduced-motion, so that case is handled there.
@@ -432,6 +446,7 @@ function openMainMenu() {
   hideAllMenus();
   if (mainMenuEl) mainMenuEl.hidden = false;
   heroDrift?.setActive(true);
+  howScene?.setEnabled(true);
   refreshFreeze();
   updateQrVisibility();
 }
