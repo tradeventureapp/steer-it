@@ -1094,6 +1094,13 @@ function renderAccount(s: AuthState) {
     : 'Desktop & Asphalt Oval · Free Ride';
   if (upgrade) upgrade.hidden = s.isPremium;
 
+  // Pricing-section CTA reflects the plan: premium owners see it as owned.
+  const getPrem = document.getElementById('btn-get-premium') as HTMLButtonElement | null;
+  if (getPrem) {
+    getPrem.textContent = s.isPremium ? '✓ You have Premium' : 'Get Premium';
+    getPrem.disabled = s.isPremium;
+  }
+
   // Arrived via a password-reset link → jump straight to the set-new-password form.
   if (s.recovery && authModalEl) openAuthModal('recovery');
 
@@ -1137,6 +1144,20 @@ function openUpsell(kind: 'map' | 'mode' | 'generic', id?: string) {
 }
 function closeUpsell() { if (upsellEl) upsellEl.hidden = true; }
 
+// ---- Premium purchase intent (the pricing section's "Get Premium" CTA). ----
+// Stripe isn't wired yet, so this leads toward the account/purchase flow:
+//   • logged OUT       → sign up (an account is the prerequisite to buy)
+//   • logged in, FREE  → the upsell's "purchasing coming soon" state
+//   • already PREMIUM   → the account panel
+// SEAM: when Stripe lands, the `s.user && !s.isPremium` branch becomes the
+// redirect to Checkout — nothing else here needs to change.
+function startPremiumPurchase() {
+  const s = getAuthState();
+  if (s.isPremium) { openAuthModal('account'); return; }
+  if (s.user) { openUpsell('generic'); return; }
+  authMode = 'signup'; openAuthModal('form');
+}
+
 // ---- Wire the controls ----
 // Logged-out entry points open the auth modal on the right tab; the chip (logged in)
 // opens the account panel.
@@ -1149,6 +1170,7 @@ document.getElementById('account-login')?.addEventListener('click', () => {
 document.getElementById('account-btn')?.addEventListener('click', () => {
   openAuthModal(getAuthState().user ? 'account' : 'form');
 });
+document.getElementById('btn-get-premium')?.addEventListener('click', startPremiumPurchase);
 document.getElementById('auth-close')?.addEventListener('click', closeAuthModal);
 authModalEl?.addEventListener('click', (e) => { if (e.target === authModalEl) closeAuthModal(); });
 document.getElementById('auth-toggle')?.addEventListener('click', () => {

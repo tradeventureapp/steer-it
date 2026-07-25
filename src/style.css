@@ -624,6 +624,143 @@ body.desktop #game { display: block; width: 100vw; height: 100vh; }
   .how-caps { flex-direction: column; align-items: flex-start; gap: 12px; margin-top: 30px; width: fit-content; }
 }
 
+/* ============ FREE vs PREMIUM + PRICING — the conversion section ============
+   Two plan cards over the shared page background. FREE is a quiet glass taster;
+   PREMIUM is the hero — a sunset-gradient frame, stronger glow, lifted, with the
+   pricing attached. Same rows in the same order in both so the delta is scannable
+   (✓ / — marks, identical "more coming" badges). Stacks to FREE → PREMIUM → price
+   on mobile. Presentation only; the CTA is wired in desktop.ts. */
+.pricing {
+  position: relative; z-index: 1; background: transparent;
+  padding: 30px 24px 96px; max-width: 1040px; margin: 0 auto;
+}
+.pr-cards {
+  display: grid; grid-template-columns: 1fr 1.12fr; gap: 26px;
+  align-items: start; max-width: 900px; margin: 0 auto;
+}
+.pr-card {
+  position: relative; border-radius: 20px; padding: 26px 26px 24px;
+  display: flex; flex-direction: column;
+  border: 1.5px solid var(--border-dim);
+  background: linear-gradient(180deg, rgba(24, 12, 46, 0.72), rgba(11, 6, 28, 0.8));
+}
+/* FREE — deliberately quieter so PREMIUM reads as the upgrade. */
+.pr-card-free { box-shadow: inset 0 0 40px rgba(122, 31, 255, 0.05); }
+.pr-card-free .pr-plan { color: var(--text-dim); }
+
+/* PREMIUM — the real thing: sunset gradient frame + bloom + lift. */
+.pr-card-prem {
+  border: none; padding-top: 30px;
+  background:
+    radial-gradient(120% 70% at 50% 0%, rgba(255, 45, 149, 0.18), transparent 62%),
+    linear-gradient(180deg, rgba(37, 15, 60, 0.86), rgba(15, 8, 34, 0.92));
+  box-shadow:
+    0 0 0 1.5px rgba(255, 138, 61, 0.55),
+    0 0 34px rgba(255, 45, 149, 0.32),
+    0 24px 60px rgba(0, 0, 0, 0.55),
+    inset 0 0 60px rgba(255, 138, 61, 0.06);
+  transform: translateY(-8px);
+}
+/* Gradient hairline frame drawn on top so the sunset actually rings the card. */
+.pr-card-prem::before {
+  content: ''; position: absolute; inset: 0; border-radius: 20px; padding: 1.5px;
+  background: var(--grad-cta); pointer-events: none;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor; mask-composite: exclude;
+  opacity: 0.9;
+}
+.pr-flag {
+  position: absolute; top: -13px; right: 22px; z-index: 2;
+  font-family: var(--font-display); font-weight: 800; font-size: 10.5px; letter-spacing: 2px;
+  color: var(--ink); padding: 6px 13px; border-radius: 999px;
+  background: linear-gradient(180deg, #fff2b0, var(--gold));
+  box-shadow: 0 0 18px rgba(255, 194, 74, 0.6), 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+.pr-card-top { display: flex; align-items: baseline; gap: 12px; padding-bottom: 16px; margin-bottom: 6px; }
+.pr-plan {
+  font-family: var(--font-display); font-weight: 900; font-size: 26px; letter-spacing: 3px; line-height: 1;
+}
+.pr-card-prem .pr-plan {
+  background: var(--grad-accent); -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; filter: drop-shadow(0 0 12px rgba(255, 45, 149, 0.4));
+}
+.pr-sub {
+  font-family: var(--font-body); font-size: 13px; letter-spacing: 0.4px;
+  color: var(--text-muted);
+}
+.pr-card-prem .pr-sub { color: var(--gold); }
+
+/* rows — feature (left, dim) → value (right, bright). Fixed rhythm so FREE and
+   PREMIUM line up row for row. */
+.pr-list { list-style: none; margin: 0; padding: 0; }
+.pr-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  min-height: 58px; padding: 8px 0;
+  border-top: 1px solid rgba(178, 162, 208, 0.14);
+}
+.pr-row:first-child { border-top: none; }
+.pr-feat {
+  flex: 0 0 auto; font-family: var(--font-display); font-weight: 700;
+  font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase;
+  color: rgba(197, 182, 230, 0.75);
+}
+.pr-val {
+  flex: 1 1 auto; text-align: right; font-family: var(--font-body);
+  font-size: 14.5px; font-weight: 600; color: var(--text);
+  display: inline-flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap;
+}
+.pr-val.pr-muted { color: var(--text-muted); font-weight: 500; }
+.pr-no { color: rgba(178, 162, 208, 0.5); font-size: 20px; font-weight: 700; }
+.pr-yes { color: var(--ok); font-weight: 700; }
+.pr-card-prem .pr-val { color: #fff; }
+
+/* "more coming" badge — IDENTICAL everywhere, prominent sunset pill (not grey). */
+.pr-badge {
+  flex: 0 0 auto; font-family: var(--font-display); font-weight: 800;
+  font-size: 9.5px; letter-spacing: 1px; text-transform: uppercase; color: var(--ink);
+  padding: 4px 9px; border-radius: 999px; white-space: nowrap;
+  background: var(--grad-accent);
+  box-shadow: 0 0 12px rgba(255, 74, 158, 0.5), inset 0 0 0 1px rgba(255, 255, 255, 0.2);
+}
+
+/* pricing — attached under the PREMIUM rows */
+.pr-price { margin-top: 20px; padding-top: 22px; border-top: 1px solid rgba(255, 138, 61, 0.28); text-align: center; }
+.pr-amount {
+  font-family: var(--font-display); font-weight: 900; font-size: 52px; line-height: 1; letter-spacing: 1px;
+  background: var(--grad-accent); -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; filter: drop-shadow(0 0 16px rgba(255, 45, 149, 0.45));
+}
+.pr-once {
+  margin-top: 8px; font-family: var(--font-display); font-weight: 700;
+  font-size: 12px; letter-spacing: 2px; text-transform: uppercase; color: var(--gold);
+}
+.pr-once .dot, .pr-note .dot { color: var(--orange-hot); }
+.pr-early {
+  margin: 14px auto 0; max-width: 320px;
+  font-family: var(--font-body); font-size: 13px; line-height: 1.5; color: var(--text);
+  background: rgba(255, 138, 61, 0.1); border: 1px solid rgba(255, 138, 61, 0.34);
+  border-radius: 10px; padding: 9px 12px; text-wrap: balance;
+}
+.pr-early b { color: var(--gold); }
+.pr-fire { color: var(--orange-hot); }
+.pr-cta { width: 100%; margin-top: 16px; font-size: 17px; letter-spacing: 2px; padding: 16px 20px; }
+.pr-cta[disabled] { opacity: 0.7; cursor: default; filter: grayscale(0.2); }
+.pr-note {
+  margin-top: 11px; font-family: var(--font-body); font-size: 12px;
+  color: var(--text-muted); letter-spacing: 0.3px;
+}
+
+@media (max-width: 760px) {
+  .pricing { padding: 16px 16px 64px; }
+  .pr-cards { grid-template-columns: 1fr; gap: 20px; max-width: 440px; }
+  .pr-card { padding: 22px 20px 20px; }
+  .pr-card-prem { transform: none; padding-top: 26px; }
+  .pr-plan { font-size: 23px; }
+  .pr-amount { font-size: 46px; }
+  .pr-row { min-height: 52px; }
+}
+
 
 /* ===== MOBILE LANDING — the hero is the first impression for link/social visitors,
    so it's laid out FOR a narrow screen, not a squeezed desktop. Bigger logo, readable

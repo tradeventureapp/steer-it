@@ -113,6 +113,62 @@
         </ul>
       </section>
 
+      <!-- ===== FREE vs PREMIUM + PRICING — the conversion section. Two plan cards
+           (FREE = taster, PREMIUM = highlighted), same rows in the same order so the
+           difference is instantly scannable; pricing is attached to the PREMIUM card.
+           The CTA hooks into the account/auth flow (desktop.ts) — Stripe checkout
+           swaps in later behind startPremiumPurchase(). ===== -->
+      <section class="pricing" id="pricing">
+        <div class="how-head">
+          <span class="how-rule" aria-hidden="true"></span>
+          <h2 class="how-title">FREE VS PREMIUM</h2>
+          <span class="how-rule flip" aria-hidden="true"></span>
+        </div>
+
+        <div class="pr-cards">
+          <!-- FREE — a fine taster -->
+          <div class="pr-card pr-card-free">
+            <div class="pr-card-top">
+              <div class="pr-plan">FREE</div>
+              <div class="pr-sub">A fine taster</div>
+            </div>
+            <ul class="pr-list">
+              <li class="pr-row"><span class="pr-feat">Maps</span><span class="pr-val">Desktop, Stadium Oval</span></li>
+              <li class="pr-row"><span class="pr-feat">Game Modes</span><span class="pr-val">Free Ride</span></li>
+              <li class="pr-row"><span class="pr-feat">Cars</span><span class="pr-val">1</span></li>
+              <li class="pr-row"><span class="pr-feat">Simulation mode</span><span class="pr-val pr-no" aria-label="not included">—</span></li>
+              <li class="pr-row"><span class="pr-feat">Leaderboard</span><span class="pr-val pr-no" aria-label="not included">—</span></li>
+              <li class="pr-row"><span class="pr-feat">Ads</span><span class="pr-val pr-muted">Occasional pop-ups</span></li>
+            </ul>
+          </div>
+
+          <!-- PREMIUM — the real thing (highlighted) + pricing -->
+          <div class="pr-card pr-card-prem">
+            <div class="pr-flag">BEST VALUE</div>
+            <div class="pr-card-top">
+              <div class="pr-plan">PREMIUM</div>
+              <div class="pr-sub">The real thing</div>
+            </div>
+            <ul class="pr-list">
+              <li class="pr-row"><span class="pr-feat">Maps</span><span class="pr-val">+ Circuit, + Flat-track <span class="pr-badge">more coming</span></span></li>
+              <li class="pr-row"><span class="pr-feat">Game Modes</span><span class="pr-val">+ Race, + XP Mode <span class="pr-badge">more coming</span></span></li>
+              <li class="pr-row"><span class="pr-feat">Cars</span><span class="pr-val">2 <span class="pr-badge">more coming</span></span></li>
+              <li class="pr-row"><span class="pr-feat">Simulation mode</span><span class="pr-val pr-yes">✓</span></li>
+              <li class="pr-row"><span class="pr-feat">Leaderboard</span><span class="pr-val pr-yes">✓ Global</span></li>
+              <li class="pr-row"><span class="pr-feat">Ads</span><span class="pr-val pr-yes">No pop-up ads</span></li>
+            </ul>
+
+            <div class="pr-price">
+              <div class="pr-amount">$6.90</div>
+              <div class="pr-once">Pay once <span class="dot">·</span> lifetime access</div>
+              <div class="pr-early"><span class="pr-fire" aria-hidden="true">★</span> <b>$6.90 for the first 100</b> — then it goes up</div>
+              <button type="button" class="menu-btn primary pr-cta" id="btn-get-premium">Get Premium</button>
+              <div class="pr-note">One-time purchase <span class="dot">·</span> no subscription</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <!-- EMPTY overlay above the whole page's content — reserved for a future
            effect (a car crossing between sections). Deliberately empty. -->
       <div class="page-fx" aria-hidden="true"></div>
