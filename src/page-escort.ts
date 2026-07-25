@@ -74,6 +74,11 @@ const LOOK = {
   // HERO orbit shape — matches the original hero-drift exactly.
   ringGap: GAME_CAR_PX * 2.85,
   minGap: GAME_CAR_PX,
+  // Cursor / touch reaction (restored from the original hero-drift).
+  chaseRadius: 360,        // pointer must be within this (content px) to grab the car
+  chaseInMs: 260,          // ramp on/off so the hand-off is never a snap
+  chaseOutMs: 900,
+  pointerIdleMs: 1400,     // no movement for this long → ease back to the loop
   markBeta: 0.20,
   smokeBeta: 0.30,
   markRgb: '255, 74, 160',
@@ -162,6 +167,12 @@ export function startPageEscort(
   const marks: Mark[] = [];
   const puffs: Puff[] = [];
 
+  // --- pointer (cursor / touch) ---
+  let pointer: Pt | null = null;     // VIEWPORT px (content Y = pointer.y + scrollTop)
+  let pointerAt = -1e9;
+  let chase = 0;                     // 0 = pure loop, 1 = fully chasing the pointer
+  let heroCardRect: { x0: number; y0: number; x1: number; y1: number } | null = null;
+
   let running = false, active = false, raf = 0, last = 0;
   let debugPath = false, slowFrames = 0;
 
@@ -226,6 +237,22 @@ export function startPageEscort(
   function rebuild() {
     built = [buildHeroLoop(), ...loopsWP.map(buildSpline)];
     bands = sections.map((el) => ({ top: el.offsetTop, bot: el.offsetTop + el.offsetHeight }));
+    heroCardRect = opts.heroKeepOut ? contentRectOf(opts.heroKeepOut) : null;
+  }
+
+  /** Push a chase target OUT of the hero headline card so the car never covers it
+   *  (only used while lapping the hero, exactly as the original hero-drift did). */
+  function clampOutOfHeroCard(x: number, y: number): Pt {
+    const k = heroCardRect;
+    if (!k) return { x, y };
+    const pad = 12;
+    if (x < k.x0 - pad || x > k.x1 + pad || y < k.y0 - pad || y > k.y1 + pad) return { x, y };
+    const dl = x - (k.x0 - pad), dr = (k.x1 + pad) - x, dt = y - (k.y0 - pad), db = (k.y1 + pad) - y;
+    const m = Math.min(dl, dr, dt, db);
+    if (m === dl) return { x: k.x0 - pad, y };
+    if (m === dr) return { x: k.x1 + pad, y };
+    if (m === dt) return { x, y: k.y0 - pad };
+    return { x, y: k.y1 + pad };
   }
 
   function measure() {
@@ -295,18 +322,44 @@ export function startPageEscort(
 
   function step(dt: number): number {
     const camY = scroller.scrollTop;
-    const want = sectionAtY(camY + H * 0.5);
-    if (want !== curIdx && built[want] && built[want].len > 0) {
-      curIdx = want;
+    // the loop of the section you're looking at (scroll-follow)
+    const wantSec = sectionAtY(camY + H * 0.5);
+    if (wantSec !== curIdx && built[wantSec] && built[wantSec].len > 0) {
+      curIdx = wantSec;
       s = nearestLen(curIdx, px, py);
     }
+
+    // ---- pointer engagement (cursor / touch reaction) -----------------------
+    // pointer.y is VIEWPORT px → content Y is +camY, so a still cursor keeps its
+    // on-screen spot as the page scrolls under it.
+    const now = performance.now();
+    const fresh = now - pointerAt < LOOK.pointerIdleMs;
+    let pcx = 0, pcy = 0, near = false, overHero = false;
+    if (pointer) {
+      pcx = pointer.x; pcy = pointer.y + camY;
+      near = Math.hypot(pcx - px, pcy - py) < LOOK.chaseRadius;
+      // don't dive across the headline while lapping the hero (it simply doesn't
+      // want to go there — the car is behind the text either way).
+      if (curIdx === 0 && heroCardRect) {
+        overHero = pcx > heroCardRect.x0 && pcx < heroCardRect.x1
+          && pcy > heroCardRect.y0 && pcy < heroCardRect.y1;
+      }
+    }
+    const wantChase = fresh && near && !overHero ? 1 : 0;
+    const rate = wantChase > chase ? dt * 1000 / LOOK.chaseInMs : dt * 1000 / LOOK.chaseOutMs;
+    chase += clamp(wantChase - chase, -rate, rate);
 
     const band = bands[curIdx];
     const onBand = !band || (py > band.top - H * 0.15 && py < band.bot + H * 0.15);
     const hurry = onBand ? 1 : LOOK.travelHurry;
 
-    s += v * dt;
-    const target = atLen(curIdx, s + LOOK.lookaheadPx);
+    if (chase < 0.999) s += v * dt;      // loop progress (frozen while fully chasing)
+    const loopTarget = atLen(curIdx, s + LOOK.lookaheadPx);
+    let target = loopTarget;
+    if (pointer && chase > 0) {
+      const c = (curIdx === 0 && heroCardRect) ? clampOutOfHeroCard(pcx, pcy) : { x: pcx, y: pcy };
+      target = { x: loopTarget.x + (c.x - loopTarget.x) * chase, y: loopTarget.y + (c.y - loopTarget.y) * chase };
+    }
 
     const desired = Math.atan2(target.y - py, target.x - px);
     const err = angDiff(desired, theta);
@@ -326,6 +379,9 @@ export function startPageEscort(
 
     px += Math.cos(phi) * v * dt;
     py += Math.sin(phi) * v * dt;
+
+    // pointer let go → rejoin the loop at the nearest point (eases back in)
+    if (chase < 0.02 && wantChase === 0) s = nearestLen(curIdx, px, py);
 
     const cp = atLen(curIdx, s);
     if ((px - cp.x) ** 2 + (py - cp.y) ** 2 > (contentW + contentH) ** 2) s = nearestLen(curIdx, px, py);
@@ -465,6 +521,14 @@ export function startPageEscort(
 
   const onResize = () => { measure(); };
   const onVis = () => { if (document.hidden) stop(); else if (active) start(); };
+  // Cursor / touch → chase target. Listened on WINDOW (the canvas is
+  // pointer-events:none), so it works behind all content without blocking clicks.
+  const onPointer = (e: PointerEvent) => {
+    const r = canvas.getBoundingClientRect();
+    pointer = { x: e.clientX - r.left, y: e.clientY - r.top };
+    pointerAt = performance.now();
+  };
+  const onLeave = () => { pointer = null; };
 
   measure();
   reset();
@@ -472,6 +536,9 @@ export function startPageEscort(
 
   window.addEventListener('resize', onResize);
   document.addEventListener('visibilitychange', onVis);
+  window.addEventListener('pointermove', onPointer, { passive: true });
+  window.addEventListener('pointerdown', onPointer, { passive: true });
+  window.addEventListener('pointerleave', onLeave, { passive: true });
 
   return {
     setActive(on: boolean) {
@@ -493,6 +560,9 @@ export function startPageEscort(
       stop();
       window.removeEventListener('resize', onResize);
       document.removeEventListener('visibilitychange', onVis);
+      window.removeEventListener('pointermove', onPointer);
+      window.removeEventListener('pointerdown', onPointer);
+      window.removeEventListener('pointerleave', onLeave);
     },
   };
 }
