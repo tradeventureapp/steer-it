@@ -200,16 +200,19 @@ body.desktop #game { display: block; width: 100vw; height: 100vh; }
 #main-menu .page-fx {
   position: fixed; inset: 0; z-index: 40; pointer-events: none;
 }
-/* Sections are transparent layers over the shared background. */
+/* The page-escort car: a viewport-fixed canvas ABOVE the shared background but
+   BEHIND every section's content (z 0, sections are z 1), so the car passes
+   behind text / mockups / buttons. Never takes a pointer event, and softened a
+   touch so text stays readable where it crosses. See src/page-escort.ts. */
+#main-menu #page-car {
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  width: 100%; height: 100%; opacity: 0.9;
+}
+/* Sections are transparent layers over the shared background + car. */
 .hero-wrap, #main-menu .how { position: relative; z-index: 1; background: transparent; }
 .hero-wrap {
   position: relative; min-height: 100svh;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-}
-.hero-wrap #hero-drift {
-  position: absolute; inset: 0; z-index: 1;
-  width: 100%; height: 100%;
-  pointer-events: none;
 }
 /* A quiet nudge to scroll for the concept below the fold. */
 .scroll-cue {
@@ -633,12 +636,11 @@ body.desktop #game { display: block; width: 100vw; height: 100vh; }
   .menu-btn.primary { width: 100%; font-size: 18px; letter-spacing: 3px; padding: 17px 20px; }
   .menu-foot { font-size: 11px; letter-spacing: 2.5px; line-height: 1.5; }
 
-  /* The drifting car is the page's hook, so it STAYS on phones — but the hero fills the
-     width, so it's kept BEHIND the content (canvas is before the card in the DOM at the
-     same z-index → card paints over it) and softened, so even when it passes behind the
-     logo/text it reads as ambient drift and never obscures anything. The CTA has an opaque
-     fill, so the button is never seen through. (Lighter + 30fps-capped in hero-drift.ts.) */
-  #hero-drift { opacity: 0.6; }
+  /* The escort car is the page's hook, so it STAYS on phones — kept BEHIND the content
+     (z 0 vs sections z 1) and softened more, so even where it passes behind the logo/text
+     it reads as ambient drift and never obscures anything. The CTA has an opaque fill, so
+     the button is never seen through. (Lighter + 30fps-capped in page-escort.ts.) */
+  #main-menu #page-car { opacity: 0.6; }
 
   /* "bigger screen" popup — roomy, readable, big tap target (was cramped + a 38px button). */
   .modal-overlay { padding: 16px; }
@@ -660,7 +662,7 @@ body.desktop #game { display: block; width: 100vw; height: 100vh; }
   .menu-actions { margin-top: 2px; }
   .menu-btn.primary { padding: 12px 20px; font-size: 16px; }
   .menu-foot { font-size: 10px; letter-spacing: 2px; }
-  #hero-drift { opacity: 0.55; }   /* car stays; behind content + softened (see above) */
+  #main-menu #page-car { opacity: 0.55; }   /* car stays; behind content + softened (see above) */
   .modal-overlay { padding: 12px; }
   .host-note { max-height: 94vh; overflow-y: auto; padding: 18px 20px; }
   .host-note-title { margin-bottom: 6px; }

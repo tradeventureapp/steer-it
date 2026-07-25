@@ -21,11 +21,14 @@
       <!-- ONE continuous background for the whole landing page (gradient + grids),
            shared by every section — sections themselves are transparent. -->
       <div class="page-bg" aria-hidden="true"></div>
+      <!-- The Stee-Rex that ESCORTS you down the page: ONE car follows a spline
+           through every section, rendered BEHIND all content (low z-index) and
+           pointer-events:none, so it passes behind text / mockups / buttons and
+           never blocks a click. Fixed to the viewport; the path is drawn in
+           scroll-content space (see src/page-escort.ts). -->
+      <canvas id="page-car" aria-hidden="true"></canvas>
       <!-- HERO — fills the first viewport; HOW IT WORKS scrolls in below it. -->
       <div class="hero-wrap">
-        <!-- Decorative Stee-Rex drifting around the headline. Behind the card (DOM order)
-             and pointer-events:none, so it never covers or blocks the logo / START RACE. -->
-        <canvas id="hero-drift" aria-hidden="true"></canvas>
         <div class="menu-card">
           <img class="hero-logo" src="/logos/steer-it-logo.png"
                alt="STEER IT — Drift Your Desktop" width="3450" height="1142" />

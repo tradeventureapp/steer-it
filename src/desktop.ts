@@ -16,7 +16,7 @@ import {
 import { fitCanvasScale, sizeCanvasFitted, preloadSurfaceAssets, clearSurfaceCaches,
   surfaceCacheStats } from './surfaces';
 import { Effects, FX_CONFIG, GRASS_DUST_RGB, GRAVEL_SPRAY_RGB } from './effects';
-import { startHeroDrift } from './hero-drift';
+import { startPageEscort } from './page-escort';
 import { startHowScene } from './how-anim';
 import { collectDiag, noteError, noteStep } from './diag';
 import {
@@ -111,7 +111,7 @@ const editorEl       = document.getElementById('editor')         as HTMLElement 
 const editorStatusEl = document.getElementById('editor-status')  as HTMLDivElement | null;
 const editorHintEl   = document.getElementById('editor-hint')    as HTMLDivElement | null;
 const mainMenuEl     = document.getElementById('main-menu')       as HTMLElement | null;
-const heroCanvasEl   = document.getElementById('hero-drift')      as HTMLCanvasElement | null;
+const heroCanvasEl   = document.getElementById('page-car')        as HTMLCanvasElement | null;
 const modeSelectEl   = document.getElementById('mode-select')     as HTMLElement | null;
 const carMapSelectEl = document.getElementById('car-map-select')  as HTMLElement | null;
 const mapTilesEl     = document.getElementById('map-tiles')       as HTMLElement | null;
@@ -419,12 +419,21 @@ function hideAllMenus() {
   if (modeSelectEl) modeSelectEl.hidden = true;
   if (carMapSelectEl) carMapSelectEl.hidden = true;
 }
-// Decorative hero animation — runs ONLY while the landing/main menu is on screen
-// (the rAF is fully stopped otherwise, so it costs nothing in-game or on the other
-// screens). Purely client-side; no state, no network.
-const heroDrift = heroCanvasEl
-  ? startHeroDrift(heroCanvasEl, { keepOut: mainMenuEl?.querySelector('.menu-card') ?? null })
-  : null;
+// The page-escort car — ONE Stee-Rex laps a loop in whatever section you're
+// looking at (the hero headline orbit up top, HOW IT WORKS below), drifting
+// across from one to the next as you scroll, behind all content. Runs ONLY while
+// the landing is on screen (the rAF is fully stopped otherwise, so it costs
+// nothing in-game or on the other screens). Purely client-side; no state, no net.
+const heroDrift = (() => {
+  if (!heroCanvasEl || !mainMenuEl) return null;
+  const heroEl = mainMenuEl.querySelector('.hero-wrap') as HTMLElement | null;
+  const howEl = mainMenuEl.querySelector('.how') as HTMLElement | null;
+  const card = mainMenuEl.querySelector('.menu-card') as HTMLElement | null;
+  const sections = [heroEl, howEl].filter((e): e is HTMLElement => !!e);
+  if (!sections.length) return null;
+  return startPageEscort(heroCanvasEl, { scroller: mainMenuEl, sections, heroKeepOut: card, loops: [], skin: 'silver' });
+})();
+(window as unknown as { steerEscort?: unknown }).steerEscort = heroDrift;  // preview/editor hook
 // HOW IT WORKS: the single-rAF demo (car laps the circuit's SVG path; the SAME
 // steering value tilts the wheel phone). Runs only while the landing shows AND
 // the section is scrolled into view (its own IntersectionObserver).
@@ -437,8 +446,8 @@ const howScene = (() => {
     ? startHowScene({ pathEl, canvas: cv, screenImg: img, wheelEl: wheel, skin: 'silver' })
     : null;
 })();
-// The drifting car runs on EVERY device (it's the page's hook) — on phones it's smaller,
-// 30fps-capped and softened (see hero-drift.ts + the mobile CSS). The module itself falls
+// The escort car runs on EVERY device (it's the page's hook) — on phones it's smaller,
+// 30fps-capped and softened (see page-escort.ts + the mobile CSS). The module itself falls
 // back to a single static frame under prefers-reduced-motion, so that case is handled there.
 
 function openMainMenu() {
