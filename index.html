@@ -266,6 +266,17 @@
           <button type="button" class="menu-btn sub" id="gm-options">OPTIONS</button>
           <button type="button" class="menu-btn sub" id="gm-leaderboards">LEADERBOARDS</button>
         </div>
+
+        <!-- PREMIUM — the main conversion driver for a FREE host. Loud sunset CTA;
+             swapped for a subtle "PREMIUM ✓" status once owned. Toggled by
+             desktop.ts (renderGameMenuAccount) on the live auth/entitlement. -->
+        <button type="button" class="gm-premium-cta" id="gm-get-premium" hidden>
+          <span class="gm-pc-top">★ UNLOCK EVERYTHING</span>
+          <span class="gm-pc-mid">GET PREMIUM <b>· $6.90</b></span>
+          <span class="gm-pc-sub">All maps &amp; modes <span class="dot">·</span> Sim <span class="dot">·</span> leaderboards <span class="dot">·</span> no ads — one&#8209;time</span>
+        </button>
+        <div class="gm-premium-owned" id="gm-premium-owned" hidden><span aria-hidden="true">★</span> PREMIUM</div>
+
         <div class="menu-foot">Host on a laptop, desktop <span class="dot">·</span> or tablet</div>
       </div>
 
@@ -302,6 +313,7 @@
             <span class="gm-acc-email" id="gm-acc-email">—</span>
             <span class="account-badge" id="gm-acc-badge">FREE</span>
           </div>
+          <button type="button" class="gm-opt-upgrade gm-wide" id="gm-opt-upgrade" hidden>★ GET PREMIUM · $6.90</button>
           <button type="button" class="menu-btn ghost gm-wide" id="gm-logout">LOG OUT</button>
         </div>
 

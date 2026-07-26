@@ -1092,6 +1092,8 @@ document.getElementById('gm-play')?.addEventListener('click', () => {
   requireHostScreen(() => { goFullscreen(); openModeSelect(); });   // same PLAY flow as START RACE
 });
 document.getElementById('gm-options')?.addEventListener('click', openOptions);
+document.getElementById('gm-get-premium')?.addEventListener('click', startPremiumPurchase);
+document.getElementById('gm-opt-upgrade')?.addEventListener('click', () => { closeOptions(); startPremiumPurchase(); });
 document.getElementById('btn-pause-options')?.addEventListener('click', openOptions);
 document.getElementById('opt-close')?.addEventListener('click', closeOptions);
 document.getElementById('opt-back')?.addEventListener('click', closeOptions);
@@ -1207,7 +1209,8 @@ function renderAccount(s: AuthState) {
   else if (!s.user && onGameMenu) openMainMenu();
 }
 
-// The game-menu OPTIONS account block (email/username + FREE/PREMIUM).
+// The game-menu account UI (email/username + FREE/PREMIUM) + the prominent
+// upgrade CTA, shown to a FREE host and hidden once premium.
 function renderGameMenuAccount(s: AuthState) {
   const emailEl = document.getElementById('gm-acc-email');
   const badge = document.getElementById('gm-acc-badge');
@@ -1217,6 +1220,16 @@ function renderGameMenuAccount(s: AuthState) {
     badge.textContent = s.isPremium ? 'PREMIUM' : 'FREE';
     badge.classList.toggle('is-premium', s.isPremium);
   }
+  // The loud GET PREMIUM CTA (game-menu home) + the subtle PREMIUM status + the
+  // OPTIONS upgrade button all follow FREE-vs-PREMIUM. In the game menu the user
+  // is always logged in, so the split is purely on entitlement.
+  const free = !!s.user && !s.isPremium;
+  const cta = document.getElementById('gm-get-premium');
+  const owned = document.getElementById('gm-premium-owned');
+  const optUp = document.getElementById('gm-opt-upgrade');
+  if (cta) cta.hidden = !free;
+  if (owned) owned.hidden = !s.isPremium;
+  if (optUp) optUp.hidden = !free;
 }
 
 // ---- Background music (host only) — a shuffled synthwave playlist that plays in
@@ -1272,13 +1285,55 @@ function closeUpsell() { if (upsellEl) upsellEl.hidden = true; }
 
 // ---- Premium purchase (Stripe Checkout) ----
 //   • already PREMIUM  → the account panel (nothing to buy)
-//   • logged OUT       → sign up first (a payment must tie to an account)
+//   • logged OUT       → remember the intent, prompt sign up / log in, then RESUME
+//                        to checkout automatically once they're authenticated
 //   • logged in, FREE  → create a Checkout Session server-side + redirect to Stripe
 function startPremiumPurchase() {
   const s = getAuthState();
-  if (s.isPremium) { openAuthModal('account'); return; }
-  if (!s.user) { authMode = 'signup'; openAuthModal('form'); return; }
+  if (s.isPremium) { setBuyIntent(false); openAuthModal('account'); return; }
+  if (!s.user) { setBuyIntent(true); authMode = 'signup'; openAuthModal('form'); return; }
+  setBuyIntent(false);
   void beginCheckout();
+}
+
+// A short-lived "I want to buy Premium" flag that survives a login/signup detour
+// (incl. the email-verification page reload) so the purchase resumes automatically.
+const BUY_INTENT_KEY = 'steerit.buyIntent';
+const BUY_INTENT_TTL = 60 * 60 * 1000;   // 1 hour
+function setBuyIntent(on: boolean) {
+  try { if (on) localStorage.setItem(BUY_INTENT_KEY, String(Date.now())); else localStorage.removeItem(BUY_INTENT_KEY); } catch { /* ignore */ }
+}
+function hasBuyIntent(): boolean {
+  try {
+    const v = localStorage.getItem(BUY_INTENT_KEY);
+    if (!v) return false;
+    const t = Number(v);
+    if (Number.isFinite(t) && Date.now() - t < BUY_INTENT_TTL) return true;
+    localStorage.removeItem(BUY_INTENT_KEY);
+  } catch { /* ignore */ }
+  return false;
+}
+// The page was opened via a Supabase auth redirect (email confirm / magic link) —
+// captured at load BEFORE supabase-js consumes the URL. Used to resume a purchase
+// on the verification return without firing on ordinary reloads.
+const openedViaAuthRedirect = (() => {
+  try { const s = location.hash + location.search; return /(access_token|refresh_token|[?#&]code)=/.test(s) || /type=(signup|magiclink|email|recovery)/.test(s); }
+  catch { return false; }
+})();
+// Resume a purchase the user started before authenticating: only when logged in +
+// an intent is pending. Deferred out of the auth callback (a DB read inside it can
+// hang), and confirms FREE-vs-PREMIUM from the server so a premium account isn't
+// sent to pay again.
+function resumePurchaseIfIntended() {
+  if (!hasBuyIntent()) return;
+  if (!getAuthState().user) return;
+  setBuyIntent(false);              // consume once
+  closeAuthModal();
+  window.setTimeout(() => { void (async () => {
+    const st = await checkEntitlement();
+    if (st.isPremium) { showToast('You already have Premium ✓'); return; }
+    await beginCheckout();          // → Stripe hosted checkout
+  })(); }, 0);
 }
 let checkoutStarting = false;
 async function beginCheckout() {
@@ -1362,13 +1417,19 @@ document.getElementById('auth-form')?.addEventListener('submit', (e) => {
   if (authMode === 'signup') {
     void signUp(email, pw).then((r) => {
       if (r.error) return done(r.error);
-      if (r.needsVerification) done(undefined, 'Check your email to verify your account, then log in.');
-      else { closeAuthModal(); done(); }
+      if (r.needsVerification) {
+        // Intent (if any) stays in localStorage → checkout resumes after the email
+        // link brings them back logged in.
+        done(undefined, hasBuyIntent()
+          ? 'Check your email to verify — then we\'ll take you straight to checkout.'
+          : 'Check your email to verify your account, then log in.');
+      } else { closeAuthModal(); done(); resumePurchaseIfIntended(); }   // instant session → resume
     });
   } else {
     void signIn(email, pw).then((r) => {
       if (r.error) return done(r.error);
       closeAuthModal(); done();
+      resumePurchaseIfIntended();   // ← the reported bug: continue to checkout, don't just stop
     });
   }
 });
@@ -1417,6 +1478,15 @@ onAuthChange((s) => {
   if (checkoutReturnHandled || s.loading) return;
   checkoutReturnHandled = true;
   void handleCheckoutReturn(s);
+});
+// Resume a pending purchase when the user lands back logged in via an email
+// verification / magic-link redirect (the signup path). Gated on that redirect so
+// it NEVER fires on an ordinary reload of a restored session.
+let authRedirectResumeDone = false;
+onAuthChange((s) => {
+  if (authRedirectResumeDone || s.loading || !s.user) return;
+  authRedirectResumeDone = true;
+  if (openedViaAuthRedirect) resumePurchaseIfIntended();
 });
 // Manual entitlement check for the host to verify premium is recognised:
 // run `steerCheckEntitlement()` in the browser console → logs what the client
