@@ -337,6 +337,17 @@
       </div>
     </div>
 
+    <!-- CHECKOUT LOADING — shown the instant "Get Premium" starts a Stripe session,
+         so the user sees it's working and can't double-click (the overlay blocks
+         input; a logic guard also ignores repeat calls). Hidden on error (with a
+         retryable toast); stays up through the redirect. -->
+    <div id="pay-loading" class="modal-overlay" hidden>
+      <div class="pay-loading-card">
+        <span class="pay-spinner" aria-hidden="true"></span>
+        <span class="pay-loading-text">Redirecting to payment…</span>
+      </div>
+    </div>
+
     <!-- POPUP: appears only when the user tries to PLAY on a host screen too small to
          play on (now: START RACE; later: free-play-from-page / post-login "start"). A
          dismissible overlay, NOT a passive menu state — shown by desktop.ts on the play

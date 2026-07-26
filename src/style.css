@@ -543,6 +543,30 @@ body.desktop #game { display: block; width: 100vw; height: 100vh; }
 .gm-card { position: relative; min-width: 340px; max-width: 400px; text-align: left; gap: 14px; }
 #options-modal .gm-card { width: min(400px, 92vw); }
 
+/* Checkout loading overlay — instant feedback + blocks input while a Stripe
+   session is created. Above the toasts (z 320). */
+#pay-loading { z-index: 320; }
+.pay-loading-card {
+  display: flex; flex-direction: column; align-items: center; gap: 16px;
+  padding: 30px 42px; border-radius: 18px;
+  border: 1.5px solid var(--border);
+  background: linear-gradient(180deg, var(--panel-top), var(--panel-bot));
+  box-shadow: 0 0 40px rgba(255, 45, 149, 0.3), 0 24px 70px rgba(0, 0, 0, 0.6);
+}
+.pay-spinner {
+  width: 38px; height: 38px; border-radius: 50%;
+  border: 3.5px solid rgba(255, 138, 61, 0.22); border-top-color: var(--pink);
+  animation: paySpin 0.7s linear infinite;
+}
+.pay-loading-text {
+  font-family: var(--font-display); font-weight: 800; font-size: 12.5px; letter-spacing: 2.5px;
+  text-transform: uppercase; color: var(--text);
+}
+@keyframes paySpin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .pay-spinner { animation-duration: 1.4s; }
+}
+
 /* Ephemeral toast (checkout status, errors) — on-brand, non-blocking, auto-dismiss. */
 #app-toast {
   position: fixed; left: 50%; bottom: 26px; transform: translate(-50%, 20px);

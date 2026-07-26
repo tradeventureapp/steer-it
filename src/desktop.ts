@@ -1335,20 +1335,38 @@ function resumePurchaseIfIntended() {
     await beginCheckout();          // → Stripe hosted checkout
   })(); }, 0);
 }
+// A pending checkout guard + an instant loading overlay: the moment Get Premium
+// starts a session the user sees "Redirecting to payment…" and can't double-click
+// (the overlay blocks input; this guard also ignores repeat calls) — so we never
+// create duplicate Checkout Sessions. On failure/timeout the overlay clears and a
+// retryable error toast shows; on success the overlay stays through the redirect.
 let checkoutStarting = false;
+function setPayLoading(on: boolean) {
+  const el = document.getElementById('pay-loading');
+  if (el) el.hidden = !on;
+}
 async function beginCheckout() {
-  if (checkoutStarting) return;
+  if (checkoutStarting) return;   // already creating a session → ignore repeat clicks
   checkoutStarting = true;
+  setPayLoading(true);            // INSTANT feedback, before any network work
+  const stop = (msg?: string) => { setPayLoading(false); checkoutStarting = false; if (msg) showToast(msg, true); };
+  const token = await getAccessToken();
+  if (!token) { setPayLoading(false); checkoutStarting = false; authMode = 'login'; openAuthModal('form'); return; }
+  const ctrl = new AbortController();
+  const timer = window.setTimeout(() => ctrl.abort(), 15000);   // don't hang forever
   try {
-    const token = await getAccessToken();
-    if (!token) { authMode = 'login'; openAuthModal('form'); return; }
-    const r = await fetch('/api/create-checkout-session', { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
-    if (r.status === 401) { authMode = 'login'; openAuthModal('form'); return; }
-    const data = await r.json().catch(() => ({}));
-    if (!r.ok || !data.url) { showToast("Couldn't start checkout — please try again.", true); return; }
-    window.location.href = data.url;   // → Stripe hosted checkout
-  } catch { showToast("Couldn't start checkout — please try again.", true); }
-  finally { checkoutStarting = false; }
+    const r = await fetch('/api/create-checkout-session', {
+      method: 'POST', headers: { Authorization: `Bearer ${token}` }, signal: ctrl.signal,
+    });
+    window.clearTimeout(timer);
+    if (r.status === 401) { setPayLoading(false); checkoutStarting = false; authMode = 'login'; openAuthModal('form'); return; }
+    const data = await r.json().catch(() => ({} as { url?: string }));
+    if (!r.ok || !data.url) { stop('Something went wrong — please try again.'); return; }
+    window.location.href = data.url;   // success → Stripe hosted checkout (page unloads; keep the overlay + guard)
+  } catch {
+    window.clearTimeout(timer);
+    stop('Something went wrong — please try again.');
+  }
 }
 
 // On return from Stripe: the FALLBACK for a missed/late webhook. Confirms the
