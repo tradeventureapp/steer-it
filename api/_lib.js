@@ -64,31 +64,71 @@ export async function verifyUser(req) {
   } catch { return null; }
 }
 
-// Set is_premium = true for a user with the SERVICE-ROLE key (bypasses RLS).
-// IDEMPOTENT: setting true when already true is a no-op, so processing the same
-// Stripe event twice yields the same result — no error, no duplicate. Returns
-// { ok, updated?, viaUpsert?, error? }.
+// Which "kind" of service key we were given (for diagnostics in the logs):
+//   • legacy-jwt  = the classic service_role JWT (eyJ…) — a JWT whose role claim
+//                   PostgREST decodes to bypass RLS. The reliable REST-write key.
+//   • new-secret  = the new sb_secret_… key (NOT a JWT). PostgREST reads the ROLE
+//                   from the Authorization JWT, so a non-JWT bearer can be rejected
+//                   or fall back to `anon` → RLS blocks the write (0 rows / 401).
+function keyKind(key) {
+  if (key.startsWith('eyJ')) return 'legacy-jwt';
+  if (key.startsWith('sb_secret_') || key.startsWith('sb_')) return 'new-secret';
+  return 'unknown';
+}
+
+// One write attempt (PATCH the row; upsert if it's missing) with a given auth
+// header set. Returns { httpOk, status, wrote, rows, viaUpsert, body }. `wrote` is
+// true ONLY when a row with is_premium=true actually came back — so a 200 that RLS
+// silently filtered to 0 rows counts as NOT written (the real silent-failure case).
+async function writePremium(base, userId, authHeaders) {
+  const base0 = { ...authHeaders, 'Content-Type': 'application/json' };
+  const hasTrue = (txt) => { try { const a = JSON.parse(txt); return Array.isArray(a) && a.some((x) => x && x.is_premium === true); } catch { return false; } };
+
+  const r = await fetch(`${base}/rest/v1/profiles?id=eq.${encodeURIComponent(userId)}`, {
+    method: 'PATCH', headers: { ...base0, Prefer: 'return=representation' },
+    body: JSON.stringify({ is_premium: true }),
+  });
+  const rBody = await r.text();
+  if (r.ok && hasTrue(rBody)) return { httpOk: true, status: r.status, wrote: true, rows: 1, body: rBody };
+  if (!r.ok) return { httpOk: false, status: r.status, wrote: false, rows: 0, body: rBody.slice(0, 300) };
+
+  // HTTP 200 but no matching row (missing profile, or RLS filtered it) → upsert.
+  const u = await fetch(`${base}/rest/v1/profiles?on_conflict=id`, {
+    method: 'POST', headers: { ...base0, Prefer: 'resolution=merge-duplicates,return=representation' },
+    body: JSON.stringify({ id: userId, is_premium: true }),
+  });
+  const uBody = await u.text();
+  if (u.ok && hasTrue(uBody)) return { httpOk: true, status: u.status, wrote: true, rows: 1, viaUpsert: true, body: uBody };
+  return { httpOk: u.ok, status: u.status, wrote: false, rows: 0, viaUpsert: true, body: uBody.slice(0, 300) };
+}
+
+// Set is_premium = true for a user with the SERVICE key (must bypass RLS —
+// only the server may write it). IDEMPOTENT (a plain "set true"). ROBUST: tries the
+// standard header set first, then an apikey-only variant, and only reports success
+// when a row with is_premium=true actually came back (never a silent 200-with-0-rows).
+// Every attempt is logged with its status + key kind so the exact failure is visible.
 export async function setPremium(userId) {
   const base = SUPA_URL(); const key = SERVICE_ROLE();
-  if (!base || !key) return { ok: false, error: 'supabase service role not configured' };
-  const headers = { apikey: key, Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' };
-  try {
-    // Update the existing profile row.
-    const r = await fetch(`${base}/rest/v1/profiles?id=eq.${encodeURIComponent(userId)}`, {
-      method: 'PATCH', headers: { ...headers, Prefer: 'return=representation' },
-      body: JSON.stringify({ is_premium: true }),
-    });
-    if (!r.ok) return { ok: false, error: `patch ${r.status}: ${(await r.text()).slice(0, 300)}` };
-    const rows = await r.json();
-    if (Array.isArray(rows) && rows.length > 0) return { ok: true, updated: rows.length };
-    // No row matched → idempotent upsert (creates the row if the profile is missing).
-    const up = await fetch(`${base}/rest/v1/profiles?on_conflict=id`, {
-      method: 'POST', headers: { ...headers, Prefer: 'resolution=merge-duplicates,return=representation' },
-      body: JSON.stringify({ id: userId, is_premium: true }),
-    });
-    if (!up.ok) return { ok: false, error: `upsert ${up.status}: ${(await up.text()).slice(0, 300)}` };
-    return { ok: true, updated: 1, viaUpsert: true };
-  } catch (e) { return { ok: false, error: String(e) }; }
+  if (!base || !key) { log('setpremium_misconfigured', { base: !!base, key: !!key }); return { ok: false, error: 'supabase service role not configured' }; }
+  const kind = keyKind(key);
+  // Attempt 1: apikey + Authorization Bearer (the canonical PostgREST service-role
+  //            method — works with a legacy service_role JWT).
+  // Attempt 2: apikey only — a fallback for gateway setups that resolve the role
+  //            from the apikey alone and reject a non-JWT bearer.
+  const attempts = [
+    { name: 'apikey+bearer', headers: { apikey: key, Authorization: `Bearer ${key}` } },
+    { name: 'apikey-only', headers: { apikey: key } },
+  ];
+  let last = { status: 0, body: '' };
+  for (const a of attempts) {
+    let res;
+    try { res = await writePremium(base, userId, a.headers); }
+    catch (e) { log('setpremium_attempt', { user: userId, keyKind: kind, attempt: a.name, error: String(e) }); last = { status: 0, body: String(e) }; continue; }
+    log('setpremium_attempt', { user: userId, keyKind: kind, attempt: a.name, status: res.status, httpOk: res.httpOk, wrote: res.wrote, body: res.wrote ? undefined : res.body });
+    if (res.wrote) return { ok: true, updated: res.rows, viaUpsert: !!res.viaUpsert, attempt: a.name, keyKind: kind };
+    last = res;
+  }
+  return { ok: false, keyKind: kind, error: `write failed (status ${last.status}, key ${kind}): ${(last.body || '').slice(0, 300)}` };
 }
 
 // Verify a Stripe webhook signature (the `Stripe-Signature` header) against the
