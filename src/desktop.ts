@@ -111,6 +111,7 @@ const editorEl       = document.getElementById('editor')         as HTMLElement 
 const editorStatusEl = document.getElementById('editor-status')  as HTMLDivElement | null;
 const editorHintEl   = document.getElementById('editor-hint')    as HTMLDivElement | null;
 const mainMenuEl     = document.getElementById('main-menu')       as HTMLElement | null;
+const gameMenuEl     = document.getElementById('game-menu')       as HTMLElement | null;
 const heroCanvasEl   = document.getElementById('page-car')        as HTMLCanvasElement | null;
 const modeSelectEl   = document.getElementById('mode-select')     as HTMLElement | null;
 const carMapSelectEl = document.getElementById('car-map-select')  as HTMLElement | null;
@@ -153,7 +154,9 @@ function refreshFreeze() {
   if (editorEl) editorEl.hidden = !editorMode;
   document.body.classList.toggle('editing', editorMode);
   updateReadyButton();
-  if (accountBarEl) accountBarEl.hidden = !menuOpen;   // host account chip — menu screens only
+  // host account chip — menu screens only, but NOT the game menu (its own account
+  // panel lives in OPTIONS there).
+  if (accountBarEl) accountBarEl.hidden = !menuOpen || !(gameMenuEl?.hidden ?? true);
 }
 
 // The READY button shows ONLY during a race warm-up and only when nothing else is
@@ -416,6 +419,7 @@ function hideAllMenus() {
   heroDrift?.setActive(false);   // the hero animation only runs on the landing screen
   howScene?.setEnabled(false);   // ...and so does the HOW IT WORKS demo loop
   if (mainMenuEl) mainMenuEl.hidden = true;
+  if (gameMenuEl) gameMenuEl.hidden = true;
   if (modeSelectEl) modeSelectEl.hidden = true;
   if (carMapSelectEl) carMapSelectEl.hidden = true;
 }
@@ -465,6 +469,8 @@ const howScene = (() => {
 // 30fps-capped and softened (see page-escort.ts + the mobile CSS). The module itself falls
 // back to a single static frame under prefers-reduced-motion, so that case is handled there.
 
+// The LANDING (marketing) page — for logged-OUT visitors. Free ride still starts
+// from here (START RACE), so no account is needed to play.
 function openMainMenu() {
   menuOpen = true;
   hideAllMenus();
@@ -473,6 +479,31 @@ function openMainMenu() {
   howScene?.setEnabled(true);
   refreshFreeze();
   updateQrVisibility();
+}
+// The GAME MENU — for a logged-IN host (PLAY / OPTIONS / LEADERBOARDS). The
+// marketing landing is only for converting logged-out visitors, so a signed-in
+// host never sees it.
+type GameMenuView = 'home' | 'options' | 'leaderboards';
+function setGameMenuView(view: GameMenuView) {
+  if (!gameMenuEl) return;
+  for (const v of gameMenuEl.querySelectorAll<HTMLElement>('.gm-view')) {
+    v.hidden = v.dataset.view !== view;
+  }
+}
+function openGameMenu() {
+  menuOpen = true;
+  hideAllMenus();
+  if (gameMenuEl) gameMenuEl.hidden = false;
+  setGameMenuView('home');
+  renderGameMenuAccount(getAuthState());
+  renderMusicToggle();
+  refreshFreeze();
+  updateQrVisibility();
+}
+// Route "home" by auth state: signed-in host → the game menu; otherwise → the
+// marketing landing. Everywhere that used to return to the landing calls this.
+function goHome() {
+  if (getAuthState().user) openGameMenu(); else openMainMenu();
 }
 function openModeSelect() {
   menuOpen = true;
@@ -1034,7 +1065,20 @@ document.getElementById('btn-start-race')?.addEventListener('click', () => {
 });
 document.getElementById('btn-mode-arcade')?.addEventListener('click', () => chooseMode('arcade'));
 document.getElementById('btn-mode-sim')?.addEventListener('click', () => chooseMode('sim'));
-document.getElementById('btn-mode-back')?.addEventListener('click', openMainMenu);
+document.getElementById('btn-mode-back')?.addEventListener('click', goHome);
+
+// ---- GAME MENU (logged-in host) ----
+document.getElementById('gm-play')?.addEventListener('click', () => {
+  requireHostScreen(() => { goFullscreen(); openModeSelect(); });   // same PLAY flow as START RACE
+});
+document.getElementById('gm-options')?.addEventListener('click', () => {
+  renderGameMenuAccount(getAuthState()); renderMusicToggle(); setGameMenuView('options');
+});
+document.getElementById('gm-leaderboards')?.addEventListener('click', () => setGameMenuView('leaderboards'));
+document.getElementById('gm-options-back')?.addEventListener('click', () => setGameMenuView('home'));
+document.getElementById('gm-lb-back')?.addEventListener('click', () => setGameMenuView('home'));
+document.getElementById('gm-music')?.addEventListener('click', toggleMusic);
+document.getElementById('gm-logout')?.addEventListener('click', () => { void signOut(); });
 document.getElementById('btn-cms-back')?.addEventListener('click', openModeSelect);
 cmsStartBtn?.addEventListener('click', launchSelected);
 
@@ -1128,6 +1172,46 @@ function renderAccount(s: AuthState) {
     buildModeOptions();
     refreshSelectionUi();
   }
+
+  // The game menu's own account panel (OPTIONS) mirrors the same state.
+  renderGameMenuAccount(s);
+
+  // HOME view follows auth: a host who just logged IN gets the game menu instead of
+  // the marketing landing; a host who logged OUT is returned to the landing. Only
+  // swap while actually ON a home screen — never yank out of a selection screen,
+  // the pause menu, or gameplay.
+  const onLanding  = !!mainMenuEl && !mainMenuEl.hidden;
+  const onGameMenu = !!gameMenuEl && !gameMenuEl.hidden;
+  if (s.user && onLanding) openGameMenu();
+  else if (!s.user && onGameMenu) openMainMenu();
+}
+
+// The game-menu OPTIONS account block (email/username + FREE/PREMIUM).
+function renderGameMenuAccount(s: AuthState) {
+  const emailEl = document.getElementById('gm-acc-email');
+  const badge = document.getElementById('gm-acc-badge');
+  const email = s.user?.email || '';
+  if (emailEl) emailEl.textContent = email || '—';
+  if (badge) {
+    badge.textContent = s.isPremium ? 'PREMIUM' : 'FREE';
+    badge.classList.toggle('is-premium', s.isPremium);
+  }
+}
+
+// ---- Music preference (the toggle is wired now; the audio itself comes later). ----
+const MUSIC_KEY = 'steerit.music';
+let musicOn = (() => { try { return localStorage.getItem(MUSIC_KEY) === '1'; } catch { return false; } })();
+function renderMusicToggle() {
+  const btn = document.getElementById('gm-music');
+  if (!btn) return;
+  btn.setAttribute('aria-checked', musicOn ? 'true' : 'false');
+  const txt = btn.querySelector('.gm-switch-txt');
+  if (txt) txt.textContent = musicOn ? 'ON' : 'OFF';
+}
+function toggleMusic() {
+  musicOn = !musicOn;
+  try { localStorage.setItem(MUSIC_KEY, musicOn ? '1' : '0'); } catch { /* ignore */ }
+  renderMusicToggle();
 }
 
 // ---- Paywall upsell — a positive pitch, not a wall. Adapts to the auth state. ----
@@ -1260,7 +1344,7 @@ onAuthChange(renderAccount);
 (window as unknown as { steerCheckEntitlement: () => void }).steerCheckEntitlement =
   () => { void checkEntitlement(); };
 
-openMainMenu();   // show the host menu at startup
+goHome();   // landing (logged out) or game menu (logged in) — auth resolves via onAuthChange
 
 // ---------- Pause menu (P / Esc) — RESUME / RESTART / EXIT TO MENU ----------
 // The pause-overlay element IS the menu (shown by refreshFreeze while userPaused

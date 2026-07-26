@@ -251,6 +251,73 @@
       <div class="page-fx" aria-hidden="true"></div>
     </div>
 
+    <!-- ===== GAME MENU — shown to a LOGGED-IN host instead of the marketing
+         landing. Logo + PLAY / OPTIONS / LEADERBOARDS. OPTIONS + LEADERBOARDS are
+         in-screen sub-views (no extra screens to juggle). Auth state drives which
+         of #main-menu (logged out) / #game-menu (logged in) is shown — see
+         desktop.ts. ===== -->
+    <div id="game-menu" class="menu-screen" hidden>
+      <!-- HOME -->
+      <div class="gm-view" data-view="home">
+        <img class="hero-logo gm-logo" src="/logos/steer-it-logo.png"
+             alt="STEER IT — Drift Your Desktop" width="3450" height="1142" />
+        <div class="menu-actions gm-actions">
+          <button type="button" class="menu-btn primary" id="gm-play">PLAY</button>
+          <button type="button" class="menu-btn sub" id="gm-options">OPTIONS</button>
+          <button type="button" class="menu-btn sub" id="gm-leaderboards">LEADERBOARDS</button>
+        </div>
+        <div class="menu-foot">Host on a laptop, desktop <span class="dot">·</span> or tablet</div>
+      </div>
+
+      <!-- OPTIONS -->
+      <div class="gm-view" data-view="options" hidden>
+        <div class="menu-card gm-card">
+          <div class="menu-title">OPTIONS</div>
+
+          <div class="gm-sec">
+            <div class="gm-sec-head">ACCOUNT</div>
+            <div class="gm-account">
+              <span class="gm-acc-email" id="gm-acc-email">—</span>
+              <span class="account-badge" id="gm-acc-badge">FREE</span>
+            </div>
+            <button type="button" class="menu-btn ghost gm-wide" id="gm-logout">LOG OUT</button>
+          </div>
+
+          <div class="gm-sec">
+            <div class="gm-row">
+              <span class="gm-sec-head">MUSIC</span>
+              <button type="button" class="gm-switch" id="gm-music" role="switch" aria-checked="false">
+                <span class="gm-switch-track"><span class="gm-switch-knob"></span></span>
+                <span class="gm-switch-txt">OFF</span>
+              </button>
+            </div>
+            <div class="gm-note">In-game music is on the way — this remembers your choice.</div>
+          </div>
+
+          <div class="gm-sec">
+            <div class="gm-sec-head">CONTROLS</div>
+            <div class="gm-note">Your phone is the wheel — tilt to steer, on-screen GAS / BRAKE / E-BRAKE.
+              Custom bindings &amp; sensitivity are coming soon.</div>
+          </div>
+
+          <button type="button" class="menu-btn ghost" id="gm-options-back">◄ BACK</button>
+        </div>
+      </div>
+
+      <!-- LEADERBOARDS (placeholder) -->
+      <div class="gm-view" data-view="leaderboards" hidden>
+        <div class="menu-card gm-card">
+          <div class="menu-title">LEADERBOARDS</div>
+          <div class="gm-soon">
+            <span class="gm-soon-badge">COMING SOON</span>
+            <p>Global lap times &amp; XP rankings are on the way. Keep drifting —
+               your best runs will count when it goes live.</p>
+          </div>
+          <button type="button" class="menu-btn ghost" id="gm-lb-back">◄ BACK</button>
+        </div>
+      </div>
+    </div>
+
     <!-- POPUP: appears only when the user tries to PLAY on a host screen too small to
          play on (now: START RACE; later: free-play-from-page / post-login "start"). A
          dismissible overlay, NOT a passive menu state — shown by desktop.ts on the play
