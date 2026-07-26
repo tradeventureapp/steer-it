@@ -1508,8 +1508,12 @@ upsellEl?.addEventListener('click', (e) => { if (e.target === upsellEl) closeUps
 const upsellAct = (btn: HTMLElement | null) => btn?.addEventListener('click', () => {
   const act = btn.dataset.act;
   closeUpsell();
-  if (act === 'signup') { authMode = 'signup'; openAuthModal('form'); }
-  else if (act === 'login') { authMode = 'login'; openAuthModal('form'); }
+  // The user clicked a locked map/mode and chose to authenticate from the premium
+  // pitch → remember the buy intent so checkout auto-resumes once they're logged in
+  // (the SAME reliable path as the Get Premium button). resumePurchaseIfIntended
+  // re-reads entitlement first, so an already-premium account is never charged again.
+  if (act === 'signup') { setBuyIntent(true); authMode = 'signup'; openAuthModal('form'); }
+  else if (act === 'login') { setBuyIntent(true); authMode = 'login'; openAuthModal('form'); }
   else if (act === 'buy') { startPremiumPurchase(); }
   // 'close' → just closed above
 });
