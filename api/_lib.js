@@ -76,6 +76,25 @@ function keyKind(key) {
   return 'unknown';
 }
 
+// Non-sensitive info about the configured service key (NEVER the key itself).
+// Decodes a legacy JWT's payload to reveal the ROLE claim — the crucial check:
+// a legacy service_role JWT and a legacy ANON JWT BOTH start "eyJ…", but only
+// role:"service_role" bypasses RLS. If this shows role:"anon" the wrong legacy
+// key was copied; if it shows kind:"new-secret" the deploy is still on sb_secret.
+export function serviceKeyInfo() {
+  const key = SERVICE_ROLE();
+  if (!key) return { present: false };
+  const info = { present: true, kind: keyKind(key), len: key.length };
+  if (key.startsWith('eyJ')) {
+    try {
+      const payload = JSON.parse(Buffer.from(key.split('.')[1], 'base64url').toString('utf8'));
+      info.role = payload.role || null;
+      info.ref = payload.ref || null;
+    } catch { info.decodeError = true; }
+  }
+  return info;
+}
+
 // One write attempt (PATCH the row; upsert if it's missing) with a given auth
 // header set. Returns { httpOk, status, wrote, rows, viaUpsert, body }. `wrote` is
 // true ONLY when a row with is_premium=true actually came back — so a 200 that RLS
@@ -111,6 +130,9 @@ export async function setPremium(userId) {
   const base = SUPA_URL(); const key = SERVICE_ROLE();
   if (!base || !key) { log('setpremium_misconfigured', { base: !!base, key: !!key }); return { ok: false, error: 'supabase service role not configured' }; }
   const kind = keyKind(key);
+  // Reveal the actual role/ref up front — the #1 cause of "still false" is the wrong
+  // legacy key (role:anon) or a stale deploy (kind:new-secret).
+  log('setpremium_key', { user: userId, ...serviceKeyInfo() });
   // Attempt 1: apikey + Authorization Bearer (the canonical PostgREST service-role
   //            method — works with a legacy service_role JWT).
   // Attempt 2: apikey only — a fallback for gateway setups that resolve the role

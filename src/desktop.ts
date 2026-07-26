@@ -1540,6 +1540,17 @@ onAuthChange((s) => {
 // actually read from `profiles` and refreshes the FREE/PREMIUM chip.
 (window as unknown as { steerCheckEntitlement: () => void }).steerCheckEntitlement =
   () => { void checkEntitlement(); };
+// Billing self-diagnostic: run `await steerBillingDebug()` in the console (logged
+// in) → hits /api/billing-debug with your token and logs which key/role is live +
+// whether the service key can read/write your profile row. Paste the output here.
+(window as unknown as { steerBillingDebug: () => Promise<unknown> }).steerBillingDebug = async () => {
+  const token = await getAccessToken();
+  if (!token) { console.log('[billing-debug] not logged in'); return null; }
+  const r = await fetch('/api/billing-debug', { headers: { Authorization: `Bearer ${token}` } });
+  const j = await r.json().catch(() => ({ error: 'bad json', status: r.status }));
+  console.log('[billing-debug]', JSON.stringify(j, null, 2));
+  return j;
+};
 
 goHome();   // landing (logged out) or game menu (logged in) — auth resolves via onAuthChange
 
