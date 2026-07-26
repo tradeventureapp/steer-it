@@ -1143,6 +1143,7 @@ function applyAuthMode() {
   const submit = document.getElementById('auth-submit');
   const toggle = document.getElementById('auth-toggle');
   const pw = document.getElementById('auth-password') as HTMLInputElement | null;
+  const pw2 = document.getElementById('auth-password2') as HTMLInputElement | null;
   if (t) t.textContent = login ? 'LOG IN' : 'CREATE ACCOUNT';
   if (sub) sub.textContent = login
     ? 'Only the host needs an account — players just scan the QR.'
@@ -1150,6 +1151,9 @@ function applyAuthMode() {
   if (submit) submit.textContent = login ? 'LOG IN' : 'SIGN UP';
   if (toggle) toggle.innerHTML = login ? 'Need an account? <b>Sign up</b>' : 'Have an account? <b>Log in</b>';
   if (pw) pw.autocomplete = login ? 'current-password' : 'new-password';
+  // Confirm-password field is SIGN UP only — shown + required there, hidden +
+  // not-required (so it never blocks validation) on log in. Cleared on switch.
+  if (pw2) { pw2.hidden = login; pw2.required = !login; if (login) pw2.value = ''; }
 }
 
 // The account chip (menu) + the account panel reflect the live auth state.
@@ -1418,6 +1422,14 @@ document.getElementById('auth-close')?.addEventListener('click', closeAuthModal)
 authModalEl?.addEventListener('click', (e) => { if (e.target === authModalEl) closeAuthModal(); });
 document.getElementById('auth-toggle')?.addEventListener('click', () => {
   authMode = authMode === 'login' ? 'signup' : 'login'; applyAuthMode();
+  setAuthMsg('', false);   // drop any stale (e.g. "passwords don't match") message
+});
+// Live feedback: clear the mismatch error the moment the two signup passwords agree.
+document.getElementById('auth-password2')?.addEventListener('input', () => {
+  if (authMode !== 'signup') return;
+  const pw = (document.getElementById('auth-password') as HTMLInputElement).value;
+  const pw2 = (document.getElementById('auth-password2') as HTMLInputElement).value;
+  if (pw2 && pw === pw2) setAuthMsg('', false);
 });
 document.getElementById('auth-forgot')?.addEventListener('click', () => authSection('forgot'));
 document.getElementById('forgot-back')?.addEventListener('click', () => authSection('form'));
@@ -1427,6 +1439,15 @@ document.getElementById('auth-form')?.addEventListener('submit', (e) => {
   const email = (document.getElementById('auth-email') as HTMLInputElement).value.trim();
   const pw = (document.getElementById('auth-password') as HTMLInputElement).value;
   const submit = document.getElementById('auth-submit') as HTMLButtonElement;
+  // SIGN UP: the two passwords must match before we submit.
+  if (authMode === 'signup') {
+    const pw2El = document.getElementById('auth-password2') as HTMLInputElement | null;
+    if (pw2El && pw !== pw2El.value) {
+      setAuthMsg('Passwords don\'t match.', true);
+      pw2El.focus();
+      return;
+    }
+  }
   submit.disabled = true; setAuthMsg('Working…', false);
   const done = (err?: string, ok?: string) => {
     submit.disabled = false;

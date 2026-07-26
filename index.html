@@ -450,6 +450,8 @@
           <form id="auth-form" autocomplete="on">
             <input id="auth-email" type="email" placeholder="Email" autocomplete="email" required />
             <input id="auth-password" type="password" placeholder="Password" autocomplete="current-password" required minlength="6" />
+            <!-- SIGN UP only — shown + required in signup mode (see applyAuthMode). -->
+            <input id="auth-password2" type="password" placeholder="Confirm password" autocomplete="new-password" minlength="6" hidden />
             <button type="submit" class="menu-btn primary" id="auth-submit">LOG IN</button>
           </form>
           <div class="auth-links">
