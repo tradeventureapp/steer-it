@@ -14,6 +14,7 @@
 //  by the client (createClient defaults), so the host stays logged in across reloads.
 // =============================================================================
 import { supabase } from './supabase';
+import { normalizeEmail, isDisposableEmail } from './email';
 
 export interface AuthUser { id: string; email: string; }
 export interface AuthState {
@@ -154,17 +155,37 @@ function msg(e: unknown): string {
   return m;
 }
 
-export async function signUp(email: string, password: string): Promise<{ error?: string; needsVerification?: boolean }> {
+export async function signUp(email: string, password: string):
+Promise<{ error?: string; needsVerification?: boolean; alreadyRegistered?: boolean }> {
+  // Normalise to the uniqueness key (aliases of one inbox → one account) and reject
+  // clearly-disposable domains up front.
+  const clean = normalizeEmail(email);
+  if (isDisposableEmail(clean)) return { error: 'Please use a permanent email address.' };
+
   const { data, error } = await supabase.auth.signUp({
-    email, password, options: { emailRedirectTo: redirectTo() },
+    email: clean, password, options: { emailRedirectTo: redirectTo() },
   });
-  if (error) return { error: msg(error) };
+  if (error) {
+    // If "Confirm email" is OFF, Supabase surfaces an explicit duplicate error.
+    if (/already registered|already exists|already.*registered/i.test(error.message)) {
+      return { error: 'This email is already registered — log in instead.', alreadyRegistered: true };
+    }
+    return { error: msg(error) };
+  }
+  // SILENT DUPLICATE (the "Confirm email" ON case): to avoid revealing which emails
+  // exist, Supabase returns a fabricated user with an EMPTY identities array for an
+  // already-registered (confirmed) address. Detect that so the user gets clear
+  // feedback instead of a misleading "check your email".
+  if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+    return { error: 'This email is already registered — log in instead.', alreadyRegistered: true };
+  }
   // With "Confirm email" ON, no session is returned until the link is clicked.
   return { needsVerification: !data.session };
 }
 
 export async function signIn(email: string, password: string): Promise<{ error?: string }> {
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  // Normalise so a user who typed an alias signs into the SAME account.
+  const { error } = await supabase.auth.signInWithPassword({ email: normalizeEmail(email), password });
   if (error) return { error: msg(error) };
   return {};
 }
@@ -179,13 +200,13 @@ export async function signOut(): Promise<void> {
 }
 
 export async function sendPasswordReset(email: string): Promise<{ error?: string }> {
-  const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: redirectTo() });
+  const { error } = await supabase.auth.resetPasswordForEmail(normalizeEmail(email), { redirectTo: redirectTo() });
   if (error) return { error: msg(error) };
   return {};
 }
 
 export async function resendVerification(email: string): Promise<{ error?: string }> {
-  const { error } = await supabase.auth.resend({ type: 'signup', email, options: { emailRedirectTo: redirectTo() } });
+  const { error } = await supabase.auth.resend({ type: 'signup', email: normalizeEmail(email), options: { emailRedirectTo: redirectTo() } });
   if (error) return { error: msg(error) };
   return {};
 }

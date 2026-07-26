@@ -1455,6 +1455,14 @@ document.getElementById('auth-form')?.addEventListener('submit', (e) => {
   };
   if (authMode === 'signup') {
     void signUp(email, pw).then((r) => {
+      if (r.alreadyRegistered) {
+        // The normalized email already has an account → switch to LOG IN (keeps
+        // their email typed) with a clear message, buy-intent preserved.
+        submit.disabled = false;
+        authMode = 'login'; applyAuthMode();
+        setAuthMsg('This email is already registered — log in instead.', true);
+        return;
+      }
       if (r.error) return done(r.error);
       if (r.needsVerification) {
         // Intent (if any) stays in localStorage → checkout resumes after the email
