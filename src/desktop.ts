@@ -18,6 +18,7 @@ import { fitCanvasScale, sizeCanvasFitted, preloadSurfaceAssets, clearSurfaceCac
 import { Effects, FX_CONFIG, GRASS_DUST_RGB, GRAVEL_SPRAY_RGB } from './effects';
 import { startPageEscort } from './page-escort';
 import { startHowScene } from './how-anim';
+import { createMusicPlayer } from './music';
 import { collectDiag, noteError, noteStep } from './diag';
 import {
   PLAYER_CAP, LOBBY_SYNC_MS, RESILIENCE, EV, colorName, LobbyState, paletteForMode,
@@ -477,6 +478,7 @@ function openMainMenu() {
   if (mainMenuEl) mainMenuEl.hidden = false;
   heroDrift?.setActive(true);
   howScene?.setEnabled(true);
+  music.setActive(false);   // no autoplay music for landing-page visitors
   refreshFreeze();
   updateQrVisibility();
 }
@@ -497,6 +499,7 @@ function openGameMenu() {
   setGameMenuView('home');
   renderGameMenuAccount(getAuthState());
   renderMusicToggle();
+  music.setActive(true);   // music plays in the game menu (starts on first interaction)
   refreshFreeze();
   updateQrVisibility();
 }
@@ -509,6 +512,7 @@ function openModeSelect() {
   menuOpen = true;
   hideAllMenus();
   if (modeSelectEl) modeSelectEl.hidden = false;
+  music.setActive(true);
 }
 // Show the CAR & MAP screen for the CURRENT mode. Rebuilds the tiles and restores the
 // highlight for whatever is still selected — so returning here mid-session (EXIT TO MENU)
@@ -519,6 +523,7 @@ function openCarMapSelect() {
   menuOpen = true;
   hideAllMenus();
   if (carMapSelectEl) carMapSelectEl.hidden = false;
+  music.setActive(true);
   buildCarTiles();
   buildMapTiles();
   buildModeOptions();
@@ -540,6 +545,7 @@ function chooseMode(mode: RaceMode) {
 function closeMenusIntoGame() {
   menuOpen = false;
   hideAllMenus();
+  music.setActive(true);   // keep the music going in-game
   refreshFreeze();
   updateQrVisibility();   // QR/join panel appears now a map is live
 }
@@ -1198,9 +1204,14 @@ function renderGameMenuAccount(s: AuthState) {
   }
 }
 
-// ---- Music preference (the toggle is wired now; the audio itself comes later). ----
+// ---- Background music (host only) — a shuffled synthwave playlist that plays in
+// the menu + in-game but never on the marketing landing, and only after the first
+// user interaction (autoplay policy). The OPTIONS toggle mutes/persists it. ----
+const music = createMusicPlayer();
 const MUSIC_KEY = 'steerit.music';
-let musicOn = (() => { try { return localStorage.getItem(MUSIC_KEY) === '1'; } catch { return false; } })();
+// Default ON (starts after the first interaction); OFF only if the host turned it off.
+let musicOn = (() => { try { return localStorage.getItem(MUSIC_KEY) !== '0'; } catch { return true; } })();
+music.setEnabled(musicOn);
 function renderMusicToggle() {
   const btn = document.getElementById('gm-music');
   if (!btn) return;
@@ -1211,6 +1222,7 @@ function renderMusicToggle() {
 function toggleMusic() {
   musicOn = !musicOn;
   try { localStorage.setItem(MUSIC_KEY, musicOn ? '1' : '0'); } catch { /* ignore */ }
+  music.setEnabled(musicOn);
   renderMusicToggle();
 }
 
