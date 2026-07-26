@@ -44,7 +44,7 @@ import {
 import { inject } from '@vercel/analytics';
 import {
   initAuth, onAuthChange, getAuthState, signIn, signUp, signOut,
-  sendPasswordReset, updatePassword, checkEntitlement, type AuthState,
+  sendPasswordReset, updatePassword, checkEntitlement, getAccessToken, type AuthState,
 } from './auth';
 
 // Vercel Web Analytics — framework-agnostic vanilla init (NOT the React
@@ -113,6 +113,7 @@ const editorStatusEl = document.getElementById('editor-status')  as HTMLDivEleme
 const editorHintEl   = document.getElementById('editor-hint')    as HTMLDivElement | null;
 const mainMenuEl     = document.getElementById('main-menu')       as HTMLElement | null;
 const gameMenuEl     = document.getElementById('game-menu')       as HTMLElement | null;
+const optionsModalEl = document.getElementById('options-modal')   as HTMLElement | null;
 const heroCanvasEl   = document.getElementById('page-car')        as HTMLCanvasElement | null;
 const modeSelectEl   = document.getElementById('mode-select')     as HTMLElement | null;
 const carMapSelectEl = document.getElementById('car-map-select')  as HTMLElement | null;
@@ -324,6 +325,9 @@ window.addEventListener('keydown', (e) => {
   }
   if (e.key === 'p' || e.key === 'P' || e.key === 'Escape') {
     if (e.key === 'Escape') e.preventDefault();   // just toggle the menu, nothing else
+    // Options is an overlay above the pause menu — Esc/P closes it first (a natural
+    // "back") rather than unpausing underneath it.
+    if (optionsModalEl && !optionsModalEl.hidden) { closeOptions(); return; }
     if (!editorMode) { userPaused = !userPaused; refreshFreeze(); }  // no-op in the editor
   }
   if (e.key === 'e' || e.key === 'E') {
@@ -485,13 +489,23 @@ function openMainMenu() {
 // The GAME MENU — for a logged-IN host (PLAY / OPTIONS / LEADERBOARDS). The
 // marketing landing is only for converting logged-out visitors, so a signed-in
 // host never sees it.
-type GameMenuView = 'home' | 'options' | 'leaderboards';
+type GameMenuView = 'home' | 'leaderboards';
 function setGameMenuView(view: GameMenuView) {
   if (!gameMenuEl) return;
   for (const v of gameMenuEl.querySelectorAll<HTMLElement>('.gm-view')) {
     v.hidden = v.dataset.view !== view;
   }
 }
+// OPTIONS is ONE shared overlay panel (account · music · controls), opened from
+// BOTH the main/game menu AND the pause menu, so they stay identical + in sync.
+// It sits above everything; closing reveals whatever screen is underneath, and
+// changes (e.g. muting) take effect immediately (the music player is global).
+function openOptions() {
+  renderGameMenuAccount(getAuthState());
+  renderMusicToggle();
+  if (optionsModalEl) optionsModalEl.hidden = false;
+}
+function closeOptions() { if (optionsModalEl) optionsModalEl.hidden = true; }
 function openGameMenu() {
   menuOpen = true;
   hideAllMenus();
@@ -1077,14 +1091,15 @@ document.getElementById('btn-mode-back')?.addEventListener('click', goHome);
 document.getElementById('gm-play')?.addEventListener('click', () => {
   requireHostScreen(() => { goFullscreen(); openModeSelect(); });   // same PLAY flow as START RACE
 });
-document.getElementById('gm-options')?.addEventListener('click', () => {
-  renderGameMenuAccount(getAuthState()); renderMusicToggle(); setGameMenuView('options');
-});
+document.getElementById('gm-options')?.addEventListener('click', openOptions);
+document.getElementById('btn-pause-options')?.addEventListener('click', openOptions);
+document.getElementById('opt-close')?.addEventListener('click', closeOptions);
+document.getElementById('opt-back')?.addEventListener('click', closeOptions);
+optionsModalEl?.addEventListener('click', (e) => { if (e.target === optionsModalEl) closeOptions(); });
 document.getElementById('gm-leaderboards')?.addEventListener('click', () => setGameMenuView('leaderboards'));
-document.getElementById('gm-options-back')?.addEventListener('click', () => setGameMenuView('home'));
 document.getElementById('gm-lb-back')?.addEventListener('click', () => setGameMenuView('home'));
 document.getElementById('gm-music')?.addEventListener('click', toggleMusic);
-document.getElementById('gm-logout')?.addEventListener('click', () => { void signOut(); });
+document.getElementById('gm-logout')?.addEventListener('click', () => { closeOptions(); void signOut(); });
 document.getElementById('btn-cms-back')?.addEventListener('click', openModeSelect);
 cmsStartBtn?.addEventListener('click', launchSelected);
 
@@ -1240,14 +1255,14 @@ function openUpsell(kind: 'map' | 'mode' | 'generic', id?: string) {
 
   const s = getAuthState();
   if (leadEl) leadEl.textContent = s.user
-    ? "You're signed in! Premium purchasing arrives soon — here's what it unlocks:"
+    ? "You're signed in — unlock everything below with a one-time purchase:"
     : "That's a premium track. Here's everything premium adds:";
   if (primary && secondary) {
     if (!s.user) {
       primary.textContent = 'CREATE ACCOUNT'; primary.dataset.act = 'signup';
       secondary.textContent = 'LOG IN';       secondary.dataset.act = 'login'; secondary.hidden = false;
     } else {
-      primary.textContent = 'GOT IT'; primary.dataset.act = 'close';
+      primary.textContent = 'GET PREMIUM · $6.90'; primary.dataset.act = 'buy';
       secondary.hidden = true;
     }
   }
@@ -1255,18 +1270,62 @@ function openUpsell(kind: 'map' | 'mode' | 'generic', id?: string) {
 }
 function closeUpsell() { if (upsellEl) upsellEl.hidden = true; }
 
-// ---- Premium purchase intent (the pricing section's "Get Premium" CTA). ----
-// Stripe isn't wired yet, so this leads toward the account/purchase flow:
-//   • logged OUT       → sign up (an account is the prerequisite to buy)
-//   • logged in, FREE  → the upsell's "purchasing coming soon" state
-//   • already PREMIUM   → the account panel
-// SEAM: when Stripe lands, the `s.user && !s.isPremium` branch becomes the
-// redirect to Checkout — nothing else here needs to change.
+// ---- Premium purchase (Stripe Checkout) ----
+//   • already PREMIUM  → the account panel (nothing to buy)
+//   • logged OUT       → sign up first (a payment must tie to an account)
+//   • logged in, FREE  → create a Checkout Session server-side + redirect to Stripe
 function startPremiumPurchase() {
   const s = getAuthState();
   if (s.isPremium) { openAuthModal('account'); return; }
-  if (s.user) { openUpsell('generic'); return; }
-  authMode = 'signup'; openAuthModal('form');
+  if (!s.user) { authMode = 'signup'; openAuthModal('form'); return; }
+  void beginCheckout();
+}
+let checkoutStarting = false;
+async function beginCheckout() {
+  if (checkoutStarting) return;
+  checkoutStarting = true;
+  try {
+    const token = await getAccessToken();
+    if (!token) { authMode = 'login'; openAuthModal('form'); return; }
+    const r = await fetch('/api/create-checkout-session', { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+    if (r.status === 401) { authMode = 'login'; openAuthModal('form'); return; }
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok || !data.url) { showToast("Couldn't start checkout — please try again.", true); return; }
+    window.location.href = data.url;   // → Stripe hosted checkout
+  } catch { showToast("Couldn't start checkout — please try again.", true); }
+  finally { checkoutStarting = false; }
+}
+
+// On return from Stripe: the FALLBACK for a missed/late webhook. Confirms the
+// session is paid + belongs to this user (server retrieves it from Stripe) and
+// upgrades if needed, then re-reads the entitlement so the UI flips to PREMIUM.
+async function handleCheckoutReturn(s: AuthState) {
+  const params = new URLSearchParams(location.search);
+  const outcome = params.get('checkout');
+  if (!outcome) return;
+  const sessionId = params.get('session_id') || '';
+  history.replaceState(null, '', location.pathname + location.hash);   // clean the URL
+  if (outcome === 'cancel') { showToast('Checkout canceled — no charge made.'); return; }
+  if (outcome !== 'success') return;
+  const token = s.user ? await getAccessToken() : null;
+  if (token && /^cs_/.test(sessionId)) {
+    try { await fetch(`/api/verify-session?session_id=${encodeURIComponent(sessionId)}`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } }); }
+    catch { /* the webhook is the primary path; ignore a transient verify error */ }
+  }
+  await checkEntitlement();
+  showToast(getAuthState().isPremium ? '★ Premium unlocked — thanks for the support!' : 'Payment received — unlocking Premium…');
+}
+
+// Minimal on-brand toast (auto-dismiss). Created on demand; no markup needed.
+let toastTimer = 0;
+function showToast(text: string, isError = false) {
+  let el = document.getElementById('app-toast');
+  if (!el) { el = document.createElement('div'); el.id = 'app-toast'; document.body.appendChild(el); }
+  el.textContent = text;
+  el.classList.toggle('is-error', isError);
+  el.classList.add('show');
+  if (toastTimer) window.clearTimeout(toastTimer);
+  toastTimer = window.setTimeout(() => el?.classList.remove('show'), 5000);
 }
 
 // ---- Wire the controls ----
@@ -1334,7 +1393,7 @@ document.getElementById('recovery-form')?.addEventListener('submit', (e) => {
 document.getElementById('account-signout')?.addEventListener('click', () => {
   void signOut().then(closeAuthModal);
 });
-document.getElementById('account-upgrade')?.addEventListener('click', () => { closeAuthModal(); openUpsell('generic'); });
+document.getElementById('account-upgrade')?.addEventListener('click', () => { closeAuthModal(); startPremiumPurchase(); });
 
 document.getElementById('upsell-close')?.addEventListener('click', closeUpsell);
 upsellEl?.addEventListener('click', (e) => { if (e.target === upsellEl) closeUpsell(); });
@@ -1343,6 +1402,7 @@ const upsellAct = (btn: HTMLElement | null) => btn?.addEventListener('click', ()
   closeUpsell();
   if (act === 'signup') { authMode = 'signup'; openAuthModal('form'); }
   else if (act === 'login') { authMode = 'login'; openAuthModal('form'); }
+  else if (act === 'buy') { startPremiumPurchase(); }
   // 'close' → just closed above
 });
 upsellAct(document.getElementById('upsell-primary'));
@@ -1350,6 +1410,14 @@ upsellAct(document.getElementById('upsell-secondary'));
 
 initAuth();
 onAuthChange(renderAccount);
+// Handle a return from Stripe Checkout exactly once, after auth first resolves
+// (the fallback verify + entitlement refresh needs the restored session).
+let checkoutReturnHandled = false;
+onAuthChange((s) => {
+  if (checkoutReturnHandled || s.loading) return;
+  checkoutReturnHandled = true;
+  void handleCheckoutReturn(s);
+});
 // Manual entitlement check for the host to verify premium is recognised:
 // run `steerCheckEntitlement()` in the browser console → logs what the client
 // actually read from `profiles` and refreshes the FREE/PREMIUM chip.

@@ -269,39 +269,8 @@
         <div class="menu-foot">Host on a laptop, desktop <span class="dot">·</span> or tablet</div>
       </div>
 
-      <!-- OPTIONS -->
-      <div class="gm-view" data-view="options" hidden>
-        <div class="menu-card gm-card">
-          <div class="menu-title">OPTIONS</div>
-
-          <div class="gm-sec">
-            <div class="gm-sec-head">ACCOUNT</div>
-            <div class="gm-account">
-              <span class="gm-acc-email" id="gm-acc-email">—</span>
-              <span class="account-badge" id="gm-acc-badge">FREE</span>
-            </div>
-            <button type="button" class="menu-btn ghost gm-wide" id="gm-logout">LOG OUT</button>
-          </div>
-
-          <div class="gm-sec">
-            <div class="gm-row">
-              <span class="gm-sec-head">MUSIC</span>
-              <button type="button" class="gm-switch" id="gm-music" role="switch" aria-checked="false">
-                <span class="gm-switch-track"><span class="gm-switch-knob"></span></span>
-                <span class="gm-switch-txt">OFF</span>
-              </button>
-            </div>
-          </div>
-
-          <div class="gm-sec">
-            <div class="gm-sec-head">CONTROLS</div>
-            <div class="gm-note">Your phone is the wheel — tilt to steer, on-screen GAS / BRAKE / E-BRAKE.
-              Custom bindings &amp; sensitivity are coming soon.</div>
-          </div>
-
-          <button type="button" class="menu-btn ghost" id="gm-options-back">◄ BACK</button>
-        </div>
-      </div>
+      <!-- OPTIONS lives in its own overlay (#options-modal) so the MAIN MENU and
+           the PAUSE menu open the SAME panel — see below. -->
 
       <!-- LEADERBOARDS (placeholder) -->
       <div class="gm-view" data-view="leaderboards" hidden>
@@ -314,6 +283,45 @@
           </div>
           <button type="button" class="menu-btn ghost" id="gm-lb-back">◄ BACK</button>
         </div>
+      </div>
+    </div>
+
+    <!-- ===== OPTIONS — ONE shared panel (account · music · controls), opened as
+         an overlay from BOTH the game menu's OPTIONS button AND the pause menu's
+         OPTIONS button, so they stay identical and in sync. Sits above every menu
+         screen + the pause overlay (.modal-overlay z 200); closing reveals whatever
+         is underneath. Changes (e.g. muting music) take effect immediately. ===== -->
+    <div id="options-modal" class="modal-overlay" hidden>
+      <div class="menu-card gm-card">
+        <button type="button" class="auth-x" id="opt-close" aria-label="Close">×</button>
+        <div class="menu-title">OPTIONS</div>
+
+        <div class="gm-sec">
+          <div class="gm-sec-head">ACCOUNT</div>
+          <div class="gm-account">
+            <span class="gm-acc-email" id="gm-acc-email">—</span>
+            <span class="account-badge" id="gm-acc-badge">FREE</span>
+          </div>
+          <button type="button" class="menu-btn ghost gm-wide" id="gm-logout">LOG OUT</button>
+        </div>
+
+        <div class="gm-sec">
+          <div class="gm-row">
+            <span class="gm-sec-head">MUSIC</span>
+            <button type="button" class="gm-switch" id="gm-music" role="switch" aria-checked="false">
+              <span class="gm-switch-track"><span class="gm-switch-knob"></span></span>
+              <span class="gm-switch-txt">OFF</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="gm-sec">
+          <div class="gm-sec-head">CONTROLS</div>
+          <div class="gm-note">Your phone is the wheel — tilt to steer, on-screen GAS / BRAKE / E-BRAKE.
+            Custom bindings &amp; sensitivity are coming soon.</div>
+        </div>
+
+        <button type="button" class="menu-btn ghost gm-wide" id="opt-back">◄ BACK</button>
       </div>
     </div>
 
@@ -590,6 +598,7 @@
         <div id="pause-title">PAUSED</div>
         <div class="menu-actions">
           <button type="button" class="menu-btn primary" id="btn-resume">RESUME</button>
+          <button type="button" class="menu-btn sub" id="btn-pause-options">OPTIONS</button>
           <button type="button" class="menu-btn alt" id="btn-restart">RESTART</button>
           <button type="button" class="menu-btn ghost" id="btn-exit-menu">EXIT TO MENU</button>
         </div>

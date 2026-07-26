@@ -107,6 +107,14 @@ function toUser(u: { id: string; email?: string } | null | undefined): AuthUser 
   return u ? { id: u.id, email: u.email ?? '' } : null;
 }
 
+// The current session's access token (Supabase JWT) — sent as a Bearer to our own
+// serverless endpoints (Stripe checkout / verify) so they can authenticate the
+// host server-side. null if logged out.
+export async function getAccessToken(): Promise<string | null> {
+  try { const { data } = await supabase.auth.getSession(); return data.session?.access_token ?? null; }
+  catch { return null; }
+}
+
 // Wire the auth lifecycle. Supabase fires INITIAL_SESSION on load (restored
 // session), SIGNED_IN / SIGNED_OUT / USER_UPDATED / TOKEN_REFRESHED, and
 // PASSWORD_RECOVERY when the host follows a reset link back to the site.
