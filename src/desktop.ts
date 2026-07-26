@@ -419,6 +419,10 @@ const FREE_MODE_KEYS = ['free'];
 const isPremium = () => getAuthState().isPremium;
 const isMapLocked  = (id: string)  => !isPremium() && !FREE_MAP_IDS.includes(id);
 const isModeLocked = (key: string) => !isPremium() && !FREE_MODE_KEYS.includes(key);
+// SIM (Blitz RS) is PREMIUM; ARCADE (Stee-Rex) is free for everyone. Same
+// server-truth is_premium gate as the maps/modes above (as advertised in the
+// Free-vs-Premium table). Enforced at mode selection AND at launch (below).
+const isSimLocked = () => !isPremium();
 
 function hideAllMenus() {
   heroDrift?.setActive(false);   // the hero animation only runs on the landing screen
@@ -522,10 +526,22 @@ function openGameMenu() {
 function goHome() {
   if (getAuthState().user) openGameMenu(); else openMainMenu();
 }
+// SIM (Blitz RS) is premium-only — reflect the lock on its mode button (the 🔒
+// badge + dimmed style) for a free host, exactly like the locked map/mode tiles.
+// Clicking it still fires chooseMode('sim'), which pitches premium (see below).
+function refreshModeLock() {
+  const simBtn = document.getElementById('btn-mode-sim');
+  if (!simBtn) return;
+  const locked = isSimLocked();
+  simBtn.classList.toggle('is-locked', locked);
+  simBtn.querySelector('.lock-badge')?.remove();   // avoid duplicates on refresh
+  if (locked) simBtn.appendChild(lockBadge());
+}
 function openModeSelect() {
   menuOpen = true;
   hideAllMenus();
   if (modeSelectEl) modeSelectEl.hidden = false;
+  refreshModeLock();       // SIM shows the 🔒 for a free host, unlocked for premium
   music.setActive(true);
 }
 // Show the CAR & MAP screen for the CURRENT mode. Rebuilds the tiles and restores the
@@ -549,6 +565,10 @@ function openCarMapSelect() {
 // Choosing the mode fixes the branch + car family, then opens the CAR & MAP screen.
 // A FRESH mode choice clears the previous car/map/game-mode pick (a new selection).
 function chooseMode(mode: RaceMode) {
+  // SIM (Blitz RS) is premium-only — a free host gets the positive premium upsell
+  // instead of the mode. Defense in depth: even a click on the locked SIM button is
+  // refused here (the upsell → GET PREMIUM · $6.90 → the same checkout flow).
+  if (mode === 'sim' && isSimLocked()) { openUpsell('generic'); return; }
   raceMode = mode;
   renderQr();             // the join URL carries the mode → phones paint the right colours
   selectedMapId = null;
@@ -571,8 +591,11 @@ function updateStartEnabled() {
 // START: commit the mode to every car, load the map (respawns cars), enter play.
 function launchSelected() {
   if (!selectedMapId) return;
-  // Entitlement gate (defense-in-depth on top of the locked tiles): never launch a
-  // premium map/mode for a non-premium host — pitch premium instead.
+  // Entitlement gate (defense-in-depth on top of the locked tiles): never launch
+  // premium content for a non-premium host — pitch premium instead. This is the
+  // real "can't bypass the UI" enforcement: even if raceMode were forced to 'sim',
+  // START refuses it for a free host. isPremium() is server truth (RLS-protected).
+  if (raceMode === 'sim' && isSimLocked()) { openUpsell('generic'); return; }
   if (isMapLocked(selectedMapId)) { openUpsell('map', selectedMapId); return; }
   if (isModeLocked(selectedGameMode)) { openUpsell('mode', selectedGameMode); return; }
   goFullscreen();         // gameplay starts — fill the host screen (gesture)
@@ -1190,14 +1213,22 @@ function renderAccount(s: AuthState) {
   // Arrived via a password-reset link → jump straight to the set-new-password form.
   if (s.recovery && authModalEl) openAuthModal('recovery');
 
+  // Keep the SIM mode button's lock badge current whenever the plan changes.
+  refreshModeLock();
   // Re-gate the CAR & MAP screen when the plan changes (unlock/lock tiles). If a
-  // now-locked item was selected (e.g. logged out), fall back to a free choice.
+  // now-locked item was selected (e.g. logged out), fall back to a free choice; a
+  // now-locked SIM car family bounces the host back to the mode screen (which shows
+  // SIM locked) rather than leaving them on a screen that can't START.
   if (carMapSelectEl && !carMapSelectEl.hidden) {
-    if (selectedMapId && isMapLocked(selectedMapId)) selectedMapId = null;
-    if (isModeLocked(selectedGameMode)) selectedGameMode = DEFAULT_GAME_MODE;
-    buildMapTiles();
-    buildModeOptions();
-    refreshSelectionUi();
+    if (raceMode === 'sim' && isSimLocked()) {
+      openModeSelect();
+    } else {
+      if (selectedMapId && isMapLocked(selectedMapId)) selectedMapId = null;
+      if (isModeLocked(selectedGameMode)) selectedGameMode = DEFAULT_GAME_MODE;
+      buildMapTiles();
+      buildModeOptions();
+      refreshSelectionUi();
+    }
   }
 
   // The game menu's own account panel (OPTIONS) mirrors the same state.

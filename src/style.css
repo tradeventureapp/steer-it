@@ -403,9 +403,10 @@ body.desktop #game { display: block; width: 100vw; height: 100vh; }
 .upsell-actions .menu-btn { width: 100%; }
 
 /* ===== LOCK badge on gated map tiles + mode options ======================== */
-.map-tile.is-locked, .mode-opt.is-locked { position: relative; }
+.map-tile.is-locked, .mode-opt.is-locked, .mode-btn.is-locked { position: relative; }
 .map-tile.is-locked .map-thumb, .map-tile.is-locked .map-name { opacity: 0.62; }
 .mode-opt.is-locked .mode-opt-name, .mode-opt.is-locked .mode-opt-desc { opacity: 0.72; }
+.mode-btn.is-locked .mode-name, .mode-btn.is-locked .mode-sub { opacity: 0.72; }
 .lock-badge {
   position: absolute; top: 8px; right: 8px; z-index: 3;
   font-size: 13px; line-height: 1; padding: 4px 6px; border-radius: 8px;
