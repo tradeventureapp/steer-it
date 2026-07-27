@@ -440,16 +440,39 @@ function hideAllMenus() {
 // across from one to the next as you scroll, behind all content. Runs ONLY while
 // the landing is on screen (the rAF is fully stopped otherwise, so it costs
 // nothing in-game or on the other screens). Purely client-side; no state, no net.
+const ESCORT_SECTION_NAMES = ['hero', 'how it works', 'free vs premium', 'roadmap'];
 const heroDrift = (() => {
   if (!heroCanvasEl || !mainMenuEl) return null;
   const heroEl = mainMenuEl.querySelector('.hero-wrap') as HTMLElement | null;
   const howEl = mainMenuEl.querySelector('.how') as HTMLElement | null;
+  const priceEl = mainMenuEl.querySelector('.pricing') as HTMLElement | null;
+  const roadEl = mainMenuEl.querySelector('.roadmap') as HTMLElement | null;
   const card = mainMenuEl.querySelector('.menu-card') as HTMLElement | null;
-  const sections = [heroEl, howEl].filter((e): e is HTMLElement => !!e);
+  // EVERY section below the hero gets its own loop slot (undrawn ones fall back to
+  // a calm default oval in page-escort). Order defines the section indices.
+  const sections = [heroEl, howEl, priceEl, roadEl].filter((e): e is HTMLElement => !!e);
   if (!sections.length) return null;
   return startPageEscort(heroCanvasEl, { scroller: mainMenuEl, sections, heroKeepOut: card, loops: [], skin: 'silver' });
 })();
 (window as unknown as { steerEscort?: unknown }).steerEscort = heroDrift;  // preview/editor hook
+
+// PATH EDITOR — author-only, gated behind the `#escort-edit` hash. Lets you draw
+// each section's loop visually (the car follows live); Export hands back the final
+// points. Never runs for a normal visitor. Also on window as steerEscortEdit().
+let escortEditor: { destroy(): void } | null = null;
+function toggleEscortEditor(on: boolean) {
+  if (on && !escortEditor && heroDrift) {
+    openMainMenu();   // the editor draws over the landing page
+    void import('./escort-editor').then((m) => {
+      if (!escortEditor && heroDrift && mainMenuEl) {
+        escortEditor = m.startEscortEditor(heroDrift, mainMenuEl, ESCORT_SECTION_NAMES);
+      }
+    });
+  } else if (!on && escortEditor) { escortEditor.destroy(); escortEditor = null; }
+}
+if (location.hash === '#escort-edit') toggleEscortEditor(true);
+window.addEventListener('hashchange', () => toggleEscortEditor(location.hash === '#escort-edit'));
+(window as unknown as { steerEscortEdit?: () => void }).steerEscortEdit = () => toggleEscortEditor(true);
 
 // ROADMAP draw-in — a one-shot reveal when the section scrolls into view. Pure
 // progressive enhancement: the section is fully visible by default (no JS / under

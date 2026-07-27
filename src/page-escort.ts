@@ -63,7 +63,8 @@ const LOOK = {
   carLenPx: GAME_CAR_PX,
   carLenPxSmall: GAME_CAR_PX * 0.8,
   cruise: GAME_CRUISE_PX,
-  travelHurry: 2.2,        // speed × while drifting ACROSS to another section's loop
+  travelHurry: 1.3,        // gentle speed × while drifting ACROSS to another section's loop
+                           // (was 2.2 — too fast; the calm cruise is the same everywhere now)
   vRef: 70,
   omegaMax: 3.1,
   steerRange: 1.0,
@@ -154,8 +155,14 @@ export function startPageEscort(
   const smokeMax = small ? SMOKE_MAX_SMALL : SMOKE_MAX;
   let effects = !reduced;
 
-  // Editable loops for sections 1+ (index k ↔ section k+1).
-  let loopsWP: Waypoint[][] = opts.loops.length ? opts.loops.map((l) => l.slice()) : DEFAULT_LOOPS.map((l) => l.slice());
+  // Editable loops for sections 1+ (index k ↔ section k+1). ALWAYS one slot per
+  // non-hero section — pad with empty loops so EVERY section has a route (an empty
+  // slot falls back to a synthesized default oval, below, so the car never gets
+  // stuck lapping a far section's loop off-band = the old "races in free-vs-premium").
+  const NEED = Math.max(0, sections.length - 1);
+  let loopsWP: Waypoint[][] = (opts.loops.length ? opts.loops : DEFAULT_LOOPS).map((l) => l.slice());
+  while (loopsWP.length < NEED) loopsWP.push([]);
+  if (loopsWP.length > NEED) loopsWP = loopsWP.slice(0, NEED);
 
   let W = 0, H = 0, dpr = 1;
   let contentW = 1, contentH = 1;
@@ -234,9 +241,23 @@ export function startPageEscort(
     return polyToBuilt(poly);
   }
 
+  // A calm centred oval inset within a section's band — the fallback route for a
+  // section the author hasn't drawn yet, so the car always has somewhere to lap.
+  function buildDefaultOval(secIdx: number): BuiltLoop {
+    const b = bands[secIdx];
+    if (!b) return { poly: [], seg: [], len: 0 };
+    const cx = contentW / 2, cy = (b.top + b.bot) / 2;
+    const rw = contentW * 0.32, rh = Math.max(60, (b.bot - b.top) * 0.30);
+    const poly: Pt[] = [];
+    const N = 64;
+    for (let i = 0; i < N; i++) { const t = (i / N) * TAU; poly.push({ x: cx + rw * Math.cos(t), y: cy + rh * Math.sin(t) }); }
+    return polyToBuilt(poly);
+  }
+
   function rebuild() {
-    built = [buildHeroLoop(), ...loopsWP.map(buildSpline)];
+    // bands FIRST — the default oval needs each section's band.
     bands = sections.map((el) => ({ top: el.offsetTop, bot: el.offsetTop + el.offsetHeight }));
+    built = [buildHeroLoop(), ...loopsWP.map((wp, k) => (wp.length >= 3 ? buildSpline(wp) : buildDefaultOval(k + 1)))];
     heroCardRect = opts.heroKeepOut ? contentRectOf(opts.heroKeepOut) : null;
   }
 
