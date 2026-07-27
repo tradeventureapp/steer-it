@@ -118,6 +118,7 @@ const editorHintEl   = document.getElementById('editor-hint')    as HTMLDivEleme
 const mainMenuEl     = document.getElementById('main-menu')       as HTMLElement | null;
 const gameMenuEl     = document.getElementById('game-menu')       as HTMLElement | null;
 const optionsModalEl = document.getElementById('options-modal')   as HTMLElement | null;
+const premiumPromoEl = document.getElementById('premium-promo')    as HTMLElement | null;
 const heroCanvasEl   = document.getElementById('page-car')        as HTMLCanvasElement | null;
 const modeSelectEl   = document.getElementById('mode-select')     as HTMLElement | null;
 const carMapSelectEl = document.getElementById('car-map-select')  as HTMLElement | null;
@@ -332,7 +333,10 @@ window.addEventListener('keydown', (e) => {
     // Options is an overlay above the pause menu — Esc/P closes it first (a natural
     // "back") rather than unpausing underneath it.
     if (optionsModalEl && !optionsModalEl.hidden) { closeOptions(); return; }
-    if (!editorMode) { userPaused = !userPaused; refreshFreeze(); }  // no-op in the editor
+    if (!editorMode) {
+      userPaused = !userPaused; refreshFreeze();   // no-op in the editor
+      if (userPaused) maybeShowPremiumPromo();      // promo on PAUSE (free/anon, capped)
+    }
   }
   if (e.key === 'e' || e.key === 'E') {
     editorMode = !editorMode;
@@ -639,6 +643,9 @@ function launchSelected() {
   switchMap(selectedMapId);   // load the map + respawn any connected cars (resets to free-roam)
   applySelectedGameMode();    // then commit RACE (laps) / XP on top of the free-roam default
   closeMenusIntoGame();
+  // Promo AFTER START (free/anon, capped). The backdrop is see-through + it's
+  // dismissible, so it never blocks the QR/joining — see the promo styling.
+  maybeShowPremiumPromo();
 }
 // Translate the chosen GameMode onto the loaded map. FREE RIDE keeps switchMap's
 // default (the desktop's editor / a circuit's free-roam cruise — no rules, no
@@ -1401,6 +1408,12 @@ function renderAccount(s: AuthState) {
 // The game-menu account UI (email/username + FREE/PREMIUM) + the prominent
 // upgrade CTA, shown to a FREE host and hidden once premium.
 function renderGameMenuAccount(s: AuthState) {
+  // The whole ACCOUNT section (email, nickname, Log Out, upgrade) is gated on
+  // LOGIN STATE, not plan. Anonymous "Try Free" users have no account → hide it;
+  // a logged-in FREE user is still logged in → they see it (nickname + Log Out +
+  // the GET PREMIUM upsell). Logged-in PREMIUM: nickname + Log Out, no upsell.
+  const accSec = document.getElementById('gm-account-sec');
+  if (accSec) accSec.hidden = !s.user;
   const emailEl = document.getElementById('gm-acc-email');
   const badge = document.getElementById('gm-acc-badge');
   const email = s.user?.email || '';
@@ -1491,6 +1504,46 @@ function startPremiumPurchase() {
   setBuyIntent(false);
   void beginCheckout();
 }
+
+// ---- Interstitial premium promo (FREE / anonymous only) ----------------------
+// A bold, animated "buy premium" pop-up shown at natural breaks: after START, on
+// PAUSE, and when a game ENDS. Rules:
+//   • PREMIUM users NEVER see it (gated on is_premium).
+//   • GLOBAL cap: at most one every 3 minutes across all three trigger points.
+//   • NEVER mid-drive — it's only ever fired from those non-driving moments.
+//   • The X (dismiss) appears after ~5 s; before that it can't be closed.
+//   • The CTA goes straight to the purchase flow (startPremiumPurchase): logged in
+//     → Stripe checkout; logged out → signup first, buy-intent preserved → checkout.
+const PROMO_COOLDOWN_MS = 3 * 60 * 1000;   // one promo per 3 min, across all triggers
+const PROMO_CLOSE_DELAY_MS = 5000;         // X appears after ~5 s
+let promoLastAt = -Infinity;
+let promoCloseTimer = 0;
+function maybeShowPremiumPromo(): void {
+  if (!premiumPromoEl) return;
+  if (getAuthState().isPremium) return;                       // premium: never
+  if (!premiumPromoEl.hidden) return;                          // already showing
+  const now = performance.now();
+  if (now - promoLastAt < PROMO_COOLDOWN_MS) return;           // 3-min global cap
+  promoLastAt = now;
+  const x = document.getElementById('promo-close');
+  if (x) x.hidden = true;                                      // no dismiss for the first 5 s
+  premiumPromoEl.hidden = false;
+  window.clearTimeout(promoCloseTimer);
+  promoCloseTimer = window.setTimeout(() => {
+    if (premiumPromoEl && !premiumPromoEl.hidden && x) x.hidden = false;
+  }, PROMO_CLOSE_DELAY_MS);
+}
+function closePremiumPromo(): void {
+  window.clearTimeout(promoCloseTimer);
+  if (premiumPromoEl) premiumPromoEl.hidden = true;
+}
+document.getElementById('promo-cta')?.addEventListener('click', () => { closePremiumPromo(); startPremiumPurchase(); });
+document.getElementById('promo-close')?.addEventListener('click', closePremiumPromo);
+// Backdrop click closes it ONLY once the X is available (i.e. after the 5 s window).
+premiumPromoEl?.addEventListener('click', (e) => {
+  const x = document.getElementById('promo-close');
+  if (e.target === premiumPromoEl && x && !x.hidden) closePremiumPromo();
+});
 
 // A short-lived "I want to buy Premium" flag that survives a login/signup detour
 // (incl. the email-verification page reload) so the purchase resumes automatically.
@@ -2502,6 +2555,7 @@ function openRaceResults(now: number) {
       `<span>${e.dnf ? 'DNF' : formatRaceTime(e.finishMs)}</span></div>`).join('');
   }
   if (raceResultsEl) raceResultsEl.hidden = false;
+  maybeShowPremiumPromo();   // promo on game END (free/anon, capped) — over the podium
 }
 
 // ---------- XP MODE (circuit maps) — a third mode beside LAPS ----------
@@ -2556,6 +2610,7 @@ function handleXpEnd() {
   if (xpEndScoreEl)  xpEndScoreEl.textContent = formatXp(score);
   if (xpEndBestEl)   xpEndBestEl.textContent  = `BEST ${formatXp(xpBest)}`;
   if (xpEndEl) xpEndEl.hidden = false;
+  maybeShowPremiumPromo();   // promo on game END (XP run over) — free/anon, capped
 }
 
 function rebuildRace() {

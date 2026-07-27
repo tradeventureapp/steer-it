@@ -615,6 +615,76 @@ body.desktop #game { display: block; width: 100vw; height: 100vh; }
   .pay-spinner { animation-duration: 1.4s; }
 }
 
+/* ===== INTERSTITIAL premium promo — bold + animated, NO flashing/strobing ===== */
+#premium-promo {
+  position: fixed; inset: 0; z-index: 500;   /* above pause / results / options */
+  display: flex; align-items: center; justify-content: center;
+  /* semi-transparent backdrop → the game + QR stay visible behind (never blocked). */
+  background: radial-gradient(120% 90% at 50% 28%, rgba(255, 45, 149, 0.20), transparent 60%),
+    rgba(5, 3, 13, 0.58); backdrop-filter: blur(3px);
+  animation: promoFade 0.35s ease-out;
+}
+#premium-promo[hidden] { display: none; }   /* flex display would otherwise override [hidden] */
+@keyframes promoFade { from { opacity: 0; } to { opacity: 1; } }
+.promo-card {
+  position: relative; text-align: center;
+  width: min(460px, 92vw); padding: 34px 40px 30px; border-radius: 22px;
+  border: 2px solid var(--gold);
+  background: radial-gradient(135% 90% at 50% 0%, rgba(255, 138, 61, 0.24), transparent 60%),
+    linear-gradient(180deg, var(--panel-top), var(--panel-bot));
+  box-shadow: 0 0 60px rgba(255, 45, 149, 0.45), 0 24px 80px rgba(0, 0, 0, 0.7);
+  animation: promoPop 0.42s cubic-bezier(.2, 1.2, .3, 1);
+}
+@keyframes promoPop { from { transform: scale(0.9) translateY(10px); opacity: 0; } to { transform: none; opacity: 1; } }
+/* Slow rotating gradient glow around the card — 7s cycle, motion not flashing. */
+.promo-card::before {
+  content: ''; position: absolute; inset: -2px; z-index: -1; border-radius: 22px;
+  background: conic-gradient(from 0deg, var(--gold), var(--pink), #7a1fff, var(--gold));
+  filter: blur(9px); opacity: 0.5; animation: promoSpin 7s linear infinite;
+}
+@keyframes promoSpin { to { transform: rotate(360deg); } }
+.promo-badge {
+  display: inline-block; font-family: var(--font-display); font-weight: 800; font-size: 12px;
+  letter-spacing: 3px; color: var(--ink); background: linear-gradient(180deg, #fff2b0, var(--gold));
+  padding: 5px 14px; border-radius: 999px; margin-bottom: 14px;
+}
+.promo-title {
+  font-family: var(--font-display); font-weight: 900; font-size: 29px; letter-spacing: 2.5px;
+  margin: 0 0 14px; color: #fff; text-shadow: 0 0 22px rgba(255, 45, 149, 0.7);
+}
+.promo-list { list-style: none; padding: 0; margin: 0 0 16px; display: flex; flex-direction: column; gap: 7px; }
+.promo-list li { font-family: var(--font-body); font-size: 14px; color: var(--text); }
+.promo-list li::before { content: '★ '; color: var(--gold); }
+.promo-price {
+  font-family: var(--font-display); font-weight: 900; font-size: 26px; color: var(--gold);
+  text-shadow: var(--glow-gold); margin-bottom: 16px;
+}
+.promo-price span { font-family: var(--font-body); font-size: 13px; color: var(--text-dim); font-weight: 400; letter-spacing: 1px; }
+.promo-cta {
+  appearance: none; cursor: pointer; width: 100%; border: none; color: #fff;
+  font-family: var(--font-display); font-weight: 800; font-size: 20px; letter-spacing: 4px;
+  padding: 18px 30px; border-radius: 14px; background: var(--grad-cta);
+  /* smooth ~0.77 Hz pulse (well under 3 Hz) — attention-grabbing, never a strobe. */
+  animation: promoPulse 1.3s ease-in-out infinite;
+}
+@keyframes promoPulse {
+  0%, 100% { transform: scale(1); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22), 0 10px 30px -6px rgba(255, 45, 143, 0.55); }
+  50%      { transform: scale(1.045); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.30), 0 14px 46px -6px rgba(255, 45, 143, 0.85), 0 0 32px rgba(255, 138, 61, 0.55); }
+}
+.promo-cta:hover { filter: brightness(1.08); }
+.promo-cta:active { transform: scale(0.99); }
+.promo-close {
+  position: absolute; top: 12px; right: 14px; z-index: 2;
+  appearance: none; cursor: pointer; width: 34px; height: 34px; border-radius: 50%;
+  background: rgba(8, 4, 18, 0.72); border: 1px solid var(--border-dim); color: var(--text-dim);
+  font-size: 20px; line-height: 1; animation: promoFade 0.3s ease-out;
+}
+.promo-close:hover { color: #fff; border-color: var(--gold); }
+@media (prefers-reduced-motion: reduce) {
+  #premium-promo, .promo-card, .promo-card::before, .promo-cta { animation: none; }
+  .promo-cta { transform: none; }
+}
+
 /* Ephemeral toast (checkout status, errors) — on-brand, non-blocking, auto-dismiss. */
 #app-toast {
   position: fixed; left: 50%; bottom: 26px; transform: translate(-50%, 20px);
@@ -635,6 +705,7 @@ body.desktop #game { display: block; width: 100vw; height: 100vh; }
   padding: 14px 16px; border-radius: 12px;
   border: 1px solid var(--border-dim); background: rgba(8, 4, 18, 0.4);
 }
+.gm-sec[hidden] { display: none; }   /* the flex display would otherwise override [hidden] */
 .gm-sec-head {
   font-family: var(--font-display); font-weight: 800; font-size: 11px; letter-spacing: 2.5px;
   text-transform: uppercase; color: var(--gold);

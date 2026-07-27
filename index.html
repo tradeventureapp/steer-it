@@ -307,7 +307,9 @@
         <button type="button" class="auth-x" id="opt-close" aria-label="Close">×</button>
         <div class="menu-title">OPTIONS</div>
 
-        <div class="gm-sec">
+        <!-- ACCOUNT section — shown ONLY when logged in (any plan). Anonymous
+             "Try Free" users have no account, so this whole block is hidden. -->
+        <div class="gm-sec" id="gm-account-sec">
           <div class="gm-sec-head">ACCOUNT</div>
           <div class="gm-account">
             <span class="gm-acc-email" id="gm-acc-email">—</span>
@@ -362,6 +364,26 @@
       <div class="pay-loading-card">
         <span class="pay-spinner" aria-hidden="true"></span>
         <span class="pay-loading-text">Redirecting to payment…</span>
+      </div>
+    </div>
+
+    <!-- INTERSTITIAL premium promo — FREE / anonymous only (premium never sees it),
+         shown after START / on PAUSE / on game END, capped once per 3 min. The X
+         appears after ~5 s (see desktop.ts). Bold + animated, NO flashing. -->
+    <div id="premium-promo" hidden>
+      <div class="promo-card">
+        <button type="button" class="promo-close" id="promo-close" aria-label="Close" hidden>×</button>
+        <div class="promo-badge">★ PREMIUM</div>
+        <h2 class="promo-title">UNLOCK THE FULL GAME</h2>
+        <ul class="promo-list">
+          <li>All maps</li>
+          <li>All modes</li>
+          <li>Simulation mode</li>
+          <li>Global leaderboards</li>
+          <li>No pop-up ads</li>
+        </ul>
+        <div class="promo-price">$6.90 <span>one-time</span></div>
+        <button type="button" class="promo-cta" id="promo-cta">GET PREMIUM ▸</button>
       </div>
     </div>
 
