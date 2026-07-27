@@ -510,6 +510,8 @@ function setGameMenuView(view: GameMenuView) {
 function openOptions() {
   renderGameMenuAccount(getAuthState());
   renderMusicToggle();
+  // Always open OPTIONS with the nickname editor collapsed (no stale state).
+  const nickEd = document.getElementById('gm-nick-editor'); if (nickEd) nickEd.hidden = true;
   if (optionsModalEl) optionsModalEl.hidden = false;
 }
 function closeOptions() { if (optionsModalEl) optionsModalEl.hidden = true; }
@@ -1229,6 +1231,53 @@ function nickReasonMsg(reason: string | null): string {
 }
 const signupNick = makeNickValidator('auth-nickname', 'nick-hint');
 const accountNick = makeNickValidator('account-nick-input', 'account-nick-hint');
+const gmNick = makeNickValidator('gm-nick-input', 'gm-nick-hint');   // the OPTIONS-modal editor
+
+// Shared wiring for a nickname CHANGE editor (the account panel + the OPTIONS
+// panel are identical): Change/Set toggles the editor, Cancel closes it, Save
+// runs changeNickname() and surfaces the server verdict (incl. the 30-day
+// cooldown). A first-time set from "not set" is allowed immediately server-side
+// (last_nickname_change is null → no cooldown).
+function wireNickEditor(opts: {
+  editId: string; editorId: string; inputId: string; cancelId: string; saveId: string;
+  validator: ReturnType<typeof makeNickValidator>;
+}) {
+  const editor = () => document.getElementById(opts.editorId);
+  document.getElementById(opts.editId)?.addEventListener('click', () => {
+    const ed = editor(); if (!ed) return;
+    const input = document.getElementById(opts.inputId) as HTMLInputElement | null;
+    if (input) input.value = getAuthState().nickname || '';
+    opts.validator.reset();
+    ed.hidden = false;
+    input?.focus();
+  });
+  document.getElementById(opts.cancelId)?.addEventListener('click', () => {
+    const ed = editor(); if (ed) ed.hidden = true;
+    opts.validator.reset();
+  });
+  document.getElementById(opts.saveId)?.addEventListener('click', () => {
+    const btn = document.getElementById(opts.saveId) as HTMLButtonElement | null;
+    const nick = opts.validator.value();
+    const fmt = nicknameFormatError(nick);
+    if (fmt) { opts.validator.setHint(fmt, 'err'); return; }
+    if (btn) btn.disabled = true;
+    opts.validator.setHint('Saving…', 'pending');
+    void changeNickname(nick).then((r) => {
+      if (btn) btn.disabled = false;
+      if (r.ok) {
+        opts.validator.setHint('✓ Nickname updated', 'ok');   // state.nickname updated → chip + panels re-render
+        window.setTimeout(() => { const ed = editor(); if (ed) ed.hidden = true; }, 900);
+        return;
+      }
+      if (r.reason === 'cooldown') {
+        const d = r.daysLeft ?? 30;
+        opts.validator.setHint(`You can change your nickname again in ${d} day${d === 1 ? '' : 's'}.`, 'err');
+      } else {
+        opts.validator.setHint(nickReasonMsg(r.reason ?? null), 'err');
+      }
+    });
+  });
+}
 
 // The account chip (menu) + the account panel reflect the live auth state.
 function renderAccount(s: AuthState) {
@@ -1252,6 +1301,8 @@ function renderAccount(s: AuthState) {
   if (emailEl) emailEl.textContent = email || '—';
   const nickEl = document.getElementById('account-nick');
   if (nickEl) nickEl.textContent = s.nickname || 'not set';
+  const nickEditBtn = document.getElementById('account-nick-edit');
+  if (nickEditBtn) nickEditBtn.textContent = s.nickname ? 'Change' : 'Set nickname';
   if (pill) { pill.textContent = s.isPremium ? 'PREMIUM' : 'FREE'; pill.classList.toggle('is-premium', s.isPremium); }
   if (note) note.textContent = s.isPremium
     ? 'All maps & modes · global leaderboards'
@@ -1310,6 +1361,13 @@ function renderGameMenuAccount(s: AuthState) {
     badge.textContent = s.isPremium ? 'PREMIUM' : 'FREE';
     badge.classList.toggle('is-premium', s.isPremium);
   }
+  // Nickname (display name) — read from the profile (AuthState.nickname). "not set"
+  // for legacy accounts; the button then reads "Set nickname" and the first set is
+  // allowed immediately (server-side: no cooldown when last_nickname_change is null).
+  const nickEl = document.getElementById('gm-nick');
+  if (nickEl) nickEl.textContent = s.nickname || 'not set';
+  const nickEdit = document.getElementById('gm-nick-edit');
+  if (nickEdit) nickEdit.textContent = s.nickname ? 'Change' : 'Set nickname';
   // The loud GET PREMIUM CTA (game-menu home) + the subtle PREMIUM status + the
   // OPTIONS upgrade button all follow FREE-vs-PREMIUM. In the game menu the user
   // is always logged in, so the split is purely on entitlement.
@@ -1602,42 +1660,14 @@ document.getElementById('account-signout')?.addEventListener('click', () => {
 });
 document.getElementById('account-upgrade')?.addEventListener('click', () => { closeAuthModal(); startPremiumPurchase(); });
 
-// ---- Account: change nickname (once every 30 days, enforced server-side) ----
-const nickEditorEl = () => document.getElementById('account-nick-editor');
-document.getElementById('account-nick-edit')?.addEventListener('click', () => {
-  const ed = nickEditorEl(); if (!ed) return;
-  const input = document.getElementById('account-nick-input') as HTMLInputElement | null;
-  if (input) input.value = getAuthState().nickname || '';
-  accountNick.reset();
-  ed.hidden = false;
-  input?.focus();
-});
-document.getElementById('account-nick-cancel')?.addEventListener('click', () => {
-  const ed = nickEditorEl(); if (ed) ed.hidden = true;
-  accountNick.reset();
-});
-document.getElementById('account-nick-save')?.addEventListener('click', () => {
-  const btn = document.getElementById('account-nick-save') as HTMLButtonElement | null;
-  const nick = accountNick.value();
-  const fmt = nicknameFormatError(nick);
-  if (fmt) { accountNick.setHint(fmt, 'err'); return; }
-  if (btn) btn.disabled = true;
-  accountNick.setHint('Saving…', 'pending');
-  void changeNickname(nick).then((r) => {
-    if (btn) btn.disabled = false;
-    if (r.ok) {
-      accountNick.setHint('✓ Nickname updated', 'ok');   // state.nickname updated → chip re-renders
-      window.setTimeout(() => { const ed = nickEditorEl(); if (ed) ed.hidden = true; }, 900);
-      return;
-    }
-    if (r.reason === 'cooldown') {
-      const d = r.daysLeft ?? 30;
-      accountNick.setHint(`You can change your nickname again in ${d} day${d === 1 ? '' : 's'}.`, 'err');
-    } else {
-      accountNick.setHint(nickReasonMsg(r.reason ?? null), 'err');
-    }
-  });
-});
+// ---- Change-nickname editors: the auth-modal account panel AND the OPTIONS panel
+// (the logged-in host reaches account via OPTIONS, so it needs its own copy). ----
+wireNickEditor({ editId: 'account-nick-edit', editorId: 'account-nick-editor',
+  inputId: 'account-nick-input', cancelId: 'account-nick-cancel', saveId: 'account-nick-save',
+  validator: accountNick });
+wireNickEditor({ editId: 'gm-nick-edit', editorId: 'gm-nick-editor',
+  inputId: 'gm-nick-input', cancelId: 'gm-nick-cancel', saveId: 'gm-nick-save',
+  validator: gmNick });
 
 document.getElementById('upsell-close')?.addEventListener('click', closeUpsell);
 upsellEl?.addEventListener('click', (e) => { if (e.target === upsellEl) closeUpsell(); });

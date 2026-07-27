@@ -313,6 +313,20 @@
             <span class="gm-acc-email" id="gm-acc-email">—</span>
             <span class="account-badge" id="gm-acc-badge">FREE</span>
           </div>
+          <!-- Nickname (display name): shown here + changeable once / 30 days. A
+               first-time set from "not set" is allowed immediately. -->
+          <div class="account-nick">
+            <span>Nickname: <b id="gm-nick">—</b></span>
+            <button type="button" class="auth-link" id="gm-nick-edit">Change</button>
+          </div>
+          <div id="gm-nick-editor" hidden>
+            <input id="gm-nick-input" class="nick-input" type="text" placeholder="Nickname (3–20: A–Z, 0–9, _ -)" autocomplete="off" maxlength="20" />
+            <div id="gm-nick-hint" class="nick-hint"></div>
+            <div class="account-nick-actions">
+              <button type="button" class="menu-btn primary" id="gm-nick-save">SAVE NICKNAME</button>
+              <button type="button" class="auth-link" id="gm-nick-cancel">Cancel</button>
+            </div>
+          </div>
           <button type="button" class="gm-opt-upgrade gm-wide" id="gm-opt-upgrade" hidden>★ GET PREMIUM · $6.90</button>
           <button type="button" class="menu-btn ghost gm-wide" id="gm-logout">LOG OUT</button>
         </div>
