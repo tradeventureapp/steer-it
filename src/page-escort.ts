@@ -96,12 +96,17 @@ const HERO_SAMPLES = 240;
 // Editable loops for sections BELOW the hero. One entry per non-hero section —
 // here: HOW IT WORKS. Laid out visually in the preview editor (final points).
 const DEFAULT_LOOPS: Waypoint[][] = [
+  // HOW IT WORKS — laid out in the editor (author's final points).
   [
-    { xf: 0.441, yf: 0.579 }, { xf: 0.655, yf: 0.580 }, { xf: 0.789, yf: 0.598 },
-    { xf: 0.905, yf: 0.695 }, { xf: 0.499, yf: 0.779 }, { xf: 0.124, yf: 0.781 },
-    { xf: 0.115, yf: 0.898 }, { xf: 0.923, yf: 0.914 }, { xf: 0.849, yf: 0.800 },
-    { xf: 0.567, yf: 0.789 }, { xf: 0.109, yf: 0.746 }, { xf: 0.158, yf: 0.599 },
+    { xf: 0.486, yf: 0.324 }, { xf: 0.750, yf: 0.329 }, { xf: 0.853, yf: 0.380 },
+    { xf: 0.872, yf: 0.444 }, { xf: 0.796, yf: 0.480 }, { xf: 0.666, yf: 0.481 },
+    { xf: 0.352, yf: 0.472 }, { xf: 0.161, yf: 0.548 }, { xf: 0.205, yf: 0.591 },
+    { xf: 0.490, yf: 0.601 }, { xf: 0.749, yf: 0.594 }, { xf: 0.822, yf: 0.561 },
+    { xf: 0.574, yf: 0.476 }, { xf: 0.302, yf: 0.466 }, { xf: 0.198, yf: 0.427 },
+    { xf: 0.158, yf: 0.361 }, { xf: 0.270, yf: 0.330 }, { xf: 0.507, yf: 0.298 },
   ],
+  [],   // free vs premium — default oval until drawn
+  [],   // roadmap — default oval until drawn
 ];
 
 type Pt = { x: number; y: number };
@@ -229,7 +234,7 @@ export function startPageEscort(
     return polyToBuilt(poly);
   }
 
-  function buildSpline(wp: Waypoint[]): BuiltLoop {
+  function buildSpline(wp: Waypoint[], secIdx: number): BuiltLoop {
     const n = wp.length;
     if (n < 3) return { poly: [], seg: [], len: 0 };
     const p = wp.map((w) => ({ x: w.xf * contentW, y: w.yf * contentH }));
@@ -237,6 +242,23 @@ export function startPageEscort(
     for (let i = 0; i < n; i++) {
       const a = p[(i - 1 + n) % n], b = p[i], c = p[(i + 1) % n], d = p[(i + 2) % n];
       for (let j = 0; j < SUBDIV; j++) poly.push(catmull(a, b, c, d, j / SUBDIV));
+    }
+    // MOBILE containment: loops are authored against the DESKTOP layout, but on a
+    // phone the sections restack TALLER, so a loop that fit its section on desktop
+    // spills into the next one — and the car "drives across" into it. Squeeze the
+    // loop's vertical extent to fit its OWN section band (shape kept, only shrunk +
+    // re-centred). Desktop is untouched → the car laps exactly what was drawn.
+    const b = bands[secIdx];
+    if (small && b) {
+      let minY = Infinity, maxY = -Infinity;
+      for (const q of poly) { if (q.y < minY) minY = q.y; if (q.y > maxY) maxY = q.y; }
+      const inset = LOOK.carLenPxSmall * 0.7;
+      const bTop = b.top + inset, bBot = b.bot - inset;
+      if (maxY > minY && bBot > bTop) {
+        const sc = Math.min(1, (bBot - bTop) / (maxY - minY));   // shrink-to-fit only, never enlarge
+        const srcMid = (minY + maxY) / 2, dstMid = (bTop + bBot) / 2;
+        for (const q of poly) q.y = clamp(dstMid + (q.y - srcMid) * sc, bTop, bBot);
+      }
     }
     return polyToBuilt(poly);
   }
@@ -257,7 +279,7 @@ export function startPageEscort(
   function rebuild() {
     // bands FIRST — the default oval needs each section's band.
     bands = sections.map((el) => ({ top: el.offsetTop, bot: el.offsetTop + el.offsetHeight }));
-    built = [buildHeroLoop(), ...loopsWP.map((wp, k) => (wp.length >= 3 ? buildSpline(wp) : buildDefaultOval(k + 1)))];
+    built = [buildHeroLoop(), ...loopsWP.map((wp, k) => (wp.length >= 3 ? buildSpline(wp, k + 1) : buildDefaultOval(k + 1)))];
     heroCardRect = opts.heroKeepOut ? contentRectOf(opts.heroKeepOut) : null;
   }
 
