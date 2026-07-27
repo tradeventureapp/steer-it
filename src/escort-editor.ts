@@ -71,7 +71,7 @@ export function startEscortEditor(
   bDone.style.background = 'rgba(255,255,255,.08)';
   const help = document.createElement('span');
   help.style.cssText = 'opacity:.75;';
-  help.textContent = 'Click = add · drag = move · right-click = delete · hero locked';
+  help.textContent = 'Click = add · drag = move · right-click = delete · scroll / PgDn = next section · hero locked';
   bar.append(info, bExport, bClear, bDone, help);
   document.body.appendChild(bar);
 
@@ -150,6 +150,21 @@ export function startEscortEditor(
       e.preventDefault();
       loops[sel.li].splice(sel.pi, 1); sel = null; commit();
     } else if (e.key === 'Escape') { close(); }
+    // Keyboard scrolling — the overlay would otherwise trap it (so PageDown / arrows
+    // still move you down to the next section while editing).
+    else if (e.key === 'PageDown') { e.preventDefault(); scroller.scrollBy(0, scroller.clientHeight * 0.85); }
+    else if (e.key === 'PageUp') { e.preventDefault(); scroller.scrollBy(0, -scroller.clientHeight * 0.85); }
+    else if (e.key === 'ArrowDown') { e.preventDefault(); scroller.scrollBy(0, 90); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); scroller.scrollBy(0, -90); }
+    else if (e.key === 'Home') { e.preventDefault(); scroller.scrollTo(0, 0); }
+    else if (e.key === 'End') { e.preventDefault(); scroller.scrollTo(0, scroller.scrollHeight); }
+  }
+  // The overlay canvas sits over the whole page and would swallow the wheel, so
+  // forward it to the scroller — that's how you move DOWN to the next section while
+  // editing. (deltaMode 1 = lines → scale up to pixels.)
+  function onWheel(e: WheelEvent) {
+    e.preventDefault();
+    scroller.scrollTop += e.deltaY * (e.deltaMode === 1 ? 16 : 1);
   }
 
   function exportLoops() {
@@ -211,6 +226,7 @@ export function startEscortEditor(
   window.addEventListener('pointermove', onMove, { passive: true });
   window.addEventListener('pointerup', onUp);
   canvas.addEventListener('contextmenu', onContext);
+  canvas.addEventListener('wheel', onWheel, { passive: false });
   window.addEventListener('keydown', onKey);
 
   layout(); setInfo(); draw();
@@ -223,6 +239,7 @@ export function startEscortEditor(
     window.removeEventListener('pointermove', onMove);
     window.removeEventListener('pointerup', onUp);
     canvas.removeEventListener('contextmenu', onContext);
+    canvas.removeEventListener('wheel', onWheel);
     window.removeEventListener('keydown', onKey);
     canvas.remove(); bar.remove(); panel.remove();
   }
