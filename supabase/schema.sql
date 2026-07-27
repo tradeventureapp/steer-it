@@ -116,6 +116,119 @@ create policy "scores: premium insert own" on public.scores
     and exists (select 1 from public.profiles p where p.id = auth.uid() and p.is_premium)
   );
 
+-- =============================================================================
+--  NICKNAME (display name) — used in-game + on the leaderboard. Safe to re-run.
+--
+--  ALL rules are enforced in the DATABASE, not just the UI:
+--   • 3–20 chars, [A-Za-z0-9_-] only ......... CHECK constraint
+--   • UNIQUE, case-insensitive ............... unique index on lower(nickname)
+--   • basic profanity filter ................. nickname_reason() (server-side)
+--   • change only once / 30 days ............. set_nickname() reads/writes
+--                                              last_nickname_change atomically
+--  There is NO update RLS policy for nickname, so a client can NEVER write it
+--  directly: it is set by the signup trigger and changed only through the
+--  SECURITY DEFINER set_nickname() RPC — so uniqueness + the cooldown hold even
+--  against a hacked client or a race between two signups.
+-- =============================================================================
+
+alter table public.profiles add column if not exists nickname text;
+alter table public.profiles add column if not exists last_nickname_change timestamptz;
+
+-- Format: 3–20 letters / digits / underscore / hyphen. NULL = "not set yet"
+-- (existing rows, or a signup that somehow omitted it).
+alter table public.profiles drop constraint if exists profiles_nickname_format;
+alter table public.profiles add constraint profiles_nickname_format
+  check (nickname is null or nickname ~ '^[A-Za-z0-9_-]{3,20}$');
+
+-- Case-insensitive uniqueness. NULLs are distinct, so many rows may stay unset;
+-- this index is the RACE-PROOF guard — two signups can't both take "Viking".
+create unique index if not exists profiles_nickname_lower_key
+  on public.profiles (lower(nickname));
+
+-- Shared validation (trigger + both RPCs). Returns an error CODE
+-- ('format' | 'profane') or NULL when clean. Separators are stripped so
+-- "f-u-c-k" can't slip through; the list is deliberately small + root-based
+-- ("reasonable, not overzealous") — edit the alternation to tune it.
+create or replace function public.nickname_reason(p_nick text)
+returns text language plpgsql immutable set search_path = public as $$
+declare bare text;
+begin
+  if p_nick is null or p_nick !~ '^[A-Za-z0-9_-]{3,20}$' then return 'format'; end if;
+  bare := lower(regexp_replace(p_nick, '[_-]', '', 'g'));
+  if bare ~ '(fuck|shit|cunt|bitch|bastard|pussy|nigger|nigga|faggot|whore|rapist|molester|hitler|retard|asshole|arsehole|dumbass|jackass|pedophile|dildo|wanker|bollock|jizz|kkk)'
+    then return 'profane';
+  end if;
+  return null;
+end; $$;
+
+-- Recreate the signup trigger so it also claims the nickname (from the signup
+-- metadata). nickname_reason + the CHECK + the unique index all apply on INSERT,
+-- so a profane/invalid/taken nickname makes the whole signup fail (rolls back the
+-- auth user) — the client pre-checks, so this is the race/abuse backstop.
+create or replace function public.handle_new_user()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare nick text := nullif(new.raw_user_meta_data->>'nickname', '');
+begin
+  if nick is not null and public.nickname_reason(nick) is not null then
+    raise exception 'invalid nickname';
+  end if;
+  insert into public.profiles (id, email, nickname, last_nickname_change)
+    values (new.id, new.email, nick, case when nick is not null then now() else null end)
+    on conflict (id) do nothing;
+  return new;
+end; $$;
+
+-- Live availability + validity check for the UI (callable logged-out, for signup).
+-- Returns { ok, reason, available }; reason ∈ format|profane|taken|null.
+create or replace function public.check_nickname(p_nick text)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare r text := public.nickname_reason(p_nick); taken boolean;
+begin
+  if r is not null then
+    return jsonb_build_object('ok', false, 'reason', r, 'available', false);
+  end if;
+  select exists(
+    select 1 from public.profiles
+     where lower(nickname) = lower(p_nick)
+       and (auth.uid() is null or id <> auth.uid())
+  ) into taken;
+  return jsonb_build_object('ok', not taken,
+    'reason', case when taken then 'taken' else null end, 'available', not taken);
+end; $$;
+
+-- Change the caller's nickname, enforcing (server-side): validity, profanity, the
+-- 30-day cooldown, and case-insensitive uniqueness. Returns { ok, reason, days_left };
+-- reason ∈ auth|format|profane|cooldown|taken|null.
+create or replace function public.set_nickname(p_nick text)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare uid uuid := auth.uid(); r text; last timestamptz; days int;
+begin
+  if uid is null then return jsonb_build_object('ok', false, 'reason', 'auth'); end if;
+  r := public.nickname_reason(p_nick);
+  if r is not null then return jsonb_build_object('ok', false, 'reason', r); end if;
+  select last_nickname_change into last from public.profiles where id = uid;
+  if last is not null and now() - last < interval '30 days' then
+    days := ceil(extract(epoch from (last + interval '30 days' - now())) / 86400.0);
+    return jsonb_build_object('ok', false, 'reason', 'cooldown', 'days_left', days);
+  end if;
+  begin
+    update public.profiles set nickname = p_nick, last_nickname_change = now() where id = uid;
+  exception when unique_violation then
+    return jsonb_build_object('ok', false, 'reason', 'taken');
+  end;
+  return jsonb_build_object('ok', true, 'nickname', p_nick);
+end; $$;
+
+grant execute on function public.check_nickname(text) to anon, authenticated;
+grant execute on function public.set_nickname(text)   to authenticated;
+
+-- Public id → nickname map for the (future) leaderboard: exposes ONLY id +
+-- nickname (nickname is meant to be public), nothing else on profiles. The view
+-- runs with the owner's rights, so it is readable without a per-row RLS policy.
+create or replace view public.player_names as
+  select id, nickname from public.profiles;
+grant select on public.player_names to anon, authenticated;
+
 -- ---- ADMIN HELPERS (run manually to grant/revoke premium until Stripe lands) --
 -- Grant premium to an email (run as the service role in the SQL editor):
 --   update public.profiles set is_premium = true

@@ -449,6 +449,9 @@
           <p class="auth-sub" id="auth-sub">Only the host needs an account — players just scan the QR.</p>
           <form id="auth-form" autocomplete="on">
             <input id="auth-email" type="email" placeholder="Email" autocomplete="email" required />
+            <!-- SIGN UP only — the public display name; shown + required in signup mode. -->
+            <input id="auth-nickname" type="text" placeholder="Nickname (3–20: A–Z, 0–9, _ -)" autocomplete="off" maxlength="20" hidden />
+            <div id="nick-hint" class="nick-hint" hidden></div>
             <input id="auth-password" type="password" placeholder="Password" autocomplete="current-password" required minlength="6" />
             <!-- SIGN UP only — shown + required in signup mode (see applyAuthMode). -->
             <input id="auth-password2" type="password" placeholder="Confirm password" autocomplete="new-password" minlength="6" hidden />
@@ -484,6 +487,19 @@
         <section class="auth-sec" data-sec="account" hidden>
           <div class="auth-title">ACCOUNT</div>
           <div class="account-email" id="account-email">—</div>
+          <!-- Nickname (display name) — shown here + changeable once / 30 days. -->
+          <div class="account-nick">
+            <span>Nickname: <b id="account-nick">—</b></span>
+            <button type="button" class="auth-link" id="account-nick-edit">Change</button>
+          </div>
+          <div id="account-nick-editor" hidden>
+            <input id="account-nick-input" type="text" placeholder="New nickname" autocomplete="off" maxlength="20" />
+            <div id="account-nick-hint" class="nick-hint"></div>
+            <div class="account-nick-actions">
+              <button type="button" class="menu-btn primary" id="account-nick-save">SAVE NICKNAME</button>
+              <button type="button" class="auth-link" id="account-nick-cancel">Cancel</button>
+            </div>
+          </div>
           <div class="account-plan" id="account-plan">
             <span class="plan-pill" id="plan-pill">FREE</span>
             <span id="plan-note">Desktop &amp; Asphalt Oval · Free Ride</span>

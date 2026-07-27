@@ -44,8 +44,10 @@ import {
 import { inject } from '@vercel/analytics';
 import {
   initAuth, onAuthChange, getAuthState, signIn, signUp, signOut,
-  sendPasswordReset, updatePassword, checkEntitlement, getAccessToken, type AuthState,
+  sendPasswordReset, updatePassword, checkEntitlement, getAccessToken,
+  checkNickname, changeNickname, type AuthState,
 } from './auth';
+import { nicknameFormatError } from './nickname';
 
 // Vercel Web Analytics — framework-agnostic vanilla init (NOT the React
 // <Analytics/> component). Injects the tracking script for the desktop/host
@@ -1156,6 +1158,8 @@ function setAuthMsg(text: string, isError: boolean) {
 function openAuthModal(section: 'form' | 'forgot' | 'account' | 'recovery') {
   if (!authModalEl) return;
   if (section === 'form') applyAuthMode();
+  // Always open the account panel with the nickname editor collapsed (no stale state).
+  if (section === 'account') { const ed = document.getElementById('account-nick-editor'); if (ed) ed.hidden = true; }
   authSection(section);
   authModalEl.hidden = false;
 }
@@ -1178,7 +1182,53 @@ function applyAuthMode() {
   // Confirm-password field is SIGN UP only — shown + required there, hidden +
   // not-required (so it never blocks validation) on log in. Cleared on switch.
   if (pw2) { pw2.hidden = login; pw2.required = !login; if (login) pw2.value = ''; }
+  // Nickname field + its live-validation hint are SIGN UP only.
+  const nick = document.getElementById('auth-nickname') as HTMLInputElement | null;
+  const nickHint = document.getElementById('nick-hint');
+  if (nick) { nick.hidden = login; nick.required = !login; if (login) nick.value = ''; }
+  if (nickHint) { nickHint.hidden = login; if (login) { nickHint.textContent = ''; nickHint.className = 'nick-hint'; } }
 }
+
+// Live nickname validator shared by the SIGN UP field and the account CHANGE
+// field: instant local format check, then a debounced server check_nickname() for
+// availability + profanity (the authoritative verdict). `isValid()` is true only
+// when the last verdict was format-ok AND available AND clean — the submit/save
+// reads it (and re-checks authoritatively before committing).
+function makeNickValidator(inputId: string, hintId: string) {
+  let ok = false, timer = 0, seq = 0;
+  const setHint = (t: string, kind: '' | 'ok' | 'err' | 'pending') => {
+    const el = document.getElementById(hintId); if (!el) return;
+    el.textContent = t; el.className = 'nick-hint' + (kind ? ' is-' + kind : '');
+  };
+  const value = () => (document.getElementById(inputId) as HTMLInputElement | null)?.value.trim() || '';
+  const run = () => {
+    ok = false; window.clearTimeout(timer);
+    const v = value();
+    const fmt = nicknameFormatError(v);
+    if (fmt) { setHint(v ? fmt : '', v ? 'err' : ''); return; }
+    setHint('Checking availability…', 'pending');
+    const s = ++seq;
+    timer = window.setTimeout(() => { void checkNickname(v).then((r) => {
+      if (s !== seq) return;   // a newer keystroke superseded this check
+      if (r.ok && r.available) { ok = true; setHint('✓ Available', 'ok'); }
+      else setHint(nickReasonMsg(r.reason), 'err');
+    }); }, 450);
+  };
+  document.getElementById(inputId)?.addEventListener('input', run);
+  return {
+    isValid: () => ok, value, setHint,
+    reset: () => { ok = false; seq++; window.clearTimeout(timer); setHint('', ''); },
+  };
+}
+// Map a server nickname reason code to a clear user message.
+function nickReasonMsg(reason: string | null): string {
+  return reason === 'taken' ? 'That nickname is taken, try another.'
+    : reason === 'profane' ? 'Please choose a different nickname.'
+    : reason === 'format' ? 'Letters, numbers, _ and - only (3–20).'
+    : 'Could not check right now — try again.';
+}
+const signupNick = makeNickValidator('auth-nickname', 'nick-hint');
+const accountNick = makeNickValidator('account-nick-input', 'account-nick-hint');
 
 // The account chip (menu) + the account panel reflect the live auth state.
 function renderAccount(s: AuthState) {
@@ -1186,7 +1236,9 @@ function renderAccount(s: AuthState) {
   // Logged OUT → SIGN UP + LOG IN buttons; logged IN → the account chip.
   if (accountAuthEl) accountAuthEl.hidden = !!s.user;
   if (accountChip) accountChip.hidden = !s.user;
-  if (accountLabel) accountLabel.textContent = s.user ? (email.split('@')[0] || 'ACCOUNT') : 'ACCOUNT';
+  // Chip shows the NICKNAME (the public identity); falls back to the email local
+  // part for legacy accounts that have no nickname yet.
+  if (accountLabel) accountLabel.textContent = s.user ? (s.nickname || email.split('@')[0] || 'ACCOUNT') : 'ACCOUNT';
   if (accountBadge) {
     accountBadge.hidden = !s.user;
     accountBadge.textContent = s.isPremium ? 'PREMIUM' : 'FREE';
@@ -1198,6 +1250,8 @@ function renderAccount(s: AuthState) {
   const note = document.getElementById('plan-note');
   const upgrade = document.getElementById('account-upgrade') as HTMLButtonElement | null;
   if (emailEl) emailEl.textContent = email || '—';
+  const nickEl = document.getElementById('account-nick');
+  if (nickEl) nickEl.textContent = s.nickname || 'not set';
   if (pill) { pill.textContent = s.isPremium ? 'PREMIUM' : 'FREE'; pill.classList.toggle('is-premium', s.isPremium); }
   if (note) note.textContent = s.isPremium
     ? 'All maps & modes · global leaderboards'
@@ -1454,6 +1508,7 @@ document.getElementById('auth-close')?.addEventListener('click', closeAuthModal)
 authModalEl?.addEventListener('click', (e) => { if (e.target === authModalEl) closeAuthModal(); });
 document.getElementById('auth-toggle')?.addEventListener('click', () => {
   authMode = authMode === 'login' ? 'signup' : 'login'; applyAuthMode();
+  signupNick.reset();      // clear any stale nickname-availability hint on mode switch
   setAuthMsg('', false);   // drop any stale (e.g. "passwords don't match") message
 });
 // Live feedback: clear the mismatch error the moment the two signup passwords agree.
@@ -1471,7 +1526,7 @@ document.getElementById('auth-form')?.addEventListener('submit', (e) => {
   const email = (document.getElementById('auth-email') as HTMLInputElement).value.trim();
   const pw = (document.getElementById('auth-password') as HTMLInputElement).value;
   const submit = document.getElementById('auth-submit') as HTMLButtonElement;
-  // SIGN UP: the two passwords must match before we submit.
+  // SIGN UP: the two passwords must match + the nickname must be valid before we submit.
   if (authMode === 'signup') {
     const pw2El = document.getElementById('auth-password2') as HTMLInputElement | null;
     if (pw2El && pw !== pw2El.value) {
@@ -1479,6 +1534,9 @@ document.getElementById('auth-form')?.addEventListener('submit', (e) => {
       pw2El.focus();
       return;
     }
+    const nickEl = document.getElementById('auth-nickname') as HTMLInputElement | null;
+    const fmt = nicknameFormatError(nickEl?.value || '');
+    if (fmt) { setAuthMsg(fmt, true); nickEl?.focus(); return; }
   }
   submit.disabled = true; setAuthMsg('Working…', false);
   const done = (err?: string, ok?: string) => {
@@ -1486,23 +1544,32 @@ document.getElementById('auth-form')?.addEventListener('submit', (e) => {
     if (err) setAuthMsg(err, true); else if (ok) setAuthMsg(ok, false);
   };
   if (authMode === 'signup') {
-    void signUp(email, pw).then((r) => {
-      if (r.alreadyRegistered) {
-        // The normalized email already has an account → switch to LOG IN (keeps
-        // their email typed) with a clear message, buy-intent preserved.
-        submit.disabled = false;
-        authMode = 'login'; applyAuthMode();
-        setAuthMsg('This email is already registered — log in instead.', true);
-        return;
-      }
-      if (r.error) return done(r.error);
-      if (r.needsVerification) {
-        // Intent (if any) stays in localStorage → checkout resumes after the email
-        // link brings them back logged in.
-        done(undefined, hasBuyIntent()
-          ? 'Check your email to verify — then we\'ll take you straight to checkout.'
-          : 'Check your email to verify your account, then log in.');
-      } else { closeAuthModal(); done(); resumePurchaseIfIntended(); }   // instant session → resume
+    const nickInput = () => document.getElementById('auth-nickname') as HTMLInputElement | null;
+    const nick = nickInput()?.value.trim() || '';
+    // Authoritative availability + profanity check (DB) right before creating the
+    // account, so the common "taken/profane" cases give a clean message; the signup
+    // trigger is the final race guard.
+    void checkNickname(nick).then((cr) => {
+      if (!cr.ok || !cr.available) { done(nickReasonMsg(cr.reason)); nickInput()?.focus(); return; }
+      void signUp(email, pw, nick).then((r) => {
+        if (r.alreadyRegistered) {
+          // The normalized email already has an account → switch to LOG IN (keeps
+          // their email typed) with a clear message, buy-intent preserved.
+          submit.disabled = false;
+          authMode = 'login'; applyAuthMode();
+          setAuthMsg('This email is already registered — log in instead.', true);
+          return;
+        }
+        if (r.nicknameTaken) { done('That nickname was just taken — try another.'); nickInput()?.focus(); return; }
+        if (r.error) return done(r.error);
+        if (r.needsVerification) {
+          // Intent (if any) stays in localStorage → checkout resumes after the email
+          // link brings them back logged in.
+          done(undefined, hasBuyIntent()
+            ? 'Check your email to verify — then we\'ll take you straight to checkout.'
+            : 'Check your email to verify your account, then log in.');
+        } else { closeAuthModal(); done(); resumePurchaseIfIntended(); }   // instant session → resume
+      });
     });
   } else {
     void signIn(email, pw).then((r) => {
@@ -1534,6 +1601,43 @@ document.getElementById('account-signout')?.addEventListener('click', () => {
   void signOut().then(closeAuthModal);
 });
 document.getElementById('account-upgrade')?.addEventListener('click', () => { closeAuthModal(); startPremiumPurchase(); });
+
+// ---- Account: change nickname (once every 30 days, enforced server-side) ----
+const nickEditorEl = () => document.getElementById('account-nick-editor');
+document.getElementById('account-nick-edit')?.addEventListener('click', () => {
+  const ed = nickEditorEl(); if (!ed) return;
+  const input = document.getElementById('account-nick-input') as HTMLInputElement | null;
+  if (input) input.value = getAuthState().nickname || '';
+  accountNick.reset();
+  ed.hidden = false;
+  input?.focus();
+});
+document.getElementById('account-nick-cancel')?.addEventListener('click', () => {
+  const ed = nickEditorEl(); if (ed) ed.hidden = true;
+  accountNick.reset();
+});
+document.getElementById('account-nick-save')?.addEventListener('click', () => {
+  const btn = document.getElementById('account-nick-save') as HTMLButtonElement | null;
+  const nick = accountNick.value();
+  const fmt = nicknameFormatError(nick);
+  if (fmt) { accountNick.setHint(fmt, 'err'); return; }
+  if (btn) btn.disabled = true;
+  accountNick.setHint('Saving…', 'pending');
+  void changeNickname(nick).then((r) => {
+    if (btn) btn.disabled = false;
+    if (r.ok) {
+      accountNick.setHint('✓ Nickname updated', 'ok');   // state.nickname updated → chip re-renders
+      window.setTimeout(() => { const ed = nickEditorEl(); if (ed) ed.hidden = true; }, 900);
+      return;
+    }
+    if (r.reason === 'cooldown') {
+      const d = r.daysLeft ?? 30;
+      accountNick.setHint(`You can change your nickname again in ${d} day${d === 1 ? '' : 's'}.`, 'err');
+    } else {
+      accountNick.setHint(nickReasonMsg(r.reason ?? null), 'err');
+    }
+  });
+});
 
 document.getElementById('upsell-close')?.addEventListener('click', closeUpsell);
 upsellEl?.addEventListener('click', (e) => { if (e.target === upsellEl) closeUpsell(); });

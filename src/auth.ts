@@ -20,6 +20,7 @@ export interface AuthUser { id: string; email: string; }
 export interface AuthState {
   user: AuthUser | null;    // null = logged out
   isPremium: boolean;       // the entitlement (server truth); false when logged out
+  nickname: string | null;  // display name (server truth); null = logged out / not set yet
   emailVerified: boolean;   // Supabase confirms the email before a session exists
   recovery: boolean;        // arrived via a password-reset link → show "set new password"
   loading: boolean;         // initial session still resolving
@@ -28,7 +29,7 @@ export interface AuthState {
 const MAX_DEVICES = 5;
 
 let state: AuthState = {
-  user: null, isPremium: false, emailVerified: false, recovery: false, loading: true,
+  user: null, isPremium: false, nickname: null, emailVerified: false, recovery: false, loading: true,
 };
 const listeners = new Set<(s: AuthState) => void>();
 function emit() { for (const l of listeners) l(state); }
@@ -57,12 +58,13 @@ function deviceId(): string {
 // account that reads as FREE is diagnosable (RLS blocking, missing row, etc.).
 async function refreshEntitlement(user: AuthUser): Promise<boolean> {
   let premium = false;
+  let nickname: string | null = null;
   try {
     // `.maybeSingle()` → 0 rows returns { data: null, error: null } (RLS block or
     // missing row) INSTEAD of `.single()`'s spurious PGRST116 error. We check error
     // explicitly (the old code dropped it → silent FREE).
     const { data, error, status } = await supabase
-      .from('profiles').select('is_premium').eq('id', user.id).maybeSingle();
+      .from('profiles').select('is_premium, nickname').eq('id', user.id).maybeSingle();
     // Confirm we're querying with the AUTHENTICATED session (RLS auth.uid()), not anon.
     const { data: authData } = await supabase.auth.getUser();
     const authedId = authData.user?.id ?? null;
@@ -78,9 +80,10 @@ async function refreshEntitlement(user: AuthUser): Promise<boolean> {
         user.id, authedId);
     } else {
       premium = data.is_premium === true;
+      nickname = (data.nickname as string | null) ?? null;
     }
-    console.info('[auth] entitlement = %s  (is_premium=%o, row=%o, authed=%s, email=%s)',
-      premium ? 'PREMIUM' : 'FREE', data?.is_premium, !!data, authedId === user.id, user.email);
+    console.info('[auth] entitlement = %s  (is_premium=%o, nick=%o, row=%o, authed=%s, email=%s)',
+      premium ? 'PREMIUM' : 'FREE', data?.is_premium, nickname, !!data, authedId === user.id, user.email);
   } catch (e) {
     console.error('[auth] profiles read threw:', e);
   }
@@ -91,7 +94,7 @@ async function refreshEntitlement(user: AuthUser): Promise<boolean> {
       p_user_agent: (navigator.userAgent || '').slice(0, 200),
     });
   } catch { /* the cap RPC is best-effort; entitlement still applies */ }
-  if (state.user?.id === user.id) set({ isPremium: premium });
+  if (state.user?.id === user.id) set({ isPremium: premium, nickname });
   return premium;
 }
 
@@ -106,6 +109,36 @@ export async function checkEntitlement(): Promise<AuthState> {
 
 function toUser(u: { id: string; email?: string } | null | undefined): AuthUser | null {
   return u ? { id: u.id, email: u.email ?? '' } : null;
+}
+
+// ---- Nickname (display name) --------------------------------------------------
+export interface NickCheck { ok: boolean; reason: string | null; available: boolean; }
+// Live availability + validity for the UI (safe to call logged-out, for signup).
+// Authoritative source is the DB check_nickname() RPC — format, profanity, taken.
+export async function checkNickname(nick: string): Promise<NickCheck> {
+  try {
+    const { data, error } = await supabase.rpc('check_nickname', { p_nick: nick.trim() });
+    if (error) return { ok: false, reason: 'error', available: false };
+    const r = (data ?? {}) as { ok?: boolean; reason?: string | null; available?: boolean };
+    return { ok: !!r.ok, reason: r.reason ?? null, available: !!r.available };
+  } catch { return { ok: false, reason: 'error', available: false }; }
+}
+
+export interface NickChange { ok: boolean; reason?: string; daysLeft?: number; }
+// Change the caller's nickname. The DB set_nickname() RPC enforces validity,
+// profanity, case-insensitive uniqueness AND the 30-day cooldown server-side; we
+// just relay its verdict and reflect the new name locally on success.
+export async function changeNickname(nick: string): Promise<NickChange> {
+  try {
+    const { data, error } = await supabase.rpc('set_nickname', { p_nick: nick.trim() });
+    if (error) return { ok: false, reason: 'error' };
+    const r = (data ?? {}) as { ok?: boolean; reason?: string; days_left?: number };
+    if (r.ok) {
+      if (state.user) set({ nickname: nick.trim() });
+      return { ok: true };
+    }
+    return { ok: false, reason: r.reason, daysLeft: r.days_left };
+  } catch { return { ok: false, reason: 'error' }; }
 }
 
 // The current session's access token (Supabase JWT) — sent as a Bearer to our own
@@ -135,7 +168,7 @@ export function initAuth() {
       // it after the lock releases, with the session fully applied.
       setTimeout(() => { void refreshEntitlement(user); }, 0);
     } else {
-      set({ user: null, isPremium: false, emailVerified: false, loading: false });
+      set({ user: null, isPremium: false, nickname: null, emailVerified: false, loading: false });
     }
   });
   // Kick the initial read (onAuthStateChange also fires INITIAL_SESSION, but this
@@ -155,20 +188,32 @@ function msg(e: unknown): string {
   return m;
 }
 
-export async function signUp(email: string, password: string):
-Promise<{ error?: string; needsVerification?: boolean; alreadyRegistered?: boolean }> {
+// The nickname is claimed atomically by the signup trigger (see schema.sql): it
+// goes into the auth metadata, and the DB CHECK + unique index + nickname_reason()
+// make an invalid/taken/profane nickname fail the whole signup. The caller
+// pre-checks with checkNickname() for clean messages, so a trigger failure here is
+// the rare race/abuse case → we map it to "nickname taken".
+export async function signUp(email: string, password: string, nickname: string):
+Promise<{ error?: string; needsVerification?: boolean; alreadyRegistered?: boolean; nicknameTaken?: boolean }> {
   // Normalise to the uniqueness key (aliases of one inbox → one account) and reject
   // clearly-disposable domains up front.
   const clean = normalizeEmail(email);
   if (isDisposableEmail(clean)) return { error: 'Please use a permanent email address.' };
 
   const { data, error } = await supabase.auth.signUp({
-    email: clean, password, options: { emailRedirectTo: redirectTo() },
+    email: clean, password,
+    options: { emailRedirectTo: redirectTo(), data: { nickname: nickname.trim() } },
   });
   if (error) {
     // If "Confirm email" is OFF, Supabase surfaces an explicit duplicate error.
     if (/already registered|already exists|already.*registered/i.test(error.message)) {
       return { error: 'This email is already registered — log in instead.', alreadyRegistered: true };
+    }
+    // The nickname trigger rejected it (unique race / invalid) → surfaces as a
+    // generic "Database error saving new user". After the client pre-check, that's
+    // almost always the nickname being taken in the meantime.
+    if (/database error|nickname|duplicate|unique|constraint/i.test(error.message)) {
+      return { error: 'That nickname was just taken — try another.', nicknameTaken: true };
     }
     return { error: msg(error) };
   }
