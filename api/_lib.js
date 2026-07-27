@@ -19,8 +19,11 @@ export const SUPA_ANON    = () => envOr('SUPABASE_ANON_KEY', 'VITE_SUPABASE_ANON
 export const SERVICE_ROLE = () => envOr('SUPABASE_SERVICE_ROLE_KEY');
 export const STRIPE_SK    = () => envOr('STRIPE_SECRET_KEY');
 export const WEBHOOK_SECRET = () => envOr('STRIPE_WEBHOOK_SECRET');
-// The Premium price ($6.90 one-off). Overridable via env, else the known id.
-export const PRICE_ID     = () => envOr('STRIPE_PRICE_ID') || 'price_1TxTdhKSjvof0rFuEPOkW79q';
+// The Premium price ($6.90 one-off) — REQUIRED via env (STRIPE_PRICE_ID), no
+// hard-coded fallback. This is mode-specific (test vs live are different ids), so
+// a fallback risks silently using the wrong-mode price; if it's unset the checkout
+// returns 503 "payments not configured" (see create-checkout-session.js).
+export const PRICE_ID     = () => envOr('STRIPE_PRICE_ID');
 // Canonical site origin for Checkout success/cancel URLs (never a forged Origin).
 export const PUBLIC_BASE  = () => envOr('PUBLIC_BASE_URL', 'VITE_PUBLIC_BASE_URL') || 'https://steerit.app';
 

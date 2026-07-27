@@ -18,7 +18,10 @@ export default async function handler(req, res) {
   if (!originAllowed(req)) { log('checkout_reject', { reason: 'origin', origin: req.headers.origin }); res.status(403).json({ error: 'forbidden' }); return; }
 
   const sk = STRIPE_SK();
-  if (!sk) { log('checkout_unconfigured', {}); res.status(503).json({ error: 'payments not configured' }); return; }
+  if (!sk) { log('checkout_unconfigured', { reason: 'no_secret_key' }); res.status(503).json({ error: 'payments not configured' }); return; }
+
+  const priceId = PRICE_ID();   // REQUIRED (env STRIPE_PRICE_ID) — no fallback, so a
+  if (!priceId) { log('checkout_unconfigured', { reason: 'no_price' }); res.status(503).json({ error: 'payments not configured' }); return; }   // misconfig fails loudly, never a wrong-mode price
 
   // Must be logged in — a payment can't be tied to no account.
   const user = await verifyUser(req);
@@ -38,7 +41,7 @@ export default async function handler(req, res) {
   const base = PUBLIC_BASE();
   const body = new URLSearchParams();
   body.append('mode', 'payment');
-  body.append('line_items[0][price]', PRICE_ID());
+  body.append('line_items[0][price]', priceId);
   body.append('line_items[0][quantity]', '1');
   body.append('client_reference_id', user.id);         // ← the account
   body.append('metadata[user_id]', user.id);           // ← read by the webhook
