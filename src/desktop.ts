@@ -619,7 +619,7 @@ function openCarMapSelect() {
 function chooseMode(mode: RaceMode) {
   // SIM (Blitz RS) is premium-only — a free host gets the positive premium upsell
   // instead of the mode. Defense in depth: even a click on the locked SIM button is
-  // refused here (the upsell → GET PREMIUM · $6.90 → the same checkout flow).
+  // refused here (the upsell → GET PREMIUM → the same checkout flow).
   if (mode === 'sim' && isSimLocked()) { openUpsell('generic'); return; }
   raceMode = mode;
   renderQr();             // the join URL carries the mode → phones paint the right colours
@@ -1508,7 +1508,9 @@ function openUpsell(kind: 'map' | 'mode' | 'generic', id?: string) {
       primary.textContent = 'CREATE ACCOUNT'; primary.dataset.act = 'signup';
       secondary.textContent = 'LOG IN';       secondary.dataset.act = 'login'; secondary.hidden = false;
     } else {
-      primary.textContent = 'GET PREMIUM · $6.90'; primary.dataset.act = 'buy';
+      // No price in the small upsell banner — it overflowed at some entry points.
+      // The price still shows in the landing pricing section + the game-menu CTA.
+      primary.textContent = 'GET PREMIUM'; primary.dataset.act = 'buy';
       secondary.hidden = true;
     }
   }
