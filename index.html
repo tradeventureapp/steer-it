@@ -319,11 +319,14 @@
             <span>Nickname: <b id="gm-nick">—</b></span>
             <button type="button" class="auth-link" id="gm-nick-edit">Change</button>
           </div>
-          <div id="gm-nick-editor" hidden>
-            <input id="gm-nick-input" class="nick-input" type="text" placeholder="Nickname (3–20: A–Z, 0–9, _ -)" autocomplete="off" maxlength="20" />
-            <div id="gm-nick-hint" class="nick-hint"></div>
-            <div class="account-nick-actions">
-              <button type="button" class="menu-btn primary" id="gm-nick-save">SAVE NICKNAME</button>
+          <div id="gm-nick-editor" class="nick-editor" hidden>
+            <p id="gm-nick-cooldown" class="nick-cooldown" hidden></p>
+            <div id="gm-nick-fields" class="nick-fields">
+              <input id="gm-nick-input" class="nick-input" type="text" placeholder="Nickname (3–20: A–Z, 0–9, _ -)" autocomplete="off" maxlength="20" />
+              <div id="gm-nick-hint" class="nick-hint"></div>
+            </div>
+            <div class="nick-actions">
+              <button type="button" class="nick-save" id="gm-nick-save">Save</button>
               <button type="button" class="auth-link" id="gm-nick-cancel">Cancel</button>
             </div>
           </div>
@@ -506,11 +509,14 @@
             <span>Nickname: <b id="account-nick">—</b></span>
             <button type="button" class="auth-link" id="account-nick-edit">Change</button>
           </div>
-          <div id="account-nick-editor" hidden>
-            <input id="account-nick-input" type="text" placeholder="New nickname" autocomplete="off" maxlength="20" />
-            <div id="account-nick-hint" class="nick-hint"></div>
-            <div class="account-nick-actions">
-              <button type="button" class="menu-btn primary" id="account-nick-save">SAVE NICKNAME</button>
+          <div id="account-nick-editor" class="nick-editor" hidden>
+            <p id="account-nick-cooldown" class="nick-cooldown" hidden></p>
+            <div id="account-nick-fields" class="nick-fields">
+              <input id="account-nick-input" class="nick-input" type="text" placeholder="New nickname" autocomplete="off" maxlength="20" />
+              <div id="account-nick-hint" class="nick-hint"></div>
+            </div>
+            <div class="nick-actions">
+              <button type="button" class="nick-save" id="account-nick-save">Save</button>
               <button type="button" class="auth-link" id="account-nick-cancel">Cancel</button>
             </div>
           </div>

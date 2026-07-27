@@ -389,8 +389,29 @@ body.desktop #game { display: block; width: 100vw; height: 100vh; }
   width: 100%; font-family: var(--font-body); font-size: 13px; color: var(--text-dim);
 }
 .account-nick b { color: #fff; font-weight: 700; }
-#account-nick-editor, #gm-nick-editor { display: flex; flex-direction: column; gap: 8px; width: 100%; }
-#account-nick-editor .menu-btn { margin-top: 0; }
+/* The change editor is a self-contained sub-panel (own border + padding) so it
+   expands cleanly without colliding with GET PREMIUM / LOG OUT beneath it. */
+.nick-editor {
+  display: flex; flex-direction: column; gap: 10px; width: 100%; box-sizing: border-box;
+  padding: 12px; border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-dim);
+}
+.nick-fields { display: flex; flex-direction: column; gap: 7px; }
+.nick-cooldown { margin: 0; font-family: var(--font-body); font-size: 13px; line-height: 1.5; color: var(--gold); }
+.nick-actions { display: flex; align-items: center; gap: 12px; }
+.nick-actions .auth-link { flex: 0 0 auto; }
+/* Compact SAVE — NOT the big hero .menu-btn.primary, so it fits the account card. */
+.nick-save {
+  appearance: none; -webkit-appearance: none; cursor: pointer; flex: 1;
+  font-family: var(--font-display); font-weight: 800; letter-spacing: 3px; font-size: 13px;
+  padding: 11px 16px; border-radius: 10px; color: #fff; border: 1.5px solid transparent;
+  background: var(--grad-cta);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18), 0 8px 22px -8px rgba(255, 45, 143, 0.55);
+  transition: transform 90ms, filter 140ms;
+}
+.nick-save:hover { transform: translateY(-1px); filter: brightness(1.06); }
+.nick-save:active { transform: translateY(1px); }
+.nick-save:disabled { opacity: 0.5; cursor: default; transform: none; filter: none; }
 /* The OPTIONS-modal nickname input isn't inside .auth-sec, so style it to match. */
 .nick-input {
   width: 100%; box-sizing: border-box; font-family: var(--font-body); font-size: 15px;

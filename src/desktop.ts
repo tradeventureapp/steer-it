@@ -47,7 +47,7 @@ import {
   sendPasswordReset, updatePassword, checkEntitlement, getAccessToken,
   checkNickname, changeNickname, type AuthState,
 } from './auth';
-import { nicknameFormatError } from './nickname';
+import { nicknameFormatError, nicknameCooldownDaysLeft } from './nickname';
 
 // Vercel Web Analytics — framework-agnostic vanilla init (NOT the React
 // <Analytics/> component). Injects the tracking script for the desktop/host
@@ -1239,24 +1239,45 @@ const gmNick = makeNickValidator('gm-nick-input', 'gm-nick-hint');   // the OPTI
 // cooldown). A first-time set from "not set" is allowed immediately server-side
 // (last_nickname_change is null → no cooldown).
 function wireNickEditor(opts: {
-  editId: string; editorId: string; inputId: string; cancelId: string; saveId: string;
+  editId: string; editorId: string; fieldsId: string; cooldownId: string;
+  inputId: string; cancelId: string; saveId: string;
   validator: ReturnType<typeof makeNickValidator>;
 }) {
-  const editor = () => document.getElementById(opts.editorId);
-  document.getElementById(opts.editId)?.addEventListener('click', () => {
-    const ed = editor(); if (!ed) return;
-    const input = document.getElementById(opts.inputId) as HTMLInputElement | null;
+  const $ = (id: string) => document.getElementById(id);
+  const cooldownText = (days: number) =>
+    `You can change your nickname again in ${days} day${days === 1 ? '' : 's'}.`;
+  // Show either the read-only COOLDOWN message (no input/save) or the EDITABLE
+  // fields + Save — never both. `days` overrides the client estimate (e.g. the
+  // server's verdict) when provided.
+  const showCooldown = (days: number) => {
+    const cd = $(opts.cooldownId), fields = $(opts.fieldsId), save = $(opts.saveId);
+    if (cd) { cd.textContent = cooldownText(days); cd.hidden = false; }
+    if (fields) fields.hidden = true;
+    if (save) save.hidden = true;
+  };
+  const showEditable = () => {
+    const cd = $(opts.cooldownId), fields = $(opts.fieldsId), save = $(opts.saveId);
+    if (cd) cd.hidden = true;
+    if (fields) fields.hidden = false;
+    if (save) save.hidden = false;
+    const input = $(opts.inputId) as HTMLInputElement | null;
     if (input) input.value = getAuthState().nickname || '';
     opts.validator.reset();
+  };
+  $(opts.editId)?.addEventListener('click', () => {
+    const ed = $(opts.editorId); if (!ed) return;
+    const days = nicknameCooldownDaysLeft(getAuthState().nicknameChangedAt);
+    if (days > 0) { showCooldown(days); }        // within cooldown → message only
+    else { showEditable(); }                     // editable (or first-time set)
     ed.hidden = false;
-    input?.focus();
+    if (days === 0) ($(opts.inputId) as HTMLInputElement | null)?.focus();
   });
-  document.getElementById(opts.cancelId)?.addEventListener('click', () => {
-    const ed = editor(); if (ed) ed.hidden = true;
+  $(opts.cancelId)?.addEventListener('click', () => {
+    const ed = $(opts.editorId); if (ed) ed.hidden = true;
     opts.validator.reset();
   });
-  document.getElementById(opts.saveId)?.addEventListener('click', () => {
-    const btn = document.getElementById(opts.saveId) as HTMLButtonElement | null;
+  $(opts.saveId)?.addEventListener('click', () => {
+    const btn = $(opts.saveId) as HTMLButtonElement | null;
     const nick = opts.validator.value();
     const fmt = nicknameFormatError(nick);
     if (fmt) { opts.validator.setHint(fmt, 'err'); return; }
@@ -1265,16 +1286,13 @@ function wireNickEditor(opts: {
     void changeNickname(nick).then((r) => {
       if (btn) btn.disabled = false;
       if (r.ok) {
-        opts.validator.setHint('✓ Nickname updated', 'ok');   // state.nickname updated → chip + panels re-render
-        window.setTimeout(() => { const ed = editor(); if (ed) ed.hidden = true; }, 900);
+        opts.validator.setHint('✓ Nickname updated', 'ok');   // state updated → chip + panels re-render
+        window.setTimeout(() => { const ed = $(opts.editorId); if (ed) ed.hidden = true; }, 900);
         return;
       }
-      if (r.reason === 'cooldown') {
-        const d = r.daysLeft ?? 30;
-        opts.validator.setHint(`You can change your nickname again in ${d} day${d === 1 ? '' : 's'}.`, 'err');
-      } else {
-        opts.validator.setHint(nickReasonMsg(r.reason ?? null), 'err');
-      }
+      // Server says cooldown (clock skew / stale client) → switch to the read-only view.
+      if (r.reason === 'cooldown') { showCooldown(r.daysLeft ?? 30); }
+      else { opts.validator.setHint(nickReasonMsg(r.reason ?? null), 'err'); }
     });
   });
 }
@@ -1663,9 +1681,11 @@ document.getElementById('account-upgrade')?.addEventListener('click', () => { cl
 // ---- Change-nickname editors: the auth-modal account panel AND the OPTIONS panel
 // (the logged-in host reaches account via OPTIONS, so it needs its own copy). ----
 wireNickEditor({ editId: 'account-nick-edit', editorId: 'account-nick-editor',
+  fieldsId: 'account-nick-fields', cooldownId: 'account-nick-cooldown',
   inputId: 'account-nick-input', cancelId: 'account-nick-cancel', saveId: 'account-nick-save',
   validator: accountNick });
 wireNickEditor({ editId: 'gm-nick-edit', editorId: 'gm-nick-editor',
+  fieldsId: 'gm-nick-fields', cooldownId: 'gm-nick-cooldown',
   inputId: 'gm-nick-input', cancelId: 'gm-nick-cancel', saveId: 'gm-nick-save',
   validator: gmNick });
 

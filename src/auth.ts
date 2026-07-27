@@ -21,6 +21,7 @@ export interface AuthState {
   user: AuthUser | null;    // null = logged out
   isPremium: boolean;       // the entitlement (server truth); false when logged out
   nickname: string | null;  // display name (server truth); null = logged out / not set yet
+  nicknameChangedAt: string | null;  // last_nickname_change (ISO) — drives the 30-day cooldown UI
   emailVerified: boolean;   // Supabase confirms the email before a session exists
   recovery: boolean;        // arrived via a password-reset link → show "set new password"
   loading: boolean;         // initial session still resolving
@@ -29,7 +30,8 @@ export interface AuthState {
 const MAX_DEVICES = 5;
 
 let state: AuthState = {
-  user: null, isPremium: false, nickname: null, emailVerified: false, recovery: false, loading: true,
+  user: null, isPremium: false, nickname: null, nicknameChangedAt: null,
+  emailVerified: false, recovery: false, loading: true,
 };
 const listeners = new Set<(s: AuthState) => void>();
 function emit() { for (const l of listeners) l(state); }
@@ -59,12 +61,13 @@ function deviceId(): string {
 async function refreshEntitlement(user: AuthUser): Promise<boolean> {
   let premium = false;
   let nickname: string | null = null;
+  let nicknameChangedAt: string | null = null;
   try {
     // `.maybeSingle()` → 0 rows returns { data: null, error: null } (RLS block or
     // missing row) INSTEAD of `.single()`'s spurious PGRST116 error. We check error
     // explicitly (the old code dropped it → silent FREE).
     const { data, error, status } = await supabase
-      .from('profiles').select('is_premium, nickname').eq('id', user.id).maybeSingle();
+      .from('profiles').select('is_premium, nickname, last_nickname_change').eq('id', user.id).maybeSingle();
     // Confirm we're querying with the AUTHENTICATED session (RLS auth.uid()), not anon.
     const { data: authData } = await supabase.auth.getUser();
     const authedId = authData.user?.id ?? null;
@@ -81,6 +84,7 @@ async function refreshEntitlement(user: AuthUser): Promise<boolean> {
     } else {
       premium = data.is_premium === true;
       nickname = (data.nickname as string | null) ?? null;
+      nicknameChangedAt = (data.last_nickname_change as string | null) ?? null;
     }
     console.info('[auth] entitlement = %s  (is_premium=%o, nick=%o, row=%o, authed=%s, email=%s)',
       premium ? 'PREMIUM' : 'FREE', data?.is_premium, nickname, !!data, authedId === user.id, user.email);
@@ -94,7 +98,7 @@ async function refreshEntitlement(user: AuthUser): Promise<boolean> {
       p_user_agent: (navigator.userAgent || '').slice(0, 200),
     });
   } catch { /* the cap RPC is best-effort; entitlement still applies */ }
-  if (state.user?.id === user.id) set({ isPremium: premium, nickname });
+  if (state.user?.id === user.id) set({ isPremium: premium, nickname, nicknameChangedAt });
   return premium;
 }
 
@@ -134,7 +138,9 @@ export async function changeNickname(nick: string): Promise<NickChange> {
     if (error) return { ok: false, reason: 'error' };
     const r = (data ?? {}) as { ok?: boolean; reason?: string; days_left?: number };
     if (r.ok) {
-      if (state.user) set({ nickname: nick.trim() });
+      // The server just set last_nickname_change = now(); reflect it so the 30-day
+      // cooldown is active immediately in the UI.
+      if (state.user) set({ nickname: nick.trim(), nicknameChangedAt: new Date().toISOString() });
       return { ok: true };
     }
     return { ok: false, reason: r.reason, daysLeft: r.days_left };
@@ -168,7 +174,7 @@ export function initAuth() {
       // it after the lock releases, with the session fully applied.
       setTimeout(() => { void refreshEntitlement(user); }, 0);
     } else {
-      set({ user: null, isPremium: false, nickname: null, emailVerified: false, loading: false });
+      set({ user: null, isPremium: false, nickname: null, nicknameChangedAt: null, emailVerified: false, loading: false });
     }
   });
   // Kick the initial read (onAuthStateChange also fires INITIAL_SESSION, but this
