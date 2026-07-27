@@ -121,6 +121,8 @@ export class RaceState {
   private readonly startEl: RaceElement | null;
   private armed = false;
   private cdStartMs = 0;   // when the standing-start countdown began
+  private lastX = 0;       // last fed car point (for the live-progress estimate)
+  private lastY = 0;
 
   constructor(elements: RaceElement[], cfg: RaceConfig = RACE_CONFIG) {
     this.elements = elements;
@@ -180,6 +182,7 @@ export class RaceState {
   // start-line crossing (circuit anti-cheat); omit it and crossings count in any
   // direction (legacy / checkpoint races are unaffected).
   update(x: number, y: number, now: number, vx = 0, vy = 0) {
+    this.lastX = x; this.lastY = y;   // remember for the live-progress estimate
     if (this.phase === 'finished' || this.elements.length === 0) return;
 
     if (this.phase === 'countdown') {
@@ -314,7 +317,37 @@ export class RaceState {
         : 0,
     };
   }
+
+  /**
+   * A monotonic "how far through the race" scalar for LIVE ordering: laps completed
+   * + an intra-lap fraction. Finished ⇒ total laps. Racing on a circuit: 0→0.5 as
+   * the car nears the FAR point (the arming gate), 0.5→1.0 as it heads back to the
+   * start line — so an armed car always outranks a not-yet-armed car on the same
+   * lap. Straight-line distance to the gate is a coarse but stable tiebreak (the
+   * lap + armed half dominates); checkpoints are the fallback for sprint tracks.
+   * Ordering only — the authoritative lap/finish logic is untouched.
+   */
+  progress(): number {
+    if (this.phase === 'finished') return this.cfg.laps;
+    if (this.phase !== 'racing') return 0;
+    const lapsDone = Math.max(0, this.lap - 1);
+    const f = this.startEl;
+    if (f && f.farRadius !== undefined) {
+      const fx = f.farX ?? f.x, fy = f.farY ?? f.y;
+      const ref = Math.hypot(fx - f.x, fy - f.y) || 1;
+      if (!this.armed) {
+        const d = Math.hypot(this.lastX - fx, this.lastY - fy);
+        return lapsDone + 0.5 * clamp01(1 - d / ref);
+      }
+      const d = Math.hypot(this.lastX - f.x, this.lastY - f.y);
+      return lapsDone + 0.5 + 0.5 * clamp01(1 - d / ref);
+    }
+    // sprint / checkpoint tracks: fraction of this lap's checkpoints collected
+    return lapsDone + (this.cpTotal > 0 ? this.collected.size / this.cpTotal : 0);
+  }
 }
+
+const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
 
 // =============================================================================
 //  MULTI-CAR RACE — one RaceState per car (each races the same elements/laps
@@ -327,6 +360,14 @@ export class RaceState {
 //  race end; a finished car keeps its result. The race ends only when every
 //  STILL-CONNECTED car has finished.
 // =============================================================================
+// One row of the LIVE (mid-race) standings — P1..PN over all connected cars.
+export interface LiveRank {
+  slot: number;
+  position: number;   // 1-based live position
+  finished: boolean;  // already crossed the final line (locked at the top)
+  lap: number;        // current 1-based lap (for the "L2" readout)
+}
+
 export interface Finisher {
   slot: number;
   position: number;   // 1-based finishing position (assigned in finish order)
@@ -483,6 +524,20 @@ export class RaceManager {
     let pos = rows.length;
     for (const d of dnf) rows.push({ slot: d.slot, position: ++pos, dnf: true, finishMs: 0, lap: d.lap });
     return rows;
+  }
+
+  // LIVE standings for the in-race panel: FINISHED cars first (locked in their
+  // finish order), then the still-racing cars ordered by progress() DESC (laps
+  // completed, then intra-lap progress; slot breaks ties for a stable list). P1..PN
+  // over ALL connected cars, updated every frame as cars overtake.
+  liveOrder(connectedSlots: Iterable<number>, now: number): LiveRank[] {
+    const slots = [...connectedSlots];
+    const finishedSlots = this.order.filter((f) => slots.includes(f.slot)).map((f) => f.slot);
+    const racing = slots.filter((s) => !this.finished.has(s)).sort((a, b) =>
+      ((this.cars.get(b)?.progress() ?? 0) - (this.cars.get(a)?.progress() ?? 0)) || (a - b));
+    return [...finishedSlots, ...racing].map((slot, i) => ({
+      slot, position: i + 1, finished: this.finished.has(slot), lap: this.hud(slot, now).lap,
+    }));
   }
 }
 

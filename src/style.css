@@ -1827,6 +1827,27 @@ body.desktop.editing #game { cursor: crosshair; }
 /* ===== MULTI-CAR RACE — live finish feed (corner) + podium results ========
    The per-row accent --c is the player's CAR colour (set in JS); the fallback
    below is the brand pink (the retired cyan default is gone). */
+/* LIVE standings: compact top-left list, P1..PN, semi-transparent, doesn't block
+   the track (pointer-events none). Each row is accented by the car's colour. */
+#live-standings {
+  position: fixed; top: 16px; left: 16px; z-index: 28;
+  display: flex; flex-direction: column; gap: 3px; pointer-events: none;
+  min-width: 132px; max-width: 46vw;
+}
+.ls-row {
+  display: flex; align-items: center; gap: 7px;
+  font-family: var(--font-body); font-weight: 700; font-size: 12.5px; letter-spacing: .3px;
+  padding: 3px 10px 3px 8px; border-radius: 7px;
+  background: rgba(8, 4, 18, 0.58); border-left: 3px solid var(--c, var(--pink));
+}
+.ls-pos { color: var(--gold); font-weight: 900; font-variant-numeric: tabular-nums; min-width: 21px; }
+.ls-name { color: var(--text); max-width: 13ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ls-lap { margin-left: auto; color: var(--text-dim); font-variant-numeric: tabular-nums; font-size: 11px; }
+#live-standings.compact { gap: 2px; }
+#live-standings.compact .ls-row { padding: 2px 8px; font-size: 11px; gap: 6px; }
+#live-standings.compact .ls-pos { min-width: 19px; }
+#live-standings.compact .ls-lap { font-size: 10px; }
+
 /* Finish feed: small unobtrusive stack, top-left, doesn't cover the action. */
 #finish-feed {
   position: fixed; top: 16px; left: 16px; z-index: 28;

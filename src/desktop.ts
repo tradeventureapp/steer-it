@@ -85,6 +85,7 @@ const raceCpEl        = document.getElementById('race-cp')          as HTMLSpanE
 const raceLapEl       = document.getElementById('race-lap')         as HTMLSpanElement | null;
 const raceFinishEl    = document.getElementById('race-finish')      as HTMLElement | null;
 const finishFeedEl    = document.getElementById('finish-feed')      as HTMLElement | null;
+const liveStandingsEl = document.getElementById('live-standings')   as HTMLElement | null;
 const raceResultsEl   = document.getElementById('race-results')     as HTMLElement | null;
 const resultsRestEl   = document.getElementById('results-rest')     as HTMLElement | null;
 const countdownEl   = document.getElementById('countdown')     as HTMLElement | null;
@@ -2426,6 +2427,38 @@ function renderFinishFeed(): void {
   ).join('');
 }
 
+// LIVE STANDINGS (top-left) — every connected car ordered P1..PN by lap + progress,
+// updated each frame. FINISHED cars lock at the top (✓); still-racing cars follow,
+// re-ordering live as they overtake. Uses the same playerName resolver (host
+// nickname / guest name / "Player N"). Only touches the DOM when the order/laps
+// change. While it's up it OWNS the top-left corner, so the transient finish-feed
+// notice is suppressed (finishers show here already) — the finishFeed data + the
+// podium are untouched.
+let liveStandingsSig = '';
+function updateLiveStandings(now: number): void {
+  if (!liveStandingsEl) return;
+  const show = isRaceLive() && !menuOpen && !userPaused && !editorMode && !raceResultsOpen;
+  const order = show ? raceManager.liveOrder(cars.keys(), now) : [];
+  if (!order.length) {
+    if (!liveStandingsEl.hidden) { liveStandingsEl.hidden = true; liveStandingsSig = ''; }
+    return;
+  }
+  if (finishFeedEl) finishFeedEl.hidden = true;   // the standings own the top-left corner
+  const sig = order.map((o) => `${o.slot}.${o.position}.${o.lap}.${o.finished ? 1 : 0}`).join('|');
+  if (sig === liveStandingsSig && !liveStandingsEl.hidden) return;   // unchanged → no DOM churn
+  liveStandingsSig = sig;
+  liveStandingsEl.hidden = false;
+  liveStandingsEl.classList.toggle('compact', order.length > 6);
+  liveStandingsEl.innerHTML = order.map((o) => {
+    const color = cars.get(o.slot)?.color || DEFAULT_CAR_COLOR;
+    const lap = o.finished ? '✓' : `L${o.lap}`;
+    return `<div class="ls-row" style="--c:${color}">`
+      + `<span class="ls-pos">P${o.position}</span>`
+      + `<span class="ls-name">${escapeHtml(playerName(o.slot))}</span>`
+      + `<span class="ls-lap">${lap}</span></div>`;
+  }).join('');
+}
+
 // The race ended — either everyone finished, or the DNF timeout expired. Freeze +
 // show the podium (top-3 FINISHERS) + a rest list of remaining finishers and DNF
 // stragglers. `now` builds the final standings (finishers + ranked DNF).
@@ -3411,6 +3444,7 @@ function frame(now: number) {
   // Render ALWAYS (paused frame still draws the frozen car + overlay on top).
   render();
   updateRaceHud(raceManager.hud(primaryCar()?.slot ?? -1, gameNow));
+  updateLiveStandings(gameNow);
   updateCountdown(gameNow);
   updateFinishTimeout(gameNow);
   updateXpHud();
