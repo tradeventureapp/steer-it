@@ -339,9 +339,22 @@ window.addEventListener('keydown', (e) => {
     }
   }
   if (e.key === 'e' || e.key === 'E') {
-    editorMode = !editorMode;
-    if (!editorMode) rebuildRace();   // exiting → apply the built track (fresh race)
-    else editorDragIdx = null;        // entering → no stale drag
+    if (editorMode) {
+      editorMode = false;
+      rebuildRace();                  // exiting → apply the built track (fresh race)
+      refreshFreeze();
+      updateEditorStatus();
+      return;
+    }
+    // Entering the editor is gated. The E editor is the ONLY path to a RACE on the
+    // Desktop free map (place START/FINISH → exit → rebuildRace runs it), so it was a
+    // backdoor around the map/mode paywall. Restrict it: DESKTOP map only, and PREMIUM
+    // only. Off the desktop → nothing. Free/anon on desktop → the premium upsell (the
+    // same positive prompt as a locked map/mode), never the editor.
+    if (currentMap.id !== 'desktop') return;              // ovals/circuit/flat-track: no editor
+    if (!isPremium()) { openUpsell('generic'); return; }  // free/anon → pitch premium, not the editor
+    editorMode = true;
+    editorDragIdx = null;             // entering → no stale drag
     refreshFreeze();
     updateEditorStatus();
   }
@@ -1376,6 +1389,17 @@ function renderAccount(s: AuthState) {
 
   // Keep the SIM mode button's lock badge current whenever the plan changes.
   refreshModeLock();
+
+  // The E editor is premium-only. If the plan dropped to free while it was open
+  // (logout / expiry), leave the editor and drop any Desktop race it built — the
+  // paywall must hold even mid-session. rebuildRace() re-checks isPremium() and
+  // clears a Desktop race for a non-premium account.
+  if (!s.isPremium && editorMode) {
+    editorMode = false;
+    rebuildRace();
+    refreshFreeze();
+    updateEditorStatus();
+  }
   // Re-gate the CAR & MAP screen when the plan changes (unlock/lock tiles). If a
   // now-locked item was selected (e.g. logged out), fall back to a free choice; a
   // now-locked SIM car family bounces the host back to the mode screen (which shows
@@ -2623,6 +2647,10 @@ function rebuildRace() {
       raceElements.push(currentMap.startLine(world));
     }
   }
+  // Defense-in-depth on the paywall: a RACE on the Desktop free map can ONLY come from
+  // the E editor (premium-only). If the account isn't premium (e.g. logged out while the
+  // editor was open), don't leave a paid race running — drop it back to free-roam.
+  if (currentMap.id === 'desktop' && !isPremium()) raceElements.length = 0;
   raceManager = new RaceManager(raceElements, { ...RACE_CONFIG, laps: Math.max(1, editorLaps) });
   armStandingStart();
   resetRaceFeed();
