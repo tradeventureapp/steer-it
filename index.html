@@ -246,6 +246,17 @@
         </div>
       </section>
 
+      <!-- SITE FOOTER — legal links + contact. Ends the scrolling landing. -->
+      <footer class="site-foot">
+        <nav class="site-foot-links" aria-label="Legal">
+          <a href="/terms">Terms of Service</a>
+          <a href="/privacy">Privacy Policy</a>
+          <a href="/refund">Refund Policy</a>
+          <a href="mailto:steeritapp@gmail.com">Contact</a>
+        </nav>
+        <div class="site-foot-copy">© 2026 Steer It · Jakub Dyk (IČO&nbsp;02167484), Liberec, Czech Republic</div>
+      </footer>
+
       <!-- EMPTY overlay above the whole page's content — reserved for a future
            effect (a car crossing between sections). Deliberately empty. -->
       <div class="page-fx" aria-hidden="true"></div>
@@ -352,6 +363,16 @@
             Custom bindings &amp; sensitivity are coming soon.</div>
         </div>
 
+        <div class="gm-sec">
+          <div class="gm-sec-head">LEGAL</div>
+          <nav class="gm-legal" aria-label="Legal">
+            <a href="/terms" target="_blank" rel="noopener">Terms</a>
+            <a href="/privacy" target="_blank" rel="noopener">Privacy</a>
+            <a href="/refund" target="_blank" rel="noopener">Refunds</a>
+            <a href="mailto:steeritapp@gmail.com">Contact</a>
+          </nav>
+        </div>
+
         <button type="button" class="menu-btn ghost gm-wide" id="opt-back">◄ BACK</button>
       </div>
     </div>
@@ -364,6 +385,31 @@
       <div class="pay-loading-card">
         <span class="pay-spinner" aria-hidden="true"></span>
         <span class="pay-loading-text">Redirecting to payment…</span>
+      </div>
+    </div>
+
+    <!-- BUY CONSENT — shown just before Stripe checkout. The buyer must agree that
+         Premium is digital content delivered immediately and thereby waive the
+         14-day withdrawal right (makes the non-refundable policy enforceable).
+         Only after ticking the box + Continue do we create the Checkout Session. -->
+    <div id="buy-consent" hidden role="dialog" aria-modal="true" aria-labelledby="consent-title">
+      <div class="consent-card">
+        <h2 class="consent-title" id="consent-title">Before you buy</h2>
+        <p class="consent-body">
+          Steer It Premium is a one-time <strong>$6.90</strong> purchase. It is
+          <strong>digital content</strong> unlocked on your account
+          <strong>immediately</strong> after payment. See our
+          <a href="/refund" target="_blank" rel="noopener">Refund Policy</a> and
+          <a href="/terms" target="_blank" rel="noopener">Terms</a>.
+        </p>
+        <label class="consent-check">
+          <input type="checkbox" id="consent-agree" />
+          <span>I request immediate access and agree that, once access begins, I lose my 14-day right of withdrawal. I understand the purchase is then non-refundable.</span>
+        </label>
+        <div class="consent-actions">
+          <button type="button" class="menu-btn ghost" id="consent-cancel">Cancel</button>
+          <button type="button" class="menu-btn primary" id="consent-go" disabled>Continue to payment</button>
+        </div>
       </div>
     </div>
 

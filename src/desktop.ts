@@ -1620,7 +1620,41 @@ function setPayLoading(on: boolean) {
   const el = document.getElementById('pay-loading');
   if (el) el.hidden = !on;
 }
+// beginCheckout() no longer goes straight to Stripe — it first opens the CONSENT
+// modal (digital content delivered immediately → the buyer waives the 14-day EU
+// right of withdrawal). Only after the box is ticked + Continue do we create the
+// Checkout Session, sending the recorded consent so the server stores it in the
+// session metadata. This makes the non-refundable Refund Policy fair + enforceable.
+const buyConsentEl = document.getElementById('buy-consent') as HTMLElement | null;
+function resetBuyConsent() {
+  const cb = document.getElementById('consent-agree') as HTMLInputElement | null;
+  const go = document.getElementById('consent-go') as HTMLButtonElement | null;
+  if (cb) cb.checked = false;
+  if (go) go.disabled = true;
+}
+function closeBuyConsent() { if (buyConsentEl) buyConsentEl.hidden = true; resetBuyConsent(); }
+
 async function beginCheckout() {
+  if (checkoutStarting) return;                       // a session is already being created
+  if (!buyConsentEl) { await createCheckoutSession(true, new Date().toISOString()); return; }
+  resetBuyConsent();
+  buyConsentEl.hidden = false;                         // → Continue calls createCheckoutSession()
+}
+document.getElementById('consent-agree')?.addEventListener('change', (e) => {
+  const go = document.getElementById('consent-go') as HTMLButtonElement | null;
+  if (go) go.disabled = !(e.target as HTMLInputElement).checked;
+});
+document.getElementById('consent-cancel')?.addEventListener('click', closeBuyConsent);
+buyConsentEl?.addEventListener('click', (e) => { if (e.target === buyConsentEl) closeBuyConsent(); });
+document.getElementById('consent-go')?.addEventListener('click', () => {
+  const cb = document.getElementById('consent-agree') as HTMLInputElement | null;
+  if (!cb?.checked) return;                            // must be ticked to proceed
+  const consentAt = new Date().toISOString();
+  closeBuyConsent();
+  void createCheckoutSession(true, consentAt);
+});
+
+async function createCheckoutSession(consent: boolean, consentAt: string) {
   if (checkoutStarting) return;   // already creating a session → ignore repeat clicks
   checkoutStarting = true;
   setPayLoading(true);            // INSTANT feedback, before any network work
@@ -1631,7 +1665,11 @@ async function beginCheckout() {
   const timer = window.setTimeout(() => ctrl.abort(), 15000);   // don't hang forever
   try {
     const r = await fetch('/api/create-checkout-session', {
-      method: 'POST', headers: { Authorization: `Bearer ${token}` }, signal: ctrl.signal,
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      // The consent is recorded server-side in the Checkout Session metadata.
+      body: JSON.stringify({ acceptWithdrawalWaiver: consent, consentAt }),
+      signal: ctrl.signal,
     });
     window.clearTimeout(timer);
     if (r.status === 401) { setPayLoading(false); checkoutStarting = false; authMode = 'login'; openAuthModal('form'); return; }

@@ -2631,3 +2631,111 @@ body.phone {
   word-break: break-all;
   white-space: pre-wrap;
 }
+
+/* ===== SITE FOOTER (landing) — legal links + contact ======================= */
+.site-foot {
+  margin: 18px auto 0;
+  padding: 26px 22px calc(26px + env(safe-area-inset-bottom, 0px));
+  max-width: 900px;
+  text-align: center;
+  border-top: 1px solid var(--border-dim);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: center;
+}
+.site-foot-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px 22px;
+}
+.site-foot-links a {
+  color: var(--text-dim);
+  text-decoration: none;
+  font-size: 14px;
+  letter-spacing: 0.02em;
+  transition: color 0.15s;
+}
+.site-foot-links a:hover { color: var(--gold); }
+.site-foot-copy {
+  color: var(--text-muted);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+/* ===== BUY CONSENT — required digital-content / withdrawal-waiver gate ======
+   Shown just before we create the Stripe Checkout Session. The buyer must tick
+   the box (immediate delivery → waives the 14-day withdrawal right) to proceed;
+   this makes the non-refundable terms enforceable. */
+#buy-consent {
+  position: fixed;
+  inset: 0;
+  z-index: 520;                 /* above the promo (500), below the pay overlay */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(5, 3, 13, 0.72);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+#buy-consent[hidden] { display: none; }   /* flex would otherwise override [hidden] */
+.consent-card {
+  width: min(440px, 100%);
+  background: linear-gradient(180deg, var(--panel-top), var(--panel-bot));
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 22px 22px 20px;
+  box-shadow: var(--glow-strong), 0 18px 60px rgba(0, 0, 0, 0.55);
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+}
+.consent-title {
+  font-family: var(--font-display);
+  font-size: 19px;
+  letter-spacing: 0.03em;
+  color: var(--gold);
+  margin: 0 0 10px;
+}
+.consent-body { color: var(--text-dim); font-size: 14.5px; line-height: 1.6; margin: 0 0 14px; }
+.consent-body a { color: var(--pink); }
+.consent-check {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  background: rgba(8, 4, 18, 0.5);
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  padding: 12px 14px;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--text);
+  line-height: 1.5;
+}
+.consent-check input {
+  margin-top: 2px;
+  width: 18px;
+  height: 18px;
+  accent-color: var(--pink);
+  flex: 0 0 auto;
+  cursor: pointer;
+}
+.consent-actions { display: flex; gap: 10px; margin-top: 16px; }
+.consent-actions .menu-btn { flex: 1 1 auto; }
+#consent-go[disabled] { opacity: 0.45; cursor: not-allowed; filter: grayscale(0.3); }
+
+/* In-app OPTIONS → LEGAL links (Terms / Privacy / Refund / Contact). */
+.gm-legal {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+}
+.gm-legal a {
+  color: var(--text-dim);
+  text-decoration: none;
+  font-size: 13.5px;
+  letter-spacing: 0.02em;
+  transition: color 0.15s;
+}
+.gm-legal a:hover { color: var(--gold); }

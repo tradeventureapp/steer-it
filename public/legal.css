@@ -1,0 +1,178 @@
+/* =============================================================================
+   Steer It — shared styling for the legal pages (/terms, /privacy, /refund).
+   Light brand skin (synthwave palette, calmed down for long-form reading):
+   deep-purple ground, warm gold/pink accents, generous line-height, one
+   readable column. No JS, no animation — plain, legible legal text.
+   ========================================================================== */
+:root {
+  --grad-accent: linear-gradient(180deg, #ffe35a 0%, #ffae3d 34%, #ff479e 72%, #e81d86 100%);
+  --pink: #ff5fa2;
+  --gold: #ffc24a;
+  --orange: #ff8a3d;
+  --text: #efe8fb;
+  --text-dim: #c5b6e6;
+  --text-muted: #9a8cc0;
+  --border: rgba(255, 138, 61, 0.22);
+  --border-soft: rgba(178, 162, 208, 0.18);
+  --panel: rgba(14, 8, 32, 0.72);
+  --font-display: 'Orbitron', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-body: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  font-family: var(--font-body);
+  color: var(--text);
+  line-height: 1.7;
+  font-size: 16px;
+  background:
+    radial-gradient(80% 55% at 50% 0%, rgba(255, 138, 61, 0.10) 0%, transparent 60%),
+    radial-gradient(90% 60% at 50% 30%, rgba(255, 45, 143, 0.08) 0%, transparent 62%),
+    linear-gradient(180deg, #150b2e 0%, #0c0620 42%, #070310 100%);
+  background-attachment: fixed;
+  min-height: 100vh;
+}
+
+.legal-wrap {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 28px 22px 72px;
+}
+
+/* --- Masthead --------------------------------------------------------------*/
+.legal-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 6px 0 22px;
+  border-bottom: 1px solid var(--border-soft);
+  flex-wrap: wrap;
+}
+.legal-top a.legal-home { display: inline-flex; align-items: center; }
+.legal-top img { height: 40px; width: auto; display: block; }
+.legal-back {
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  text-decoration: none;
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  white-space: nowrap;
+  transition: color 0.15s, border-color 0.15s;
+}
+.legal-back:hover { color: var(--gold); border-color: var(--gold); }
+
+/* --- Title -----------------------------------------------------------------*/
+h1 {
+  font-family: var(--font-display);
+  font-size: clamp(26px, 5vw, 38px);
+  letter-spacing: 0.02em;
+  margin: 34px 0 6px;
+  background: var(--grad-accent);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  line-height: 1.15;
+}
+.legal-meta {
+  color: var(--text-muted);
+  font-size: 13.5px;
+  margin: 0 0 8px;
+}
+.legal-lead {
+  color: var(--text-dim);
+  font-size: 16.5px;
+  margin: 14px 0 6px;
+}
+
+/* --- Sections --------------------------------------------------------------*/
+h2 {
+  font-family: var(--font-display);
+  font-size: 18px;
+  letter-spacing: 0.03em;
+  color: var(--gold);
+  margin: 34px 0 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-soft);
+}
+h3 {
+  font-size: 15.5px;
+  color: var(--orange);
+  margin: 20px 0 4px;
+  font-weight: 700;
+}
+p { margin: 10px 0; }
+ul, ol { margin: 10px 0; padding-left: 22px; }
+li { margin: 6px 0; }
+strong { color: #fff; }
+a { color: var(--pink); text-decoration: underline; text-underline-offset: 2px; }
+a:hover { color: var(--gold); }
+
+/* Callout — the important, plain-language boxes (e.g. the refund waiver). */
+.legal-note {
+  border: 1px solid var(--border);
+  background: var(--panel);
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin: 18px 0;
+}
+.legal-note.warn { border-color: rgba(255, 90, 90, 0.4); }
+.legal-note p:first-child { margin-top: 0; }
+.legal-note p:last-child { margin-bottom: 0; }
+
+/* Identity card (the controller / seller block). */
+.legal-id {
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin: 16px 0;
+  background: rgba(8, 4, 18, 0.5);
+  font-size: 15px;
+}
+.legal-id div { margin: 3px 0; }
+
+/* Sub-processor / data table. */
+.legal-table-wrap { overflow-x: auto; margin: 14px 0; }
+table {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 520px;
+  font-size: 14.5px;
+}
+th, td {
+  text-align: left;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border-soft);
+  vertical-align: top;
+}
+th { color: var(--gold); font-weight: 700; }
+tbody tr:last-child td { border-bottom: none; }
+
+/* --- Footer ----------------------------------------------------------------*/
+.legal-foot {
+  margin-top: 48px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border-soft);
+  color: var(--text-muted);
+  font-size: 13.5px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  align-items: center;
+}
+.legal-foot a { color: var(--text-dim); text-decoration: none; }
+.legal-foot a:hover { color: var(--gold); }
+.legal-foot .sep { opacity: 0.4; }
+.legal-foot .grow { flex: 1 1 auto; }
+
+@media (max-width: 520px) {
+  body { font-size: 15.5px; }
+  .legal-wrap { padding: 20px 16px 56px; }
+}
