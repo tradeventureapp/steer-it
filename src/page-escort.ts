@@ -95,18 +95,13 @@ const HERO_SAMPLES = 240;
 
 // Editable loops for sections BELOW the hero. One entry per non-hero section —
 // here: HOW IT WORKS. Laid out visually in the preview editor (final points).
+// All sections below the hero use the calm, section-contained default oval (each
+// stays within its own band on every layout). Draw explicit loops in #escort-edit
+// and paste them here to override any of these.
 const DEFAULT_LOOPS: Waypoint[][] = [
-  // HOW IT WORKS — laid out in the editor (author's final points).
-  [
-    { xf: 0.486, yf: 0.324 }, { xf: 0.750, yf: 0.329 }, { xf: 0.853, yf: 0.380 },
-    { xf: 0.872, yf: 0.444 }, { xf: 0.796, yf: 0.480 }, { xf: 0.666, yf: 0.481 },
-    { xf: 0.352, yf: 0.472 }, { xf: 0.161, yf: 0.548 }, { xf: 0.205, yf: 0.591 },
-    { xf: 0.490, yf: 0.601 }, { xf: 0.749, yf: 0.594 }, { xf: 0.822, yf: 0.561 },
-    { xf: 0.574, yf: 0.476 }, { xf: 0.302, yf: 0.466 }, { xf: 0.198, yf: 0.427 },
-    { xf: 0.158, yf: 0.361 }, { xf: 0.270, yf: 0.330 }, { xf: 0.507, yf: 0.298 },
-  ],
-  [],   // free vs premium — default oval until drawn
-  [],   // roadmap — default oval until drawn
+  [],   // how it works — default oval
+  [],   // free vs premium — default oval
+  [],   // roadmap — default oval
 ];
 
 type Pt = { x: number; y: number };
