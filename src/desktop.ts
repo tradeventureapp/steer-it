@@ -470,7 +470,13 @@ function toggleEscortEditor(on: boolean) {
     });
   } else if (!on && escortEditor) { escortEditor.destroy(); escortEditor = null; }
 }
-if (location.hash === '#escort-edit') toggleEscortEditor(true);
+// DEFER the initial-hash activation to a later task: toggleEscortEditor →
+// openMainMenu → hideAllMenus references module state (howScene, music, …) declared
+// FURTHER DOWN this file, so calling it synchronously during module init hits the
+// temporal dead zone and throws, aborting the whole page. setTimeout(0) runs it
+// once the module body has finished and every const is initialized. (hashchange +
+// steerEscortEdit() are user-triggered, always post-init, so they're already safe.)
+if (location.hash === '#escort-edit') setTimeout(() => toggleEscortEditor(true), 0);
 window.addEventListener('hashchange', () => toggleEscortEditor(location.hash === '#escort-edit'));
 (window as unknown as { steerEscortEdit?: () => void }).steerEscortEdit = () => toggleEscortEditor(true);
 
