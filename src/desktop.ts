@@ -2385,9 +2385,19 @@ function resetRaceFeed() {
   hideFinishTimeout();
 }
 
+// The display name for a slot — the single source of truth for the standings, the
+// finish feed, the podium and the roster.
+//   • HOST: the local (keyboard-driven) car is the logged-in desktop account. Its
+//     name is the ACCOUNT NICKNAME, locked — a phone can never set it, because the
+//     host isn't a lobby/phone slot (phones can only rename their own slot).
+//   • GUESTS (phones): their self-chosen lobby name, or "Player N" if unset.
 function playerName(slot: number): string {
+  if (cars.get(slot)?.local) {
+    const nick = getAuthState().nickname;
+    if (nick && nick.trim()) return nick.trim();
+  }
   const p = lobby.snapshot().find((q) => q.slot === slot);
-  return (p?.name && p.name.trim()) || `P${slot + 1}`;
+  return (p?.name && p.name.trim()) || `Player ${slot + 1}`;
 }
 
 // Ingest any cars that finished since last frame: snapshot their name/colour into
@@ -2836,7 +2846,7 @@ function renderLobbyUI() {
 
   if (!rosterEl) return;
   rosterEl.innerHTML = n === 0 ? '' : snap.map((p) => {
-    const label = p.name ? escapeHtml(p.name) : `PLAYER ${p.slot + 1}`;
+    const label = escapeHtml(playerName(p.slot));   // same name resolver as the standings/podium
     return `<div class="roster-row">` +
       `<span class="roster-dot" style="background:${p.color};box-shadow:0 0 8px ${p.color}"></span>` +
       `<span class="roster-name">${label}</span>` +
