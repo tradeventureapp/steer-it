@@ -535,6 +535,9 @@
          XP HUD) so it stays crisp and matches the HUD's type; the cars are held by
          race.ts's countdown phase, not by this. -->
     <div id="countdown" hidden><span id="countdown-n">3</span></div>
+    <!-- DNF TIMEOUT: once the leader finishes, the still-racing cars get this clock to
+         finish before they're marked DNF and the race ends. Screen-space HTML. -->
+    <div id="finish-timeout" hidden><span class="ft-label">RACE ENDS IN</span><span class="ft-time">1:00</span></div>
     <!-- RACE WARM-UP: cars drive freely until the host presses READY, which snaps
          everyone to the grid + starts the 3-2-1-GO. Screen-space HTML (like the
          countdown / XP HUD) so it stays crisp and on-brand. -->

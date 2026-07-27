@@ -1799,6 +1799,31 @@ body.desktop.editing #game { cursor: crosshair; }
 .ff-name { color: var(--text); max-width: 12ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ff-time { color: var(--text-dim); margin-left: auto; font-variant-numeric: tabular-nums; }
 
+/* DNF timeout banner — top-centre; the stragglers' clock once the leader finishes.
+   Gold (the warning accent), gently pulsing so it reads as "you're on the clock". */
+#finish-timeout {
+  position: fixed; top: clamp(58px, 12vh, 100px); left: 50%; transform: translateX(-50%);
+  z-index: 29; pointer-events: none;
+  display: flex; align-items: baseline; gap: 10px;
+  padding: 7px 16px; border-radius: 11px;
+  background: rgba(8, 4, 18, 0.78); border: 1px solid var(--gold);
+  animation: ftPulse 1.6s ease-in-out infinite;
+}
+#finish-timeout .ft-label {
+  font-family: var(--font-body); font-weight: 800; font-size: 12px;
+  letter-spacing: 2px; color: var(--text-dim);
+}
+#finish-timeout .ft-time {
+  font-family: var(--font-body); font-weight: 900; font-size: 20px; letter-spacing: 1px;
+  color: var(--gold); font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 12px color-mix(in srgb, var(--gold) 70%, transparent);
+}
+@keyframes ftPulse {
+  0%, 100% { box-shadow: 0 0 16px color-mix(in srgb, var(--gold) 28%, transparent); }
+  50%      { box-shadow: 0 0 30px color-mix(in srgb, var(--gold) 62%, transparent); }
+}
+@media (prefers-reduced-motion: reduce) { #finish-timeout { animation: none; } }
+
 /* Podium overlay — synthwave card; 3 steps (centre tallest = winner) + rest list. */
 #race-results {
   position: fixed; inset: 0; z-index: 60;
@@ -1841,6 +1866,9 @@ body.desktop.editing #game { cursor: crosshair; }
 }
 .rr-row .rr-name { flex: 1; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rr-row span:last-child { font-variant-numeric: tabular-nums; color: var(--text-muted); }
+/* DNF straggler row — dimmed, and the last column reads a gold "DNF" not a time. */
+.rr-row.rr-dnf { opacity: 0.82; }
+.rr-row.rr-dnf span:last-child { color: var(--gold); font-weight: 800; letter-spacing: 1px; }
 
 /* ===== In-race debug HUD (key D): speed + DRIFT/SLIP/WSPIN + pedals + steer.
    Dark synthwave glass with a SUBTLE glow and BODY-font numbers so the readouts

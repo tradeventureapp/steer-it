@@ -52,6 +52,7 @@ export interface RaceConfig {
   maxCheckpoints: number;  // cap the editor will honour
   gateRadius: number;      // default trigger radius (m) — forgiving
   countdownMs: number;     // STANDING START: how long the grid is held before GO
+  finishGraceMs: number;   // DNF timeout: grace after the LEADER finishes before stragglers are DNF
 }
 
 export const RACE_CONFIG: RaceConfig = {
@@ -59,6 +60,7 @@ export const RACE_CONFIG: RaceConfig = {
   maxCheckpoints: 5,
   gateRadius: 5.03,   // m — real metres on the Stage-C1 ruler (was 1.7 for the 1/3 car; ×2.96)
   countdownMs: 3000,  // 3 → 2 → 1 → GO
+  finishGraceMs: 60000,  // 60 s — once the winner crosses, everyone else has this long to finish
 };
 
 // 'countdown' = a STANDING START: the grid is held, inputs are ignored, and the race
@@ -331,6 +333,16 @@ export interface Finisher {
   finishMs: number;   // race time at finish (ms)
 }
 
+// A full-results row: every finisher first (with a time), then every DNF car
+// (connected-but-unfinished when the race ended), ranked after the finishers.
+export interface RaceResultRow {
+  slot: number;
+  position: number;   // 1-based; finishers keep their finish order, DNF continue after them
+  dnf: boolean;       // true = did not finish (no time)
+  finishMs: number;   // finish time (ms); 0 / ignore when dnf
+  lap: number;        // laps reached (used to rank DNF cars, more = better)
+}
+
 const EMPTY_SET: ReadonlySet<number> = new Set();
 
 export class RaceManager {
@@ -339,6 +351,10 @@ export class RaceManager {
   private readonly cars = new Map<number, RaceState>();
   private order: Finisher[] = [];
   private finished = new Set<number>();
+  // DNF timeout: the instant the FIRST car finished (null until then). The grace
+  // window runs from here; when it expires, still-racing connected cars are DNF and
+  // the race ends — so a stuck car can never hang the podium forever.
+  private leaderFinishMs: number | null = null;
 
   constructor(elements: RaceElement[], cfg: RaceConfig = RACE_CONFIG) {
     this.elements = elements;
@@ -364,6 +380,7 @@ export class RaceManager {
     this.cdAt = now;
     this.order = [];
     this.finished.clear();
+    this.leaderFinishMs = null;   // fresh grid → grace timer disarmed
     for (const rs of this.cars.values()) rs.beginCountdown(now);
   }
 
@@ -381,6 +398,7 @@ export class RaceManager {
     if (h.finished) {
       this.finished.add(slot);
       this.order.push({ slot, position: this.order.length + 1, finishMs: h.finishMs });
+      if (this.leaderFinishMs === null) this.leaderFinishMs = now;   // start the DNF grace timer
     }
   }
 
@@ -398,7 +416,20 @@ export class RaceManager {
     for (const rs of this.cars.values()) rs.reset();
     this.order = [];
     this.finished.clear();
+    this.leaderFinishMs = null;
     this.cdAt = null;   // drop the standing start; the host re-arms it if it wants one
+  }
+
+  // ---- DNF timeout ---------------------------------------------------------
+  // The grace window opens when the LEADER finishes. `graceMsLeft` is what the
+  // on-screen "Race ends in …" countdown shows; null = the leader hasn't finished
+  // yet (no countdown). `graceExpired` fires once, at the end of that window.
+  graceMsLeft(now: number): number | null {
+    if (this.leaderFinishMs === null) return null;
+    return Math.max(0, this.cfg.finishGraceMs - (now - this.leaderFinishMs));
+  }
+  graceExpired(now: number): boolean {
+    return this.leaderFinishMs !== null && now - this.leaderFinishMs >= this.cfg.finishGraceMs;
   }
 
   /**
@@ -428,12 +459,30 @@ export class RaceManager {
   hasFinishers(): boolean { return this.order.length > 0; }
   isFinished(slot: number): boolean { return this.finished.has(slot); }
 
-  // COMPLETE when ≥1 car is connected and EVERY connected car has finished.
-  // Disconnected cars are ignored — they never block the race end.
-  isComplete(connectedSlots: Iterable<number>): boolean {
+  // COMPLETE when ≥1 car is connected and EITHER every connected car has finished,
+  // OR the DNF grace window has expired after the leader finished (a stuck car can
+  // never hang the race). Disconnected cars are ignored — they never block the end.
+  isComplete(connectedSlots: Iterable<number>, now?: number): boolean {
     const slots = [...connectedSlots];
     if (slots.length === 0) return false;
-    return slots.every((s) => this.finished.has(s));
+    if (slots.every((s) => this.finished.has(s))) return true;
+    return now !== undefined && this.graceExpired(now);   // timeout → end with DNF stragglers
+  }
+
+  // Final standings: every finisher (with a time), then every connected car that did
+  // NOT finish, ranked after them by laps reached (more = better), then slot. Used to
+  // build the podium + results list; the timeout path is what surfaces the DNF rows.
+  results(connectedSlots: Iterable<number>, now: number): RaceResultRow[] {
+    const rows: RaceResultRow[] = this.order.map((f) => ({
+      slot: f.slot, position: f.position, dnf: false, finishMs: f.finishMs, lap: this.cfg.laps,
+    }));
+    const dnf = [...connectedSlots]
+      .filter((s) => !this.finished.has(s))
+      .map((s) => ({ slot: s, lap: this.hud(s, now).lap }))
+      .sort((a, b) => (b.lap - a.lap) || (a.slot - b.slot));
+    let pos = rows.length;
+    for (const d of dnf) rows.push({ slot: d.slot, position: ++pos, dnf: true, finishMs: 0, lap: d.lap });
+    return rows;
   }
 }
 

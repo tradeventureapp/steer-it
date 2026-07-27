@@ -87,6 +87,7 @@ const raceResultsEl   = document.getElementById('race-results')     as HTMLEleme
 const resultsRestEl   = document.getElementById('results-rest')     as HTMLElement | null;
 const countdownEl   = document.getElementById('countdown')     as HTMLElement | null;
 const countdownNEl  = document.getElementById('countdown-n')   as HTMLElement | null;
+const finishTimeoutEl = document.getElementById('finish-timeout') as HTMLElement | null;
 const xpHudEl       = document.getElementById('xp-hud')        as HTMLElement | null;
 const xpScoreEl     = document.getElementById('xp-score')      as HTMLDivElement | null;
 const xpMultEl      = document.getElementById('xp-mult')       as HTMLDivElement | null;
@@ -2198,6 +2199,7 @@ function resetRaceFeed() {
   raceResultsOpen = false;
   if (finishFeedEl) { finishFeedEl.innerHTML = ''; finishFeedEl.hidden = true; }
   if (raceResultsEl) raceResultsEl.hidden = true;
+  hideFinishTimeout();
 }
 
 function playerName(slot: number): string {
@@ -2231,14 +2233,32 @@ function renderFinishFeed(): void {
   ).join('');
 }
 
-// All connected cars finished → freeze + show the podium (top 3) + rest list.
-function openRaceResults() {
+// The race ended — either everyone finished, or the DNF timeout expired. Freeze +
+// show the podium (top-3 FINISHERS) + a rest list of remaining finishers and DNF
+// stragglers. `now` builds the final standings (finishers + ranked DNF).
+function openRaceResults(now: number) {
   raceResultsOpen = true;
   refreshFreeze();
   if (finishFeedEl) finishFeedEl.hidden = true;
-  // Podium steps: P2 (left), P1 (centre, tallest), P3 (right).
+  hideFinishTimeout();
+
+  // Full standings from the race manager: finishers first, then connected-but-unfinished
+  // cars as DNF (ranked after them). Finisher name/colour come from the feed (captured at
+  // finish, so a later disconnect can't corrupt it); a DNF car is still connected → live.
+  const rows = raceManager.results(cars.keys(), now).map((r) => {
+    const fed = finishFeed.find((f) => f.slot === r.slot);
+    return {
+      position: r.position, dnf: r.dnf,
+      finishMs: r.dnf ? 0 : (fed?.finishMs ?? r.finishMs),
+      name: fed?.name ?? playerName(r.slot),
+      color: fed?.color ?? cars.get(r.slot)?.color ?? DEFAULT_CAR_COLOR,
+    };
+  });
+
+  // Podium steps: P2 (left), P1 (centre, tallest), P3 (right) — FINISHERS only. A DNF
+  // never takes a podium step; an empty step just means nobody earned that place.
   for (const pos of [1, 2, 3]) {
-    const e = finishFeed.find((x) => x.position === pos);
+    const e = rows.find((x) => x.position === pos && !x.dnf);
     const pod = raceResultsEl?.querySelector(`.pod-${pos}`) as HTMLElement | null;
     if (!pod) continue;
     pod.hidden = !e;
@@ -2248,12 +2268,12 @@ function openRaceResults() {
       pod.style.setProperty('--c', e.color);
     }
   }
-  // 4th onward as a plain list.
+  // Below the podium: finishers 4th+ AND every DNF car, in rank order (DNF shows "DNF").
   if (resultsRestEl) {
-    resultsRestEl.innerHTML = finishFeed.filter((e) => e.position >= 4).map((e) =>
-      `<div class="rr-row"><span>P${e.position}</span>` +
+    resultsRestEl.innerHTML = rows.filter((e) => e.dnf || e.position >= 4).map((e) =>
+      `<div class="rr-row${e.dnf ? ' rr-dnf' : ''}"><span>P${e.position}</span>` +
       `<span class="rr-name" style="color:${e.color}">${escapeHtml(e.name)}</span>` +
-      `<span>${formatRaceTime(e.finishMs)}</span></div>`).join('');
+      `<span>${e.dnf ? 'DNF' : formatRaceTime(e.finishMs)}</span></div>`).join('');
   }
   if (raceResultsEl) raceResultsEl.hidden = false;
 }
@@ -2394,6 +2414,27 @@ let countdownShown = '';
 function hideCountdown() {
   if (countdownEl) countdownEl.hidden = true;
   countdownShown = '';
+}
+
+// DNF timeout banner: once the LEADER finishes, the still-racing cars see how long
+// they have left to finish (M:SS) before they're marked DNF. Hidden until the leader
+// crosses and while the podium is up. Only touches the DOM when the second changes.
+let finishTimeoutShown = '';
+function hideFinishTimeout() {
+  if (finishTimeoutEl) finishTimeoutEl.hidden = true;
+  finishTimeoutShown = '';
+}
+function updateFinishTimeout(now: number) {
+  if (!finishTimeoutEl) return;
+  const left = isRaceLive() && !raceResultsOpen ? raceManager.graceMsLeft(now) : null;
+  if (left === null || left <= 0) { hideFinishTimeout(); return; }
+  const s = Math.ceil(left / 1000);
+  const label = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  if (label === finishTimeoutShown) return;   // DOM touch only on a second change
+  finishTimeoutShown = label;
+  finishTimeoutEl.hidden = false;
+  finishTimeoutEl.innerHTML =
+    `<span class="ft-label">RACE ENDS IN</span><span class="ft-time">${label}</span>`;
 }
 function updateCountdown(now: number) {
   if (!countdownEl || !countdownNEl) return;
@@ -3148,7 +3189,9 @@ function frame(now: number) {
     // freeze + raise the podium.
     if (isRaceLive()) {
       pollFinishers();
-      if (!raceResultsOpen && raceManager.isComplete(cars.keys())) openRaceResults();
+      // Complete when everyone's finished OR the DNF grace window (after the leader)
+      // expired — so a stuck car can never hang the podium.
+      if (!raceResultsOpen && raceManager.isComplete(cars.keys(), gameNow)) openRaceResults(gameNow);
     }
 
     // ---- XP MODE: read the SOLO car's speed + sideways slip + off-track wheels and
@@ -3176,6 +3219,7 @@ function frame(now: number) {
   render();
   updateRaceHud(raceManager.hud(primaryCar()?.slot ?? -1, gameNow));
   updateCountdown(gameNow);
+  updateFinishTimeout(gameNow);
   updateXpHud();
   requestAnimationFrame(frame);
 }
