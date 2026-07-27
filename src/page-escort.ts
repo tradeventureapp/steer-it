@@ -316,6 +316,18 @@ export function startPageEscort(
     return best;
   }
 
+  // The Y the car "follows": the viewport CENTRE for most of the page, but eased
+  // toward the BOTTOM edge over the last stretch of scroll. A short last section
+  // (roadmap) is smaller than half the viewport, so a pure centre anchor lands in
+  // the previous section (pricing) even when you're scrolled all the way down —
+  // this makes the very bottom always resolve to the last section.
+  function followAnchorY(camY: number): number {
+    const maxScroll = Math.max(1, contentH - H);
+    const p = clamp(camY / maxScroll, 0, 1);              // 0 top → 1 bottom
+    const bottomBias = clamp((p - 0.8) / 0.2, 0, 1);      // 0 until 80% scrolled, → 1 at the bottom
+    return Math.min(camY + H * (0.5 + 0.5 * bottomBias), contentH - 1);
+  }
+
   function atLen(idx: number, d: number): Pt {
     const L = built[idx];
     if (!L || !L.poly.length || L.len <= 0) return { x: contentW / 2, y: contentH / 2 };
@@ -349,7 +361,7 @@ export function startPageEscort(
 
   function reset() {
     const camY = scroller.scrollTop;
-    curIdx = firstValidSection(camY + H * 0.5);
+    curIdx = firstValidSection(followAnchorY(camY));
     s = 0;
     const p0 = atLen(curIdx, 0), p1 = atLen(curIdx, 40);
     px = p0.x; py = p0.y;
@@ -361,7 +373,7 @@ export function startPageEscort(
   function step(dt: number): number {
     const camY = scroller.scrollTop;
     // the loop of the section you're looking at (scroll-follow)
-    const wantSec = sectionAtY(camY + H * 0.5);
+    const wantSec = sectionAtY(followAnchorY(camY));
     if (wantSec !== curIdx && built[wantSec] && built[wantSec].len > 0) {
       curIdx = wantSec;
       s = nearestLen(curIdx, px, py);
