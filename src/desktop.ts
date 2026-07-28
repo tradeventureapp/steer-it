@@ -45,7 +45,7 @@ import { inject } from '@vercel/analytics';
 import {
   initAuth, onAuthChange, getAuthState, signIn, signUp, signOut,
   sendPasswordReset, updatePassword, checkEntitlement, getAccessToken,
-  checkNickname, changeNickname, type AuthState,
+  checkNickname, changeNickname, hasSessionHint, type AuthState,
 } from './auth';
 import { nicknameFormatError, nicknameCooldownDaysLeft } from './nickname';
 
@@ -438,6 +438,10 @@ function mapGameModes(id: string | null): readonly string[] {
 const FREE_MAP_IDS = ['desktop', 'asphalt'];
 const FREE_MODE_KEYS = ['free'];
 const isPremium = () => getAuthState().isPremium;
+// Entitlement still resolving for a logged-in host (a session appeared but the
+// profile read hasn't returned and there was no cache to seed from). While true the
+// UI must show a neutral "checking…" state, NOT the free/locked one (avoids the flash).
+const entitlementPending = (s: AuthState = getAuthState()) => !!s.user && !s.entitlementKnown;
 const isMapLocked  = (id: string)  => !isPremium() && !FREE_MAP_IDS.includes(id);
 const isModeLocked = (key: string) => !isPremium() && !FREE_MODE_KEYS.includes(key);
 // SIM (Blitz RS) is PREMIUM; ARCADE (Stee-Rex) is free for everyone. Same
@@ -575,8 +579,13 @@ function openGameMenu() {
 }
 // Route "home" by auth state: signed-in host → the game menu; otherwise → the
 // marketing landing. Everywhere that used to return to the landing calls this.
+// On the FIRST load, auth is still resolving (user unknown); if the host was logged
+// in last time (session hint), open the game-menu shell rather than flashing the
+// marketing landing — routeHomeByAuth() corrects it if auth resolves to logged-out.
 function goHome() {
-  if (getAuthState().user) openGameMenu(); else openMainMenu();
+  const s = getAuthState();
+  if (s.user || (s.loading && hasSessionHint())) openGameMenu();
+  else openMainMenu();
 }
 // SIM (Blitz RS) is premium-only — reflect the lock on its mode button (the 🔒
 // badge + dimmed style) for a free host, exactly like the locked map/mode tiles.
@@ -1350,6 +1359,7 @@ function wireNickEditor(opts: {
 // The account chip (menu) + the account panel reflect the live auth state.
 function renderAccount(s: AuthState) {
   const email = s.user?.email || '';
+  const pending = entitlementPending(s);   // logged in but plan not resolved yet → neutral, not free
   // Logged OUT → SIGN UP + LOG IN buttons; logged IN → the account chip.
   if (accountAuthEl) accountAuthEl.hidden = !!s.user;
   if (accountChip) accountChip.hidden = !s.user;
@@ -1358,8 +1368,9 @@ function renderAccount(s: AuthState) {
   if (accountLabel) accountLabel.textContent = s.user ? (s.nickname || email.split('@')[0] || 'ACCOUNT') : 'ACCOUNT';
   if (accountBadge) {
     accountBadge.hidden = !s.user;
-    accountBadge.textContent = s.isPremium ? 'PREMIUM' : 'FREE';
-    accountBadge.classList.toggle('is-premium', s.isPremium);
+    accountBadge.textContent = pending ? '···' : (s.isPremium ? 'PREMIUM' : 'FREE');
+    accountBadge.classList.toggle('is-premium', !pending && s.isPremium);
+    accountBadge.classList.toggle('is-pending', pending);
   }
   // Account panel fields
   const emailEl = document.getElementById('account-email');
@@ -1371,17 +1382,17 @@ function renderAccount(s: AuthState) {
   if (nickEl) nickEl.textContent = s.nickname || 'not set';
   const nickEditBtn = document.getElementById('account-nick-edit');
   if (nickEditBtn) nickEditBtn.textContent = s.nickname ? 'Change' : 'Set nickname';
-  if (pill) { pill.textContent = s.isPremium ? 'PREMIUM' : 'FREE'; pill.classList.toggle('is-premium', s.isPremium); }
-  if (note) note.textContent = s.isPremium
+  if (pill) { pill.textContent = pending ? '···' : (s.isPremium ? 'PREMIUM' : 'FREE'); pill.classList.toggle('is-premium', !pending && s.isPremium); pill.classList.toggle('is-pending', pending); }
+  if (note) note.textContent = pending ? 'Checking your plan…' : (s.isPremium
     ? 'All maps & modes · global leaderboards'
-    : 'Desktop & Asphalt Oval · Free Ride';
-  if (upgrade) upgrade.hidden = s.isPremium;
+    : 'Desktop & Asphalt Oval · Free Ride');
+  if (upgrade) upgrade.hidden = pending || s.isPremium;   // don't offer upgrade until the plan is known
 
   // Pricing-section CTA reflects the plan: premium owners see it as owned.
   const getPrem = document.getElementById('btn-get-premium') as HTMLButtonElement | null;
   if (getPrem) {
     getPrem.textContent = s.isPremium ? '✓ You have Premium' : 'Get Premium';
-    getPrem.disabled = s.isPremium;
+    getPrem.disabled = s.isPremium || pending;            // neutral while pending
   }
 
   // Arrived via a password-reset link → jump straight to the set-new-password form.
@@ -1389,6 +1400,11 @@ function renderAccount(s: AuthState) {
 
   // Keep the SIM mode button's lock badge current whenever the plan changes.
   refreshModeLock();
+
+  // While the plan is still resolving, do NOT run the plan-dependent side effects
+  // below (they'd treat the pending state as free — closing the editor, clearing a
+  // premium map/mode selection). They re-run once the entitlement resolves.
+  if (pending) { renderGameMenuAccount(s); routeHomeByAuth(s); return; }
 
   // The E editor is premium-only. If the plan dropped to free while it was open
   // (logout / expiry), leave the editor and drop any Desktop race it built — the
@@ -1418,11 +1434,14 @@ function renderAccount(s: AuthState) {
 
   // The game menu's own account panel (OPTIONS) mirrors the same state.
   renderGameMenuAccount(s);
+  routeHomeByAuth(s);
+}
 
-  // HOME view follows auth: a host who just logged IN gets the game menu instead of
-  // the marketing landing; a host who logged OUT is returned to the landing. Only
-  // swap while actually ON a home screen — never yank out of a selection screen,
-  // the pause menu, or gameplay.
+// HOME view follows auth: a host who just logged IN gets the game menu instead of
+// the marketing landing; a host who logged OUT is returned to the landing. Only
+// swap while actually ON a home screen — never yank out of a selection screen, the
+// pause menu, or gameplay. (Runs from both the resolved and the pending render.)
+function routeHomeByAuth(s: AuthState) {
   const onLanding  = !!mainMenuEl && !mainMenuEl.hidden;
   const onGameMenu = !!gameMenuEl && !gameMenuEl.hidden;
   if (s.user && onLanding) openGameMenu();
@@ -1438,13 +1457,15 @@ function renderGameMenuAccount(s: AuthState) {
   // the GET PREMIUM upsell). Logged-in PREMIUM: nickname + Log Out, no upsell.
   const accSec = document.getElementById('gm-account-sec');
   if (accSec) accSec.hidden = !s.user;
+  const pending = entitlementPending(s);   // neutral chip + no CTA until the plan is known
   const emailEl = document.getElementById('gm-acc-email');
   const badge = document.getElementById('gm-acc-badge');
   const email = s.user?.email || '';
   if (emailEl) emailEl.textContent = email || '—';
   if (badge) {
-    badge.textContent = s.isPremium ? 'PREMIUM' : 'FREE';
-    badge.classList.toggle('is-premium', s.isPremium);
+    badge.textContent = pending ? '···' : (s.isPremium ? 'PREMIUM' : 'FREE');
+    badge.classList.toggle('is-premium', !pending && s.isPremium);
+    badge.classList.toggle('is-pending', pending);
   }
   // Nickname (display name) — read from the profile (AuthState.nickname). "not set"
   // for legacy accounts; the button then reads "Set nickname" and the first set is
@@ -1456,12 +1477,14 @@ function renderGameMenuAccount(s: AuthState) {
   // The loud GET PREMIUM CTA (game-menu home) + the subtle PREMIUM status + the
   // OPTIONS upgrade button all follow FREE-vs-PREMIUM. In the game menu the user
   // is always logged in, so the split is purely on entitlement.
-  const free = !!s.user && !s.isPremium;
+  // FREE-only UI shows ONLY once the plan is known (pending → hide both the CTA and
+  // the owned badge, so a premium host never flashes GET PREMIUM on load/login).
+  const free = !!s.user && !s.isPremium && !pending;
   const cta = document.getElementById('gm-get-premium');
   const owned = document.getElementById('gm-premium-owned');
   const optUp = document.getElementById('gm-opt-upgrade');
   if (cta) cta.hidden = !free;
-  if (owned) owned.hidden = !s.isPremium;
+  if (owned) owned.hidden = pending || !s.isPremium;
   if (optUp) optUp.hidden = !free;
 }
 

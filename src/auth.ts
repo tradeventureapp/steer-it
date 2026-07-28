@@ -25,14 +25,43 @@ export interface AuthState {
   emailVerified: boolean;   // Supabase confirms the email before a session exists
   recovery: boolean;        // arrived via a password-reset link → show "set new password"
   loading: boolean;         // initial session still resolving
+  // Is the ENTITLEMENT (is_premium) resolved for the current user? False in the window
+  // between "a session appeared" and "the profile read returned" — while false the UI
+  // must NOT render the free/locked state (it would flash FREE→PREMIUM). Trivially true
+  // when logged out (no entitlement), and seeded true instantly from the cache below for
+  // a returning user (then re-verified against the server).
+  entitlementKnown: boolean;
 }
 
 const MAX_DEVICES = 5;
 
 let state: AuthState = {
   user: null, isPremium: false, nickname: null, nicknameChangedAt: null,
-  emailVerified: false, recovery: false, loading: true,
+  emailVerified: false, recovery: false, loading: true, entitlementKnown: false,
 };
+
+// ---- Last-known-entitlement cache (per user id) + a session hint --------------
+// So a returning host renders the CORRECT plan immediately on load/login instead of
+// flashing FREE while the profile read is in flight. The cache is only a display
+// optimisation — refreshEntitlement() always re-reads the server, and server truth
+// overwrites it. The session hint lets the UI route to the game menu (not the
+// marketing landing) before auth has resolved, for a returning host.
+const ENT_PREFIX = 'steerit.ent.';
+const SESSION_HINT = 'steerit.session';
+interface EntCache { isPremium: boolean; nickname: string | null; nicknameChangedAt: string | null }
+function readEntCache(uid: string): EntCache | null {
+  try { const raw = localStorage.getItem(ENT_PREFIX + uid); if (!raw) return null;
+    const o = JSON.parse(raw) as { p?: boolean; n?: string | null; c?: string | null };
+    return { isPremium: !!o.p, nickname: o.n ?? null, nicknameChangedAt: o.c ?? null };
+  } catch { return null; }
+}
+function writeEntCache(uid: string, e: EntCache) {
+  try { localStorage.setItem(ENT_PREFIX + uid, JSON.stringify({ p: e.isPremium, n: e.nickname, c: e.nicknameChangedAt })); } catch { /* storage off */ }
+}
+function setSessionHint(uid: string) { try { localStorage.setItem(SESSION_HINT, uid); } catch { /* storage off */ } }
+function clearSessionHint() { try { localStorage.removeItem(SESSION_HINT); } catch { /* storage off */ } }
+// True if a host was logged in last time — used to avoid flashing the landing on reload.
+export function hasSessionHint(): boolean { try { return !!localStorage.getItem(SESSION_HINT); } catch { return false; } }
 const listeners = new Set<(s: AuthState) => void>();
 function emit() { for (const l of listeners) l(state); }
 function set(patch: Partial<AuthState>) { state = { ...state, ...patch }; emit(); }
@@ -98,7 +127,12 @@ async function refreshEntitlement(user: AuthUser): Promise<boolean> {
       p_user_agent: (navigator.userAgent || '').slice(0, 200),
     });
   } catch { /* the cap RPC is best-effort; entitlement still applies */ }
-  if (state.user?.id === user.id) set({ isPremium: premium, nickname, nicknameChangedAt });
+  if (state.user?.id === user.id) {
+    // Server truth wins — and mark the entitlement KNOWN so the UI renders the real
+    // state once, and cache it so the next load doesn't flash.
+    set({ isPremium: premium, nickname, nicknameChangedAt, entitlementKnown: true });
+    writeEntCache(user.id, { isPremium: premium, nickname, nicknameChangedAt });
+  }
   return premium;
 }
 
@@ -139,8 +173,12 @@ export async function changeNickname(nick: string): Promise<NickChange> {
     const r = (data ?? {}) as { ok?: boolean; reason?: string; days_left?: number };
     if (r.ok) {
       // The server just set last_nickname_change = now(); reflect it so the 30-day
-      // cooldown is active immediately in the UI.
-      if (state.user) set({ nickname: nick.trim(), nicknameChangedAt: new Date().toISOString() });
+      // cooldown is active immediately in the UI (and in the cache, so it doesn't flash back).
+      if (state.user) {
+        const at = new Date().toISOString();
+        set({ nickname: nick.trim(), nicknameChangedAt: at });
+        writeEntCache(state.user.id, { isPremium: state.isPremium, nickname: nick.trim(), nicknameChangedAt: at });
+      }
       return { ok: true };
     }
     return { ok: false, reason: r.reason, daysLeft: r.days_left };
@@ -162,25 +200,46 @@ export function initAuth() {
   supabase.auth.onAuthStateChange((event, session) => {
     if (event === 'PASSWORD_RECOVERY') {
       const user = toUser(session?.user);
-      set({ user, emailVerified: !!session?.user?.email_confirmed_at, recovery: true, loading: false });
+      // Recovery is its own screen (no premium UI) → entitlement is "known" so nothing holds.
+      set({ user, emailVerified: !!session?.user?.email_confirmed_at, recovery: true, loading: false, entitlementKnown: true });
+      if (user) setSessionHint(user.id);
       return;
     }
     const user = toUser(session?.user);
     if (user) {
-      set({ user, emailVerified: !!session?.user?.email_confirmed_at, loading: false });
+      setSessionHint(user.id);
+      const same = state.user?.id === user.id;
+      if (same && state.entitlementKnown) {
+        // Already resolved for this user (a token refresh, etc.) — keep the plan, just refresh session fields.
+        set({ user, emailVerified: !!session?.user?.email_confirmed_at, loading: false });
+      } else {
+        // New session appearing: seed the plan from the cache (instant, correct for a
+        // returning user → no FREE flash). If there's no cache, mark the entitlement
+        // PENDING (entitlementKnown:false) so the UI holds a neutral state instead of
+        // showing free. Either way the server read below confirms/corrects it.
+        const cached = readEntCache(user.id);
+        set({
+          user, emailVerified: !!session?.user?.email_confirmed_at, loading: false,
+          isPremium: cached ? cached.isPremium : false,
+          nickname: cached ? cached.nickname : null,
+          nicknameChangedAt: cached ? cached.nicknameChangedAt : null,
+          entitlementKnown: !!cached,
+        });
+      }
       // Defer OUT of the onAuthStateChange callback: supabase-js holds an auth lock
       // while the callback runs, and awaiting a DB read (which needs the session) from
       // inside it can hang / read with no session in some versions. setTimeout(0) runs
       // it after the lock releases, with the session fully applied.
       setTimeout(() => { void refreshEntitlement(user); }, 0);
     } else {
-      set({ user: null, isPremium: false, nickname: null, nicknameChangedAt: null, emailVerified: false, loading: false });
+      clearSessionHint();
+      set({ user: null, isPremium: false, nickname: null, nicknameChangedAt: null, emailVerified: false, loading: false, entitlementKnown: true });
     }
   });
   // Kick the initial read (onAuthStateChange also fires INITIAL_SESSION, but this
   // resolves `loading` even if no session and no event lands quickly).
   void supabase.auth.getSession().then(({ data }) => {
-    if (!data.session && state.loading) set({ loading: false });
+    if (!data.session && state.loading) { clearSessionHint(); set({ loading: false, entitlementKnown: true }); }
   });
 }
 

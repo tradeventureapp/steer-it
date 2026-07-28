@@ -2739,3 +2739,10 @@ body.phone {
   transition: color 0.15s;
 }
 .gm-legal a:hover { color: var(--gold); }
+
+/* Entitlement still resolving — neutral, dimmed chip ("···") instead of FREE/PREMIUM,
+   so a returning premium host never flashes the wrong plan on load/login. */
+.account-badge.is-pending, #gm-acc-badge.is-pending, #plan-pill.is-pending {
+  opacity: 0.5;
+  letter-spacing: 2px;
+}
