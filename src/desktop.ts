@@ -2575,10 +2575,24 @@ function renderFinishFeed(): void {
 // notice is suppressed (finishers show here already) — the finishFeed data + the
 // podium are untouched.
 let liveStandingsSig = '';
+// Throttle the (allocating) standings recompute to ~11 Hz — see updateLiveStandings.
+let liveStandingsAt = -1e9;
+const STANDINGS_RECOMPUTE_MS = 90;
 function updateLiveStandings(now: number): void {
   if (!liveStandingsEl) return;
   const show = isRaceLive() && !menuOpen && !userPaused && !editorMode && !raceResultsOpen;
-  const order = show ? raceManager.liveOrder(cars.keys(), now) : [];
+  // Hiding is a cheap check → keep it responsive every frame.
+  if (!show) {
+    if (!liveStandingsEl.hidden) { liveStandingsEl.hidden = true; liveStandingsSig = ''; }
+    return;
+  }
+  // But liveOrder() allocates several arrays + per-slot lookups, and the position
+  // labels change only rarely — recomputing 60×/s was wasted GC. Throttle to ~11Hz;
+  // the DOM still only changes when the order actually does (sig guard below), and a
+  // sub-100ms label refresh is imperceptible. (No behaviour/visual change.)
+  if (now - liveStandingsAt < STANDINGS_RECOMPUTE_MS) return;
+  liveStandingsAt = now;
+  const order = raceManager.liveOrder(cars.keys(), now);
   if (!order.length) {
     if (!liveStandingsEl.hidden) { liveStandingsEl.hidden = true; liveStandingsSig = ''; }
     return;
@@ -3666,6 +3680,13 @@ function render() {
 // The single gameplay HUD reflects the PRIMARY car (lowest slot). With no car
 // connected it idles at zeros so nothing reads stale.
 function updateHud() {
+  // The whole speed/DRIFT/SLIP/WSPIN/pedals HUD lives in #hud-bl, which is HIDDEN
+  // unless the D debug overlay is on (the default screen is just world + QR). So
+  // during normal gameplay every write below (8 DOM props + string formatting) was
+  // pure per-frame waste — skip it entirely while hidden. When D is pressed it
+  // updates live again from the next frame. No visible change.
+  if (!debugOn) return;
+
   const lead = primaryCar();
   const s = lead?.state;
   const cur = lead?.current;
