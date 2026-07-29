@@ -5023,3 +5023,21 @@ lobby.ts, vehicles.ts + new fury-sprite.ts. Temp generator files (furygen.*) del
 app boots with no console errors, Fury button hidden for a non-dev. **NEXT: redo the Fury visuals + give
 it a real physics4 tune (currently placeholder = Blitz sim); to grant another dev account, add its email
 to `DEV_EMAILS`.**
+
+---
+**FURY 200 EVO — moved from a dev MODE to a dev-only CAR in the SIM car picker (it's a car, not a mode):**
+the Fury is a CAR, so it now lives in the SIM car selection next to the Blitz RS — pick SIM → the car
+picker offers Blitz RS and (dev only) Fury 200 EVO. **Removed the `'fury'` RaceMode entirely**:
+`RaceMode` back to `'arcade' | 'sim'`; deleted the `#btn-mode-fury` button + its listener, the
+`chooseMode('fury')`/`launchSelected` fury guards, the `modeCars('fury')` branch, the `paletteForMode`
+`'fury'` case, and `FURY_SKIN_COLORS`. **Added as a SIM car:** `FURY_MENU_CAR` (a `MenuCar` with
+`furyImage`) is appended to `modeCars('sim')` ONLY for a dev host (`...(isDev() ? [FURY_MENU_CAR] : [])`)
+→ a normal free/premium/anon host never sees the tile. Selecting it sets `selectedCarKey='fury'`; the new
+`furySelected()` (`isDev() && selectedCarKey==='fury'`) gates the spawn — `specForColor`/`modeSpec` return
+`FURY_SPEC` only when a dev has the Fury picked, else `ROAD_SPEC` (Blitz). Default SIM pick stays Blitz
+(the picker auto-selects the first tile). `refreshDevUi` now just warms the sprite for a dev
+(`preloadFury`). **DEV GATE unchanged** (`DEV_EMAILS`, host-verified email). End-to-end: dev picks SIM →
+Fury → CAR & MAP → START → all cars spawn as Fury (`drawCar` → `drawFury`), placeholder physics (shared
+PHYS4). **Blitz RS UNTOUCHED — physics4/vehicle-core/cars/race byte-identical (empty diffs), golden
+0.0e+0.** Changed: index.html, desktop.ts, lobby.ts, vehicles.ts. tsc + build clean; boots with no console
+errors, no `btn-mode-fury`, SIM picker shows only Blitz for a non-dev.

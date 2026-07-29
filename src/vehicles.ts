@@ -61,14 +61,6 @@ export const STEEREX_SKIN_COLORS: CarColor[] = [
   { name: 'Graphite', hex: '#2a2d34' },
 ];
 
-// ---- Fury 200 EVO "colours" (DEV-ONLY test car — one fixed rally livery) --------
-// The Fury sprite has a fixed white/blue livery, so its "colour" is a single swatch;
-// the phone picker shows it, the sprite ignores it (like the Stee-Rex skins). Only
-// the dev host ever reaches Fury mode, so a normal user never sees this.
-export const FURY_SKIN_COLORS: CarColor[] = [
-  { name: 'Lombard', hex: '#e9edf2' },
-];
-
 // One car's public spec sheet. Pure data — no physics, no behaviour, no DOM.
 export interface VehicleIdentity {
   /** Stable internal key (URLs / save data / registry lookups). */

@@ -398,23 +398,25 @@ renderQr();
 // phone drives (arcade = Stee-Rex, sim = Blitz RS); each phone then picks its own
 // colour/skin after joining. At startup the menu holds the game frozen (no QR
 // yet); START respawns connected cars in the chosen variant and drops into play.
-// 'fury' is a DEV-ONLY test car family (WIP) — reachable only by the dev host (see
-// isDev). A normal free/premium/anon host never sees or selects it.
-type RaceMode = 'arcade' | 'sim' | 'fury';
+type RaceMode = 'arcade' | 'sim';
 let selectedMapId: string | null = null;
 let selectedCarKey: string | null = null;
 
 // ---- DEV GATE -----------------------------------------------------------------
-// The Fury 200 EVO is a work-in-progress test vehicle, gated to the dev account
-// only. The host is the ONLY authenticated party (phones join account-free), and
-// the email comes from the server-verified Supabase session — a normal host has a
-// different email, so this is a reliable, host-only gate (invisible to phones and
-// to every non-dev host). To hand another account dev access, add its email here.
+// The Fury 200 EVO is a work-in-progress test CAR, gated to the dev account only.
+// It appears in the SIM car picker (next to the Blitz RS) ONLY for the dev host,
+// and only a dev-selected Fury ever resolves to FURY_SPEC (see specForColor). The
+// host is the ONLY authenticated party (phones join account-free), and the email
+// comes from the server-verified Supabase session — a normal host has a different
+// email, so this is a reliable, host-only gate (invisible to phones and to every
+// non-dev host). To hand another account dev access, add its email here.
 const DEV_EMAILS = ['dykous94@gmail.com'];
 function isDev(): boolean {
   const e = getAuthState().user?.email?.trim().toLowerCase();
   return !!e && DEV_EMAILS.includes(e);
 }
+// The dev may pick the Fury as a SIM car — is that the current selection?
+function furySelected(): boolean { return isDev() && selectedCarKey === 'fury'; }
 
 // ---- GAME MODES (RACE / XP …) — the in-game mode picked on the CAR & MAP screen.
 // This is a DIFFERENT axis from RaceMode (arcade/sim = the car family): a GameMode
@@ -618,7 +620,6 @@ function openModeSelect() {
   hideAllMenus();
   if (modeSelectEl) modeSelectEl.hidden = false;
   refreshModeLock();       // SIM shows the 🔒 for a free host, unlocked for premium
-  refreshDevUi();          // FURY (DEV) button shows only for the dev host
   music.setActive(true);
 }
 // Show the CAR & MAP screen for the CURRENT mode. Rebuilds the tiles and restores the
@@ -646,7 +647,6 @@ function chooseMode(mode: RaceMode) {
   // instead of the mode. Defense in depth: even a click on the locked SIM button is
   // refused here (the upsell → GET PREMIUM → the same checkout flow).
   if (mode === 'sim' && isSimLocked()) { openUpsell('generic'); return; }
-  if (mode === 'fury' && !isDev()) return;   // dev-only test car — never for a normal host
   raceMode = mode;
   renderQr();             // the join URL carries the mode → phones paint the right colours
   selectedMapId = null;
@@ -673,7 +673,6 @@ function launchSelected() {
   // premium content for a non-premium host — pitch premium instead. This is the
   // real "can't bypass the UI" enforcement: even if raceMode were forced to 'sim',
   // START refuses it for a free host. isPremium() is server truth (RLS-protected).
-  if (raceMode === 'fury' && !isDev()) { goHome(); return; }   // defense in depth: never launch the dev car for a normal host
   if (raceMode === 'sim' && isSimLocked()) { openUpsell('generic'); return; }
   if (isMapLocked(selectedMapId)) { openUpsell('map', selectedMapId); return; }
   if (isModeLocked(selectedGameMode)) { openUpsell('mode', selectedGameMode); return; }
@@ -1017,21 +1016,21 @@ interface MenuCar {
   specs: CarSpec[];
   blurb: string;
 }
+// The dev-only Fury 200 EVO tile, shown in the SIM car list for the dev host only.
+const FURY_MENU_CAR: MenuCar = {
+  key: 'fury', name: 'Fury 200 EVO', furyImage: true,
+  specs: [
+    { label: 'CLASS',     value: 'Group B rallycross' },
+    { label: 'DRIVE',     value: 'AWD' },
+    { label: 'LENGTH',    value: '4000 mm' },
+    { label: 'WIDTH',     value: '1785 mm' },
+    { label: 'WHEELBASE', value: '2530 mm' },
+    { label: 'STATUS',    value: 'DEV TEST — WIP' },
+  ],
+  blurb: 'Work-in-progress test vehicle (dev only). Rough visuals + placeholder '
+    + 'physics — here to test with, not a released car.',
+};
 function modeCars(mode: RaceMode): MenuCar[] {
-  // FURY — dev-only WIP test car (only ever reached by the dev host).
-  if (mode === 'fury') return [{
-    key: 'fury', name: 'Fury 200 EVO', furyImage: true,
-    specs: [
-      { label: 'CLASS',     value: 'Group B rallycross' },
-      { label: 'DRIVE',     value: 'AWD' },
-      { label: 'LENGTH',    value: '4000 mm' },
-      { label: 'WIDTH',     value: '1785 mm' },
-      { label: 'WHEELBASE', value: '2530 mm' },
-      { label: 'STATUS',    value: 'DEV TEST — WIP' },
-    ],
-    blurb: 'Work-in-progress test vehicle (dev only). Rough visuals + placeholder '
-      + 'physics — here to test with, not a released car.',
-  }];
   if (mode === 'arcade') return [{
     key: 'steerex', name: 'Stee-Rex', image: 'silver',
     specs: [
@@ -1064,7 +1063,10 @@ function modeCars(mode: RaceMode): MenuCar[] {
     ],
     blurb: '90s European touring car. Group A pedigree - raw, rear-driven, unforgiving. '
       + 'Brilliant on asphalt, a struggle anywhere else.',
-  }];
+  },
+  // DEV-ONLY: the Fury 200 EVO joins the SIM car list for the dev host, next to the
+  // Blitz RS. Omitted entirely for every normal free/premium/anon host.
+  ...(isDev() ? [FURY_MENU_CAR] : [])];
 }
 
 // Draw the car's sprite (cropped to its opaque bbox, nose UP) into a flyout canvas.
@@ -1224,17 +1226,13 @@ document.getElementById('btn-start-race')?.addEventListener('click', () => {
 });
 document.getElementById('btn-mode-arcade')?.addEventListener('click', () => chooseMode('arcade'));
 document.getElementById('btn-mode-sim')?.addEventListener('click', () => chooseMode('sim'));
-document.getElementById('btn-mode-fury')?.addEventListener('click', () => chooseMode('fury'));
 document.getElementById('btn-mode-back')?.addEventListener('click', goHome);
 
-// DEV-ONLY UI: reveal the Fury test-car mode button ONLY for the dev host, and warm
-// its sprite so it draws instantly on first spawn. Hidden (and never baked) for every
-// normal free/premium/anon host. Re-run on auth changes + when the mode screen opens.
+// DEV-ONLY: warm the Fury test-car sprite for the dev host so it draws instantly the
+// moment the dev picks it in the SIM car list. A normal host never bakes it (nor ever
+// sees the Fury tile). Runs on auth changes.
 function refreshDevUi() {
-  const dev = isDev();
-  const furyBtn = document.getElementById('btn-mode-fury') as HTMLElement | null;
-  if (furyBtn) furyBtn.hidden = !dev;
-  if (dev) preloadFury();
+  if (isDev()) preloadFury();
 }
 
 // ---- GAME MENU (logged-in host) ----
@@ -2493,15 +2491,18 @@ function activePalette(): CarColor[] {
 // Blitz RS (colour tints the vector body). ARCADE → the Stee-Rex skin whose
 // swatch matches the colour (Graphite → black, anything else → silver default).
 function specForColor(hex: string): VehicleSpec {
-  if (raceMode === 'fury') return FURY_SPEC;   // dev-only; raceMode is only 'fury' for a dev host
-  if (raceMode !== 'arcade') return ROAD_SPEC;
+  // SIM: Blitz RS by default; the DEV host may instead pick the Fury 200 EVO test
+  // car in the car picker (furySelected() is dev-gated, so a normal host can never
+  // resolve to FURY_SPEC even if selectedCarKey were somehow 'fury').
+  if (raceMode !== 'arcade') return furySelected() ? FURY_SPEC : ROAD_SPEC;
   return hex.toLowerCase() === STEEREX_SKIN_COLORS[1].hex.toLowerCase()
     ? STEEREX_BLACK : STEEREX_SILVER;
 }
 // Representative spec for the mode (both Stee-Rex skins share dims) — used for the
 // car-car collision radius (all cars in a race share the mode's footprint).
 function modeSpec(): VehicleSpec {
-  return raceMode === 'fury' ? FURY_SPEC : raceMode === 'arcade' ? STEEREX_SILVER : ROAD_SPEC;
+  if (raceMode === 'arcade') return STEEREX_SILVER;
+  return furySelected() ? FURY_SPEC : ROAD_SPEC;
 }
 // Re-spec every live car to the current mode + its own colour (on mode launch).
 function applyModeToAllCars() {

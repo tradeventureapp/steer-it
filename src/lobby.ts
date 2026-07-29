@@ -98,16 +98,17 @@ export { BLITZ_RS_COLORS as CAR_COLORS } from './vehicles';
 // with no flash of the other car's palette while it waits for the host's lobby message.
 export { STEEREX_SKIN_COLORS } from './vehicles';
 
-import { BLITZ_RS_COLORS as _BLITZ, STEEREX_SKIN_COLORS as _REX, FURY_SKIN_COLORS as _FURY, type CarColor as _CarColor } from './vehicles';
+import { BLITZ_RS_COLORS as _BLITZ, STEEREX_SKIN_COLORS as _REX, type CarColor as _CarColor } from './vehicles';
 /**
  * The colour palette a race MODE offers — the ONE mapping, shared by the host (what it
  * sends + shows) and the phone (what it paints from the `?m=` join-URL hint), so the two
  * can never disagree. Returns null for an unknown/absent mode, which the phone treats as
  * "car not known yet → draw no swatches" (rather than flashing the wrong car's colours).
- * ('fury' is the dev-only test car — a phone only ever gets `?m=fury` from a dev host.)
+ * (The dev-only Fury is a SIM car, not a mode → it rides the SIM palette; the phone never
+ * needs a Fury-specific palette.)
  */
 export function paletteForMode(mode: string | null | undefined): _CarColor[] | null {
-  return mode === 'arcade' ? _REX : mode === 'sim' ? _BLITZ : mode === 'fury' ? _FURY : null;
+  return mode === 'arcade' ? _REX : mode === 'sim' ? _BLITZ : null;
 }
 import { BLITZ_RS_COLORS } from './vehicles';
 
