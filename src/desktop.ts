@@ -1995,6 +1995,14 @@ const wallpaperCanvas = document.createElement('canvas');
 const wallpaperCtx = wallpaperCanvas.getContext('2d')!;
 const overlayCanvas = document.createElement('canvas');
 const overlayCtx = overlayCanvas.getContext('2d')!;
+// CACHED BACKGROUND (race mode) — wallpaper + tyre marks + overlay pre-composited into one
+// surface, so render() blits it ONCE per frame instead of re-running the fill-rate-heavy
+// multiply-composite of the marks layer every frame. Rebuilt only when it changes: fully on a
+// map switch / resize / mark-clear (bgDirty), and over just the changed rect when a mark is
+// stamped. Pixel-identical to compositing the three layers live (same 1:1 backing + blit).
+const bgCanvas = document.createElement('canvas');
+const bgCtx = bgCanvas.getContext('2d')!;
+let bgDirty = true;   // needs a full rebuild
 
 // The canvas art is a flat cartoon (no fine text — the HUD/menus are HTML DOM and
 // stay crisp at the display's real DPR regardless). Rendering the game canvas at a
@@ -2128,10 +2136,11 @@ function ensureMarkLayers() {
   if (marksLive || !marksEnabled()) return;   // marksEnabled = we're in 'race' mode
   tyreMarks.resize(logicalPxW, logicalPxH, layerDpr);
   marksLive = true;
+  bgDirty = true;
 }
-function clearMarkLayers() { tyreMarks.clear(); }
+function clearMarkLayers() { tyreMarks.clear(); bgDirty = true; }
 /** Force a rebuild at the next map's logical size (map switch / resize). */
-function releaseMarkLayers() { tyreMarks.clear(); marksLive = false; }
+function releaseMarkLayers() { tyreMarks.clear(); marksLive = false; bgDirty = true; }
 
 // Bake the current map's surface into the wallpaper layer, capping the WORKING resolution so no
 // scratch/texture/mask canvas the surface bake allocates can exceed the safe canvas limits — a
@@ -2141,6 +2150,7 @@ function releaseMarkLayers() { tyreMarks.clear(); marksLive = false; }
 // cap is 1 → drawn directly into the wallpaper, byte-identical to before.
 let _wallpaperRetry = 0;   // one-shot re-bake scheduled after a failed bake (memory transient)
 function bakeWallpaperRaw() {
+  bgDirty = true;   // wallpaper re-baked → the cached background is stale
   if (typeof document === 'undefined' || fitCanvasScale(logicalPxW, logicalPxH, 1) >= 1) {
     currentMap.drawBackground(wallpaperCtx, logicalPxW, logicalPxH);
     return;
@@ -2211,6 +2221,42 @@ let draggedObstacle: MapObstacle | null = null;
 function redrawOverlay() {
   overlayCtx.clearRect(0, 0, logicalPxW, logicalPxH);
   currentMap.drawObstacles(overlayCtx, world, CONFIG.pxPerMeter, draggedObstacle);
+  bgDirty = true;   // overlay changed → the cached background is stale
+}
+
+// ---- Cached background composite (see bgCanvas above) ----
+// Keeps bgCanvas current with the LEAST work: a full rebuild only when the base changed, else a
+// partial re-composite of just the rect a mark touched this frame. All copies are 1:1 backing px
+// (every layer shares wallpaper's dims + dpr), so the result is byte-identical to the live blit.
+function rebuildBgFull() {
+  const bw = bgCanvas.width, bh = bgCanvas.height;
+  bgCtx.setTransform(1, 0, 0, 1, 0, 0);
+  bgCtx.globalCompositeOperation = 'source-over'; bgCtx.globalAlpha = 1;
+  bgCtx.clearRect(0, 0, bw, bh);
+  bgCtx.drawImage(wallpaperCanvas, 0, 0);
+  tyreMarks.compositeInto(bgCtx, 0, 0, bw, bh);
+  bgCtx.drawImage(overlayCanvas, 0, 0);
+}
+function rebuildBgRect(r: { x: number; y: number; w: number; h: number }) {
+  const s = logicalPxW > 0 ? wallpaperCanvas.width / logicalPxW : 1;   // backing px per logical px
+  const bx = Math.max(0, Math.floor(r.x * s)), by = Math.max(0, Math.floor(r.y * s));
+  const bx1 = Math.min(bgCanvas.width, Math.ceil((r.x + r.w) * s));
+  const by1 = Math.min(bgCanvas.height, Math.ceil((r.y + r.h) * s));
+  const bw = bx1 - bx, bh = by1 - by;
+  if (bw <= 0 || bh <= 0) return;
+  bgCtx.setTransform(1, 0, 0, 1, 0, 0);
+  bgCtx.globalCompositeOperation = 'source-over'; bgCtx.globalAlpha = 1;
+  bgCtx.drawImage(wallpaperCanvas, bx, by, bw, bh, bx, by, bw, bh);   // fresh wallpaper (no double-multiply)
+  tyreMarks.compositeInto(bgCtx, bx, by, bw, bh);
+  bgCtx.drawImage(overlayCanvas, bx, by, bw, bh, bx, by, bw, bh);
+}
+function ensureBgComposite() {
+  if (bgCanvas.width !== wallpaperCanvas.width || bgCanvas.height !== wallpaperCanvas.height) {
+    bgCanvas.width = wallpaperCanvas.width; bgCanvas.height = wallpaperCanvas.height; bgDirty = true;
+  }
+  if (bgDirty) { rebuildBgFull(); bgDirty = false; tyreMarks.takeDirtyRect(); return; }  // full already includes any pending marks
+  const r = tyreMarks.takeDirtyRect();
+  if (r) rebuildBgRect(r);
 }
 
 // The surface fill bitmap is preloaded at startup (preloadSurfaceAssets, below) so it is normally
@@ -3652,14 +3698,18 @@ function render() {
   // Static layers (logical bitmaps) → blit into the fitted, centred rectangle
   // with a UNIFORM scale (never stretched). Desktop: offset 0, scale 1 ⇒ 1:1.
   const dw = logicalPxW * viewScale, dh = logicalPxH * viewScale;
-  ctx.drawImage(wallpaperCanvas, viewOffX, viewOffY, dw, dh);
-  // Exactly ONE mark system composites (the other's layer is never written, so this also
-  // skips its blit → no per-frame cost for the inactive mode). RACE = the saturation layers
-  // (dug turf, then a multiply darkening pass that keeps kerbs/gravel/racing-line legible);
-  // PAINT = the legacy per-car skid canvas. Both sit under the cars.
-  if (markMode === 'paint') ctx.drawImage(skidCanvas, viewOffX, viewOffY, dw, dh);
-  else if (marksLive) tyreMarks.draw(ctx, viewOffX, viewOffY, dw, dh);
-  ctx.drawImage(overlayCanvas, viewOffX, viewOffY, dw, dh);
+  // RACE mode: blit the CACHED background (wallpaper + tyre marks + overlay). ensureBgComposite()
+  // keeps it current with the least work — a full rebuild only when the base changes, else a
+  // partial re-composite of just the mark rect this frame — so the multiply is off the per-frame
+  // path. PAINT (legacy dev mode) keeps the live wallpaper + skid + overlay blits.
+  if (markMode === 'race' && marksLive) {
+    ensureBgComposite();
+    ctx.drawImage(bgCanvas, viewOffX, viewOffY, dw, dh);
+  } else {
+    ctx.drawImage(wallpaperCanvas, viewOffX, viewOffY, dw, dh);
+    if (markMode === 'paint') ctx.drawImage(skidCanvas, viewOffX, viewOffY, dw, dh);
+    ctx.drawImage(overlayCanvas, viewOffX, viewOffY, dw, dh);
+  }
 
   // Dynamic layers draw in LOGICAL pixel space; the same uniform scale + offset
   // fits them to the window, so cars/gates/fx track the world exactly.

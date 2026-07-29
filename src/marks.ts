@@ -151,6 +151,9 @@ export class TyreMarks {
   // clean map (or an asphalt-only map whose grass layer stays empty) costs no per-frame
   // composite — the whole system is free until the first mark is laid.
   private mulDirty = false; private overDirty = false;
+  // Bounding box (LOGICAL px) of everything stamped since the last takeDirtyRect() — lets the
+  // caller re-composite only the region that changed instead of the whole screen every frame.
+  private dx0 = Infinity; private dy0 = Infinity; private dx1 = -Infinity; private dy1 = -Infinity;
   // Per-car wheel trails, keyed by the CarState object — a respawn makes a new object and so
   // starts a fresh trail, and a departed car's entry is collected. Same pattern as physics4.
   private trails = new WeakMap<CarState, Trail[]>();
@@ -177,6 +180,40 @@ export class TyreMarks {
     this.mulCtx?.clearRect(0, 0, this.wPx, this.hPx);
     this.overCtx?.clearRect(0, 0, this.wPx, this.hPx);
     this.mulDirty = this.overDirty = false;
+    this.dx0 = this.dy0 = Infinity; this.dx1 = this.dy1 = -Infinity;
+  }
+  /** True once anything has been stamped — an empty set costs no composite at all. */
+  get hasMarks(): boolean { return this.mulDirty || this.overDirty; }
+  /**
+   * Consume the region (LOGICAL px, clamped to the layer) touched since the last call, or null
+   * if nothing new was stamped. The caller re-composites only this rect into its cached
+   * background — so the fill-rate-heavy multiply runs on a small area while drifting, and not at
+   * all on frames where no mark was laid.
+   */
+  takeDirtyRect(): { x: number; y: number; w: number; h: number } | null {
+    if (this.dx1 < this.dx0) return null;
+    const x0 = Math.max(0, Math.floor(this.dx0)), y0 = Math.max(0, Math.floor(this.dy0));
+    const x1 = Math.min(this.wPx, Math.ceil(this.dx1)), y1 = Math.min(this.hPx, Math.ceil(this.dy1));
+    this.dx0 = this.dy0 = Infinity; this.dx1 = this.dy1 = -Infinity;
+    if (x1 <= x0 || y1 <= y0) return null;
+    return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+  }
+  /**
+   * Composite both layers 1:1 (BACKING px) into a sub-rect of `ctx`. Identical blend to draw()
+   * (grass over, then a multiply darken pass), but into a caller-owned cached surface so it need
+   * not run every frame. Backing coords because the layers carry a DPR scale on their own ctx.
+   */
+  compositeInto(ctx: CanvasRenderingContext2D, sx: number, sy: number, sw: number, sh: number) {
+    if (this.over && this.overDirty) {
+      ctx.globalAlpha = MARK.grassCap;
+      ctx.drawImage(this.over, sx, sy, sw, sh, sx, sy, sw, sh);
+      ctx.globalAlpha = 1;
+    }
+    if (this.mul && this.mulDirty) {
+      ctx.globalCompositeOperation = 'multiply';
+      ctx.drawImage(this.mul, sx, sy, sw, sh, sx, sy, sw, sh);
+      ctx.globalCompositeOperation = 'source-over';
+    }
   }
   /** Break every trail (wrap / respawn) so no streak is drawn across the jump. */
   cut(state: CarState) {
@@ -234,6 +271,12 @@ export class TyreMarks {
         c.lineTo(x, y);
         c.stroke();
         if (grass) this.overDirty = true; else this.mulDirty = true;
+        // Grow the dirty box by half the stroke width (+round cap + 1px AA slack).
+        const pad = (MARK[WIDTH[cls]] as number) / 2 + 1.5;
+        if (trail.px < x) { this.dx0 = Math.min(this.dx0, trail.px - pad); this.dx1 = Math.max(this.dx1, x + pad); }
+        else { this.dx0 = Math.min(this.dx0, x - pad); this.dx1 = Math.max(this.dx1, trail.px + pad); }
+        if (trail.py < y) { this.dy0 = Math.min(this.dy0, trail.py - pad); this.dy1 = Math.max(this.dy1, y + pad); }
+        else { this.dy0 = Math.min(this.dy0, y - pad); this.dy1 = Math.max(this.dy1, trail.py + pad); }
       }
     }
     trail.px = x; trail.py = y; trail.active = true;
