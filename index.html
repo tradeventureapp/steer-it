@@ -3,7 +3,32 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Steer It</title>
+    <title>Steer It — Free Multiplayer Party Racing Game in Your Browser</title>
+    <meta name="description" content="Turn your phone into a steering wheel. Scan a QR code and race friends on one screen — free browser party game with local multiplayer drifting. No download." />
+    <link rel="canonical" href="https://steerit.app/" />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+
+    <!-- Open Graph / Twitter — how the link looks when shared in WhatsApp, Discord,
+         Messenger, iMessage. A party game spreads by shared links, so this matters
+         as much as search. Absolute https URLs are required by every scraper. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Steer It" />
+    <meta property="og:url" content="https://steerit.app/" />
+    <meta property="og:title" content="Steer It — Free Multiplayer Party Racing Game in Your Browser" />
+    <meta property="og:description" content="Your phone is the wheel. Scan a QR code and drift against your friends on one screen — no download, no install. Free to play." />
+    <meta property="og:image" content="https://steerit.app/og-image.jpg" />
+    <meta property="og:image:secure_url" content="https://steerit.app/og-image.jpg" />
+    <meta property="og:image:type" content="image/jpeg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Steer It — a racing game on a monitor with a phone used as the steering wheel" />
+    <meta property="og:locale" content="en_US" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Steer It — Free Multiplayer Party Racing Game in Your Browser" />
+    <meta name="twitter:description" content="Your phone is the wheel. Scan a QR code and drift against your friends on one screen — no download, no install. Free to play." />
+    <meta name="twitter:image" content="https://steerit.app/og-image.jpg" />
+    <meta name="twitter:image:alt" content="Steer It — a racing game on a monitor with a phone used as the steering wheel" />
+
     <!-- Favicons — sunset "S" mark; readable on light or dark tabs. -->
     <link rel="icon" href="/favicon.ico" sizes="any" />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
@@ -18,6 +43,48 @@
       rel="stylesheet"
     />
     <link rel="stylesheet" href="/src/style.css" />
+
+    <!-- Structured data — tells Google this is a playable browser VideoGame with a
+         free tier and a one-time $6.90 upgrade (enables richer result treatment). -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "VideoGame",
+      "name": "Steer It",
+      "url": "https://steerit.app/",
+      "image": "https://steerit.app/og-image.jpg",
+      "description": "Steer It is a free browser party racing game. The host opens the game on a laptop, TV or tablet, everyone else scans a QR code and their phone becomes the steering wheel — local multiplayer drift racing on one shared screen, with no download or install.",
+      "inLanguage": "en",
+      "genre": ["Racing", "Party", "Multiplayer", "Casual"],
+      "gamePlatform": ["Web browser", "PC", "Tablet", "Mobile phone"],
+      "operatingSystem": "Any (web browser)",
+      "applicationCategory": "Game",
+      "playMode": ["MultiPlayer", "SinglePlayer", "CoOp"],
+      "numberOfPlayers": { "@type": "QuantitativeValue", "minValue": 1, "maxValue": 8 },
+      "author": { "@type": "Person", "name": "Jakub Dyk" },
+      "publisher": { "@type": "Organization", "name": "Steer It", "url": "https://steerit.app/" },
+      "offers": [
+        {
+          "@type": "Offer",
+          "name": "Free",
+          "price": "0",
+          "priceCurrency": "USD",
+          "availability": "https://schema.org/InStock",
+          "url": "https://steerit.app/",
+          "description": "Free to play — Desktop and Asphalt Oval maps, Free Ride mode, no account needed."
+        },
+        {
+          "@type": "Offer",
+          "name": "Premium",
+          "price": "6.90",
+          "priceCurrency": "USD",
+          "availability": "https://schema.org/InStock",
+          "url": "https://steerit.app/",
+          "description": "One-time purchase — all maps and game modes, simulation mode, leaderboards and no pop-up ads."
+        }
+      ]
+    }
+    </script>
   </head>
   <body class="desktop">
     <canvas id="game"></canvas>
@@ -37,9 +104,21 @@
       <!-- HERO — fills the first viewport; HOW IT WORKS scrolls in below it. -->
       <div class="hero-wrap">
         <div class="menu-card">
-          <img class="hero-logo" src="/logos/steer-it-logo.png"
-               alt="STEER IT — Drift Your Desktop" width="3450" height="1142" />
-          <p class="hero-sub">Your phone is the wheel — grab some friends and drift across the desktop.</p>
+          <!-- The wordmark IS the H1 (the logo is the visual; the text inside gives
+               crawlers + screen readers the real heading). Styling is unchanged —
+               .hero-h1 only resets the default h1 margins/size. -->
+          <h1 class="hero-h1">
+            <!-- WebP (70 KB) with the original PNG (661 KB) as fallback — this is the
+                 LCP element, so the smaller file directly improves mobile ranking. -->
+            <picture>
+              <source srcset="/logos/steer-it-logo.webp" type="image/webp" />
+              <img class="hero-logo" src="/logos/steer-it-logo.png" fetchpriority="high"
+                   alt="Steer It — Drift Your Desktop" width="3450" height="1142" />
+            </picture>
+            <span class="sr-only">Steer It — a free multiplayer party racing game you play in your browser with friends</span>
+          </h1>
+          <p class="hero-sub">Your phone is the wheel — grab some friends and drift across the desktop.
+            A free browser party game for 2–8 players. No download, no install.</p>
           <div class="menu-actions">
             <button type="button" class="menu-btn primary" id="btn-start-race">TRY FREE</button>
             <!-- More items (OPTIONS, LEADERBOARDS) slot in here later — none yet. -->
@@ -250,6 +329,46 @@
               <div class="rm-desc">Coming to Steam — if there's demand</div>
             </div>
           </div>
+        </div>
+      </section>
+
+      <!-- ABOUT — real, crawlable prose. This is the page's main body text for
+           search engines (everything above is images + short UI copy), and it
+           doubles as a plain-English explanation for first-time visitors. -->
+      <section class="about" id="about">
+        <div class="how-head">
+          <span class="how-rule" aria-hidden="true"></span>
+          <h2 class="how-title">WHAT IS STEER IT?</h2>
+          <span class="how-rule flip" aria-hidden="true"></span>
+        </div>
+
+        <div class="about-prose">
+          <p>Steer It is a <strong>free browser party game</strong> built for the room you're
+            actually in. One person opens the game on a laptop, desktop or TV, everyone else
+            scans the QR code, and each phone instantly becomes a steering wheel. There's
+            nothing to download, nothing to install and no controllers to hunt for — if you
+            can open a web page, you can race.</p>
+
+          <h3>Local multiplayer without the splitscreen</h3>
+          <p>Traditional <strong>splitscreen games</strong> chop one screen into halves and
+            quarters until nobody can see the track. Steer It doesn't have to: because every
+            player brings their own phone as a controller, up to 8 cars share one full-size
+            screen. It's the couch feeling of the best <strong>local multiplayer games</strong>
+            with none of the squinting — made for parties, classrooms, offices and family nights.</p>
+
+          <h3>Drift racing with real physics</h3>
+          <p>Tilt your phone to steer and use the on-screen gas, brake and handbrake pedals.
+            Underneath the arcade paint is a proper per-wheel physics model, so these are
+            <strong>drift games</strong> mechanics you can actually feel — flick the car in,
+            catch the slide with a bit of countersteer, and power out. Race across a fake
+            desktop, a stadium oval or a winding circuit.</p>
+
+          <h3>One of the easiest online games to play with friends</h3>
+          <p>No accounts, no lobbies and no app store. Steer It is free to play, and a
+            one-time $6.90 upgrade unlocks every map and game mode, simulation mode and
+            leaderboards. Whether you're after <strong>multiplayer racing games</strong> for a
+            party or just <strong>free browser games</strong> to kill ten minutes, it takes
+            about fifteen seconds to get everyone driving.</p>
         </div>
       </section>
 

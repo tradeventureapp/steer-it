@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+
+# The phone controller page is a session-bound view (it needs a live join code and
+# is useless on its own). It is crawlable but carries a noindex meta tag so Google
+# can see the directive rather than guessing.
+
+Sitemap: https://steerit.app/sitemap.xml

@@ -231,6 +231,16 @@ body.desktop #game { display: block; width: 100vw; height: 100vh; }
 
 /* ===== HERO LOGO — the STEER IT + tagline lockup is an IMAGE (the real design
    font, baked dark outline + sunset fill). We just place + light it. ========= */
+/* The hero wordmark is wrapped in an <h1> for SEO/a11y — reset the UA heading box
+   so the layout is byte-identical to the previous bare <img>. */
+.hero-h1 { margin: 0; font-size: inherit; font-weight: inherit; line-height: 0; }
+.hero-h1 picture { display: block; }   /* <picture> is inline by default — keep the block layout */
+/* Visually hidden but readable by crawlers + screen readers (real text, not a trick:
+   it says the same thing the logo image shows, with the product context). */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0;
+}
 .hero-logo {
   display: block; width: min(760px, 66vw); height: auto;
   filter: drop-shadow(0 6px 30px rgba(255, 45, 143, 0.35))
@@ -2745,4 +2755,36 @@ body.phone {
 .account-badge.is-pending, #gm-acc-badge.is-pending, #plan-pill.is-pending {
   opacity: 0.5;
   letter-spacing: 2px;
+}
+
+/* ===== ABOUT — the landing's main crawlable prose (SEO + plain-English intro) === */
+.about {
+  position: relative; z-index: 1;
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 10px 22px 4px;
+}
+.about-prose {
+  /* Body font explicitly — the landing's menu screens default to the Orbitron
+     DISPLAY face, which is unreadable for long-form paragraphs. */
+  font-family: var(--font-body);
+  color: var(--text-dim);
+  font-size: 16.5px;
+  line-height: 1.75;
+  text-align: left;
+}
+.about-prose p { margin: 12px 0 18px; }
+.about-prose strong { color: var(--text); font-weight: 600; }
+.about-prose h3 {
+  font-family: var(--font-display);
+  font-size: 17px;
+  letter-spacing: 0.04em;
+  color: var(--gold);
+  margin: 26px 0 6px;
+  text-transform: uppercase;
+}
+@media (max-width: 760px) {
+  .about { padding: 6px 18px 2px; }
+  .about-prose { font-size: 15.5px; line-height: 1.7; }
+  .about-prose h3 { font-size: 15.5px; }
 }
