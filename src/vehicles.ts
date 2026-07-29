@@ -61,6 +61,14 @@ export const STEEREX_SKIN_COLORS: CarColor[] = [
   { name: 'Graphite', hex: '#2a2d34' },
 ];
 
+// ---- Fury 200 EVO "colours" (DEV-ONLY test car — one fixed rally livery) --------
+// The Fury sprite has a fixed white/blue livery, so its "colour" is a single swatch;
+// the phone picker shows it, the sprite ignores it (like the Stee-Rex skins). Only
+// the dev host ever reaches Fury mode, so a normal user never sees this.
+export const FURY_SKIN_COLORS: CarColor[] = [
+  { name: 'Lombard', hex: '#e9edf2' },
+];
+
 // One car's public spec sheet. Pure data — no physics, no behaviour, no DOM.
 export interface VehicleIdentity {
   /** Stable internal key (URLs / save data / registry lookups). */
@@ -138,6 +146,7 @@ export function listVehicles(): VehicleIdentity[] {
 // =============================================================================
 import type { Config } from './vehicle-core';
 import type { SteerexSkin } from './steerex-sprite';
+import type { FurySkin } from './fury-sprite';
 import type { Physics4Params } from './physics4';
 
 // A vehicle's REAL-WORLD dimensions (metres). The source of truth for how big the car
@@ -169,7 +178,7 @@ export interface VehicleSpec {
   // A pre-authored SVG sprite instead of the vector-drawn Blitz RS body. When set,
   // drawCar blits the cached bitmap; the slot colour / livery are ignored (the skin
   // is a fixed design). VISUAL ONLY — the physics still uses the global PHYS4.
-  sprite?: { car: 'steerex'; skin: SteerexSkin };
+  sprite?: { car: 'steerex'; skin: SteerexSkin } | { car: 'fury'; skin: FurySkin };
 }
 
 // ROAD — the base Blitz RS (grippy asphalt Sport-class coupe). NO overrides →
@@ -346,6 +355,25 @@ export const STEEREX_BLACK: VehicleSpec = {
   arcade: STEEREX_ARCADE,
   fxScale: 1.7,                // brutal, dense off-road throw (grass dust / gravel spray)
   sprite: { car: 'steerex', skin: 'black' },
+};
+
+// ---- FURY 200 EVO — DEV-ONLY WIP test vehicle ---------------------------------
+// A Group-B rallycross special (sprite car, white/blue rally livery). GATED to the
+// dev host in desktop.ts (`isDev`) — never selectable or visible for a normal free/
+// premium/anonymous user. It is DELIBERATELY kept OUT of `VEHICLE_SPECS` below so no
+// generic listing can surface it. Physics is a PLACEHOLDER: it borrows the shared
+// sim model (Blitz RS's PHYS4) — no Fury handling tune exists yet.
+// Real-world dimensions (the physics anchor): 4000 × 1785 mm, wheelbase 2530,
+// track ~1500. The sprite is width-anchored to `widthM`, so the length follows.
+export const FURY_DIMS: VehicleDims = {
+  lengthM: 4.0, widthM: 1.785, wheelbaseM: 2.53, bodyWidthM: 1.60,
+};
+export const FURY_SPEC: VehicleSpec = {
+  name: 'Fury 200 EVO',
+  overrides: {},                          // placeholder physics = the shared sim model
+  dims: FURY_DIMS,
+  fxScale: 1.4,                           // rallycross → a bigger off-road throw
+  sprite: { car: 'fury', skin: 'lombard' },
 };
 
 export const VEHICLE_SPECS: VehicleSpec[] = [ROAD_SPEC, STEEREX_SILVER, STEEREX_BLACK];

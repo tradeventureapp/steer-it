@@ -4990,3 +4990,36 @@ is the Stage-2b tune: **modulated 0-100 ≈ 2.07 s, full-mash ≈ 2.68 s, top 30
 in-game was track-length, unchanged by the revert). ONLY the accel task reverted — branch architecture,
 sprite, dimensions, other cars, maps, 2c drift, 2d grip, 2e surfaces all UNTOUCHED (they weren't in
 d81b315). Blitz 0.0e+0. tsc + build clean.
+
+---
+**FURY 200 EVO — new sprite car, wired in DEV-ONLY (gated to the dev host account; invisible to every
+normal user):** a Group-B rallycross test vehicle (Ford RS200 Evolution silhouette, white + blue
+Lombard-RAC-style diagonal-stripe livery, drawn in the house vector style — rough placeholder art, to
+be redone later). **NEW `src/fury-sprite.ts`** mirrors `steerex-sprite.ts` (one 'lombard' skin):
+inline SVG → rasterised transparent bitmap (nose UP, viewBox symmetric about the geometry centre 330,472
+= the rotation pivot), `furySprite`/`preloadFury`/`furyOpaque`/`furyScaled` + a mipmap downscale cache.
+NO real make/model/sponsor marks anywhere (public identity "Fury 200 EVO" only, like Blitz RS / Stee-Rex).
+**DIMENSIONS (the physics anchor, EXACT):** 4000 × 1785 mm, wheelbase 2530, track ~1500 — same 2.506
+mm/px sprite scale as Stee-Rex/Blitz (width-anchored: opaque width px → widthM, length follows at the
+sprite's aspect). **`vehicles.ts`:** `FURY_DIMS` + `FURY_SPEC` (sprite `{car:'fury',skin:'lombard'}`,
+dims, fxScale 1.4, `overrides:{}` = PLACEHOLDER physics = the shared sim PHYS4 — no Fury handling tune
+yet), `FURY_SKIN_COLORS` (one swatch), sprite union extended to `steerex|fury`. Deliberately kept OUT of
+`VEHICLE_SPECS` (which is unused anyway) so no generic listing can surface it.
+**DEV GATE (the mechanism):** a THIRD `RaceMode 'fury'`, reachable ONLY by the dev host. `isDev()` =
+logged-in email ∈ `DEV_EMAILS` (`['dykous94@gmail.com']`) — the host is the only authenticated party
+(phones join account-free) and the email is server-verified (Supabase JWT), so a normal free/premium/anon
+host has a different email and never passes. **FULLY HIDDEN for everyone else — verified at every surface:**
+(1) `#btn-mode-fury` in index.html ships `hidden`; `refreshDevUi()` sets `hidden=!isDev()` on auth-change
++ on openModeSelect (confirmed hidden for a non-dev session in-browser); (2) `chooseMode('fury')` returns
+early if `!isDev`; (3) `launchSelected` bails (`goHome`) if `fury && !isDev` (defense in depth); (4)
+`specForColor`/`modeSpec` only return `FURY_SPEC` when `raceMode==='fury'` (settable only by a dev);
+(5) `modeCars('fury')` only runs in fury mode; (6) `preloadFury()` fires ONLY for a dev, so a normal host
+never even bakes the sprite; (7) phones only ever get `?m=fury` from a dev host, and it just adds a
+`paletteForMode('fury')` swatch (no car-select on the phone) → no leak. Render: `drawCar` gains a
+`sprite.car==='fury'` branch → `drawFury` (same width-anchored blit as `drawSteerex`); menu flyout gets
+`drawFuryImage`. **Blitz RS UNTOUCHED — physics4.ts / vehicle-core.ts / cars.ts / race.ts byte-identical
+(empty diffs), Fury runs on PHYS4 → golden 0.0e+0 by construction.** Changed: index.html, desktop.ts,
+lobby.ts, vehicles.ts + new fury-sprite.ts. Temp generator files (furygen.*) deleted. tsc + build clean;
+app boots with no console errors, Fury button hidden for a non-dev. **NEXT: redo the Fury visuals + give
+it a real physics4 tune (currently placeholder = Blitz sim); to grant another dev account, add its email
+to `DEV_EMAILS`.**
