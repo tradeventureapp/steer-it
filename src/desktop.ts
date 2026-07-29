@@ -2460,8 +2460,11 @@ function carHalfExtents(spec: VehicleSpec): { halfLen: number; halfWidth: number
 // a clone of PHYS4 with the arcade branch + the spec's per-car overrides (empty at Stage 1
 // ⇒ numerically identical to PHYS4, i.e. still behaves like sim until the tune lands).
 function physFor(spec: VehicleSpec): Physics4Params {
-  if (spec.branch !== 'arcade') return PHYS4;
-  return { ...PHYS4, ...(spec.arcade ?? {}), branch: 'arcade' };
+  if (spec.branch === 'arcade') return { ...PHYS4, ...(spec.arcade ?? {}), branch: 'arcade' };
+  // SIM: a car may carry its OWN per-wheel params (e.g. the Fury's AWD rallycross spec).
+  // Blitz RS has none → return the exact PHYS4 reference → byte-identical (golden 0.0e+0).
+  if (spec.phys4) return { ...PHYS4, ...spec.phys4, branch: 'sim' };
+  return PHYS4;
 }
 
 // Resolve a spec to a car's livery + collision size + physics branch. Called at spawn /

@@ -163,6 +163,12 @@ export interface VehicleSpec {
   // global PHYS4 (empty for now = behaves like sim until the arcade tune lands).
   branch?: 'sim' | 'arcade';
   arcade?: Partial<Physics4Params>;
+  // PER-CAR SIM PHYSICS — physics4 param overrides applied on top of the global PHYS4
+  // for a SIM car (any branch). This is the sim analogue of `arcade`: it lets a sim car
+  // (e.g. the Fury) carry its OWN mass / inertia / geometry / drivetrain (AWD split) /
+  // tyre / engine without an arcade tune. Blitz RS omits it → its effective params ARE
+  // PHYS4 → byte-identical. NEVER touched for the arcade branch (that uses `arcade`).
+  phys4?: Partial<Physics4Params>;
   // Off-track effect multiplier (render-only): ×size + ×rate on this car's grass-dust / gravel-
   // spray particles. 1 = the shared default (Blitz RS → circuit visuals byte-identical); an
   // arcade car cranks it up for a brutal, dense off-road throw. NEVER touches physics.
@@ -360,9 +366,49 @@ export const STEEREX_BLACK: VehicleSpec = {
 export const FURY_DIMS: VehicleDims = {
   lengthM: 4.0, widthM: 1.785, wheelbaseM: 2.53, bodyWidthM: 1.60,
 };
+// FURY physics4 profile — REAL numbers from the Ford RS200 Evolution in rallycross
+// trim (Schanche 1991 title car); the behaviour EMERGES, it is not tuned to a feel.
+// Every field maps to the anchor data (see the running log in CLAUDE.md). Only the
+// fields that DIFFER from PHYS4 (the Blitz sim) are listed — the rest are inherited,
+// so the Fury shares the same honest per-wheel model, differing only by its numbers.
+const FURY_PHYS4: Partial<Physics4Params> = {
+  // GEOMETRY (real) — the physics reads these, not CONFIG
+  wheelbase: 2.53,            // 2530 mm (anchor / FURY_DIMS)
+  trackWidth: 1.50,           // 1501 front / 1496 rear ≈ 1.50 (anchor)
+  // DRIVETRAIN — permanent 4WD, centre torque split 37% front / 63% rear (anchor).
+  // The existing per-wheel drive path deploys it; each axle already splits torque
+  // equally L/R (locked/LSD-like), so the viscous LSDs map onto that split — no diff
+  // term is added. 0.37 = the rear-leaning AWD character (traction on all four, rear bias).
+  driveSplitFront: 0.37,
+  // MASS + BALANCE
+  massKg: 1100,               // ~1100 kg (anchor)
+  weightDistFront: 0.50,      // 50/50 (anchor: gearbox-front balances the mid-rear engine)
+  cgHeight: 0.48,             // low mid-engine rally car (a touch above the Blitz coupe's 0.45)
+  yawInertiaK: 1.02,          // LOW polar moment (masses near centre) → Iz = 1100·1.02² ≈ 1144
+                              // (< Blitz's 1469) → rotates EAGERLY; combined with 50/50 + power,
+                              // a slide starts fast and is tricky to gather (authentic to this car)
+  // TYRE — rallycross UNIVERSAL compound: a COMPROMISE. Lower tarmac peak than the
+  // Blitz's slicks + broader/more forgiving, and FAR more grip off-tarmac.
+  muNom: 1.55,                // tarmac peak ~1.5g (vs the slick's 1.90 ≈ 1.86g) — less outright grip
+  tireB: 9,                   // broader peak build-up (softer than the slick's 10)
+  tireC: 1.35,                // gentle post-peak falloff = forgiving (slick 1.45 sharper)
+  tireEllipseLong: 1.35,      // AWD corner-exit: throttle keeps the lateral grip → superior drive out
+  loadSensitivity: 0.06,
+  tire: { muScale: { asphalt: 1.0, grass: 0.60, gravel: 0.70, dirt: 0.85 } },  // universal: keeps grip off-tarmac (the slick collapses to 0.28/0.35/0.50)
+  // STEERING — a touch more lock than the race coupe
+  maxSteer: 0.58,             // ~33°
+  // ENGINE — ~650 hp / ~600 Nm, no turbo lag (direct throttle; lag model deliberately skipped)
+  peakThrust: 21000,          // big low-speed drive force (~1.6× the Blitz's 13000, per the torque
+                              // advantage) = violent punch; AWD deploys most of it (≈590 hp/tonne)
+  enginePower: 485000,        // 485 kW ≈ 650 hp (the ∝1/v power taper)
+  // BRAKES — heavier car, strong rally brakes
+  brakeForce: 14000,          // ~1.3g at 1100 kg
+  brakeBiasFront: 0.58,       // slightly less front bias than the Blitz (AWD)
+};
 export const FURY_SPEC: VehicleSpec = {
   name: 'Fury 200 EVO',
-  overrides: {},                          // placeholder physics = the shared sim model
+  overrides: {},                          // (legacy CONFIG field, unused by physics4)
+  phys4: FURY_PHYS4,                       // its OWN real per-wheel sim physics (AWD rallycross)
   dims: FURY_DIMS,
   fxScale: 1.4,                           // rallycross → a bigger off-road throw
   sprite: { car: 'fury', skin: 'lombard' },

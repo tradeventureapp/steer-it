@@ -5041,3 +5041,37 @@ Fury → CAR & MAP → START → all cars spawn as Fury (`drawCar` → `drawFury
 PHYS4). **Blitz RS UNTOUCHED — physics4/vehicle-core/cars/race byte-identical (empty diffs), golden
 0.0e+0.** Changed: index.html, desktop.ts, lobby.ts, vehicles.ts. tsc + build clean; boots with no console
 errors, no `btn-mode-fury`, SIM picker shows only Blitz for a non-dev.
+
+---
+**FURY 200 EVO — REAL physics4 handling (AWD rallycross), replacing the placeholder; Blitz byte-identical
+(golden 0.0e+0), ZERO physics-code change:** the Fury now carries its OWN per-wheel sim params anchored to
+the Ford RS200 Evolution in rallycross trim (Schanche 1991 title car). **MECHANISM (per-car SIM params
+without touching the engine):** the physics4 AWD/per-wheel drive path is gated on `driveSplitFront > 0`
+(NOT on branch), so a SIM car can drive all four wheels — no `physics4.ts` change needed. Added
+`VehicleSpec.phys4?: Partial<Physics4Params>` (the sim analogue of `arcade`); `physFor` applies it for a
+sim car (`{...PHYS4, ...spec.phys4, branch:'sim'}`). **Blitz (ROAD_SPEC) has no `phys4` → `physFor` returns
+the EXACT `PHYS4` reference → byte-identical** (harness-proven `ROAD_SPEC.phys4 === undefined` + Blitz's
+numbers unchanged). Only `src/vehicles.ts` (FURY_PHYS4) + the `physFor` one-liner in `desktop.ts` changed;
+`physics4.ts`/`vehicle-core.ts` empty diffs. **KEY PARAMS → ANCHOR:** `driveSplitFront` **0.37** (permanent
+4WD, centre split 37/63 rear-biased; per-axle equal L/R split already models the viscous LSDs — no diff
+term); `massKg` **1100**; `weightDistFront` **0.50** (50/50, gearbox-front balances the mid-rear engine);
+`yawInertiaK` **1.02** (LOW polar moment → Iz ≈ 1144 < Blitz's 1469 → eager rotation); `muNom` **1.55** +
+`tireB` **9** + `tireC` **1.35** (rallycross UNIVERSAL compromise tyre — lower tarmac peak than the Blitz
+slick's 1.90, broader/more forgiving); `tire.muScale` **{asphalt 1.0, grass 0.60, gravel 0.70, dirt 0.85}**
+(keeps grip off-tarmac where the slick collapses to 0.28/0.35/0.50); `peakThrust` **21000** + `enginePower`
+**485000** (~650 hp / ~600 Nm, no turbo-lag model; ≈590 hp/tonne, nearly 2× the Blitz); `maxSteer` **0.58**
+(~33°); `brakeForce` **14000** / `brakeBiasFront` **0.58**; geometry `wheelbase` 2.53 / `trackWidth` 1.50.
+**MEASURED (headless harness, real bundled modules, Fury vs Blitz — behaviour EMERGED, not tuned):**
+launch **0-100 2.40 s vs 3.03 s** (AWD punch) with **less wheelspin 0.19 vs 0.33** (AWD puts power down
+where the RWD Blitz spins up); steady cornering peak **1.44–1.5 g vs 1.80–1.84 g** (lower tarmac grip =
+compromise tyre) and MORE PLANTED (lower steady yaw — 50/50 + AWD); but **power-on (full throttle mid-
+corner) tail-out β 41° vs 28°** and **lift-off in a turn β 38° vs 5°** → the low-polar-moment / 50-50 /
+rear-biased-AWD car rotates HARD on throttle + lift = eager, quick to start, tricky to gather (the authentic
+"handful"); top speed 297 vs 243 km/h (the no-gears model's theoretical top — never reached on our short
+maps); **NO NaN / no blow-up** (a long mixed throttle/steer/brake/handbrake sequence stayed finite +
+bounded, no spin-to-infinity) — a handful at the limit but drivable, not broken. Net: it drives as a
+DIFFERENT car — AWD rally monster (planted then snappy/lift-happy, huge traction) vs RWD race coupé. tsc +
+build clean. **AWAITING the boss's phone feel-test before commit. NEXT: redo the rough Fury visuals; if the
+lift-off/power rotation feels too wild on tilt, the honest levers are `weightDistFront` (→0.51 calmer) or
+`yawInertiaK` (→1.08 less eager) — but only if it's genuinely undrivable, not to soften the authentic
+character.**
