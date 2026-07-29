@@ -229,6 +229,50 @@ create or replace view public.player_names as
   select id, nickname from public.profiles;
 grant select on public.player_names to anon, authenticated;
 
+-- =============================================================================
+--  DEFENCE IN DEPTH — lock down the table/function GRANTS, not just RLS.
+--
+--  The anon key ships in the client bundle, so anyone can get a real user JWT and
+--  hit PostgREST directly. RLS already DENIES the dangerous writes (there is no
+--  permissive INSERT/UPDATE policy for the client roles), BUT Supabase grants
+--  anon + authenticated ALL privileges on new public tables by default — so those
+--  roles technically HOLD an UPDATE grant on profiles, gated ONLY by RLS. One day a
+--  well-meaning "let users edit their own row" UPDATE policy added without a column
+--  filter would instantly expose is_premium (exactly the pentest's finding-a).
+--
+--  Removing the write grants makes that impossible: the client roles get SELECT
+--  (plus the few writes RLS genuinely scopes), and EVERY privileged write goes
+--  through a SECURITY DEFINER function (set_nickname / register_device — they run as
+--  the owner, so REVOKE here does NOT affect them) or the service role (the Stripe
+--  webhook — it bypasses RLS entirely). Idempotent; safe to re-run.
+-- =============================================================================
+
+-- PROFILES → the client is READ-ONLY. is_premium is written only by the service
+-- role (webhook); nickname/last_nickname_change only by set_nickname()/the signup
+-- trigger (SECURITY DEFINER). No client role may write any column, ever.
+revoke insert, update, delete on public.profiles from anon, authenticated;
+
+-- DEVICES → the client may SELECT + DELETE its own rows (RLS-scoped, e.g. "sign out
+-- other devices"), but NEVER insert/update directly: register_device() (SECURITY
+-- DEFINER) does the insert + enforces the 5-device rolling cap. Revoking INSERT is
+-- what actually makes the cap unbypassable from a direct PostgREST call.
+revoke insert, update on public.devices from anon, authenticated;
+
+-- SCORES → anon reads the board only. authenticated may INSERT (RLS still requires
+-- own row + is_premium) and read; never UPDATE/DELETE a score (no policy anyway).
+revoke insert, update, delete on public.scores from anon;
+revoke update, delete on public.scores from authenticated;
+
+-- FUNCTIONS → least privilege. Postgres grants EXECUTE to PUBLIC by default, which
+-- includes anon; pin each SECURITY DEFINER function to exactly the role that needs it.
+revoke all on function public.nickname_reason(text)          from public;   -- internal helper only
+revoke all on function public.register_device(text, text)    from public;
+grant  execute on function public.register_device(text, text) to authenticated;
+revoke all on function public.set_nickname(text)             from public;
+grant  execute on function public.set_nickname(text)          to authenticated;
+revoke all on function public.check_nickname(text)           from public;
+grant  execute on function public.check_nickname(text)        to anon, authenticated;  -- needed pre-session (signup)
+
 -- ---- ADMIN HELPERS (run manually to grant/revoke premium until Stripe lands) --
 -- Grant premium to an email (run as the service role in the SQL editor):
 --   update public.profiles set is_premium = true
