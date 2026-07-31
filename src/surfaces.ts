@@ -109,13 +109,18 @@ export const GRAVEL_LOOK = {
  * change. Reads distinct from grass (mown bands), gravel (raked beige) and asphalt (grey).
  */
 export const DIRT_LOOK = {
-  base:  [72, 54, 39] as [number, number, number],   // dark packed earth
-  dark:  [54, 40, 28] as [number, number, number],   // damp / heavily-compacted patches
-  light: [96, 74, 54] as [number, number, number],   // dried / scuffed high spots
-  patchM: 3.2,        // METRES per mottle cell (large soft earthy patches, world-scaled)
-  contrast: 0.55,     // 0..1 — how strongly the patches show (packed = moderate, not blotchy)
-  speckle: 0.05,      // 0..1 — a subtle fine grain (packed, not loose gravel)
-  speckleM: 0.14,     // metres per grain cell
+  base:  [110, 73, 44] as [number, number, number],  // packed earth — a warm, rich earthy brown
+  dark:  [84, 54, 31] as [number, number, number],   // damp / compacted patches (warm, not grey)
+  light: [134, 96, 62] as [number, number, number],  // dried / sunlit high spots (warm golden earth)
+  patchM: 5.5,        // METRES per patch cell — LARGE, soft tonal patches (clean, no grain, no rake)
+  contrast: 0.34,     // 0..1 — GENTLE tonal variation (packed earth reads even, stylised)
+  // Scattered BLACK PEBBLES — stylised discrete little stones (NOT a grain field), deterministic
+  // (hashed → identical every load) and baked once into the cached texture as crisp dark dots.
+  stone:  [26, 22, 18] as [number, number, number],  // near-black stone
+  stoneCellM: 0.8,    // metres per candidate-stone cell (one possible stone per cell)
+  stoneDensity: 0.4,  // 0..1 — fraction of cells that actually get a stone
+  stoneMinM: 0.10,    // min stone radius (m)
+  stoneMaxM: 0.30,    // max stone radius (m)
 };
 
 /** Smooth (smoothstep-bilinear) hashed value noise in [0,1] — for the earthy dirt mottle. */
@@ -478,26 +483,39 @@ const DIRT: SurfaceDef = {
   },
   texture(rc) {
     return cached(_dirtTex, rc, 0, (c, r) => {
+      // 1. base + large soft packed-earth patches (smooth value-noise, gentle contrast, no grain).
       const img = c.createImageData(r.wPx, r.hPx), d = img.data;
       const cellP = Math.max(2, DIRT_LOOK.patchM * r.pxPerM);
-      const cellS = Math.max(1, DIRT_LOOK.speckleM * r.pxPerM);
       const [br, bg, bb] = DIRT_LOOK.base, [dr, dg, db] = DIRT_LOOK.dark, [lr, lg, lb] = DIRT_LOOK.light;
       for (let y = 0; y < r.hPx; y++) {
         for (let x = 0; x < r.wPx; x++) {
-          // smooth earthy mottle: value-noise → below base = damp/compacted, above = dried scuff
           const k = (vnoise(x / cellP, y / cellP) - 0.5) * 2 * DIRT_LOOK.contrast;   // −contrast..+contrast
           let rr: number, rg: number, rb: number;
           if (k < 0) { rr = br + (dr - br) * -k; rg = bg + (dg - bg) * -k; rb = bb + (db - bb) * -k; }
           else { rr = br + (lr - br) * k; rg = bg + (lg - bg) * k; rb = bb + (lb - bb) * k; }
-          if (DIRT_LOOK.speckle > 0) {
-            const n = (hash2((x / cellS) | 0, (y / cellS) | 0) * 2 - 1) * DIRT_LOOK.speckle * 255;
-            rr += n; rg += n; rb += n;
-          }
           const o = (y * r.wPx + x) * 4;
           d[o] = rr; d[o + 1] = rg; d[o + 2] = rb; d[o + 3] = 255;
         }
       }
       c.putImageData(img, 0, 0);
+      // 2. scattered BLACK PEBBLES — one candidate per grid cell (hashed → present? position? size?),
+      //    drawn as crisp dark circles (stylised discrete stones, not noise). Baked once.
+      const cell = Math.max(3, DIRT_LOOK.stoneCellM * r.pxPerM);
+      const cols = Math.ceil(r.wPx / cell), rows = Math.ceil(r.hPx / cell);
+      const [sr, sg, sb] = DIRT_LOOK.stone;
+      c.fillStyle = `rgb(${sr | 0},${sg | 0},${sb | 0})`;
+      for (let gy = 0; gy < rows; gy++) {
+        for (let gx = 0; gx < cols; gx++) {
+          if (hash2(gx * 2 + 1, gy * 2 + 1) >= DIRT_LOOK.stoneDensity) continue;
+          const hx = hash2(gx * 7 + 3, gy * 13 + 5), hy = hash2(gx * 17 + 9, gy * 5 + 2);
+          const hr = hash2(gx * 11 + 4, gy * 19 + 8);
+          const px = (gx + hx) * cell, py = (gy + hy) * cell;
+          const rad = Math.max(0.6, (DIRT_LOOK.stoneMinM + (DIRT_LOOK.stoneMaxM - DIRT_LOOK.stoneMinM) * hr) * r.pxPerM);
+          c.globalAlpha = 0.7 + 0.3 * hash2(gx * 3 + 6, gy * 7 + 4);   // slight shade variation per stone
+          c.beginPath(); c.arc(px, py, rad, 0, Math.PI * 2); c.fill();
+        }
+      }
+      c.globalAlpha = 1;
     });
   },
   paint(ctx, shape, rc, opts) { paintThrough(ctx, shape, rc, this.texture(rc, opts)); },
