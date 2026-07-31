@@ -2595,12 +2595,9 @@ export const circuitMap: MapDefinition = {
 //  is untouched. The arc range is marked with the dev dirt-edit tool + locked here.
 // =============================================================================
 
-// The locked dirt arc (contiguous, i0<i1, non-wrapping). Placeholder default — MARK it with the
-// dev tool (steerDirtEdit) and paste the exported values here to lock the real stretch.
-const RALLYCROSS_DIRT = {
-  i0: Math.round(CIRCUIT_PATH.length * 0.25),
-  i1: Math.round(CIRCUIT_PATH.length * 0.43),
-};
+// The locked dirt arc (contiguous, i0<i1, non-wrapping). Marked on the live track with the dev
+// dirt-edit tool (steerDirtEdit) — a big first-half dirt stretch (indices 0..494 of the 1000-pt path).
+const RALLYCROSS_DIRT = { i0: 0, i1: 494 };
 
 // Dirt-zone raster (same grid as circuitMask): the ribbon stroked over ONLY [i0,i1] at band width.
 let _rallyDirtMask: Uint8Array | null | undefined;
