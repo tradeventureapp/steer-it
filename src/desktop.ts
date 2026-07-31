@@ -11,6 +11,8 @@ import { TyreMarks } from './marks';
 import {
   getMap, listMaps, DEFAULT_MAP_ID, markClassAt, setCircuitSurfaceReady,
   circuitFitDebug,
+  rallycrossPathWorld, nearestRallycrossIndex, RALLYCROSS_PATH_LEN,
+  getRallycrossDirt, setRallycrossDirt,
   type MapDefinition, type MapWorld, type MapObstacle, type Surface, type MarkClass,
 } from './maps';
 import { fitCanvasScale, sizeCanvasFitted, preloadSurfaceAssets, clearSurfaceCaches,
@@ -453,13 +455,21 @@ function mapGameModes(id: string | null): readonly string[] {
 // from an RLS-protected Supabase row); the checks below gate the UI, and the
 // leaderboard write is enforced server-side so a hacked client gains nothing online.
 const FREE_MAP_IDS = ['desktop', 'asphalt'];
+// DEV-ONLY maps — WIP tracks hidden from the map-select for every normal user (like the Fury car),
+// and never premium-locked for the dev host who's building them.
+const DEV_MAP_IDS = ['rallycross'];
 const FREE_MODE_KEYS = ['free'];
 const isPremium = () => getAuthState().isPremium;
 // Entitlement still resolving for a logged-in host (a session appeared but the
 // profile read hasn't returned and there was no cache to seed from). While true the
 // UI must show a neutral "checking…" state, NOT the free/locked one (avoids the flash).
 const entitlementPending = (s: AuthState = getAuthState()) => !!s.user && !s.entitlementKnown;
-const isMapLocked  = (id: string)  => !isPremium() && !FREE_MAP_IDS.includes(id);
+// A dev-only WIP map is never locked for the dev; a normal user never sees it (filtered from the
+// tiles), so the lock only matters for the dev, for whom it's free.
+const isMapLocked  = (id: string)  =>
+  DEV_MAP_IDS.includes(id) ? false : (!isPremium() && !FREE_MAP_IDS.includes(id));
+// Hide dev-only WIP maps from the map-select for everyone but the dev host.
+const mapVisible = (id: string) => !DEV_MAP_IDS.includes(id) || isDev();
 const isModeLocked = (key: string) => !isPremium() && !FREE_MODE_KEYS.includes(key);
 // SIM (Blitz RS) is PREMIUM; ARCADE (Stee-Rex) is free for everyone. Same
 // server-truth is_premium gate as the maps/modes above (as advertised in the
@@ -890,6 +900,7 @@ function buildMapTiles() {
   };
 
   for (const { id } of listMaps()) {
+    if (!mapVisible(id)) continue;   // dev-only WIP maps (Rallycross) are hidden from normal users
     const def = getMap(id);
     if (!def) continue;
 
@@ -2123,6 +2134,10 @@ function screenToWorld(clientX: number, clientY: number): { x: number; y: number
     x: (clientX - viewOffX) / viewScale / CONFIG.pxPerMeter,
     y: (clientY - viewOffY) / viewScale / CONFIG.pxPerMeter,
   };
+}
+// Inverse of screenToWorld — world metres → viewport (client) px. Used by the dev dirt-edit overlay.
+function worldToScreen(wx: number, wy: number): { x: number; y: number } {
+  return { x: wx * CONFIG.pxPerMeter * viewScale + viewOffX, y: wy * CONFIG.pxPerMeter * viewScale + viewOffY };
 }
 
 // Size the MAIN canvas to the viewport, recompute the uniform fit transform, and
@@ -4395,6 +4410,32 @@ function switchMap(id: string): boolean {
 (window as unknown as {
   steerMaps: () => Array<{ id: string; name: string }>;
 }).steerMaps = listMaps;
+
+// DEV-ONLY: the Rallycross dirt-edit overlay. Lazy-loaded (dynamic import → normal visitors never
+// fetch it) + dev-gated. Switches to the Rallycross map, then lets the dev mark the dirt section's
+// start/end on the track and EXPORT the arc range to lock into RALLYCROSS_DIRT (maps.ts). Run
+// `steerDirtEdit()` in the console while on the Rallycross track (or load with #dirt-edit). Toggles.
+let _dirtEdit: { destroy(): void } | null = null;
+async function startDirtEditTool(): Promise<void> {
+  if (!isDev()) { console.warn('[dirt-edit] dev only'); return; }
+  if (_dirtEdit) { _dirtEdit.destroy(); _dirtEdit = null; return; }   // second call closes it
+  if (currentMap.id !== 'rallycross') switchMap('rallycross');
+  const mod = await import('./dirt-edit');
+  _dirtEdit = mod.startDirtEdit({
+    worldToScreen, screenToWorld,
+    pathWorld: rallycrossPathWorld,
+    nearest: nearestRallycrossIndex,
+    pathLen: () => RALLYCROSS_PATH_LEN,
+    getRange: getRallycrossDirt,
+    setRange: setRallycrossDirt,
+  });
+}
+(window as unknown as { steerDirtEdit: () => Promise<void> }).steerDirtEdit = startDirtEditTool;
+// Auto-open on the #dirt-edit hash, once auth resolves to the dev host.
+if (typeof location !== 'undefined' && location.hash === '#dirt-edit') {
+  let armed = false;
+  onAuthChange((s) => { if (!armed && !s.loading && isDev()) { armed = true; void startDirtEditTool(); } });
+}
 // DEV hook for the future DRAWING MODE: flip the tyre-mark system between the default
 // 'race' (saturation) and 'paint' (the legacy unbounded per-car skids). Clears both
 // layers on the flip so the two systems' marks never mix, and re-arms the saturation

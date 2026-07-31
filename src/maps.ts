@@ -1451,6 +1451,13 @@ function tracePolyline(ctx: CanvasRenderingContext2D, pxPts: Pt[]) {
   for (let i = 1; i < pxPts.length; i++) ctx.lineTo(pxPts[i][0], pxPts[i][1]);
   ctx.closePath();
 }
+/** An OPEN polyline (no closePath) — for a partial arc of the ribbon (the dirt section). */
+function traceOpenPolyline(ctx: CanvasRenderingContext2D, pxPts: Pt[]) {
+  if (!pxPts.length) return;
+  ctx.beginPath();
+  ctx.moveTo(pxPts[0][0], pxPts[0][1]);
+  for (let i = 1; i < pxPts.length; i++) ctx.lineTo(pxPts[i][0], pxPts[i][1]);
+}
 
 // ---------- SURFACE MASK (circuit) ----------
 // The ground lookup is a bitmap baked ONCE at first use: the track ribbon (the FULL-width
@@ -1550,7 +1557,9 @@ export function surfaceAt(map: MapDefinition, x: number, y: number): Surface {
  * untouched legacy skid path). NEVER read by the physics.
  */
 export function markClassAt(map: MapDefinition, x: number, y: number): MarkClass {
-  return map.surfaceAt === circuitSurfaceAt ? circuitClassAt(x, y) : 'asphalt';
+  if (map.surfaceAt === circuitSurfaceAt) return circuitClassAt(x, y);
+  if (map.surfaceAt === rallycrossSurfaceAt) return rallycrossClassAt(x, y);
+  return 'asphalt';
 }
 /** Debug/verification: the baked mask + its dims (builds it on first call). */
 export function circuitMaskDebug(): { mask: Uint8Array | null; w: number; h: number; ppm: number } {
@@ -2054,7 +2063,8 @@ function drawCircuitEdgeLines(ctx: CanvasRenderingContext2D, offX: number, offY:
 // (look + grip + marks + dust) come from the game-wide library; this map only says WHERE.
 // Fits the sketch into whatever canvas it is given (game world OR the map-select preview),
 // preserving aspect + centring — so world coords and the render always agree.
-function drawCircuitSurface(ctx: CanvasRenderingContext2D, wPx: number, hPx: number) {
+function drawCircuitSurface(ctx: CanvasRenderingContext2D, wPx: number, hPx: number,
+  dirt?: { i0: number; i1: number }) {
   // Map the sketch at the FIXED 2/3-oval scale (never scale-to-fit — that would
   // change the track width), centred, for whatever canvas this is (game world OR
   // the map-select mini-preview — both share the world's aspect). px-per-metre =
@@ -2081,6 +2091,22 @@ function drawCircuitSurface(ctx: CanvasRenderingContext2D, wPx: number, hPx: num
     m.lineWidth = twPx;
     m.stroke();
   }, rc);
+
+  // 3b. DIRT SECTION (rallycross only) — a darker packed-earth stretch laid OVER the asphalt on a
+  //     contiguous arc [i0,i1] of the ribbon. The shape is the SAME CIRCUIT_PATH band, so its grip
+  //     mask and this render align by construction; the shape's anti-aliased edge = a clean vector
+  //     tarmac↔dirt transition. Omitted (the circuit) ⇒ this never runs ⇒ circuit byte-identical.
+  if (dirt) {
+    const seg = ptsPx.slice(dirt.i0, dirt.i1 + 1);
+    if (seg.length >= 2) {
+      SURFACES.dirt.paint(ctx, (m) => {
+        traceOpenPolyline(m, seg);
+        m.lineCap = 'round'; m.lineJoin = 'round';
+        m.lineWidth = twPx;
+        m.stroke();
+      }, rc);
+    }
+  }
 
   ctx.lineJoin = 'round'; ctx.lineCap = 'round';
 
@@ -2558,8 +2584,113 @@ export const circuitMap: MapDefinition = {
   draggableObstacles: false,
 };
 
+// =============================================================================
+//  RALLYCROSS — the circuit layout with a DIRT SECTION mid-lap (for the Fury).
+//
+//  REUSES the circuit's exact geometry (CIRCUIT_PATH, kerbs, start/finish, laps,
+//  fixed camera) and only ADDS a darker packed-earth stretch over a contiguous
+//  arc [i0,i1] of the ribbon. The dirt binds to the EXISTING 'dirt' physics
+//  (Fury muScale 0.85) — a darker LOOK with ZERO physics change; the tarmac↔dirt
+//  grip change is emergent (per-wheel surface sampling). The existing circuit map
+//  is untouched. The arc range is marked with the dev dirt-edit tool + locked here.
+// =============================================================================
+
+// The locked dirt arc (contiguous, i0<i1, non-wrapping). Placeholder default — MARK it with the
+// dev tool (steerDirtEdit) and paste the exported values here to lock the real stretch.
+const RALLYCROSS_DIRT = {
+  i0: Math.round(CIRCUIT_PATH.length * 0.25),
+  i1: Math.round(CIRCUIT_PATH.length * 0.43),
+};
+
+// Dirt-zone raster (same grid as circuitMask): the ribbon stroked over ONLY [i0,i1] at band width.
+let _rallyDirtMask: Uint8Array | null | undefined;
+let _rdW = 0, _rdH = 0;
+function rallyDirtMask(): Uint8Array | null {
+  if (_rallyDirtMask !== undefined) return _rallyDirtMask;
+  if (typeof document === 'undefined') { _rallyDirtMask = null; return null; }
+  const W = Math.max(1, Math.round(CIRCUIT_LOGICAL.widthM * CIRCUIT_MASK_PPM));
+  const H = Math.max(1, Math.round(CIRCUIT_LOGICAL.heightM * CIRCUIT_MASK_PPM));
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const c = cv.getContext('2d');
+  if (!c) { _rallyDirtMask = null; return null; }
+  c.fillStyle = '#000'; c.fillRect(0, 0, W, H);
+  const seg = CIRCUIT_PATH.slice(RALLYCROSS_DIRT.i0, RALLYCROSS_DIRT.i1 + 1)
+    .map((p) => circuitToWorld(p[0], p[1]));
+  if (seg.length >= 2) {
+    c.strokeStyle = '#fff'; c.lineJoin = 'round'; c.lineCap = 'round';
+    c.lineWidth = CIRCUIT_TRACK_W * CIRCUIT_MASK_PPM;
+    c.beginPath();
+    c.moveTo(seg[0].x * CIRCUIT_MASK_PPM, seg[0].y * CIRCUIT_MASK_PPM);
+    for (let i = 1; i < seg.length; i++) c.lineTo(seg[i].x * CIRCUIT_MASK_PPM, seg[i].y * CIRCUIT_MASK_PPM);
+    c.stroke();
+  }
+  try {
+    const img = c.getImageData(0, 0, W, H).data;
+    const mask = new Uint8Array(W * H);
+    for (let i = 0; i < W * H; i++) mask[i] = img[i * 4] > 128 ? 1 : 0;
+    _rdW = W; _rdH = H; _rallyDirtMask = mask;
+    return mask;
+  } catch (err) {
+    noteError('rally-dirt-mask', err);
+    return null;   // don't cache the failure — retry later; surfaceAt then reads no-dirt (asphalt)
+  }
+}
+function rallyDirtAt(x: number, y: number): boolean {
+  const m = rallyDirtMask(); if (!m) return false;
+  const mx = (x * CIRCUIT_MASK_PPM) | 0, my = (y * CIRCUIT_MASK_PPM) | 0;
+  if (mx < 0 || my < 0 || mx >= _rdW || my >= _rdH) return false;
+  return m[my * _rdW + mx] !== 0;
+}
+// Ground lookup: the circuit's (asphalt/gravel/grass), but the ribbon on the dirt arc reads 'dirt'.
+function rallycrossSurfaceAt(x: number, y: number): Surface {
+  const c = circuitClassAt(x, y);
+  if ((c === 'asphalt' || c === 'kerb') && rallyDirtAt(x, y)) return 'dirt';
+  return c === 'kerb' ? 'asphalt' : c;
+}
+// RENDER-ONLY mark class: dirt takes the gravel (brown gouge) class.
+function rallycrossClassAt(x: number, y: number): MarkClass {
+  const c = circuitClassAt(x, y);
+  if ((c === 'asphalt' || c === 'kerb') && rallyDirtAt(x, y)) return 'gravel';
+  return c;
+}
+
+// ---- DEV dirt-edit tool support (arc-index picking + live range) ----
+/** The circuit path in WORLD metres (for the dirt-edit overlay). */
+export function rallycrossPathWorld(): Array<[number, number]> {
+  return CIRCUIT_PATH.map((p) => { const w = circuitToWorld(p[0], p[1]); return [w.x, w.y] as [number, number]; });
+}
+/** Nearest CIRCUIT_PATH index to a world point (for click-to-mark). */
+export function nearestRallycrossIndex(x: number, y: number): number {
+  let best = 0, bd = Infinity;
+  for (let i = 0; i < CIRCUIT_PATH.length; i++) {
+    const w = circuitToWorld(CIRCUIT_PATH[i][0], CIRCUIT_PATH[i][1]);
+    const d = (w.x - x) * (w.x - x) + (w.y - y) * (w.y - y);
+    if (d < bd) { bd = d; best = i; }
+  }
+  return best;
+}
+export const RALLYCROSS_PATH_LEN = CIRCUIT_PATH.length;
+export function getRallycrossDirt(): { i0: number; i1: number } { return { ...RALLYCROSS_DIRT }; }
+/** Set the dirt arc live (dev tool). Invalidates the physics mask so the next query re-bakes. */
+export function setRallycrossDirt(i0: number, i1: number): void {
+  const n = CIRCUIT_PATH.length;
+  RALLYCROSS_DIRT.i0 = Math.max(0, Math.min(n - 1, Math.round(i0)));
+  RALLYCROSS_DIRT.i1 = Math.max(0, Math.min(n - 1, Math.round(i1)));
+  _rallyDirtMask = undefined;   // physics re-bakes on next surfaceAt; render rebuilds on switchMap
+}
+
+export const rallycrossMap: MapDefinition = {
+  ...circuitMap,
+  id: 'rallycross',
+  name: 'Rallycross',
+  surfaceAt: rallycrossSurfaceAt,
+  // The circuit surface + the dirt section over the locked arc (SURFACES.dirt = darker packed look).
+  drawBackground(ctx, wPx, hPx) { drawCircuitSurface(ctx, wPx, hPx, RALLYCROSS_DIRT); },
+};
+
 // Register the built-in maps. The desktop is FIRST (the default).
 registerMap(desktopMap);
 registerMap(flatTrackMap);
 registerMap(asphaltTrackMap);
 registerMap(circuitMap);
+registerMap(rallycrossMap);

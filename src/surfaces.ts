@@ -23,7 +23,7 @@ import { FX_CONFIG, GRASS_DUST_RGB, GRAVEL_SPRAY_RGB, DEFAULT_SMOKE_RGB } from '
 import { noteCanvas, noteError } from './diag';
 import type { Surface, MarkClass } from './maps';   // type-only ⇒ erased, no import cycle
 
-export type SurfaceId = 'grass' | 'gravel' | 'asphalt';
+export type SurfaceId = 'grass' | 'gravel' | 'asphalt' | 'dirt';
 
 /** The target canvas + world scale a surface is being painted for. */
 export interface SurfaceRC { wPx: number; hPx: number; pxPerM: number; }
@@ -100,6 +100,33 @@ export const GRAVEL_LOOK = {
   speckle: 0,           // 0..1 — a HINT of grain (0 = off)
   speckleM: 0.22,       // metres per speckle cell
 };
+
+/**
+ * DIRT — a DARK, PACKED, EARTHY rallycross surface. NOT the lighter churned flat-track dirt
+ * and NOT the raked beige gravel: a compacted earth base with soft low-contrast mottling
+ * (damp/compacted patches + dried scuff highs, via smooth value-noise) and a faint fine grain.
+ * Binds to the EXISTING 'dirt' physics + gravel-style brown marks — a darker LOOK, zero physics
+ * change. Reads distinct from grass (mown bands), gravel (raked beige) and asphalt (grey).
+ */
+export const DIRT_LOOK = {
+  base:  [72, 54, 39] as [number, number, number],   // dark packed earth
+  dark:  [54, 40, 28] as [number, number, number],   // damp / heavily-compacted patches
+  light: [96, 74, 54] as [number, number, number],   // dried / scuffed high spots
+  patchM: 3.2,        // METRES per mottle cell (large soft earthy patches, world-scaled)
+  contrast: 0.55,     // 0..1 — how strongly the patches show (packed = moderate, not blotchy)
+  speckle: 0.05,      // 0..1 — a subtle fine grain (packed, not loose gravel)
+  speckleM: 0.14,     // metres per grain cell
+};
+
+/** Smooth (smoothstep-bilinear) hashed value noise in [0,1] — for the earthy dirt mottle. */
+function vnoise(fx: number, fy: number): number {
+  const x0 = Math.floor(fx), y0 = Math.floor(fy);
+  const tx = fx - x0, ty = fy - y0;
+  const sx = tx * tx * (3 - 2 * tx), sy = ty * ty * (3 - 2 * ty);
+  const a = hash2(x0, y0), b = hash2(x0 + 1, y0), c = hash2(x0, y0 + 1), d = hash2(x0 + 1, y0 + 1);
+  const top = a + (b - a) * sx, bot = c + (d - c) * sx;
+  return top + (bot - top) * sy;
+}
 
 // ------------------------------------------------------------- asphalt fill ---
 // The asphalt surface's fill is the designer's approved tarmac — the light tone with
@@ -323,19 +350,20 @@ function paintThrough(
 const _grassTex = new Map<string, HTMLCanvasElement>();
 const _gravelTex = new Map<string, HTMLCanvasElement>();
 const _asphaltTex = new Map<string, HTMLCanvasElement>();
+const _dirtTex = new Map<string, HTMLCanvasElement>();
 
 /** Drop every cached surface texture (call on map-switch / resize so the caches never
  *  accumulate a full screen-sized canvas per size). The next paint re-bakes on demand. */
 export function clearSurfaceCaches(): void {
-  _grassTex.clear(); _gravelTex.clear(); _asphaltTex.clear();
+  _grassTex.clear(); _gravelTex.clear(); _asphaltTex.clear(); _dirtTex.clear();
 }
 
 /** DEV: live texture-cache footprint (entry counts + summed backing bytes) for leak checks. */
-export function surfaceCacheStats(): { grass: number; gravel: number; asphalt: number; bytes: number } {
+export function surfaceCacheStats(): { grass: number; gravel: number; asphalt: number; dirt: number; bytes: number } {
   let bytes = 0;
-  for (const store of [_grassTex, _gravelTex, _asphaltTex])
+  for (const store of [_grassTex, _gravelTex, _asphaltTex, _dirtTex])
     for (const cv of store.values()) bytes += cv.width * cv.height * 4;
-  return { grass: _grassTex.size, gravel: _gravelTex.size, asphalt: _asphaltTex.size, bytes };
+  return { grass: _grassTex.size, gravel: _gravelTex.size, asphalt: _asphaltTex.size, dirt: _dirtTex.size, bytes };
 }
 
 const GRASS: SurfaceDef = {
@@ -440,5 +468,40 @@ const ASPHALT: SurfaceDef = {
   },
 };
 
-export const SURFACES: Record<SurfaceId, SurfaceDef> = { grass: GRASS, gravel: GRAVEL, asphalt: ASPHALT };
+const DIRT: SurfaceDef = {
+  id: 'dirt',
+  physics: 'dirt',              // REUSE the already-wired dirt grip (Fury muScale 0.85) — zero physics change
+  markClass: 'gravel',          // brown gouge marks read right on dirt
+  dust: {
+    rgb: GRASS_DUST_RGB,        // brown earthy dust (not the pale stone spray)
+    scale: FX_CONFIG.gravelSprayScale, size: FX_CONFIG.gravelSpraySize, alpha: FX_CONFIG.gravelSprayAlpha,
+  },
+  texture(rc) {
+    return cached(_dirtTex, rc, 0, (c, r) => {
+      const img = c.createImageData(r.wPx, r.hPx), d = img.data;
+      const cellP = Math.max(2, DIRT_LOOK.patchM * r.pxPerM);
+      const cellS = Math.max(1, DIRT_LOOK.speckleM * r.pxPerM);
+      const [br, bg, bb] = DIRT_LOOK.base, [dr, dg, db] = DIRT_LOOK.dark, [lr, lg, lb] = DIRT_LOOK.light;
+      for (let y = 0; y < r.hPx; y++) {
+        for (let x = 0; x < r.wPx; x++) {
+          // smooth earthy mottle: value-noise → below base = damp/compacted, above = dried scuff
+          const k = (vnoise(x / cellP, y / cellP) - 0.5) * 2 * DIRT_LOOK.contrast;   // −contrast..+contrast
+          let rr: number, rg: number, rb: number;
+          if (k < 0) { rr = br + (dr - br) * -k; rg = bg + (dg - bg) * -k; rb = bb + (db - bb) * -k; }
+          else { rr = br + (lr - br) * k; rg = bg + (lg - bg) * k; rb = bb + (lb - bb) * k; }
+          if (DIRT_LOOK.speckle > 0) {
+            const n = (hash2((x / cellS) | 0, (y / cellS) | 0) * 2 - 1) * DIRT_LOOK.speckle * 255;
+            rr += n; rg += n; rb += n;
+          }
+          const o = (y * r.wPx + x) * 4;
+          d[o] = rr; d[o + 1] = rg; d[o + 2] = rb; d[o + 3] = 255;
+        }
+      }
+      c.putImageData(img, 0, 0);
+    });
+  },
+  paint(ctx, shape, rc, opts) { paintThrough(ctx, shape, rc, this.texture(rc, opts)); },
+};
+
+export const SURFACES: Record<SurfaceId, SurfaceDef> = { grass: GRASS, gravel: GRAVEL, asphalt: ASPHALT, dirt: DIRT };
 export function getSurface(id: SurfaceId): SurfaceDef { return SURFACES[id]; }
