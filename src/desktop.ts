@@ -744,11 +744,13 @@ function goFullscreen() {
 // default member (or its first member if none is flagged default).
 const groupSurface = new Map<string, string>();
 
-// The members of a surfaceGroup, in switcher order (ascending `order`).
+// The members of a surfaceGroup, in switcher order (ascending `order`). Dev-only members (the
+// WIP Rallycross) are filtered out for a normal user, so a group can collapse to one visible
+// member → the tile then renders plain (see buildMapTiles).
 function groupMembers(key: string): MapDefinition[] {
   return listMaps()
     .map((m) => getMap(m.id))
-    .filter((d): d is MapDefinition => !!d && d.surfaceGroup?.key === key)
+    .filter((d): d is MapDefinition => !!d && d.surfaceGroup?.key === key && mapVisible(d.id))
     .sort((a, b) => a.surfaceGroup!.order - b.surfaceGroup!.order);
 }
 // The currently-selected member id for a group (default-seeded on first read).
@@ -905,8 +907,10 @@ function buildMapTiles() {
     if (!def) continue;
 
     // ---- Grouped maps → one merged tile (built once, at the first member) ----
+    // A group with only ONE visible member (e.g. Circuit when the dev-only Rallycross is hidden)
+    // renders as a PLAIN tile instead of a lone-segment switcher → falls through below.
     const grp = def.surfaceGroup;
-    if (grp) {
+    if (grp && groupMembers(grp.key).length >= 2) {
       if (renderedGroups.has(grp.key)) continue;   // already built for this group
       renderedGroups.add(grp.key);
 

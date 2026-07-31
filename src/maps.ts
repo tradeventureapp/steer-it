@@ -2496,6 +2496,11 @@ function drawCircuitBillboardsAbove(ctx: CanvasRenderingContext2D, px: number) {
 export const circuitMap: MapDefinition = {
   id: 'circuit',
   name: 'Circuit',
+  // Map-select GROUP: Circuit collapses into ONE tile with an Asphalt | Rallycross switcher (like
+  // the Stadium Oval's Asphalt | Flattrack). Asphalt = this plain circuit (the default). The
+  // Rallycross member (dirt section) is dev-only, so for a normal user the group has a single
+  // visible member and renders as a plain "Circuit" tile.
+  surfaceGroup: { key: 'circuit', title: 'Circuit', option: 'Asphalt', order: 0, isDefault: true },
   gameModes: ['free', 'race', 'xp'],   // FREE RIDE + RACE (laps) + XP MODE (solo score run)
   // CIRCUIT: the built-in start/finish below is start AND finish, so the editor shows the
   // LAPS panel (0 = free-roam, N = an N-lap race) instead of the place-elements palette —
@@ -2681,6 +2686,8 @@ export const rallycrossMap: MapDefinition = {
   id: 'rallycross',
   name: 'Rallycross',
   surfaceAt: rallycrossSurfaceAt,
+  // Its own switcher option in the shared 'circuit' group (override — the spread copied circuit's).
+  surfaceGroup: { key: 'circuit', title: 'Circuit', option: 'Rallycross', order: 1 },
   // The circuit surface + the dirt section over the locked arc (SURFACES.dirt = darker packed look).
   drawBackground(ctx, wPx, hPx) { drawCircuitSurface(ctx, wPx, hPx, RALLYCROSS_DIRT); },
 };
