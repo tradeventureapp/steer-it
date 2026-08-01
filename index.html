@@ -544,6 +544,14 @@
          appears after ~5 s (see desktop.ts). Bold + animated, NO flashing. -->
     <div id="premium-promo" hidden>
       <div class="promo-card">
+        <!-- Corner countdown shown for the first ~5s; replaced by the X when it reaches 0. -->
+        <div class="promo-count" id="promo-count" aria-hidden="true" hidden>
+          <svg viewBox="0 0 36 36" aria-hidden="true">
+            <circle class="pc-track" cx="18" cy="18" r="15"></circle>
+            <circle class="pc-bar" cx="18" cy="18" r="15"></circle>
+          </svg>
+          <span class="pc-num" id="promo-count-num">5</span>
+        </div>
         <button type="button" class="promo-close" id="promo-close" aria-label="Close" hidden>×</button>
         <div class="promo-badge">★ PREMIUM</div>
         <h2 class="promo-title">UNLOCK THE FULL GAME</h2>

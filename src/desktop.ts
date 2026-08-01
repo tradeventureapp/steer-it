@@ -1657,6 +1657,29 @@ const PROMO_COOLDOWN_MS = 3 * 60 * 1000;   // one promo per 3 min, across all tr
 const PROMO_CLOSE_DELAY_MS = 5000;         // X appears after ~5 s
 let promoLastAt = -Infinity;
 let promoCloseTimer = 0;
+let promoCountTimer = 0;
+// Start the corner countdown (ring + number) for the close-delay window, then hide it.
+function startPromoCountdown(): void {
+  const count = document.getElementById('promo-count');
+  const num = document.getElementById('promo-count-num');
+  const bar = count?.querySelector('.pc-bar') as HTMLElement | null;
+  if (!count || !num) return;
+  const secs = Math.ceil(PROMO_CLOSE_DELAY_MS / 1000);
+  num.textContent = String(secs);
+  count.hidden = false;
+  if (bar) {   // restart the depleting-ring animation from full, synced to the close delay
+    bar.style.animation = 'none'; void bar.offsetWidth; bar.style.animation = '';
+    bar.style.animationDuration = PROMO_CLOSE_DELAY_MS + 'ms';
+  }
+  let rem = secs;
+  window.clearInterval(promoCountTimer);
+  promoCountTimer = window.setInterval(() => { rem -= 1; if (rem >= 1) num.textContent = String(rem); }, 1000);
+}
+function hidePromoCountdown(): void {
+  window.clearInterval(promoCountTimer);
+  const count = document.getElementById('promo-count');
+  if (count) count.hidden = true;
+}
 function maybeShowPremiumPromo(): void {
   if (!premiumPromoEl) return;
   if (getAuthState().isPremium) return;                       // premium: never
@@ -1667,13 +1690,16 @@ function maybeShowPremiumPromo(): void {
   const x = document.getElementById('promo-close');
   if (x) x.hidden = true;                                      // no dismiss for the first 5 s
   premiumPromoEl.hidden = false;
+  startPromoCountdown();                                       // visible countdown until the X appears
   window.clearTimeout(promoCloseTimer);
   promoCloseTimer = window.setTimeout(() => {
+    hidePromoCountdown();                                      // 0 → swap the countdown for the X
     if (premiumPromoEl && !premiumPromoEl.hidden && x) x.hidden = false;
   }, PROMO_CLOSE_DELAY_MS);
 }
 function closePremiumPromo(): void {
   window.clearTimeout(promoCloseTimer);
+  hidePromoCountdown();
   if (premiumPromoEl) premiumPromoEl.hidden = true;
 }
 document.getElementById('promo-cta')?.addEventListener('click', () => { closePremiumPromo(); startPremiumPurchase(); });
