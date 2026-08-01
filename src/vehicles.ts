@@ -56,10 +56,21 @@ export const BLITZ_RS_COLORS: CarColor[] = [
 // The phone colour picker in ARCADE mode offers these; each maps to a sprite skin
 // (Silver → STEEREX_SILVER, Graphite → STEEREX_BLACK) via desktop.ts specForColor().
 // Hexes are just swatch tones for the picker — the sprite skin is what actually draws.
+// 8 Stee-Rex skins. The swatch hex is the phone-picker chip + the specForColor lookup key; the
+// SPRITE draws the full metallic gradient (steerex-sprite SKIN_DEFS), not this flat hex. Order =
+// picker order (Silver default first). All 8 hexes are distinct → cars are told apart at a glance.
 export const STEEREX_SKIN_COLORS: CarColor[] = [
   { name: 'Silver',   hex: '#c9ced6' },
   { name: 'Graphite', hex: '#2a2d34' },
+  { name: 'Blue',     hex: '#2f6ccb' },
+  { name: 'Red',      hex: '#cc2b38' },
+  { name: 'Purple',   hex: '#7c4bc6' },
+  { name: 'White',    hex: '#f2f0ec' },
+  { name: 'Orange',   hex: '#e06a1c' },
+  { name: 'Yellow',   hex: '#eab61c' },
 ];
+// Parallel to STEEREX_SKIN_COLORS (same order) — the sprite skin each swatch selects.
+const STEEREX_SKINS: SteerexSkin[] = ['silver', 'black', 'blue', 'red', 'purple', 'white', 'orange', 'yellow'];
 
 // One car's public spec sheet. Pure data — no physics, no behaviour, no DOM.
 export interface VehicleIdentity {
@@ -336,24 +347,34 @@ const STEEREX_ARCADE: Partial<Physics4Params> = {
   arcadeDriftAssistCatch: 0.15,// counter-steer threshold: a light corrective flick (≥0.15) already earns the
                                // full assist (forgiving). Below it / no counter / steering INTO the slide → OFF.
 };
-export const STEEREX_SILVER: VehicleSpec = {
-  name: 'Stee-Rex Silver',
-  overrides: {},
-  dims: STEEREX_DIMS,
-  branch: 'arcade',
-  arcade: STEEREX_ARCADE,
-  fxScale: 1.7,                // brutal, dense off-road throw (grass dust / gravel spray)
-  sprite: { car: 'steerex', skin: 'silver' },
+// Every Stee-Rex skin is the SAME arcade car — only the sprite skin + display name differ. One spec
+// per skin, all built from the single arcade tune (STEEREX_ARCADE) + dims, so the 8 colours share
+// byte-identical physics; only the metallic livery changes.
+const STEEREX_SKIN_NAMES: Record<SteerexSkin, string> = {
+  silver: 'Stee-Rex Silver', black: 'Stee-Rex Graphite', blue: 'Stee-Rex Blue', red: 'Stee-Rex Red',
+  purple: 'Stee-Rex Purple', white: 'Stee-Rex White', orange: 'Stee-Rex Orange', yellow: 'Stee-Rex Yellow',
 };
-export const STEEREX_BLACK: VehicleSpec = {
-  name: 'Stee-Rex Black',
-  overrides: {},
-  dims: STEEREX_DIMS,
-  branch: 'arcade',
-  arcade: STEEREX_ARCADE,
-  fxScale: 1.7,                // brutal, dense off-road throw (grass dust / gravel spray)
-  sprite: { car: 'steerex', skin: 'black' },
+function steerexSpec(skin: SteerexSkin): VehicleSpec {
+  return {
+    name: STEEREX_SKIN_NAMES[skin], overrides: {}, dims: STEEREX_DIMS,
+    branch: 'arcade', arcade: STEEREX_ARCADE,
+    fxScale: 1.7,                // brutal, dense off-road throw (grass dust / gravel spray)
+    sprite: { car: 'steerex', skin },
+  };
+}
+export const STEEREX_SPECS: Record<SteerexSkin, VehicleSpec> = {
+  silver: steerexSpec('silver'), black: steerexSpec('black'), blue: steerexSpec('blue'),
+  red: steerexSpec('red'), purple: steerexSpec('purple'), white: steerexSpec('white'),
+  orange: steerexSpec('orange'), yellow: steerexSpec('yellow'),
 };
+export const STEEREX_SILVER = STEEREX_SPECS.silver;   // kept for modeSpec / the car-tile preview
+export const STEEREX_BLACK = STEEREX_SPECS.black;
+// The skin a picked swatch hex resolves to (matched against STEEREX_SKIN_COLORS). Unknown → silver.
+export function steerexSkinForColor(hex: string): SteerexSkin {
+  const h = hex.trim().toLowerCase();
+  const i = STEEREX_SKIN_COLORS.findIndex((c) => c.hex.toLowerCase() === h);
+  return i >= 0 ? STEEREX_SKINS[i] : 'silver';
+}
 
 // ---- FURY 200 EVO — DEV-ONLY WIP test vehicle ---------------------------------
 // A Group-B rallycross special (sprite car, white/blue rally livery). GATED to the

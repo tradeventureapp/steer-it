@@ -17,7 +17,25 @@
 //  for both is the more-detailed Silver `#carG`.
 // =============================================================================
 
-export type SteerexSkin = 'silver' | 'black';
+export type SteerexSkin = 'silver' | 'black' | 'blue' | 'red' | 'purple' | 'white' | 'orange' | 'yellow';
+
+// Build a per-skin metallic gradient block from 5 tones ordered DARKEST→BRIGHTEST
+// (shadow < dark < mid < light < peak). This reproduces the silver skin's exact stop
+// STRUCTURE — body = dark·mid·peak·light·peak·mid·dark (a chrome sheen: dark edges, a
+// bright highlight streak, a lit centre), roof = mid·peak·mid, fenders shade dark→peak.
+// So every coloured skin gets the SAME metallic shading/highlights as silver, just in its
+// hue — never a flat fill. (Silver + black stay hand-authored literals below, untouched.)
+function metallicSkin(shadow: string, dark: string, mid: string, light: string, peak: string): string {
+  return `
+    <linearGradient id="body" x1="196" y1="0" x2="464" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="${dark}"/><stop offset="0.1" stop-color="${mid}"/><stop offset="0.3" stop-color="${peak}"/><stop offset="0.5" stop-color="${light}"/><stop offset="0.7" stop-color="${peak}"/><stop offset="0.9" stop-color="${mid}"/><stop offset="1" stop-color="${dark}"/>
+    </linearGradient>
+    <linearGradient id="roof" x1="214" y1="0" x2="446" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="${mid}"/><stop offset="0.5" stop-color="${peak}"/><stop offset="1" stop-color="${mid}"/>
+    </linearGradient>
+    <linearGradient id="fenderL" x1="182" y1="0" x2="212" y2="0" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="${shadow}"/><stop offset="0.55" stop-color="${mid}"/><stop offset="1" stop-color="${peak}"/></linearGradient>
+    <linearGradient id="fenderR" x1="448" y1="0" x2="478" y2="0" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="${peak}"/><stop offset="0.45" stop-color="${mid}"/><stop offset="1" stop-color="${shadow}"/></linearGradient>`;
+}
 
 // Geometry (SVG units, inside #carG): content bbox x[164,496] y[206,738] →
 // centre (330,472), nose→tail length 532. The render viewBox pads 30 units so the
@@ -47,6 +65,13 @@ const SKIN_DEFS: Record<SteerexSkin, string> = {
     </linearGradient>
     <linearGradient id="fenderL" x1="182" y1="0" x2="212" y2="0" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#24272c"/><stop offset="0.55" stop-color="#4a4f57"/><stop offset="1" stop-color="#828892"/></linearGradient>
     <linearGradient id="fenderR" x1="448" y1="0" x2="478" y2="0" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#828892"/><stop offset="0.45" stop-color="#4a4f57"/><stop offset="1" stop-color="#24272c"/></linearGradient>`,
+  // 6 new metallic colours (retro/sunset family), each shadow→peak so the sheen + highlight work.
+  blue:   metallicSkin('#0f2647', '#1c4487', '#2f6ccb', '#6ea3ea', '#d8e8ff'),
+  red:    metallicSkin('#45111a', '#8a1c28', '#cc2b38', '#e7626a', '#ffd7d5'),
+  purple: metallicSkin('#2a1450', '#4f2a90', '#7c4bc6', '#a97ee6', '#ecdcff'),
+  white:  metallicSkin('#b6b3ad', '#d3d0c9', '#e9e6e0', '#f7f5f1', '#ffffff'),
+  orange: metallicSkin('#4d1f06', '#9c400f', '#e06a1c', '#ff9d4e', '#ffe3c2'),
+  yellow: metallicSkin('#5f4406', '#ab7d0a', '#eab61c', '#ffdb56', '#fff6cc'),
 };
 
 // ---- shared defs (identical for both skins) ----

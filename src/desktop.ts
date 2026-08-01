@@ -25,7 +25,7 @@ import { collectDiag, noteError, noteStep } from './diag';
 import {
   PLAYER_CAP, LOBBY_SYNC_MS, RESILIENCE, EV, colorName, LobbyState, paletteForMode,
 } from './lobby';
-import { ROAD_SPEC, STEEREX_SILVER, STEEREX_BLACK, STEEREX_SKIN_COLORS, BLITZ_RS_COLORS, FURY_SPEC,
+import { ROAD_SPEC, STEEREX_SILVER, STEEREX_SPECS, steerexSkinForColor, BLITZ_RS_COLORS, FURY_SPEC,
   type VehicleSpec, type CarColor } from './vehicles';
 import { steerexSprite, steerexScaled, steerexOpaque, preloadSteerex, type SteerexSkin } from './steerex-sprite';
 import { furySprite, furyScaled, furyOpaque, preloadFury } from './fury-sprite';
@@ -2531,8 +2531,8 @@ function specForColor(hex: string): VehicleSpec {
   // car in the car picker (furySelected() is dev-gated, so a normal host can never
   // resolve to FURY_SPEC even if selectedCarKey were somehow 'fury').
   if (raceMode !== 'arcade') return furySelected() ? FURY_SPEC : ROAD_SPEC;
-  return hex.toLowerCase() === STEEREX_SKIN_COLORS[1].hex.toLowerCase()
-    ? STEEREX_BLACK : STEEREX_SILVER;
+  // ARCADE: each of the 8 Stee-Rex swatch hexes → its metallic skin spec (unknown → silver).
+  return STEEREX_SPECS[steerexSkinForColor(hex)];
 }
 // Representative spec for the mode (both Stee-Rex skins share dims) — used for the
 // car-car collision radius (all cars in a race share the mode's footprint).
