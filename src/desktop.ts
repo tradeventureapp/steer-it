@@ -133,6 +133,8 @@ const raceReadyEl    = document.getElementById('race-ready')      as HTMLElement
 const readyBtn       = document.getElementById('btn-ready')       as HTMLButtonElement | null;
 const raceLapsEl     = document.getElementById('race-laps')       as HTMLElement | null;
 const raceLapsOptsEl = document.getElementById('race-laps-opts')  as HTMLElement | null;
+const xpBestPanelEl  = document.getElementById('xp-best')         as HTMLElement | null;
+const xpBestValueEl  = document.getElementById('xp-best-value')   as HTMLElement | null;
 const accountBarEl   = document.getElementById('account-bar')     as HTMLElement | null;
 
 // ---------- Freeze: the main menu, pause (P), and the editor (E) each halt the
@@ -847,6 +849,16 @@ function refreshRaceLaps() {
   if (raceLapsEl) raceLapsEl.hidden = !show;
   for (const b of raceLapEls) b.classList.toggle('is-active', Number(b.dataset.laps) === selectedRaceLaps);
 }
+// Show the personal best for the SELECTED car+map, only while XP is the chosen mode (and a car +
+// map are picked). Updates whenever the car, map, or mode changes (called from refreshSelectionUi).
+function refreshXpBest() {
+  if (!xpBestPanelEl) return;
+  const show = selectedGameMode === 'xp' && !!selectedCarKey && !!selectedMapId;
+  xpBestPanelEl.hidden = !show;
+  if (!show) return;
+  const best = selectedXpBest();
+  if (xpBestValueEl) xpBestValueEl.textContent = best > 0 ? `${formatXp(best)} XP` : 'No record yet';
+}
 
 // Pick a game mode. If the currently-selected map can't host it (RACE/XP on a
 // free-ride-only map), the MODE wins and the map is cleared (both orders work).
@@ -871,6 +883,7 @@ function refreshSelectionUi() {
   highlightMapTiles();
   refreshModePicker();
   refreshRaceLaps();
+  refreshXpBest();
   updateStartEnabled();
 }
 
@@ -1129,6 +1142,7 @@ function selectCar(key: string) {
   if (carTilesEl) for (const el of Array.from(carTilesEl.children))
     el.classList.toggle('is-selected', (el as HTMLElement).dataset.carKey === key);
   updateStartEnabled();
+  refreshXpBest();   // the XP personal-best readout is per car+map → update on a car change
 }
 function buildCarTiles() {
   if (!carTilesEl) return;
@@ -2802,16 +2816,27 @@ type CircuitMode = 'laps' | 'xp';
 let circuitMode: CircuitMode = 'laps';
 let xpRun: XpRunState = makeXpRun();
 let xpEndHandled = false;            // bank/record exactly once per ended run
-let xpBest = 0;                      // current map's stored best (refreshed on start)
+let xpBest = 0;                      // stored best for the ACTIVE car+map (refreshed on start)
+let xpBestKeyActive = '';           // the localStorage key for the run in progress (snapshotted)
 const isXpMode = () => isCircuitMap() && circuitMode === 'xp';
 
-function xpBestKey(): string { return `steerit.xp.best.${currentMap.id}`; }
-function loadXpBest(): number {
-  try { return Math.max(0, Math.floor(Number(localStorage.getItem(xpBestKey())) || 0)); }
+// XP best is keyed by BOTH car AND map: `steerit.xp.best.<carKey>.<mapId>`. A RWD Blitz vs an AWD
+// Fury, tarmac vs dirt — totally different drifts, so each car+map combo keeps its OWN record; they
+// must never mix. Old per-map-only keys (`steerit.xp.best.<mapId>`) are simply left unread (it's
+// early, no real records) — the new keys start fresh, nothing migrates or crashes on the old ones.
+function xpCarKey(): string { return selectedCarKey || (raceMode === 'arcade' ? 'steerex' : 'blitz'); }
+function xpBestKeyFor(carKey: string, mapId: string): string { return `steerit.xp.best.${carKey}.${mapId}`; }
+function readXpBest(key: string): number {
+  try { return Math.max(0, Math.floor(Number(localStorage.getItem(key)) || 0)); }
   catch { return 0; }
 }
-function saveXpBest(v: number): void {
-  try { localStorage.setItem(xpBestKey(), String(Math.floor(v))); } catch { /* ignore */ }
+function writeXpBest(key: string, v: number): void {
+  try { localStorage.setItem(key, String(Math.floor(v))); } catch { /* ignore */ }
+}
+// The best for the CURRENTLY-SELECTED car+map combo (for the selection-screen readout).
+function selectedXpBest(): number {
+  if (!selectedCarKey || !selectedMapId) return 0;
+  return readXpBest(xpBestKeyFor(selectedCarKey, selectedMapId));
 }
 
 // (Re)start an XP run: fresh score, respawn the solo car at spawn, load the best,
@@ -2819,7 +2844,10 @@ function saveXpBest(v: number): void {
 function startXpRun() {
   xpRun = makeXpRun();
   xpEndHandled = false;
-  xpBest = loadXpBest();
+  // Snapshot the car+map key for THIS run, so the load here and the save at the end use the exact
+  // same key (the driven car = xpCarKey(), the loaded map = currentMap.id).
+  xpBestKeyActive = xpBestKeyFor(xpCarKey(), currentMap.id);
+  xpBest = readXpBest(xpBestKeyActive);
   for (const [slot, car] of cars) {
     const pose = currentMap.spawn(slot, world);
     car.state = makeCar(pose.x, pose.y, pose.heading);
@@ -2838,7 +2866,7 @@ function handleXpEnd() {
   xpEndHandled = true;
   const score = Math.floor(xpRun.xp);
   const isRecord = score > xpBest;
-  if (isRecord) { xpBest = score; saveXpBest(score); }
+  if (isRecord) { xpBest = score; writeXpBest(xpBestKeyActive, score); }
   if (xpEndRecordEl) xpEndRecordEl.hidden = !isRecord;
   if (xpEndLabelEl) {
     xpEndLabelEl.textContent = xpRun.endReason === 'crash' ? 'CRASHED'

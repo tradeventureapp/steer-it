@@ -1442,6 +1442,19 @@ body.desktop #game { display: block; width: 100vw; height: 100vh; }
   font-family: var(--font-display); font-weight: 800; font-size: 11px; letter-spacing: 3px;
   color: var(--gold); text-shadow: var(--glow-gold);
 }
+/* XP personal-best readout (per selected car + map) */
+.cms-xpbest {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  padding: 8px 2px 2px; flex-wrap: wrap;
+}
+.cms-xpbest-label {
+  font-family: var(--font-display); font-weight: 800; font-size: 11px; letter-spacing: 3px;
+  color: var(--gold); text-shadow: var(--glow-gold);
+}
+.cms-xpbest-value {
+  font-family: var(--font-display); font-weight: 800; font-size: 14px; letter-spacing: 1px;
+  color: #fff;
+}
 .cms-laps-opts {
   display: inline-flex; gap: 4px; padding: 3px; border-radius: 10px;
   background: var(--glass-soft); border: 1px solid var(--border-soft);
