@@ -14,3 +14,9 @@ dist-ssr
 
 # Pre-existing local file — looks like a credential, kept out of the repo
 databaze.txt
+
+# Fury sprite source — the current image still carries REAL sponsor logos (Motorcraft,
+# Shell, Pirelli, Lombard, FIA) we can't ship. Kept LOCAL only (for cleaning) and blocked
+# from git so it can never be committed/deployed. Remove this line once a logo-free
+# public/Fury.png is supplied, then commit the clean image.
+public/Fury.png
