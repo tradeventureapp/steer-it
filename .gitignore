@@ -15,8 +15,7 @@ dist-ssr
 # Pre-existing local file — looks like a credential, kept out of the repo
 databaze.txt
 
-# Fury sprite source — the current image still carries REAL sponsor logos (Motorcraft,
-# Shell, Pirelli, Lombard, FIA) we can't ship. Kept LOCAL only (for cleaning) and blocked
-# from git so it can never be committed/deployed. Remove this line once a logo-free
-# public/Fury.png is supplied, then commit the clean image.
-public/Fury.png
+# Fury sprite: public/Fury.png is now the CLEAN Tradeventure-branded image (own IP, zero
+# third-party logos) — it SHIPS. The original spaced-name export stays LOCAL only (the
+# loader reads the no-space public/Fury.png copy).
+public/Fury tradeventure.png
