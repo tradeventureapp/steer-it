@@ -19,7 +19,7 @@ import { spawnPose } from './cars';
 import { noteError } from './diag';
 import type { RaceElement } from './race';
 import {
-  SURFACES, onSurfaceAssetsReady, GRASS_LOOK,
+  SURFACES, onSurfaceAssetsReady, GRASS_LOOK, DIRT_LOOK,
   type SurfaceRC, type SurfaceShape,
 } from './surfaces';
 import {
@@ -1458,6 +1458,56 @@ function traceOpenPolyline(ctx: CanvasRenderingContext2D, pxPts: Pt[]) {
   ctx.moveTo(pxPts[0][0], pxPts[0][1]);
   for (let i = 1; i < pxPts.length; i++) ctx.lineTo(pxPts[i][0], pxPts[i][1]);
 }
+// Reusable scratch canvases for the dirt worn-line overlay (region mask + colour layer + dirt mask).
+const _sc: (HTMLCanvasElement | null)[] = [null, null, null];
+function scratch(which: 0 | 1 | 2, w: number, h: number): HTMLCanvasElement | null {
+  if (typeof document === 'undefined') return null;
+  let c = _sc[which];
+  if (!c) { c = document.createElement('canvas'); _sc[which] = c; }
+  if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+  return c;
+}
+
+/**
+ * Build the dirt's WORN IDEAL LINE as an overlay that is PIXEL-IDENTICAL to the circuit's asphalt
+ * worn line. The tarmac bitmap's worn line (the darker grey band) is drawn UNDER the dirt at the very
+ * same pixels; we capture those exact pixels (before the dirt covers them) and re-emit them as the
+ * lighter earth tone — so the dirt line has EXACTLY the same shape + position as on the asphalt-only
+ * circuit. Intersected with an INSET dirt region so the darker edge rim / kerb is never mistaken for
+ * the line. RENDER-ONLY, baked once. Returns a colour layer to draw over the dirt, or null.
+ */
+function wornLineLayer(
+  ctx: CanvasRenderingContext2D, pts: number[][], iA: number, iB: number,
+  twPx: number, wPx: number, hPx: number, line: [number, number, number],
+): HTMLCanvasElement | null {
+  let asph: ImageData; try { asph = ctx.getImageData(0, 0, wPx, hPx); } catch { return null; }
+  const ad = asph.data;
+  // INSET dirt-region mask (band core only — trims the ragged ends + the darker edge rim/kerb)
+  const mk = scratch(0, wPx, hPx), mc = mk ? mk.getContext('2d') : null; if (!mk || !mc) return null;
+  mc.setTransform(1, 0, 0, 1, 0, 0); mc.clearRect(0, 0, wPx, hPx);
+  mc.lineCap = 'round'; mc.lineJoin = 'round'; mc.strokeStyle = '#fff'; mc.lineWidth = twPx * 0.99;
+  const inner = pts.slice(iA, Math.max(iA + 1, iB));
+  mc.beginPath(); for (let k = 0; k < inner.length; k++) { const q = inner[k]; if (k === 0) mc.moveTo(q[0], q[1]); else mc.lineTo(q[0], q[1]); } mc.stroke();
+  const reg = mc.getImageData(0, 0, wPx, hPx).data;
+  const grey = (o: number) => Math.abs(ad[o] - ad[o + 1]) <= 26 && Math.abs(ad[o + 1] - ad[o + 2]) <= 26;
+  const lum = (o: number) => 0.299 * ad[o] + 0.587 * ad[o + 1] + 0.114 * ad[o + 2];
+  // adaptive tarmac luminance stats over the region's grey pixels → the worn line is the darker tail
+  let sum = 0, sum2 = 0, cnt = 0;
+  for (let o = 0; o < reg.length; o += 4) { if (reg[o + 3] < 128 || !grey(o)) continue; const l = lum(o); sum += l; sum2 += l * l; cnt++; }
+  if (cnt < 50) return null;
+  const mean = sum / cnt, sd = Math.sqrt(Math.max(1, sum2 / cnt - mean * mean));
+  const thr = mean - 0.30 * sd, span = Math.max(6, 0.9 * sd);
+  const L = scratch(1, wPx, hPx), lc = L ? L.getContext('2d') : null; if (!L || !lc) return null;
+  lc.setTransform(1, 0, 0, 1, 0, 0); lc.clearRect(0, 0, wPx, hPx);
+  const out = lc.createImageData(wPx, hPx), od = out.data, [lr, lg, lb] = line;
+  for (let o = 0; o < reg.length; o += 4) {
+    if (reg[o + 3] < 128 || !grey(o)) continue;
+    const l = lum(o); if (l >= thr) continue;
+    od[o] = lr; od[o + 1] = lg; od[o + 2] = lb; od[o + 3] = Math.round(Math.min(1, (thr - l) / span) * 150);
+  }
+  lc.putImageData(out, 0, 0);
+  return L;
+}
 
 // ---------- SURFACE MASK (circuit) ----------
 // The ground lookup is a bitmap baked ONCE at first use: the track ribbon (the FULL-width
@@ -2093,18 +2143,111 @@ function drawCircuitSurface(ctx: CanvasRenderingContext2D, wPx: number, hPx: num
   }, rc);
 
   // 3b. DIRT SECTION (rallycross only) — a darker packed-earth stretch laid OVER the asphalt on a
-  //     contiguous arc [i0,i1] of the ribbon. The shape is the SAME CIRCUIT_PATH band, so its grip
-  //     mask and this render align by construction; the shape's anti-aliased edge = a clean vector
-  //     tarmac↔dirt transition. Omitted (the circuit) ⇒ this never runs ⇒ circuit byte-identical.
+  //     contiguous arc [i0,i1] of the ribbon. Base = the band stroke (matches the grip mask's extent,
+  //     RENDER-ONLY — the physics mask is untouched); the two tarmac↔dirt ENDS are then made IRREGULAR
+  //     (carved bites + dirt tongues + scattered specks bleeding onto the tarmac), so the border reads
+  //     ragged/organic, not a smooth arc. Omitted (the circuit) ⇒ never runs ⇒ circuit byte-identical.
   if (dirt) {
     const seg = ptsPx.slice(dirt.i0, dirt.i1 + 1);
     if (seg.length >= 2) {
-      SURFACES.dirt.paint(ctx, (m) => {
-        traceOpenPolyline(m, seg);
-        m.lineCap = 'round'; m.lineJoin = 'round';
-        m.lineWidth = twPx;
-        m.stroke();
-      }, rc);
+      const halfW = twPx / 2;
+      // WORN IDEAL LINE — captured from the tarmac's own baked worn line BEFORE the dirt covers it,
+      // so the dirt's lighter line is PIXEL-IDENTICAL in shape + position to the asphalt-only circuit's
+      // line (same racing line, exactly). Capture first, then paint the dirt over, then re-emit lighter.
+      const wornLayer = wornLineLayer(ctx, ptsPx, dirt.i0, dirt.i1, twPx, wPx, hPx, DIRT_LOOK.line);
+
+      // Extend the band a little past each end along the true track, then CUT it to the designer's
+      // HAND-DRAWN transition lines (RALLYCROSS_DIRT_EDGES) — the border is exactly the drawn curve.
+      const N = ptsPx.length, wrap = (i: number) => ((i % N) + N) % N;
+      const sub = (a: number[], b: number[]): [number, number] => [a[0] - b[0], a[1] - b[1]];
+      const nrm = (v: number[]): [number, number] => { const L = Math.hypot(v[0], v[1]) || 1; return [v[0] / L, v[1] / L]; };
+      const addS = (a: number[], b: number[], s2: number): [number, number] => [a[0] + b[0] * s2, a[1] + b[1] * s2];
+      const EXT = 12;
+      const pre: Pt[] = [], post: Pt[] = [];
+      for (let k = EXT; k >= 1; k--) pre.push(ptsPx[wrap(dirt.i0 - k)] as Pt);
+      for (let k = 1; k <= EXT; k++) post.push(ptsPx[wrap(dirt.i1 + k)] as Pt);
+      const extSeg = [...pre, ...seg, ...post];
+      // smooth a polyline (box pass on interior points, endpoints fixed) — rounds the freehand wobble
+      const smoothPts = (p: [number, number][], passes: number): [number, number][] => {
+        let a = p.map((q) => [q[0], q[1]] as [number, number]);
+        for (let it = 0; it < passes; it++) {
+          const b = a.map((q) => [q[0], q[1]] as [number, number]);
+          for (let i = 1; i < a.length - 1; i++) b[i] = [(a[i - 1][0] + 2 * a[i][0] + a[i + 1][0]) / 4, (a[i - 1][1] + 2 * a[i][1] + a[i + 1][1]) / 4];
+          a = b;
+        }
+        return a;
+      };
+      // the drawn lines → px, extended past their ends (full-width cut) + heavily smoothed → round curve
+      const edgesPx = RALLYCROSS_DIRT_EDGES.map((line) => {
+        const e = line.map(([fx, fy]) => [fx * wPx, fy * hPx] as [number, number]);
+        const d0 = nrm(sub(e[0], e[1])), dn = nrm(sub(e[e.length - 1], e[e.length - 2]));
+        const ext = [addS(e[0], d0, halfW), ...e, addS(e[e.length - 1], dn, halfW)] as [number, number][];
+        return smoothPts(ext, 8);
+      });
+      const back0 = nrm(sub(ptsPx[wrap(dirt.i0 - 10)], ptsPx[dirt.i0]));   // asphalt-side dir at i0
+      const back1 = nrm(sub(ptsPx[wrap(dirt.i1 + 10)], ptsPx[dirt.i1]));   // asphalt-side dir at i1
+      const d2 = (p: number[], q: number[]) => (p[0] - q[0]) ** 2 + (p[1] - q[1]) ** 2;
+      const mid = (e: [number, number][]) => e[Math.floor(e.length / 2)];
+      let edge0: [number, number][] | null = null, edge1: [number, number][] | null = null;
+      for (const e of edgesPx) { if (d2(mid(e), ptsPx[dirt.i0]) < d2(mid(e), ptsPx[dirt.i1])) edge0 = e; else edge1 = e; }
+
+      // The dirt SHAPE (band → cut to the drawn transition lines → connectors → clip to ribbon). Named
+      // so it paints the dirt AND builds a mask to clip the worn line to (so the worn line reaches the
+      // transition without smudging onto the tarmac).
+      const paintDirtShape = (m: CanvasRenderingContext2D) => {
+        traceOpenPolyline(m, extSeg); m.lineCap = 'round'; m.lineJoin = 'round'; m.lineWidth = twPx; m.stroke();
+        // CUT the dirt to each hand-drawn line — remove the asphalt side. The drawn line is SMOOTHED
+        // into a nice rounded curve (quadratic through segment midpoints) so the border reads clean.
+        m.globalCompositeOperation = 'destination-out';
+        for (const pair of [[edge0, back0], [edge1, back1]] as [[number, number][] | null, [number, number]][]) {
+          const edge = pair[0], back = pair[1]; if (!edge) continue;
+          const BIG = twPx * 4;
+          m.beginPath(); m.moveTo(edge[0][0], edge[0][1]);
+          for (let k = 1; k < edge.length - 1; k++) {                       // rounded: quadratic through midpoints
+            const mx = (edge[k][0] + edge[k + 1][0]) / 2, my = (edge[k][1] + edge[k + 1][1]) / 2;
+            m.quadraticCurveTo(edge[k][0], edge[k][1], mx, my);
+          }
+          const last = edge[edge.length - 1], first = edge[0];
+          m.lineTo(last[0], last[1]);
+          m.lineTo(last[0] + back[0] * BIG, last[1] + back[1] * BIG);
+          m.lineTo(first[0] + back[0] * BIG, first[1] + back[1] * BIG);
+          m.closePath(); m.fill();
+        }
+        m.globalCompositeOperation = 'source-over';
+        // CONNECT the dirt to the kerb along each designer-marked line — a THIN clean strip (not a blob).
+        for (const grp of RALLYCROSS_DIRT_FILL) {
+          if (grp.length < 2) continue;
+          const g = grp.map(([fx, fy]) => [fx * wPx, fy * hPx] as [number, number]);
+          const dS = nrm(sub(g[0], g[1])), dE = nrm(sub(g[g.length - 1], g[g.length - 2]));
+          const a = addS(g[0], dS, twPx * 0.7), b = addS(g[g.length - 1], dE, twPx * 0.7);
+          m.lineCap = 'round'; m.lineJoin = 'round'; m.lineWidth = twPx * 0.3;
+          m.beginPath(); m.moveTo(a[0], a[1]); m.lineTo(g[0][0], g[0][1]);
+          for (let k = 1; k < g.length; k++) m.lineTo(g[k][0], g[k][1]);
+          m.lineTo(b[0], b[1]); m.stroke();
+        }
+        // keep everything ON the ribbon so nothing spills past the kerb (band is fully inside → unchanged)
+        m.globalCompositeOperation = 'destination-in';
+        m.lineCap = 'round'; m.lineJoin = 'round'; m.lineWidth = twPx * 1.14;
+        tracePolyline(m, ptsPx); m.stroke();
+        m.globalCompositeOperation = 'source-over';
+      };
+      SURFACES.dirt.paint(ctx, paintDirtShape, rc);
+
+      // the LIGHTER worn line — EXACT asphalt worn-line pixels (same shape as before), CLIPPED to the
+      // dirt so it reaches the transition edge and meets the tarmac's dark worn line with NO dark gap
+      // and no smudge on the tarmac. Its shape everywhere else is unchanged.
+      if (wornLayer) {
+        const dmask = scratch(2, wPx, hPx), dmc = dmask ? dmask.getContext('2d') : null;
+        const wlc = wornLayer.getContext('2d');
+        if (dmask && dmc && wlc) {
+          dmc.setTransform(1, 0, 0, 1, 0, 0); dmc.clearRect(0, 0, wPx, hPx);
+          dmc.fillStyle = '#fff'; dmc.strokeStyle = '#fff';
+          paintDirtShape(dmc);
+          wlc.globalCompositeOperation = 'destination-in'; wlc.drawImage(dmask, 0, 0);
+          wlc.globalCompositeOperation = 'source-over';
+        }
+        ctx.drawImage(wornLayer, 0, 0);
+      }
     }
   }
 
@@ -2603,6 +2746,22 @@ export const circuitMap: MapDefinition = {
 // The locked dirt arc (contiguous, i0<i1, non-wrapping). Marked on the live track with the dev
 // dirt-edit tool (steerDirtEdit) — a big first-half dirt stretch (indices 0..494 of the 1000-pt path).
 const RALLYCROSS_DIRT = { i0: 0, i1: 494 };
+
+// The two tarmac↔dirt TRANSITION EDGES, hand-drawn by the designer (draw.html sketch tool) as
+// fractions (x/W, y/H) of the track box — they map 1:1 onto the render canvas. The dirt is CUT to
+// exactly these lines at each end, so the border is the real drawn curve (RENDER-ONLY).
+const RALLYCROSS_DIRT_EDGES: [number, number][][] = [
+  [[0.3426, 0.3647], [0.3391, 0.3622], [0.3341, 0.3597], [0.3298, 0.3584], [0.3256, 0.3572], [0.322, 0.3559], [0.3178, 0.3559], [0.3135, 0.3559], [0.31, 0.3572], [0.3064, 0.3584], [0.3029, 0.3609], [0.2993, 0.3635], [0.2958, 0.3647], [0.2922, 0.3685], [0.2887, 0.3723], [0.2851, 0.3748], [0.2816, 0.3761], [0.278, 0.3773], [0.2745, 0.3786], [0.2702, 0.3786], [0.2667, 0.3748], [0.2631, 0.371], [0.2596, 0.3698], [0.256, 0.3672], [0.2525, 0.3635], [0.2489, 0.3597], [0.2454, 0.3559], [0.2418, 0.3546], [0.2383, 0.3521]],
+  [[0.7592, 0.7783], [0.7564, 0.7834], [0.755, 0.7897], [0.755, 0.7972], [0.755, 0.8048], [0.755, 0.8124], [0.7543, 0.8187], [0.7543, 0.8262], [0.7543, 0.8338], [0.7543, 0.8414], [0.755, 0.8477], [0.7557, 0.854], [0.7557, 0.8615], [0.755, 0.8678], [0.7535, 0.8741], [0.7507, 0.8792], [0.7479, 0.8842], [0.745, 0.8893], [0.7436, 0.8956], [0.7408, 0.9006], [0.7379, 0.9057], [0.7358, 0.912], [0.7337, 0.9183], [0.7315, 0.9246], [0.7287, 0.9296], [0.7259, 0.9347], [0.723, 0.9397], [0.7195, 0.9435], [0.7159, 0.9448], [0.7117, 0.9448], [0.7081, 0.946], [0.7046, 0.9485], [0.701, 0.9511], [0.6975, 0.9548], [0.6961, 0.9561]],
+];
+
+// Designer-marked lines (draw.html) — where the dirt should NEATLY connect to the edge/kerb at the
+// two transition corners (small asphalt slivers). Dirt is added as a THIN strip along each line and
+// clipped to the ribbon so it can't spill past the kerb. Fractions of the track box. RENDER-ONLY.
+const RALLYCROSS_DIRT_FILL: [number, number][][] = [
+  [[0.2448, 0.358], [0.2411, 0.357], [0.2374, 0.3598], [0.2369, 0.3598]],
+  [[0.7134, 0.9461], [0.7107, 0.9508], [0.7107, 0.9574], [0.7086, 0.9593]],
+];
 
 // Dirt-zone raster (same grid as circuitMask): the ribbon stroked over ONLY [i0,i1] at band width.
 let _rallyDirtMask: Uint8Array | null | undefined;

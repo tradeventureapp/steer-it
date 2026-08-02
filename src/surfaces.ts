@@ -102,28 +102,22 @@ export const GRAVEL_LOOK = {
 };
 
 /**
- * DIRT — a DARK, PACKED, EARTHY rallycross surface. NOT the lighter churned flat-track dirt
- * and NOT the raked beige gravel: a compacted earth base with soft low-contrast mottling
- * (damp/compacted patches + dried scuff highs, via smooth value-noise) and a faint fine grain.
- * Binds to the EXISTING 'dirt' physics + gravel-style brown marks — a darker LOOK, zero physics
- * change. Reads distinct from grass (mown bands), gravel (raked beige) and asphalt (grey).
+ * DIRT — a DARK, PACKED, EARTHY rallycross surface, rendered like the ASPHALT: a darker BASE tone
+ * with the lighter tone reserved for the worn "ideal line" (racing line) that CONTINUES the
+ * asphalt's ideal line onto the dirt (the line itself is drawn along the path in maps.ts, since it
+ * follows the track — like the asphalt's baked-in worn line). The surface texture here is just the
+ * base: dark packed earth with a VERY subtle soft mottle (clean, flat-reading, like the tarmac —
+ * no bands, no rake, no grain). Binds to the EXISTING 'dirt' physics + gravel-style brown marks.
  */
 export const DIRT_LOOK = {
-  base:  [110, 73, 44] as [number, number, number],  // packed earth — a warm, rich earthy brown
-  dark:  [84, 54, 31] as [number, number, number],   // damp / compacted patches (warm, not grey)
-  light: [134, 96, 62] as [number, number, number],  // dried / sunlit high spots (warm golden earth)
-  patchM: 5.5,        // METRES per patch cell — LARGE, soft tonal patches (clean, no grain, no rake)
-  contrast: 0.34,     // 0..1 — GENTLE tonal variation (packed earth reads even, stylised)
-  // Scattered BLACK PEBBLES — stylised discrete little stones (NOT a grain field), deterministic
-  // (hashed → identical every load) and baked once into the cached texture as crisp dark dots.
-  stone:  [26, 22, 18] as [number, number, number],  // near-black stone
-  stoneCellM: 0.8,    // metres per candidate-stone cell (one possible stone per cell)
-  stoneDensity: 0.4,  // 0..1 — fraction of cells that actually get a stone
-  stoneMinM: 0.10,    // min stone radius (m)
-  stoneMaxM: 0.30,    // max stone radius (m)
+  base:   [76, 52, 31] as [number, number, number],   // darker packed earth — THE BASE (whole dirt)
+  baseHi: [90, 62, 39] as [number, number, number],   // faint lighter earth — subtle base mottle only
+  line:   [128, 96, 64] as [number, number, number],  // the LIGHTER worn IDEAL LINE (drawn in maps.ts)
+  patchM: 6.0,        // METRES per base mottle cell — LARGE + very subtle (reads as flat packed earth)
+  contrast: 0.16,     // 0..1 — VERY gentle base variation (clean, like the tarmac)
 };
 
-/** Smooth (smoothstep-bilinear) hashed value noise in [0,1] — for the earthy dirt mottle. */
+/** Smooth (smoothstep-bilinear) hashed value noise in [0,1] — for the subtle earthy dirt mottle. */
 function vnoise(fx: number, fy: number): number {
   const x0 = Math.floor(fx), y0 = Math.floor(fy);
   const tx = fx - x0, ty = fy - y0;
@@ -483,39 +477,23 @@ const DIRT: SurfaceDef = {
   },
   texture(rc) {
     return cached(_dirtTex, rc, 0, (c, r) => {
-      // 1. base + large soft packed-earth patches (smooth value-noise, gentle contrast, no grain).
+      // Dark packed-earth BASE with a VERY subtle soft mottle (smooth value-noise, gentle contrast) —
+      // clean + flat-reading like the tarmac (no bands, no rake, no grain). The lighter tone is NOT
+      // used here: it's the worn ideal line, drawn along the path in maps.ts.
       const img = c.createImageData(r.wPx, r.hPx), d = img.data;
       const cellP = Math.max(2, DIRT_LOOK.patchM * r.pxPerM);
-      const [br, bg, bb] = DIRT_LOOK.base, [dr, dg, db] = DIRT_LOOK.dark, [lr, lg, lb] = DIRT_LOOK.light;
+      const [br, bg, bb] = DIRT_LOOK.base, [hr, hg, hb] = DIRT_LOOK.baseHi;
       for (let y = 0; y < r.hPx; y++) {
         for (let x = 0; x < r.wPx; x++) {
-          const k = (vnoise(x / cellP, y / cellP) - 0.5) * 2 * DIRT_LOOK.contrast;   // −contrast..+contrast
-          let rr: number, rg: number, rb: number;
-          if (k < 0) { rr = br + (dr - br) * -k; rg = bg + (dg - bg) * -k; rb = bb + (db - bb) * -k; }
-          else { rr = br + (lr - br) * k; rg = bg + (lg - bg) * k; rb = bb + (lb - bb) * k; }
+          const m = clamp01(0.5 + (vnoise(x / cellP, y / cellP) - 0.5) * DIRT_LOOK.contrast * 2);
           const o = (y * r.wPx + x) * 4;
-          d[o] = rr; d[o + 1] = rg; d[o + 2] = rb; d[o + 3] = 255;
+          d[o]     = br + (hr - br) * m;
+          d[o + 1] = bg + (hg - bg) * m;
+          d[o + 2] = bb + (hb - bb) * m;
+          d[o + 3] = 255;
         }
       }
       c.putImageData(img, 0, 0);
-      // 2. scattered BLACK PEBBLES — one candidate per grid cell (hashed → present? position? size?),
-      //    drawn as crisp dark circles (stylised discrete stones, not noise). Baked once.
-      const cell = Math.max(3, DIRT_LOOK.stoneCellM * r.pxPerM);
-      const cols = Math.ceil(r.wPx / cell), rows = Math.ceil(r.hPx / cell);
-      const [sr, sg, sb] = DIRT_LOOK.stone;
-      c.fillStyle = `rgb(${sr | 0},${sg | 0},${sb | 0})`;
-      for (let gy = 0; gy < rows; gy++) {
-        for (let gx = 0; gx < cols; gx++) {
-          if (hash2(gx * 2 + 1, gy * 2 + 1) >= DIRT_LOOK.stoneDensity) continue;
-          const hx = hash2(gx * 7 + 3, gy * 13 + 5), hy = hash2(gx * 17 + 9, gy * 5 + 2);
-          const hr = hash2(gx * 11 + 4, gy * 19 + 8);
-          const px = (gx + hx) * cell, py = (gy + hy) * cell;
-          const rad = Math.max(0.6, (DIRT_LOOK.stoneMinM + (DIRT_LOOK.stoneMaxM - DIRT_LOOK.stoneMinM) * hr) * r.pxPerM);
-          c.globalAlpha = 0.7 + 0.3 * hash2(gx * 3 + 6, gy * 7 + 4);   // slight shade variation per stone
-          c.beginPath(); c.arc(px, py, rad, 0, Math.PI * 2); c.fill();
-        }
-      }
-      c.globalAlpha = 1;
     });
   },
   paint(ctx, shape, rc, opts) { paintThrough(ctx, shape, rc, this.texture(rc, opts)); },
