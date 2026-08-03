@@ -1459,8 +1459,8 @@ function traceOpenPolyline(ctx: CanvasRenderingContext2D, pxPts: Pt[]) {
   for (let i = 1; i < pxPts.length; i++) ctx.lineTo(pxPts[i][0], pxPts[i][1]);
 }
 // Reusable scratch canvases for the dirt worn-line overlay (region mask + colour layer + dirt mask).
-const _sc: (HTMLCanvasElement | null)[] = [null, null, null];
-function scratch(which: 0 | 1 | 2, w: number, h: number): HTMLCanvasElement | null {
+const _sc: (HTMLCanvasElement | null)[] = [null, null, null, null, null];
+function scratch(which: 0 | 1 | 2 | 3 | 4, w: number, h: number): HTMLCanvasElement | null {
   if (typeof document === 'undefined') return null;
   let c = _sc[which];
   if (!c) { c = document.createElement('canvas'); _sc[which] = c; }
@@ -1476,19 +1476,28 @@ function scratch(which: 0 | 1 | 2, w: number, h: number): HTMLCanvasElement | nu
  * circuit. Intersected with an INSET dirt region so the darker edge rim / kerb is never mistaken for
  * the line. RENDER-ONLY, baked once. Returns a colour layer to draw over the dirt, or null.
  */
+const WORN_REF_W = 1400;   // FIXED extraction resolution — the ideal-line threshold is tuned here, so the
+                          // result is RESOLUTION-INDEPENDENT (identical whatever size the live game bakes at).
 function wornLineLayer(
   ctx: CanvasRenderingContext2D, pts: number[][], iA: number, iB: number,
   twPx: number, wPx: number, hPx: number, line: [number, number, number],
 ): HTMLCanvasElement | null {
-  let asph: ImageData; try { asph = ctx.getImageData(0, 0, wPx, hPx); } catch { return null; }
+  // Work at a FIXED reference size, regardless of the target canvas: downscale the painted scene
+  // (grass+gravel+asphalt) to REF, extract the line there, then scale the result back up to target.
+  const rw = WORN_REF_W, rh = Math.max(1, Math.round(rw * hPx / wPx)), k = rw / wPx;
+  const rf = scratch(3, rw, rh), rc2 = rf ? rf.getContext('2d') : null; if (!rf || !rc2) return null;
+  rc2.setTransform(1, 0, 0, 1, 0, 0); rc2.clearRect(0, 0, rw, rh);
+  rc2.imageSmoothingEnabled = true; rc2.drawImage(ctx.canvas, 0, 0, wPx, hPx, 0, 0, rw, rh);
+  let asph: ImageData; try { asph = rc2.getImageData(0, 0, rw, rh); } catch { return null; }
   const ad = asph.data;
-  // INSET dirt-region mask (band core only — trims the ragged ends + the darker edge rim/kerb)
-  const mk = scratch(0, wPx, hPx), mc = mk ? mk.getContext('2d') : null; if (!mk || !mc) return null;
-  mc.setTransform(1, 0, 0, 1, 0, 0); mc.clearRect(0, 0, wPx, hPx);
-  mc.lineCap = 'round'; mc.lineJoin = 'round'; mc.strokeStyle = '#fff'; mc.lineWidth = twPx * 0.99;
+  const twR = twPx * k;
+  // INSET dirt-region mask at REF res (band core only — trims the ragged ends + the darker edge rim/kerb)
+  const mk = scratch(0, rw, rh), mc = mk ? mk.getContext('2d') : null; if (!mk || !mc) return null;
+  mc.setTransform(1, 0, 0, 1, 0, 0); mc.clearRect(0, 0, rw, rh);
+  mc.lineCap = 'round'; mc.lineJoin = 'round'; mc.strokeStyle = '#fff'; mc.lineWidth = twR * 0.99;
   const inner = pts.slice(iA, Math.max(iA + 1, iB));
-  mc.beginPath(); for (let k = 0; k < inner.length; k++) { const q = inner[k]; if (k === 0) mc.moveTo(q[0], q[1]); else mc.lineTo(q[0], q[1]); } mc.stroke();
-  const reg = mc.getImageData(0, 0, wPx, hPx).data;
+  mc.beginPath(); for (let j = 0; j < inner.length; j++) { const q = inner[j]; if (j === 0) mc.moveTo(q[0] * k, q[1] * k); else mc.lineTo(q[0] * k, q[1] * k); } mc.stroke();
+  const reg = mc.getImageData(0, 0, rw, rh).data;
   const grey = (o: number) => Math.abs(ad[o] - ad[o + 1]) <= 26 && Math.abs(ad[o + 1] - ad[o + 2]) <= 26;
   const lum = (o: number) => 0.299 * ad[o] + 0.587 * ad[o + 1] + 0.114 * ad[o + 2];
   // adaptive tarmac luminance stats over the region's grey pixels → the IDEAL LINE is the LIGHTER band
@@ -1498,15 +1507,19 @@ function wornLineLayer(
   if (cnt < 50) return null;
   const mean = sum / cnt, sd = Math.sqrt(Math.max(1, sum2 / cnt - mean * mean));
   const thr = mean + 0.55 * sd, span = Math.max(5, 0.7 * sd);
-  const L = scratch(1, wPx, hPx), lc = L ? L.getContext('2d') : null; if (!L || !lc) return null;
-  lc.setTransform(1, 0, 0, 1, 0, 0); lc.clearRect(0, 0, wPx, hPx);
-  const out = lc.createImageData(wPx, hPx), od = out.data, [lr, lg, lb] = line;
+  const Lr = scratch(1, rw, rh), lrc = Lr ? Lr.getContext('2d') : null; if (!Lr || !lrc) return null;
+  lrc.setTransform(1, 0, 0, 1, 0, 0); lrc.clearRect(0, 0, rw, rh);
+  const out = lrc.createImageData(rw, rh), od = out.data, [lr, lg, lb] = line;
   for (let o = 0; o < reg.length; o += 4) {
     if (reg[o + 3] < 128 || !grey(o)) continue;
     const l = lum(o); if (l <= thr) continue;                       // LIGHTER than the tarmac = the ideal line
     od[o] = lr; od[o + 1] = lg; od[o + 2] = lb; od[o + 3] = Math.round(Math.min(1, (l - thr) / span) * 150);
   }
-  lc.putImageData(out, 0, 0);
+  lrc.putImageData(out, 0, 0);
+  // scale the REF-res line layer UP to the target canvas → same look at any resolution
+  const L = scratch(4, wPx, hPx), lc = L ? L.getContext('2d') : null; if (!L || !lc) return null;
+  lc.setTransform(1, 0, 0, 1, 0, 0); lc.clearRect(0, 0, wPx, hPx);
+  lc.imageSmoothingEnabled = true; lc.drawImage(Lr, 0, 0, rw, rh, 0, 0, wPx, hPx);
   return L;
 }
 
