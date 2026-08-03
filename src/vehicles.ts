@@ -199,8 +199,30 @@ export interface VehicleSpec {
 export const ROAD_SPEC: VehicleSpec = {
   name: 'Blitz RS',
   overrides: {},
-  sprite: { car: 'blitz', skin: 'stripe' },
+  sprite: { car: 'blitz', skin: 'white' },   // default / fallback = the iconic near-white body
 };
+
+// The Blitz RS shares the 8-colour palette (STEEREX_SKIN_COLORS) with the Stee-Rex — the phone
+// picks any of the 8 and the body renders in that colour (a masked multiply on the PNG's white
+// body panels; the sunset stripe / glass / wheels / lights are untouched — see blitz-sprite.ts).
+// Every skin is the SAME Blitz RS: no `dims`, no `phys4` ⇒ physFor returns the exact PHYS4
+// reference and the collision radius is the golden value for ALL 8 ⇒ byte-identical golden.
+const BLITZ_SKINS: BlitzSkin[] = ['silver', 'black', 'blue', 'red', 'purple', 'white', 'orange', 'yellow'];
+function blitzSpec(skin: BlitzSkin): VehicleSpec {
+  return { ...ROAD_SPEC, sprite: { car: 'blitz', skin } };
+}
+export const BLITZ_SPECS: Record<BlitzSkin, VehicleSpec> = {
+  silver: blitzSpec('silver'), black: blitzSpec('black'), blue: blitzSpec('blue'),
+  red: blitzSpec('red'), purple: blitzSpec('purple'), white: ROAD_SPEC,
+  orange: blitzSpec('orange'), yellow: blitzSpec('yellow'),
+};
+// The Blitz skin a picked swatch hex resolves to (matched against STEEREX_SKIN_COLORS — the
+// shared palette). Unknown → 'white' (the iconic Blitz), mirroring steerexSkinForColor.
+export function blitzSkinForColor(hex: string): BlitzSkin {
+  const h = hex.trim().toLowerCase();
+  const i = STEEREX_SKIN_COLORS.findIndex((c) => c.hex.toLowerCase() === h);
+  return i >= 0 ? BLITZ_SKINS[i] : 'white';
+}
 
 // RALLY variant RETIRED (Fase-0 cleanup — it depended on sim-real-2 grip
 // overrides which are also retired). The spec lives in git; re-add a VehicleSpec

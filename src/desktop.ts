@@ -25,11 +25,11 @@ import { collectDiag, noteError, noteStep } from './diag';
 import {
   PLAYER_CAP, LOBBY_SYNC_MS, RESILIENCE, EV, colorName, LobbyState, paletteForMode,
 } from './lobby';
-import { ROAD_SPEC, STEEREX_SILVER, STEEREX_SPECS, steerexSkinForColor, BLITZ_RS_COLORS, FURY_SPEC,
-  type VehicleSpec, type CarColor } from './vehicles';
+import { ROAD_SPEC, STEEREX_SILVER, STEEREX_SPECS, steerexSkinForColor, BLITZ_SPECS, blitzSkinForColor,
+  BLITZ_RS_COLORS, FURY_SPEC, type VehicleSpec, type CarColor } from './vehicles';
 import { steerexSprite, steerexScaled, steerexOpaque, preloadSteerex, type SteerexSkin } from './steerex-sprite';
 import { furySprite, furyScaled, furyOpaque, preloadFury } from './fury-sprite';
-import { blitzSprite, blitzScaled, blitzOpaque, preloadBlitz } from './blitz-sprite';
+import { blitzSprite, blitzScaled, blitzOpaque, preloadBlitz, type BlitzSkin } from './blitz-sprite';
 import { step4, PHYS4, wheelDebug, type Physics4Params } from './physics4';
 
 // physics4 (the per-wheel sim — Blitz RS) is THE drive model: every car, every
@@ -1154,7 +1154,7 @@ function drawBlitzImage(cvs: HTMLCanvasElement, dpr: number) {
   const W = cvs.width / dpr, H = cvs.height / dpr;
   c.setTransform(dpr, 0, 0, dpr, 0, 0);
   c.clearRect(0, 0, W, H);
-  const sprite = blitzSprite('stripe');
+  const sprite = blitzSprite('white');   // menu tile / flyout = the iconic near-white Blitz
   if (!sprite) { window.setTimeout(() => drawBlitzImage(cvs, dpr), 120); return; }
   const op = blitzOpaque();
   const sx = op ? op.cxPx - op.widPx / 2 : 0;
@@ -2586,7 +2586,7 @@ function specForColor(hex: string): VehicleSpec {
   // SIM: Blitz RS by default; the DEV host may instead pick the Fury 200 EVO test
   // car in the car picker (furySelected() is dev-gated, so a normal host can never
   // resolve to FURY_SPEC even if selectedCarKey were somehow 'fury').
-  if (raceMode !== 'arcade') return furySelected() ? FURY_SPEC : ROAD_SPEC;
+  if (raceMode !== 'arcade') return furySelected() ? FURY_SPEC : BLITZ_SPECS[blitzSkinForColor(hex)];
   // ARCADE: each of the 8 Stee-Rex swatch hexes → its metallic skin spec (unknown → silver).
   return STEEREX_SPECS[steerexSkinForColor(hex)];
 }
@@ -4195,7 +4195,8 @@ function drawFury(car: Car) {
 // Blitz RS sprite — same blit path, but LENGTH-anchored to the vector body's drawn length
 // (BLITZ_LEN_M) so the bitmap drops in at exactly the old car's on-screen size. VISUAL ONLY.
 function drawBlitz(car: Car) {
-  const cv = blitzSprite('stripe');
+  const skin: BlitzSkin = car.spec.sprite?.car === 'blitz' ? car.spec.sprite.skin : 'white';
+  const cv = blitzSprite(skin);
   const op = blitzOpaque();
   if (!cv || !op) return;   // not decoded/measured yet — preloaded at startup, momentary
   const s = car.state;
@@ -4204,7 +4205,7 @@ function drawBlitz(car: Car) {
   const m = ctx.getTransform();
   const ctxScale = Math.hypot(m.a, m.b) || 1;
   const onScreenLenDev = op.lenPx * scale * ctxScale;
-  const mip = blitzScaled('stripe', onScreenLenDev * 2)
+  const mip = blitzScaled(skin, onScreenLenDev * 2)
     ?? { cv, widPx: op.widPx, cxPx: op.cxPx, cyPx: op.cyPx };
   const mipScale = (widM * PX()) / mip.widPx;
   const prevSmooth = ctx.imageSmoothingEnabled, prevQ = ctx.imageSmoothingQuality;

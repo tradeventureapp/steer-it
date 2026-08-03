@@ -108,9 +108,11 @@ import { BLITZ_RS_COLORS as _BLITZ, STEEREX_SKIN_COLORS as _REX, type CarColor a
  * needs a Fury-specific palette.)
  */
 export function paletteForMode(mode: string | null | undefined): _CarColor[] | null {
-  return mode === 'arcade' ? _REX : mode === 'sim' ? _BLITZ : null;
+  // Both cars share the SAME 8-colour palette (the Stee-Rex swatches). SIM (Blitz RS) and
+  // ARCADE (Stee-Rex) both offer the identical 8 → the phone colour picker is the same for
+  // every car. (The dev-only Fury is a SIM car → it rides this palette but ignores the pick.)
+  return mode === 'arcade' || mode === 'sim' ? _REX : null;
 }
-import { BLITZ_RS_COLORS } from './vehicles';
 
 // Player names: short, sanitized (also HTML-unsafe chars stripped because the
 // desktop roster renders them). Empty → the roster falls back to "PLAYER n".
@@ -124,12 +126,16 @@ export function sanitizeName(raw: unknown): string {
 }
 
 export function colorName(hex: string): string {
-  const c = BLITZ_RS_COLORS.find((c) => c.hex.toLowerCase() === hex.toLowerCase());
+  const h = hex.toLowerCase();
+  // Search the SHARED 8-colour palette first (Blitz RS + Stee-Rex both use it), then the
+  // legacy Blitz 12 (kept for any older stored hex) → the roster shows a name, not a raw hex.
+  const c = _REX.find((c) => c.hex.toLowerCase() === h) ?? _BLITZ.find((c) => c.hex.toLowerCase() === h);
   return c ? c.name : hex;
 }
-// Default colour for a slot (wraps the palette so N > palette still works).
+// Default colour for a slot (wraps the shared 8-colour palette so N > palette still works) —
+// so an un-picked car spawns in a DISTINCT colour that both cars' pickers recognise.
 export function defaultColorForSlot(slot: number): string {
-  return BLITZ_RS_COLORS[slot % BLITZ_RS_COLORS.length].hex;
+  return _REX[slot % _REX.length].hex;
 }
 
 // ---- Broadcast event names ----
