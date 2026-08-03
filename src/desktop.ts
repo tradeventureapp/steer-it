@@ -419,8 +419,8 @@ function isDev(): boolean {
   const e = getAuthState().user?.email?.trim().toLowerCase();
   return !!e && DEV_EMAILS.includes(e);
 }
-// The dev may pick the Fury as a SIM car — is that the current selection?
-function furySelected(): boolean { return isDev() && selectedCarKey === 'fury'; }
+// Is the Fury the current SIM-car selection? (Premium-gated via the SIM lock at launch.)
+function furySelected(): boolean { return selectedCarKey === 'fury'; }
 
 // ---- GAME MODES (RACE / XP …) — the in-game mode picked on the CAR & MAP screen.
 // This is a DIFFERENT axis from RaceMode (arcade/sim = the car family): a GameMode
@@ -457,9 +457,10 @@ function mapGameModes(id: string | null): readonly string[] {
 // from an RLS-protected Supabase row); the checks below gate the UI, and the
 // leaderboard write is enforced server-side so a hacked client gains nothing online.
 const FREE_MAP_IDS = ['desktop', 'asphalt'];
-// DEV-ONLY maps — WIP tracks hidden from the map-select for every normal user (like the Fury car),
-// and never premium-locked for the dev host who's building them.
-const DEV_MAP_IDS = ['rallycross'];
+// DEV-ONLY maps — WIP tracks hidden from the map-select for every normal user. Rallycross is now a
+// PUBLIC premium map (visible to all, premium-locked like the other non-free maps), so it's no
+// longer here. Empty = no dev-only maps at the moment.
+const DEV_MAP_IDS: string[] = [];
 const FREE_MODE_KEYS = ['free'];
 const isPremium = () => getAuthState().isPremium;
 // Entitlement still resolving for a logged-in host (a session appeared but the
@@ -1092,9 +1093,10 @@ function modeCars(mode: RaceMode): MenuCar[] {
     blurb: '90s European touring car. Group A pedigree - raw, rear-driven, unforgiving. '
       + 'Brilliant on asphalt, a struggle anywhere else.',
   },
-  // DEV-ONLY: the Fury 200 EVO joins the SIM car list for the dev host, next to the
-  // Blitz RS. Omitted entirely for every normal free/premium/anon host.
-  ...(isDev() ? [FURY_MENU_CAR] : [])];
+  // The Fury 200 EVO joins the SIM car list next to the Blitz RS. It's a SIM car, so it sits
+  // behind the same PREMIUM gate as SIM mode (isSimLocked) — a free host sees the SIM tiles
+  // locked and gets upsold; a premium host can pick it.
+  FURY_MENU_CAR];
 }
 
 // Draw the car's sprite (cropped to its opaque bbox, nose UP) into a flyout canvas.
@@ -1257,11 +1259,9 @@ document.getElementById('btn-mode-arcade')?.addEventListener('click', () => choo
 document.getElementById('btn-mode-sim')?.addEventListener('click', () => chooseMode('sim'));
 document.getElementById('btn-mode-back')?.addEventListener('click', goHome);
 
-// DEV-ONLY: warm the Fury test-car sprite for the dev host so it draws instantly the
-// moment the dev picks it in the SIM car list. A normal host never bakes it (nor ever
-// sees the Fury tile). Runs on auth changes.
+// Warm the Fury sprite so its SIM-car tile + the car itself draw instantly. Runs on auth changes.
 function refreshDevUi() {
-  if (isDev()) preloadFury();
+  preloadFury();
 }
 
 // ---- GAME MENU (logged-in host) ----
