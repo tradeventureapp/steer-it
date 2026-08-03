@@ -17,7 +17,13 @@
 export type FurySkin = 'lombard';
 
 const SRC = '/Fury.png';                 // served from public/ at the site root
-const BG_LUMA = 28;                      // ≤ this luma + connected to a corner = background → transparent
+// BACKGROUND = near PURE BLACK (every channel ≤ this), NOT just low luma. The Fury art has
+// dark-but-coloured parts that touch the silhouette edge — the navy chevrons (high BLUE channel)
+// and the near-black GREY mirrors (rgb ≈ 17) — which a plain luma≤28 flood LEAKS into and erases,
+// bleeding the surface through the rear windows + mirrors. A per-channel black test keeps them:
+// the navy's blue channel and the mirror's 17 both exceed 14, so only the true black field (0,0,0)
+// is removed. (Kept < the mirror's 17 so the mirrors survive.)
+const BG_MAX = 14;
 
 const _cache = new Map<FurySkin, HTMLCanvasElement>();
 const _loading = new Set<FurySkin>();
@@ -26,15 +32,15 @@ let _opaque: { lenPx: number; widPx: number; cxPx: number; cyPx: number } | null
 /** The measured opaque bbox of the Fury bitmap (null until it bakes). */
 export function furyOpaque() { return _opaque; }
 
-// Flood-fill the connected near-black background (from the 4 corners) to transparent, in place.
+// Flood-fill the connected PURE-BLACK background (from the 4 corners) to transparent, in place.
 function stripBackground(d: Uint8ClampedArray, W: number, H: number) {
-  const luma = (i: number) => 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+  const isBg = (i: number) => d[i] <= BG_MAX && d[i + 1] <= BG_MAX && d[i + 2] <= BG_MAX;
   const seen = new Uint8Array(W * H);
   const st: number[] = [];
   const push = (x: number, y: number) => {
     if (x < 0 || y < 0 || x >= W || y >= H) return;
     const p = y * W + x;
-    if (seen[p] || luma(p * 4) > BG_LUMA) return;
+    if (seen[p] || !isBg(p * 4)) return;
     seen[p] = 1; d[p * 4 + 3] = 0; st.push(p);
   };
   push(0, 0); push(W - 1, 0); push(0, H - 1); push(W - 1, H - 1);
