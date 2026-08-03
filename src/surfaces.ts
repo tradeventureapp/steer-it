@@ -110,9 +110,9 @@ export const GRAVEL_LOOK = {
  * no bands, no rake, no grain). Binds to the EXISTING 'dirt' physics + gravel-style brown marks.
  */
 export const DIRT_LOOK = {
-  base:   [128, 96, 64] as [number, number, number],  // LIGHTER packed earth — THE BASE (whole dirt)
-  baseHi: [140, 106, 70] as [number, number, number], // faint lighter earth — subtle base mottle only
-  line:   [76, 52, 31] as [number, number, number],   // the DARKER worn IDEAL LINE (drawn in maps.ts)
+  base:   [76, 52, 31] as [number, number, number],   // DARK packed earth — THE BASE (whole dirt)
+  baseHi: [90, 62, 39] as [number, number, number],   // faint lighter earth — subtle base mottle only
+  line:   [138, 104, 70] as [number, number, number], // the LIGHTER worn IDEAL LINE (hand-drawn, in maps.ts)
   patchM: 6.0,        // METRES per base mottle cell — LARGE + very subtle (reads as flat packed earth)
   contrast: 0.16,     // 0..1 — VERY gentle base variation (clean, like the tarmac)
 };

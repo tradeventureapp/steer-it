@@ -1468,61 +1468,6 @@ function scratch(which: 0 | 1 | 2 | 3 | 4, w: number, h: number): HTMLCanvasElem
   return c;
 }
 
-/**
- * Build the dirt's WORN IDEAL LINE as an overlay that is PIXEL-IDENTICAL to the circuit's asphalt
- * worn line. The tarmac bitmap's worn line (the darker grey band) is drawn UNDER the dirt at the very
- * same pixels; we capture those exact pixels (before the dirt covers them) and re-emit them as the
- * lighter earth tone — so the dirt line has EXACTLY the same shape + position as on the asphalt-only
- * circuit. Intersected with an INSET dirt region so the darker edge rim / kerb is never mistaken for
- * the line. RENDER-ONLY, baked once. Returns a colour layer to draw over the dirt, or null.
- */
-const WORN_REF_W = 1400;   // FIXED extraction resolution — the ideal-line threshold is tuned here, so the
-                          // result is RESOLUTION-INDEPENDENT (identical whatever size the live game bakes at).
-function wornLineLayer(
-  ctx: CanvasRenderingContext2D, pts: number[][], iA: number, iB: number,
-  twPx: number, wPx: number, hPx: number, line: [number, number, number],
-): HTMLCanvasElement | null {
-  // Work at a FIXED reference size, regardless of the target canvas: downscale the painted scene
-  // (grass+gravel+asphalt) to REF, extract the line there, then scale the result back up to target.
-  const rw = WORN_REF_W, rh = Math.max(1, Math.round(rw * hPx / wPx)), k = rw / wPx;
-  const rf = scratch(3, rw, rh), rc2 = rf ? rf.getContext('2d') : null; if (!rf || !rc2) return null;
-  rc2.setTransform(1, 0, 0, 1, 0, 0); rc2.clearRect(0, 0, rw, rh);
-  rc2.imageSmoothingEnabled = true; rc2.drawImage(ctx.canvas, 0, 0, wPx, hPx, 0, 0, rw, rh);
-  let asph: ImageData; try { asph = rc2.getImageData(0, 0, rw, rh); } catch { return null; }
-  const ad = asph.data;
-  const twR = twPx * k;
-  // INSET dirt-region mask at REF res (band core only — trims the ragged ends + the darker edge rim/kerb)
-  const mk = scratch(0, rw, rh), mc = mk ? mk.getContext('2d') : null; if (!mk || !mc) return null;
-  mc.setTransform(1, 0, 0, 1, 0, 0); mc.clearRect(0, 0, rw, rh);
-  mc.lineCap = 'round'; mc.lineJoin = 'round'; mc.strokeStyle = '#fff'; mc.lineWidth = twR * 0.99;
-  const inner = pts.slice(iA, Math.max(iA + 1, iB));
-  mc.beginPath(); for (let j = 0; j < inner.length; j++) { const q = inner[j]; if (j === 0) mc.moveTo(q[0] * k, q[1] * k); else mc.lineTo(q[0] * k, q[1] * k); } mc.stroke();
-  const reg = mc.getImageData(0, 0, rw, rh).data;
-  const grey = (o: number) => Math.abs(ad[o] - ad[o + 1]) <= 26 && Math.abs(ad[o + 1] - ad[o + 2]) <= 26;
-  const lum = (o: number) => 0.299 * ad[o] + 0.587 * ad[o + 1] + 0.114 * ad[o + 2];
-  // adaptive tarmac luminance stats over the region's grey pixels → the IDEAL LINE is the LIGHTER band
-  // (the designer's baked racing line is a lighter grey), so it's the bright tail above the mean.
-  let sum = 0, sum2 = 0, cnt = 0;
-  for (let o = 0; o < reg.length; o += 4) { if (reg[o + 3] < 128 || !grey(o)) continue; const l = lum(o); sum += l; sum2 += l * l; cnt++; }
-  if (cnt < 50) return null;
-  const mean = sum / cnt, sd = Math.sqrt(Math.max(1, sum2 / cnt - mean * mean));
-  const thr = mean + 0.55 * sd, span = Math.max(5, 0.7 * sd);
-  const Lr = scratch(1, rw, rh), lrc = Lr ? Lr.getContext('2d') : null; if (!Lr || !lrc) return null;
-  lrc.setTransform(1, 0, 0, 1, 0, 0); lrc.clearRect(0, 0, rw, rh);
-  const out = lrc.createImageData(rw, rh), od = out.data, [lr, lg, lb] = line;
-  for (let o = 0; o < reg.length; o += 4) {
-    if (reg[o + 3] < 128 || !grey(o)) continue;
-    const l = lum(o); if (l <= thr) continue;                       // LIGHTER than the tarmac = the ideal line
-    od[o] = lr; od[o + 1] = lg; od[o + 2] = lb; od[o + 3] = Math.round(Math.min(1, (l - thr) / span) * 150);
-  }
-  lrc.putImageData(out, 0, 0);
-  // scale the REF-res line layer UP to the target canvas → same look at any resolution
-  const L = scratch(4, wPx, hPx), lc = L ? L.getContext('2d') : null; if (!L || !lc) return null;
-  lc.setTransform(1, 0, 0, 1, 0, 0); lc.clearRect(0, 0, wPx, hPx);
-  lc.imageSmoothingEnabled = true; lc.drawImage(Lr, 0, 0, rw, rh, 0, 0, wPx, hPx);
-  return L;
-}
-
 // ---------- SURFACE MASK (circuit) ----------
 // The ground lookup is a bitmap baked ONCE at first use: the track ribbon (the FULL-width
 // stroked CIRCUIT_PATH band) + EVERY kerb quad (stripes + blue incl. the wedges — kerbs are
@@ -2165,11 +2110,6 @@ function drawCircuitSurface(ctx: CanvasRenderingContext2D, wPx: number, hPx: num
     const seg = ptsPx.slice(dirt.i0, dirt.i1 + 1);
     if (seg.length >= 2) {
       const halfW = twPx / 2;
-      // WORN IDEAL LINE — captured from the tarmac's own baked worn line BEFORE the dirt covers it,
-      // so the dirt's lighter line is PIXEL-IDENTICAL in shape + position to the asphalt-only circuit's
-      // line (same racing line, exactly). Capture first, then paint the dirt over, then re-emit lighter.
-      const wornLayer = wornLineLayer(ctx, ptsPx, dirt.i0, dirt.i1, twPx, wPx, hPx, DIRT_LOOK.line);
-
       // Extend the band a little past each end along the true track, then CUT it to the designer's
       // HAND-DRAWN transition lines (RALLYCROSS_DIRT_EDGES) — the border is exactly the drawn curve.
       const N = ptsPx.length, wrap = (i: number) => ((i % N) + N) % N;
@@ -2247,20 +2187,34 @@ function drawCircuitSurface(ctx: CanvasRenderingContext2D, wPx: number, hPx: num
       };
       SURFACES.dirt.paint(ctx, paintDirtShape, rc);
 
-      // the LIGHTER worn line — EXACT asphalt worn-line pixels (same shape as before), CLIPPED to the
-      // dirt so it reaches the transition edge and meets the tarmac's dark worn line with NO dark gap
-      // and no smudge on the tarmac. Its shape everywhere else is unchanged.
-      if (wornLayer) {
-        const dmask = scratch(2, wPx, hPx), dmc = dmask ? dmask.getContext('2d') : null;
-        const wlc = wornLayer.getContext('2d');
-        if (dmask && dmc && wlc) {
-          dmc.setTransform(1, 0, 0, 1, 0, 0); dmc.clearRect(0, 0, wPx, hPx);
-          dmc.fillStyle = '#fff'; dmc.strokeStyle = '#fff';
-          paintDirtShape(dmc);
-          wlc.globalCompositeOperation = 'destination-in'; wlc.drawImage(dmask, 0, 0);
-          wlc.globalCompositeOperation = 'source-over';
+      // HAND-DRAWN worn IDEAL LINE — the designer's own path (RALLYCROSS_IDEAL_LINE, drawn in draw.html),
+      // rendered as a lighter worn stroke on the dark dirt. A vector path → resolution-INDEPENDENT (looks
+      // identical at any bake size). Smoothed, and clipped to the dirt shape so it can't spill off.
+      if (RALLYCROSS_IDEAL_LINE.length) {
+        const IL = scratch(1, wPx, hPx), ilc = IL ? IL.getContext('2d') : null;
+        if (IL && ilc) {
+          ilc.setTransform(1, 0, 0, 1, 0, 0); ilc.clearRect(0, 0, wPx, hPx);
+          ilc.lineCap = 'round'; ilc.lineJoin = 'round';
+          const [lr, lg, lb] = DIRT_LOOK.line;
+          ilc.strokeStyle = `rgb(${lr},${lg},${lb})`;                       // just LIGHTER — nothing fancy
+          for (const st of RALLYCROSS_IDEAL_LINE) {
+            const pts = st.pts; if (pts.length < 1) continue;
+            ilc.lineWidth = Math.max(1, st.w * wPx);                         // EXACT drawn brush width
+            ilc.beginPath(); ilc.moveTo(pts[0][0] * wPx, pts[0][1] * hPx);   // EXACT drawn points — no smoothing
+            for (let k = 1; k < pts.length; k++) ilc.lineTo(pts[k][0] * wPx, pts[k][1] * hPx);
+            if (pts.length === 1) ilc.lineTo(pts[0][0] * wPx + 0.01, pts[0][1] * hPx);
+            ilc.stroke();
+          }
+          // clip to the dirt shape so it stays on the dirt (never on grass/asphalt; kerbs cover the rest)
+          const dmask = scratch(2, wPx, hPx), dmc = dmask ? dmask.getContext('2d') : null;
+          if (dmask && dmc) {
+            dmc.setTransform(1, 0, 0, 1, 0, 0); dmc.clearRect(0, 0, wPx, hPx);
+            dmc.fillStyle = '#fff'; dmc.strokeStyle = '#fff'; paintDirtShape(dmc);
+            ilc.globalCompositeOperation = 'destination-in'; ilc.drawImage(dmask, 0, 0);
+            ilc.globalCompositeOperation = 'source-over';
+          }
+          ctx.drawImage(IL, 0, 0);
         }
-        ctx.drawImage(wornLayer, 0, 0);
       }
     }
   }
@@ -2760,6 +2714,13 @@ export const circuitMap: MapDefinition = {
 // The locked dirt arc (contiguous, i0<i1, non-wrapping). Marked on the live track with the dev
 // dirt-edit tool (steerDirtEdit) — a big first-half dirt stretch (indices 0..494 of the 1000-pt path).
 const RALLYCROSS_DIRT = { i0: 0, i1: 494 };
+
+// The worn IDEAL LINE across the dirt — the designer's own hand-drawn path(s) (draw.html), as fractions
+// (x/W, y/H) of the track box. Rendered as a lighter worn stroke on the dark dirt (see the dirt block),
+// CLIPPED to the dirt (never on grass/asphalt; kerbs are drawn on top). Vector ⇒ resolution-independent.
+const RALLYCROSS_IDEAL_LINE: { pts: [number, number][]; w: number }[] = [
+  { w: 0.0786, pts: [[0.2514, 0.3187],[0.2541, 0.3234],[0.2567, 0.328],[0.2588, 0.3336],[0.2614, 0.3383],[0.2641, 0.343],[0.2662, 0.3486],[0.2683, 0.3542],[0.2704, 0.3608],[0.2714, 0.3673],[0.2735, 0.3729],[0.2762, 0.3776],[0.2783, 0.3832],[0.2804, 0.3897],[0.282, 0.3963],[0.2841, 0.4019],[0.2862, 0.4075],[0.2883, 0.4131],[0.2909, 0.4178],[0.293, 0.4234],[0.2956, 0.428],[0.2983, 0.4327],[0.3009, 0.4374],[0.3035, 0.4421],[0.3062, 0.4467],[0.3088, 0.4514],[0.3114, 0.4561],[0.314, 0.4608],[0.3167, 0.4654],[0.3188, 0.471],[0.3209, 0.4766],[0.3235, 0.4813],[0.3261, 0.486],[0.3288, 0.4916],[0.3309, 0.4972],[0.3335, 0.5019],[0.3356, 0.5075],[0.3382, 0.5122],[0.3409, 0.5168],[0.344, 0.5206],[0.3477, 0.5234],[0.3509, 0.5271],[0.3546, 0.5299],[0.3577, 0.5337],[0.3603, 0.5383],[0.3635, 0.543],[0.3672, 0.5458],[0.3703, 0.5495],[0.374, 0.5523],[0.3777, 0.5551],[0.3814, 0.557],[0.3851, 0.5589],[0.3887, 0.5617],[0.3919, 0.5654],[0.3961, 0.5673],[0.3998, 0.5692],[0.4035, 0.571],[0.4072, 0.572],[0.4108, 0.5729],[0.415, 0.5738],[0.4187, 0.5748],[0.4224, 0.5757],[0.4261, 0.5757],[0.4298, 0.5757],[0.4335, 0.5757],[0.4371, 0.5757],[0.4408, 0.5757],[0.4445, 0.5766],[0.4482, 0.5766],[0.4519, 0.5776],[0.4555, 0.5776],[0.4592, 0.5776],[0.4629, 0.5776],[0.4671, 0.5766],[0.4708, 0.5748],[0.4745, 0.5738],[0.4782, 0.571],[0.4819, 0.5682],[0.4855, 0.5664],[0.4892, 0.5645],[0.4929, 0.5608],[0.4966, 0.558],[0.5003, 0.5551],[0.5034, 0.5514],[0.5071, 0.5486],[0.5103, 0.5439],[0.5134, 0.5402],[0.5166, 0.5355],[0.5192, 0.5308],[0.5213, 0.5252],[0.5239, 0.5206],[0.5255, 0.514],[0.5276, 0.5075],[0.5297, 0.5019],[0.5324, 0.4963],[0.535, 0.4916],[0.5371, 0.486],[0.5397, 0.4813],[0.5423, 0.4748],[0.545, 0.4701],[0.5471, 0.4636],[0.5492, 0.458],[0.5513, 0.4523],[0.5534, 0.4449],[0.5555, 0.4393],[0.5576, 0.4337],[0.5597, 0.428],[0.5618, 0.4224],[0.5644, 0.4178],[0.5671, 0.4122],[0.5692, 0.4065],[0.5708, 0.4],[0.5734, 0.3944],[0.575, 0.3879],[0.5771, 0.3822],[0.5797, 0.3766],[0.5823, 0.3701],[0.585, 0.3654],[0.5871, 0.3598],[0.5897, 0.3551],[0.5918, 0.3495],[0.5939, 0.3439],[0.5965, 0.3393],[0.5992, 0.3336],[0.6013, 0.328],[0.6039, 0.3234],[0.606, 0.3178],[0.6086, 0.3131],[0.6107, 0.3075],[0.6134, 0.3019],[0.616, 0.2972],[0.6181, 0.2916],[0.6213, 0.286],[0.6239, 0.2804],[0.6265, 0.2757],[0.6291, 0.271],[0.6323, 0.2673],[0.6355, 0.2636],[0.6397, 0.2608],[0.6428, 0.2561],[0.6465, 0.2533],[0.6497, 0.2495],[0.6528, 0.2458],[0.6565, 0.2421],[0.6597, 0.2383],[0.6623, 0.2336],[0.6654, 0.2299],[0.6686, 0.2262],[0.6718, 0.2215],[0.6749, 0.2178],[0.6781, 0.2131],[0.6817, 0.2093],[0.6849, 0.2056],[0.6886, 0.2037],[0.6917, 0.2],[0.6949, 0.1963],[0.6986, 0.1935],[0.7023, 0.1907],[0.7059, 0.1879],[0.7096, 0.186],[0.7133, 0.1832],[0.717, 0.1813],[0.7207, 0.1785],[0.7244, 0.1766],[0.728, 0.1757],[0.7317, 0.1748],[0.7354, 0.1738],[0.7391, 0.1729],[0.7428, 0.172],[0.747, 0.172],[0.7507, 0.172],[0.7543, 0.171],[0.758, 0.171],[0.7617, 0.171],[0.7654, 0.171],[0.7696, 0.171],[0.7738, 0.171],[0.7775, 0.171],[0.7812, 0.171],[0.7849, 0.171],[0.7885, 0.172],[0.7922, 0.1729],[0.7959, 0.1738],[0.7996, 0.1757],[0.8033, 0.1776],[0.8069, 0.1804],[0.8112, 0.1841],[0.8148, 0.1869],[0.8185, 0.1897],[0.8222, 0.1916],[0.8259, 0.1935],[0.8296, 0.1953],[0.8332, 0.1981],[0.8369, 0.2009],[0.8406, 0.2047],[0.8443, 0.2075],[0.8474, 0.2122],[0.8506, 0.2159],[0.8543, 0.2196],[0.8574, 0.2243],[0.8606, 0.228],[0.8638, 0.2318],[0.8664, 0.2365],[0.8695, 0.2421],[0.8722, 0.2467],[0.8748, 0.2514],[0.8769, 0.257],[0.879, 0.2626],[0.8816, 0.2682],[0.8827, 0.2748],[0.8848, 0.2804],[0.8869, 0.286],[0.8895, 0.2907],[0.8916, 0.2963],[0.8937, 0.3019],[0.8958, 0.3075],[0.8979, 0.3131],[0.9001, 0.3196],[0.9022, 0.3252],[0.9037, 0.3318],[0.9048, 0.3383],[0.9053, 0.3449],[0.9064, 0.3514],[0.9064, 0.3589],[0.9074, 0.3654],[0.9079, 0.372],[0.909, 0.3785],[0.91, 0.3851],[0.9106, 0.3916],[0.9111, 0.3981],[0.9116, 0.4047],[0.9127, 0.4112],[0.9132, 0.4187],[0.9137, 0.4252],[0.9143, 0.4318],[0.9148, 0.4383],[0.9153, 0.4449],[0.9153, 0.4514],[0.9158, 0.458],[0.9164, 0.4645],[0.9164, 0.471],[0.9164, 0.4776],[0.9164, 0.4841],[0.9164, 0.4907],[0.9164, 0.4972],[0.9164, 0.5037],[0.9158, 0.5103],[0.9153, 0.5168],[0.9143, 0.5243],[0.9132, 0.5308],[0.9122, 0.5374],[0.9116, 0.5439],[0.9116, 0.5505],[0.9106, 0.557],[0.9106, 0.5636],[0.9095, 0.5701],[0.9085, 0.5766],[0.9079, 0.5832],[0.9069, 0.5897],[0.9053, 0.5963],[0.9043, 0.6028],[0.9027, 0.6094],[0.9006, 0.615],[0.899, 0.6215],[0.8979, 0.628],[0.8964, 0.6346],[0.8937, 0.6393],[0.8911, 0.6439],[0.8895, 0.6505],[0.8874, 0.6561],[0.8858, 0.6626],[0.8837, 0.6692],[0.8822, 0.6757],[0.8811, 0.6823],[0.8795, 0.6888],[0.878, 0.6953],[0.8759, 0.7009],[0.8738, 0.7066],[0.8716, 0.7122],[0.8695, 0.7178],[0.8669, 0.7224],[0.8643, 0.728],[0.8617, 0.7327],[0.859, 0.7383],[0.8564, 0.743],[0.8538, 0.7477],[0.8511, 0.7523],[0.8485, 0.757],[0.8459, 0.7617],[0.8432, 0.7664],[0.8406, 0.771],[0.838, 0.7757],[0.8353, 0.7804],[0.8327, 0.786],[0.8301, 0.7907],[0.8264, 0.7935],[0.8238, 0.7981],[0.8206, 0.8019],[0.8175, 0.8056],[0.8143, 0.8094],[0.8106, 0.8122],[0.8075, 0.8159],[0.8038, 0.8187],[0.8001, 0.8215],[0.7964, 0.8252],[0.7927, 0.828],[0.7901, 0.8327],[0.7864, 0.8355],[0.7833, 0.8393],[0.7796, 0.8421],[0.7764, 0.8458],[0.7733, 0.8495],[0.7696, 0.8523],[0.7654, 0.8561],[0.7617, 0.8608],[0.758, 0.8617],[0.7543, 0.8626],[0.7507, 0.8636],[0.747, 0.8645],[0.7433, 0.8654],[0.7396, 0.8673],[0.7359, 0.8692],[0.7322, 0.871],[0.7291, 0.8748],[0.7254, 0.8757],[0.7217, 0.8757],[0.718, 0.8757],[0.7144, 0.8757],[0.7107, 0.8757],[0.707, 0.8766],[0.7033, 0.8776],[0.6996, 0.8785],[0.6959, 0.8795],[0.6923, 0.8804],[0.6886, 0.8813],[0.6849, 0.8832],[0.6812, 0.8832],[0.6775, 0.8832],[0.6739, 0.8841],[0.6702, 0.8841],[0.6665, 0.8841],[0.6618, 0.8841],[0.6581, 0.8832],[0.6544, 0.8813],[0.6507, 0.8813],[0.647, 0.8804],[0.6433, 0.8804]] },
+];
 
 // The two tarmac↔dirt TRANSITION EDGES, hand-drawn by the designer (draw.html sketch tool) as
 // fractions (x/W, y/H) of the track box — they map 1:1 onto the render canvas. The dirt is CUT to
