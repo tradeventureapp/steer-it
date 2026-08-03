@@ -1469,43 +1469,41 @@ function scratch(which: 0 | 1 | 2, w: number, h: number): HTMLCanvasElement | nu
 }
 
 /**
- * Build the dirt's TONE layer by re-mapping the tarmac's own brightness to earth: the asphalt (drawn
- * under the dirt) carries the designer's baked IDEAL LINE as a lighter band down the racing line; we
- * map each tarmac pixel's luminance to a brown — dark tarmac → dark packed earth (the base), the lighter
- * racing-line band → lighter earth — so the dirt's ideal line runs EXACTLY like the asphalt circuit's,
- * just in earth tones. A knee keeps most of the tarmac as a flat dark base and only lifts the line.
- * Returns a full-canvas layer (grey/tarmac pixels only); the caller clips it to the dirt shape. RENDER-ONLY.
+ * Build the dirt's WORN IDEAL LINE as an overlay that is PIXEL-IDENTICAL to the circuit's asphalt
+ * worn line. The tarmac bitmap's worn line (the darker grey band) is drawn UNDER the dirt at the very
+ * same pixels; we capture those exact pixels (before the dirt covers them) and re-emit them as the
+ * lighter earth tone — so the dirt line has EXACTLY the same shape + position as on the asphalt-only
+ * circuit. Intersected with an INSET dirt region so the darker edge rim / kerb is never mistaken for
+ * the line. RENDER-ONLY, baked once. Returns a colour layer to draw over the dirt, or null.
  */
-function dirtToneLayer(
+function wornLineLayer(
   ctx: CanvasRenderingContext2D, pts: number[][], iA: number, iB: number,
-  twPx: number, wPx: number, hPx: number, darkE: [number, number, number], lightE: [number, number, number],
+  twPx: number, wPx: number, hPx: number, line: [number, number, number],
 ): HTMLCanvasElement | null {
   let asph: ImageData; try { asph = ctx.getImageData(0, 0, wPx, hPx); } catch { return null; }
   const ad = asph.data;
-  const grey = (o: number) => Math.abs(ad[o] - ad[o + 1]) <= 26 && Math.abs(ad[o + 1] - ad[o + 2]) <= 26;
-  const lumAt = (o: number) => 0.299 * ad[o] + 0.587 * ad[o + 1] + 0.114 * ad[o + 2];
-  // inset band mask → the tarmac luminance RANGE (avoids the kerb/edge skew)
+  // INSET dirt-region mask (band core only — trims the ragged ends + the darker edge rim/kerb)
   const mk = scratch(0, wPx, hPx), mc = mk ? mk.getContext('2d') : null; if (!mk || !mc) return null;
   mc.setTransform(1, 0, 0, 1, 0, 0); mc.clearRect(0, 0, wPx, hPx);
-  mc.lineCap = 'round'; mc.lineJoin = 'round'; mc.strokeStyle = '#fff'; mc.lineWidth = twPx * 0.9;
+  mc.lineCap = 'round'; mc.lineJoin = 'round'; mc.strokeStyle = '#fff'; mc.lineWidth = twPx * 0.99;
   const inner = pts.slice(iA, Math.max(iA + 1, iB));
   mc.beginPath(); for (let k = 0; k < inner.length; k++) { const q = inner[k]; if (k === 0) mc.moveTo(q[0], q[1]); else mc.lineTo(q[0], q[1]); } mc.stroke();
   const reg = mc.getImageData(0, 0, wPx, hPx).data;
-  const vals: number[] = [];
-  for (let o = 0; o < reg.length; o += 4) { if (reg[o + 3] < 128 || !grey(o)) continue; vals.push(lumAt(o)); }
-  if (vals.length < 50) return null;
-  vals.sort((a, b) => a - b);
-  const pct = (q: number) => vals[Math.min(vals.length - 1, Math.max(0, Math.floor(q * vals.length)))];
-  const loL = pct(0.06), hiL = pct(0.97), knee = loL + (hiL - loL) * 0.5, span = Math.max(1, hiL - knee);
-  const [dr, dg, db] = darkE, [lr, lg, lb] = lightE;
+  const grey = (o: number) => Math.abs(ad[o] - ad[o + 1]) <= 26 && Math.abs(ad[o + 1] - ad[o + 2]) <= 26;
+  const lum = (o: number) => 0.299 * ad[o] + 0.587 * ad[o + 1] + 0.114 * ad[o + 2];
+  // adaptive tarmac luminance stats over the region's grey pixels → the worn line is the darker tail
+  let sum = 0, sum2 = 0, cnt = 0;
+  for (let o = 0; o < reg.length; o += 4) { if (reg[o + 3] < 128 || !grey(o)) continue; const l = lum(o); sum += l; sum2 += l * l; cnt++; }
+  if (cnt < 50) return null;
+  const mean = sum / cnt, sd = Math.sqrt(Math.max(1, sum2 / cnt - mean * mean));
+  const thr = mean - 0.30 * sd, span = Math.max(6, 0.9 * sd);
   const L = scratch(1, wPx, hPx), lc = L ? L.getContext('2d') : null; if (!L || !lc) return null;
   lc.setTransform(1, 0, 0, 1, 0, 0); lc.clearRect(0, 0, wPx, hPx);
-  const out = lc.createImageData(wPx, hPx), od = out.data;
-  for (let o = 0; o < ad.length; o += 4) {
-    if (!grey(o)) continue;                                   // only tarmac (grass/kerb left transparent)
-    const t = Math.min(1, Math.max(0, (lumAt(o) - knee) / span)); // 0 = flat dark base, →1 = the lighter line
-    od[o] = Math.round(dr + (lr - dr) * t); od[o + 1] = Math.round(dg + (lg - dg) * t);
-    od[o + 2] = Math.round(db + (lb - db) * t); od[o + 3] = 255;
+  const out = lc.createImageData(wPx, hPx), od = out.data, [lr, lg, lb] = line;
+  for (let o = 0; o < reg.length; o += 4) {
+    if (reg[o + 3] < 128 || !grey(o)) continue;
+    const l = lum(o); if (l >= thr) continue;
+    od[o] = lr; od[o + 1] = lg; od[o + 2] = lb; od[o + 3] = Math.round(Math.min(1, (thr - l) / span) * 150);
   }
   lc.putImageData(out, 0, 0);
   return L;
@@ -2153,10 +2151,10 @@ function drawCircuitSurface(ctx: CanvasRenderingContext2D, wPx: number, hPx: num
     const seg = ptsPx.slice(dirt.i0, dirt.i1 + 1);
     if (seg.length >= 2) {
       const halfW = twPx / 2;
-      // DIRT TONE — re-map the tarmac's own brightness (drawn under the dirt) to earth: dark tarmac →
-      // dark packed earth, the lighter racing-line band → lighter earth. So the dirt's ideal line runs
-      // EXACTLY like the asphalt circuit's, in earth tones. Captured BEFORE the dirt covers the tarmac.
-      const toneLayer = dirtToneLayer(ctx, ptsPx, dirt.i0, dirt.i1, twPx, wPx, hPx, DIRT_LOOK.base, DIRT_LOOK.line);
+      // WORN IDEAL LINE — captured from the tarmac's own baked worn line BEFORE the dirt covers it,
+      // so the dirt's lighter line is PIXEL-IDENTICAL in shape + position to the asphalt-only circuit's
+      // line (same racing line, exactly). Capture first, then paint the dirt over, then re-emit lighter.
+      const wornLayer = wornLineLayer(ctx, ptsPx, dirt.i0, dirt.i1, twPx, wPx, hPx, DIRT_LOOK.line);
 
       // Extend the band a little past each end along the true track, then CUT it to the designer's
       // HAND-DRAWN transition lines (RALLYCROSS_DIRT_EDGES) — the border is exactly the drawn curve.
@@ -2233,20 +2231,22 @@ function drawCircuitSurface(ctx: CanvasRenderingContext2D, wPx: number, hPx: num
         tracePolyline(m, ptsPx); m.stroke();
         m.globalCompositeOperation = 'source-over';
       };
-      if (toneLayer) {
-        // clip the tone layer (remapped tarmac → earth, ideal line included) to the dirt shape, draw it
+      SURFACES.dirt.paint(ctx, paintDirtShape, rc);
+
+      // the LIGHTER worn line — EXACT asphalt worn-line pixels (same shape as before), CLIPPED to the
+      // dirt so it reaches the transition edge and meets the tarmac's dark worn line with NO dark gap
+      // and no smudge on the tarmac. Its shape everywhere else is unchanged.
+      if (wornLayer) {
         const dmask = scratch(2, wPx, hPx), dmc = dmask ? dmask.getContext('2d') : null;
-        const tlc = toneLayer.getContext('2d');
-        if (dmask && dmc && tlc) {
+        const wlc = wornLayer.getContext('2d');
+        if (dmask && dmc && wlc) {
           dmc.setTransform(1, 0, 0, 1, 0, 0); dmc.clearRect(0, 0, wPx, hPx);
           dmc.fillStyle = '#fff'; dmc.strokeStyle = '#fff';
           paintDirtShape(dmc);
-          tlc.globalCompositeOperation = 'destination-in'; tlc.drawImage(dmask, 0, 0);
-          tlc.globalCompositeOperation = 'source-over';
+          wlc.globalCompositeOperation = 'destination-in'; wlc.drawImage(dmask, 0, 0);
+          wlc.globalCompositeOperation = 'source-over';
         }
-        ctx.drawImage(toneLayer, 0, 0);
-      } else {
-        SURFACES.dirt.paint(ctx, paintDirtShape, rc);   // fallback: flat base until the tarmac decodes
+        ctx.drawImage(wornLayer, 0, 0);
       }
     }
   }
