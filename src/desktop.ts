@@ -1045,19 +1045,26 @@ interface MenuCar {
   specs: CarSpec[];
   blurb: string;
 }
-// The dev-only Fury 200 EVO tile, shown in the SIM car list for the dev host only.
+// The Fury 200 EVO SIM car tile (premium). Same panel format/rows as the Blitz RS.
+// 0-100 (2.4 s) MEASURED from the car (step4 / Fury PHYS4, full throttle on asphalt: 2.32 s).
+// TOP SPEED = 225 km/h: the no-gears model's asymptote is ~297 km/h but is never reached on our
+// short-lap maps; on the longest straights the Fury realistically tops out ~220-225 km/h, and a
+// Group-B rallycross car is geared for acceleration + mixed-surface traction, so it tops out BELOW
+// the asphalt-only Blitz RS (246). Real values anchored to the Ford RS200 Evolution rallycross spec.
 const FURY_MENU_CAR: MenuCar = {
   key: 'fury', name: 'Fury 200 EVO', furyImage: true,
   specs: [
-    { label: 'CLASS',     value: 'Group B rallycross' },
-    { label: 'DRIVE',     value: 'AWD' },
-    { label: 'LENGTH',    value: '4000 mm' },
-    { label: 'WIDTH',     value: '1785 mm' },
-    { label: 'WHEELBASE', value: '2530 mm' },
-    { label: 'STATUS',    value: 'DEV TEST — WIP' },
+    { label: 'ENGINE',    value: '2.1L I4 - turbocharged' },
+    { label: 'POWER',     value: '485 kW (650 hp)' },
+    { label: 'DRIVE',     value: 'AWD (37/63 rear)' },
+    { label: 'WEIGHT',    value: '1100 kg' },
+    { label: '0-100',     value: '2.4 s' },
+    { label: 'TOP SPEED', value: '225 km/h' },
+    { label: 'TIRES',     value: 'Mixed - asphalt & dirt' },
+    { label: 'ORIGIN',    value: 'Europe' },
   ],
-  blurb: 'Work-in-progress test vehicle (dev only). Rough visuals + placeholder '
-    + 'physics — here to test with, not a released car.',
+  blurb: '80s Group B rallycross monster. Mid-engined, all-wheel-drive, brutally fast. '
+    + 'Devours mixed surfaces - asphalt and dirt alike. A handful at the limit.',
 };
 function modeCars(mode: RaceMode): MenuCar[] {
   if (mode === 'arcade') return [{
