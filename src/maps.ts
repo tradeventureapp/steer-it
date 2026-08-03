@@ -1485,26 +1485,25 @@ function wornLineLayer(
   // INSET dirt-region mask (band core only — trims the ragged ends + the darker edge rim/kerb)
   const mk = scratch(0, wPx, hPx), mc = mk ? mk.getContext('2d') : null; if (!mk || !mc) return null;
   mc.setTransform(1, 0, 0, 1, 0, 0); mc.clearRect(0, 0, wPx, hPx);
-  mc.lineCap = 'round'; mc.lineJoin = 'round'; mc.strokeStyle = '#fff'; mc.lineWidth = twPx * 1.12;
+  mc.lineCap = 'round'; mc.lineJoin = 'round'; mc.strokeStyle = '#fff'; mc.lineWidth = twPx * 0.99;
   const inner = pts.slice(iA, Math.max(iA + 1, iB));
   mc.beginPath(); for (let k = 0; k < inner.length; k++) { const q = inner[k]; if (k === 0) mc.moveTo(q[0], q[1]); else mc.lineTo(q[0], q[1]); } mc.stroke();
   const reg = mc.getImageData(0, 0, wPx, hPx).data;
   const grey = (o: number) => Math.abs(ad[o] - ad[o + 1]) <= 26 && Math.abs(ad[o + 1] - ad[o + 2]) <= 26;
   const lum = (o: number) => 0.299 * ad[o] + 0.587 * ad[o + 1] + 0.114 * ad[o + 2];
-  // adaptive tarmac luminance stats over the region's grey pixels → the IDEAL LINE is the LIGHTER band
-  // (the designer's baked racing line is a lighter grey), so it's the bright tail above the mean.
+  // adaptive tarmac luminance stats over the region's grey pixels → the worn line is the darker tail
   let sum = 0, sum2 = 0, cnt = 0;
   for (let o = 0; o < reg.length; o += 4) { if (reg[o + 3] < 128 || !grey(o)) continue; const l = lum(o); sum += l; sum2 += l * l; cnt++; }
   if (cnt < 50) return null;
   const mean = sum / cnt, sd = Math.sqrt(Math.max(1, sum2 / cnt - mean * mean));
-  const thr = mean + 0.35 * sd, span = Math.max(8, 1.3 * sd);   // softer onset → the dark band edge isn't a hard contour
+  const thr = mean - 0.30 * sd, span = Math.max(6, 0.9 * sd);
   const L = scratch(1, wPx, hPx), lc = L ? L.getContext('2d') : null; if (!L || !lc) return null;
   lc.setTransform(1, 0, 0, 1, 0, 0); lc.clearRect(0, 0, wPx, hPx);
   const out = lc.createImageData(wPx, hPx), od = out.data, [lr, lg, lb] = line;
   for (let o = 0; o < reg.length; o += 4) {
     if (reg[o + 3] < 128 || !grey(o)) continue;
-    const l = lum(o); if (l <= thr) continue;                       // LIGHTER than the tarmac = the ideal line
-    od[o] = lr; od[o + 1] = lg; od[o + 2] = lb; od[o + 3] = Math.round(Math.min(1, (l - thr) / span) * 150);
+    const l = lum(o); if (l >= thr) continue;
+    od[o] = lr; od[o + 1] = lg; od[o + 2] = lb; od[o + 3] = Math.round(Math.min(1, (thr - l) / span) * 150);
   }
   lc.putImageData(out, 0, 0);
   return L;
@@ -2247,8 +2246,7 @@ function drawCircuitSurface(ctx: CanvasRenderingContext2D, wPx: number, hPx: num
           wlc.globalCompositeOperation = 'destination-in'; wlc.drawImage(dmask, 0, 0);
           wlc.globalCompositeOperation = 'source-over';
         }
-        ctx.save(); ctx.filter = `blur(${Math.max(1, twPx * 0.05)}px)`;   // soften any hard contour in the line
-        ctx.drawImage(wornLayer, 0, 0); ctx.filter = 'none'; ctx.restore();
+        ctx.drawImage(wornLayer, 0, 0);
       }
     }
   }
