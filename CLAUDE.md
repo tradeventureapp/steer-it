@@ -115,7 +115,9 @@ dev-only SIM test car (§13).
 - `FX_CONFIG.maxParticles = 340` (effects.ts).
 - `RACE_CONFIG = { laps: 1, maxCheckpoints: 5, gateRadius: 1.7 }` (race.ts).
 - `DEV_EMAILS = ['dykous94@gmail.com']` (desktop.ts) — the dev gate (see Fury, §13).
-- `CAR_COLORS = BLITZ_RS_COLORS` (12 muted retro colours, vehicles.ts).
+- `STEEREX_SKIN_COLORS` (8, vehicles.ts) = the SHARED phone palette for BOTH Blitz RS + Stee-Rex
+  (`paletteForMode` returns it for `sim` and `arcade`). `BLITZ_RS_COLORS` (12) is legacy — retired
+  from the draw path, kept only for old-hex name lookup.
 
 ### Multiplayer architecture principle
 **The desktop (HOST) is the authority.** It owns world state (slots, positions, colours, names)
@@ -367,8 +369,13 @@ limit four-wheel-slides and is catchable. `branch: 'sim'`, no overrides ⇒ its 
 `PHYS4` ⇒ **byte-identical golden 0.0e+0.** Key `PHYS4`: `massKg 1020`, `weightDistFront 0.53`,
 `cgHeight 0.45`, `yawInertiaK 1.20`, `muNom 1.90` (slicks), `maxSteer 0.56` (~32°), `enginePower
 276000` (~370 hp), `peakThrust 13000`, `brakeForce 13500`, RWD (`driveSplitFront 0`), slick
-`muScale {asphalt 1.0, grass 0.28, gravel 0.35, dirt 0.50}`. Vector-drawn (`drawCar`), 12-colour
-palette. **Premium.**
+`muScale {asphalt 1.0, grass 0.28, gravel 0.35, dirt 0.50}`. RENDERED AS A PNG SPRITE now
+(`public/BlitzRS.png`, white body + sunset stripe) — recoloured into the **8 SHARED body colours**
+(`STEEREX_SKIN_COLORS`, `BLITZ_SPECS`/`blitzSkinForColor`): a masked multiply tints only the light+
+desaturated body panels (shading kept), leaving the stripe/glass/wheels/lights intact — the SAME
+phone picker as Stee-Rex. Every skin has no `dims`/`phys4` ⇒ golden intact. (The old vector body +
+12-colour `BLITZ_RS_COLORS` are retired from the draw path; the array lingers for legacy hex lookup.)
+**Premium.**
 
 ### Stee-Rex — the ARCADE car (shipped, free)
 The designer's arcade widebody sprite (2 skins: Silver / Graphite). `branch: 'arcade'` + the
