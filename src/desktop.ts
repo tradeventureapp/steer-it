@@ -29,6 +29,7 @@ import { ROAD_SPEC, STEEREX_SILVER, STEEREX_SPECS, steerexSkinForColor, BLITZ_RS
   type VehicleSpec, type CarColor } from './vehicles';
 import { steerexSprite, steerexScaled, steerexOpaque, preloadSteerex, type SteerexSkin } from './steerex-sprite';
 import { furySprite, furyScaled, furyOpaque, preloadFury } from './fury-sprite';
+import { blitzSprite, blitzScaled, blitzOpaque, preloadBlitz } from './blitz-sprite';
 import { step4, PHYS4, wheelDebug, type Physics4Params } from './physics4';
 
 // physics4 (the per-wheel sim — Blitz RS) is THE drive model: every car, every
@@ -1040,8 +1041,9 @@ interface CarSpec { label: string; value: string; }
 interface MenuCar {
   key: string;
   name: string;
-  image?: SteerexSkin;   // sprite skin shown in the flyout; omit → no image (Blitz has no art yet)
-  furyImage?: boolean;   // dev-only Fury tile → draw the Fury sprite in the flyout
+  image?: SteerexSkin;   // Stee-Rex sprite skin shown in the flyout
+  furyImage?: boolean;   // Fury tile → draw the Fury sprite in the flyout
+  blitzImage?: boolean;  // Blitz tile → draw the Blitz sprite in the flyout
   specs: CarSpec[];
   blurb: string;
 }
@@ -1086,7 +1088,7 @@ function modeCars(mode: RaceMode): MenuCar[] {
   // SIM — Blitz RS. 0-100 + top speed MEASURED from the car (step4 / PHYS4, full
   // throttle on asphalt): 3.05 s, 246 km/h. No image (no finished design yet).
   return [{
-    key: 'blitz', name: 'Blitz RS',
+    key: 'blitz', name: 'Blitz RS', blitzImage: true,
     specs: [
       { label: 'ENGINE',    value: '2.5L I4 - naturally aspirated' },
       { label: 'POWER',     value: '276 kW (370 hp)' },
@@ -1146,6 +1148,25 @@ function drawFuryImage(cvs: HTMLCanvasElement, dpr: number) {
   c.drawImage(sprite, sx, sy, sw, sh, (W - dw) / 2, (H - dh) / 2, dw, dh);
 }
 
+// Draw the Blitz sprite into a flyout canvas (same crop/centre logic as Stee-Rex/Fury).
+function drawBlitzImage(cvs: HTMLCanvasElement, dpr: number) {
+  const c = cvs.getContext('2d'); if (!c) return;
+  const W = cvs.width / dpr, H = cvs.height / dpr;
+  c.setTransform(dpr, 0, 0, dpr, 0, 0);
+  c.clearRect(0, 0, W, H);
+  const sprite = blitzSprite('stripe');
+  if (!sprite) { window.setTimeout(() => drawBlitzImage(cvs, dpr), 120); return; }
+  const op = blitzOpaque();
+  const sx = op ? op.cxPx - op.widPx / 2 : 0;
+  const sy = op ? op.cyPx - op.lenPx / 2 : 0;
+  const sw = op ? op.widPx : sprite.width;
+  const sh = op ? op.lenPx : sprite.height;
+  const scale = Math.min(W / sw, H / sh) * 0.94;
+  const dw = sw * scale, dh = sh * scale;
+  c.imageSmoothingEnabled = true; c.imageSmoothingQuality = 'high';
+  c.drawImage(sprite, sx, sy, sw, sh, (W - dw) / 2, (H - dh) / 2, dw, dh);
+}
+
 function selectCar(key: string) {
   selectedCarKey = key;
   if (carTilesEl) for (const el of Array.from(carTilesEl.children))
@@ -1174,14 +1195,16 @@ function buildCarTiles() {
     const detail = document.createElement('div');
     detail.className = 'car-detail';
 
-    if (car.image || car.furyImage) {
+    if (car.image || car.furyImage || car.blitzImage) {
       const imgWrap = document.createElement('span');
       imgWrap.className = 'car-image';
       const DW = 150, DH = 190;
       const cvs = document.createElement('canvas');
       cvs.width = Math.floor(DW * dpr); cvs.height = Math.floor(DH * dpr);
       cvs.style.width = DW + 'px'; cvs.style.height = DH + 'px';
-      if (car.furyImage) drawFuryImage(cvs, dpr); else drawCarImage(cvs, car.image!, dpr);
+      if (car.blitzImage) drawBlitzImage(cvs, dpr);
+      else if (car.furyImage) drawFuryImage(cvs, dpr);
+      else drawCarImage(cvs, car.image!, dpr);
       imgWrap.appendChild(cvs);
       detail.appendChild(imgWrap);
     }
@@ -4169,12 +4192,40 @@ function drawFury(car: Car) {
   ctx.imageSmoothingEnabled = prevSmooth; ctx.imageSmoothingQuality = prevQ;
 }
 
+// Blitz RS sprite — same blit path, but LENGTH-anchored to the vector body's drawn length
+// (BLITZ_LEN_M) so the bitmap drops in at exactly the old car's on-screen size. VISUAL ONLY.
+function drawBlitz(car: Car) {
+  const cv = blitzSprite('stripe');
+  const op = blitzOpaque();
+  if (!cv || !op) return;   // not decoded/measured yet — preloaded at startup, momentary
+  const s = car.state;
+  const widM = BLITZ_LEN_M * op.widPx / op.lenPx;   // length-anchor: opaque LENGTH → BLITZ_LEN_M metres
+  const scale = (widM * PX()) / op.widPx;
+  const m = ctx.getTransform();
+  const ctxScale = Math.hypot(m.a, m.b) || 1;
+  const onScreenLenDev = op.lenPx * scale * ctxScale;
+  const mip = blitzScaled('stripe', onScreenLenDev * 2)
+    ?? { cv, widPx: op.widPx, cxPx: op.cxPx, cyPx: op.cyPx };
+  const mipScale = (widM * PX()) / mip.widPx;
+  const prevSmooth = ctx.imageSmoothingEnabled, prevQ = ctx.imageSmoothingQuality;
+  ctx.save();
+  ctx.translate(s.x * PX(), s.y * PX());
+  ctx.rotate(s.heading + Math.PI / 2);
+  ctx.scale(mipScale, mipScale);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(mip.cv, -mip.cxPx, -mip.cyPx);
+  ctx.restore();
+  ctx.imageSmoothingEnabled = prevSmooth; ctx.imageSmoothingQuality = prevQ;
+}
+
 function drawCar(car: Car) {
   const s = car.state;
   // Stee-Rex is a pre-rendered SVG sprite (VISUAL ONLY) — blit it instead of the
   // Blitz RS vector body. Everything else (physics, collision, HUD) is unchanged.
   if (car.spec.sprite?.car === 'steerex') { drawSteerex(car, car.spec.sprite.skin); return; }
   if (car.spec.sprite?.car === 'fury') { drawFury(car); return; }   // dev-only test car
+  if (car.spec.sprite?.car === 'blitz') { drawBlitz(car); return; } // Blitz RS sprite (sunset stripe)
   const base = car.liveryColor ?? car.color;   // rally livery overrides the slot colour
   const crown   = shadeHex(base, 1.28);   // lit spine
   const edge    = shadeHex(base, 0.52);   // dark flanks / AO
@@ -4573,3 +4624,5 @@ try {
 
 // Warm both Stee-Rex skins so the arcade car shows its sprite immediately (never blank).
 preloadSteerex();
+// Warm the Blitz RS sprite too (it's the default SIM car body now).
+preloadBlitz();

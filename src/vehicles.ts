@@ -150,6 +150,7 @@ export function listVehicles(): VehicleIdentity[] {
 import type { Config } from './vehicle-core';
 import type { SteerexSkin } from './steerex-sprite';
 import type { FurySkin } from './fury-sprite';
+import type { BlitzSkin } from './blitz-sprite';
 import type { Physics4Params } from './physics4';
 
 // A vehicle's REAL-WORLD dimensions (metres). The source of truth for how big the car
@@ -187,14 +188,18 @@ export interface VehicleSpec {
   // A pre-authored SVG sprite instead of the vector-drawn Blitz RS body. When set,
   // drawCar blits the cached bitmap; the slot colour / livery are ignored (the skin
   // is a fixed design). VISUAL ONLY — the physics still uses the global PHYS4.
-  sprite?: { car: 'steerex'; skin: SteerexSkin } | { car: 'fury'; skin: FurySkin };
+  sprite?: { car: 'steerex'; skin: SteerexSkin } | { car: 'fury'; skin: FurySkin } | { car: 'blitz'; skin: BlitzSkin };
 }
 
-// ROAD — the base Blitz RS (grippy asphalt Sport-class coupe). NO overrides →
-// its effective config IS CONFIG → byte-identical to the untouched car.
+// ROAD — the base Blitz RS (grippy asphalt Sport-class coupe). NO physics overrides →
+// its effective config IS CONFIG → byte-identical golden. The `sprite` is VISUAL ONLY
+// (drawCar blits public/BlitzRS.png — white body + our sunset stripe — instead of the
+// vector body); physics/phys4/collision are untouched (no `dims`, so the radius is the
+// same golden value).
 export const ROAD_SPEC: VehicleSpec = {
   name: 'Blitz RS',
   overrides: {},
+  sprite: { car: 'blitz', skin: 'stripe' },
 };
 
 // RALLY variant RETIRED (Fase-0 cleanup — it depended on sim-real-2 grip
