@@ -280,11 +280,7 @@ export function connectPhoneRtc(o: PhoneRtcOpts): PhoneRtc {
   // offer (trickle ICE — candidates flow separately as they arrive)
   pc.createOffer()
     .then((offer) => pc.setLocalDescription(offer).then(() => {
-      // DIAGNOSTIC: the offer is the one message that MUST arrive — if it doesn't, the
-      // desktop never creates a peer and the phone is stranded on the Realtime fallback.
-      // Log whether it went out live or had to be queued for the next (re)subscribe.
-      const sent = o.signal(RTC_EV.offer, { id, sdp: offer });
-      console.info(`[rtc] ${new Date().toISOString()} offer ${sent ? 'SENT' : 'QUEUED (channel not ready)'} id=${id}`);
+      o.signal(RTC_EV.offer, { id, sdp: offer });
     }))
     .catch((e) => console.warn('[rtc] offer failed', e));
 
@@ -396,16 +392,8 @@ export function createRtcHost(o: RtcHostOpts): RtcHost {
     handleSignal(event, payload) {
       const p = payload as { id?: string; from?: string; sdp?: unknown; candidate?: unknown };
       const id = typeof p?.id === 'string' ? p.id : '';
-      // DIAGNOSTIC at the very TOP: distinguishes "no signal ever arrived" from
-      // "it arrived but a guard dropped it" (bad id / missing sdp / wrong from).
-      if (event === RTC_EV.offer) {
-        console.info(`[rtc] ${new Date().toISOString()} inbound ${event} id=${id || '(MISSING)'} sdp=${p?.sdp ? 'yes' : 'NO'}`);
-      }
       if (!id) return;
       if (event === RTC_EV.offer && p.sdp) {
-        // DIAGNOSTIC: pairs with the phone's "offer SENT/QUEUED". If the phone logs SENT
-        // and this never appears, the offer was lost in transit (signaling), NOT ICE/TURN.
-        console.info(`[rtc] ${new Date().toISOString()} offer RECEIVED from ${id}`);
         acceptOffer(id, p.sdp);
       } else if (event === RTC_EV.ice && p.from === 'phone' && p.candidate) {
         peers.get(id)?.pc.addIceCandidate(p.candidate).catch(() => { /* late/stale */ });

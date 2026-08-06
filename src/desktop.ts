@@ -3400,12 +3400,6 @@ function wireDesktop(ch: RealtimeChannel) {
   // WebRTC signaling (phone → desktop): offers + trickle ICE.
   ch.on('broadcast', { event: RTC_EV.offer }, ({ payload }) => rtcHost.handleSignal(RTC_EV.offer, payload));
   ch.on('broadcast', { event: RTC_EV.ice }, ({ payload }) => rtcHost.handleSignal(RTC_EV.ice, payload));
-  // TEMP DIAGNOSTIC RELAY: the phone's signaling trace, printed in THIS console so
-  // both halves of a pairing are visible without USB-debugging the phone.
-  ch.on('broadcast', { event: EV.diag }, ({ payload }) => {
-    const p = payload as { id?: string; t?: number; msg?: string };
-    console.info(`[phone->desktop] ${nowIso()} +${p?.t ?? '?'}ms ${String(p?.id ?? '?').slice(0, 14)} — ${p?.msg ?? ''}`);
-  });
 }
 
 // Resilient channel: auto-reconnects on a dropped socket (the ~60s idle/timeout)
