@@ -70,17 +70,47 @@ export interface PeerLike {
 }
 export type PeerFactory = () => PeerLike;
 
-const defaultPeerFactory: PeerFactory = () =>
-  new RTCPeerConnection({ iceServers: RTC_ICE_SERVERS }) as unknown as PeerLike;
+// ---- ENGINE-SAFE RTCPeerConnection LOOKUP -----------------------------------
+// A BARE `RTCPeerConnection` reference throws ReferenceError outright on any engine
+// that doesn't expose that exact global — and because the constructor runs inside
+// startRtc's promise chain, such a throw used to vanish silently, leaving the phone
+// on the Realtime fallback with no log at all.
+//
+// Modern Safari (11+ / iOS 11+, 2017) DOES expose the unprefixed name, so this is not
+// where an up-to-date iPhone fails. It matters for older WebKit and, more usefully, for
+// the in-app WKWebView browsers a QR scan can land in (a scanner app, Instagram, etc.),
+// where the prefixed name may be the only one present. Resolving defensively costs
+// nothing and removes the whole class of "throws before it can report anything".
+type PcCtor = new (cfg?: RTCConfiguration) => PeerLike;
+export function peerConnectionCtor(): PcCtor | null {
+  const w = globalThis as unknown as Record<string, unknown>;
+  const C = w.RTCPeerConnection ?? w.webkitRTCPeerConnection ?? w.mozRTCPeerConnection;
+  return typeof C === 'function' ? (C as PcCtor) : null;
+}
+
+/** What this engine actually exposes — relayed at boot so a failing device self-reports. */
+export function rtcSupportReport(): string {
+  const w = globalThis as unknown as Record<string, unknown>;
+  const has = (n: string) => typeof w[n] === 'function';
+  return `RTCPeerConnection=${has('RTCPeerConnection')} webkitRTCPeerConnection=${has('webkitRTCPeerConnection')}`
+    + ` secureContext=${(globalThis as unknown as { isSecureContext?: boolean }).isSecureContext}`;
+}
+
+function newPeer(cfg: RTCConfiguration): PeerLike {
+  const C = peerConnectionCtor();
+  // Caught by startRtc's .catch → relayed as a readable diagnostic → the phone
+  // degrades to the Realtime transport instead of dying silently.
+  if (!C) throw new Error(`WebRTC unavailable: ${rtcSupportReport()}`);
+  return new C(cfg) as unknown as PeerLike;
+}
+
+const defaultPeerFactory: PeerFactory = () => newPeer({ iceServers: RTC_ICE_SERVERS });
 
 // Build a PeerFactory with extra ICE servers (STEP 3: the short-lived TURN
 // creds fetched at pairing time) and an optional forced-relay policy
 // (?rtc=relay — ICE may then use ONLY relay candidates: the TURN test switch).
 export function makePeerFactory(iceServers: RTCIceServer[], relayOnly = false): PeerFactory {
-  return () => new RTCPeerConnection({
-    iceServers,
-    iceTransportPolicy: relayOnly ? 'relay' : 'all',
-  }) as unknown as PeerLike;
+  return () => newPeer({ iceServers, iceTransportPolicy: relayOnly ? 'relay' : 'all' });
 }
 
 // Fetch short-lived TURN iceServers from /api/turn (Vercel function). Returns

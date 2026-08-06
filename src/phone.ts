@@ -2,6 +2,7 @@ import type { RealtimeChannel } from '@supabase/supabase-js';
 import { channelName, createResilientChannel } from './supabase';
 import {
   connectPhoneRtc, fetchTurnServers, makePeerFactory, RTC_EV, RTC_ICE_SERVERS,
+  peerConnectionCtor, rtcSupportReport,
   type PhoneRtc, type StateMsg,
 } from './rtc';
 import {
@@ -254,6 +255,7 @@ let rtcRetryTimer: number | null = null;
 // Buffered LOCALLY rather than using rc.sendQueued, so diagnostics can never evict
 // the real signaling from the (bounded) queue. Flushed once the channel is ready.
 const diagBuf: string[] = [];
+let diagBooted = false;
 function flushDiag() {
   while (diagBuf.length) {
     const msg = diagBuf[0];
@@ -288,6 +290,14 @@ function startRtc() {
     return;   // an attempt is already live — no retry storm
   }
   if (rtcAttempts >= RTC_MAX_ATTEMPTS) { diag('startRtc SKIPPED (attempt budget spent)'); return; }
+  // No WebRTC on this engine at all (very old WebKit, or a locked-down in-app
+  // WKWebView a QR scan can land in) → P2P is impossible. Say so ONCE and stay on
+  // Realtime; burning the retry budget on it would only delay the same outcome.
+  if (!peerConnectionCtor()) {
+    rtcAttempts = RTC_MAX_ATTEMPTS;
+    diag(`NO WebRTC on this engine — staying on Realtime. ${rtcSupportReport()}`);
+    return;
+  }
   if (rtcRetryTimer !== null) { clearTimeout(rtcRetryTimer); rtcRetryTimer = null; }
   rtcAttempts++;
   rtcStarting = true;
@@ -362,6 +372,12 @@ const rc = createResilientChannel(
     onReady: () => {
       flushDiag();                       // the channel is live → drain anything buffered pre-ready
       diag(`channel SUBSCRIBED (code=${code} rtcUp=${rtcUp})`);
+      // Engine capability, ONCE per session — so a failing device self-reports what it
+      // actually exposes instead of us guessing from the desktop half.
+      if (!diagBooted) {
+        diagBooted = true;
+        diag(`engine: ${rtcSupportReport()} ua=${navigator.userAgent.slice(0, 90)}`);
+      }
       startLobby(); sendJoin(); startRtc();
     },
     onDrop: (status) => diag(`channel DROPPED (${status})`),
