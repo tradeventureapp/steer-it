@@ -366,6 +366,11 @@ export function createRtcHost(o: RtcHostOpts): RtcHost {
     handleSignal(event, payload) {
       const p = payload as { id?: string; from?: string; sdp?: unknown; candidate?: unknown };
       const id = typeof p?.id === 'string' ? p.id : '';
+      // DIAGNOSTIC at the very TOP: distinguishes "no signal ever arrived" from
+      // "it arrived but a guard dropped it" (bad id / missing sdp / wrong from).
+      if (event === RTC_EV.offer) {
+        console.info(`[rtc] ${new Date().toISOString()} inbound ${event} id=${id || '(MISSING)'} sdp=${p?.sdp ? 'yes' : 'NO'}`);
+      }
       if (!id) return;
       if (event === RTC_EV.offer && p.sdp) {
         // DIAGNOSTIC: pairs with the phone's "offer SENT/QUEUED". If the phone logs SENT

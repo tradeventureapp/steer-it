@@ -246,6 +246,33 @@ const RTC_MAX_ATTEMPTS = 3;        // the initial attempt + 2 retries
 const RTC_RETRY_DELAY_MS = 1200;   // brief pause so a re-subscribe can land first
 let rtcAttempts = 0;
 let rtcRetryTimer: number | null = null;
+
+// ---- TEMP DIAGNOSTIC RELAY (phone → desktop console) ------------------------
+// The pairing failure lives on the PHONE, whose console we can't read during a real
+// test. Mirror the phone's signaling trace over the Realtime channel (which is up —
+// that's what the fallback rides on) so the desktop prints both halves.
+// Buffered LOCALLY rather than using rc.sendQueued, so diagnostics can never evict
+// the real signaling from the (bounded) queue. Flushed once the channel is ready.
+const diagBuf: string[] = [];
+function flushDiag() {
+  while (diagBuf.length) {
+    const msg = diagBuf[0];
+    let ok = false;
+    try { ok = rc.send({ type: 'broadcast', event: EV.diag, payload: { id: clientId, t: Math.round(performance.now()), msg } }); }
+    catch { ok = false; }            // rc not constructed yet (TDZ) → keep buffering
+    if (!ok) return;
+    diagBuf.shift();
+  }
+}
+function diag(msg: string) {
+  console.info(`[diag] ${msg}`);
+  if (diagBuf.length < 60) diagBuf.push(msg);   // bounded
+  flushDiag();
+}
+// Surface anything that would otherwise die silently — above all a throw inside the
+// startRtc promise chain, which used to be swallowed with NO log and NO retry.
+window.addEventListener('error', (e) => diag(`window.error: ${e.message} @${e.filename}:${e.lineno}`));
+window.addEventListener('unhandledrejection', (e) => diag(`unhandledrejection: ${String((e as PromiseRejectionEvent).reason)}`));
 // ?rtc=relay → ICE may use ONLY relay candidates = the forced-TURN test switch
 // (any network then MUST pair via the TURN relay or fall back).
 const rtcRelayOnly = params.get('rtc') === 'relay';
@@ -256,11 +283,15 @@ function routeStateMsg(m: StateMsg) {
 }
 
 function startRtc() {
-  if (!code || rtc || rtcStarting) return;   // an attempt is already live — no retry storm
-  if (rtcAttempts >= RTC_MAX_ATTEMPTS) return;   // budget spent → settled on Realtime
+  if (!code || rtc || rtcStarting) {
+    diag(`startRtc SKIPPED (code=${!!code} rtc=${!!rtc} starting=${rtcStarting})`);
+    return;   // an attempt is already live — no retry storm
+  }
+  if (rtcAttempts >= RTC_MAX_ATTEMPTS) { diag('startRtc SKIPPED (attempt budget spent)'); return; }
   if (rtcRetryTimer !== null) { clearTimeout(rtcRetryTimer); rtcRetryTimer = null; }
   rtcAttempts++;
   rtcStarting = true;
+  diag(`startRtc ENTER attempt ${rtcAttempts}/${RTC_MAX_ATTEMPTS}`);
   // STEP 3: fetch short-lived TURN creds (2 s timeout). null on ANY failure →
   // STUN-only (the V1 behavior) — TURN being down never blocks pairing.
   // The room code is REQUIRED: /api/turn now hard-gates on it (403 without a
@@ -269,17 +300,23 @@ function startRtc() {
   const turnUrl = `/api/turn?s=${encodeURIComponent(code)}`;
   fetchTurnServers(fetch, 2000, turnUrl).then((turn) => {
     rtcStarting = false;
-    if (rtc) return;
+    diag(`turn fetch -> ${turn ? `${turn.length} server entr${turn.length === 1 ? 'y' : 'ies'}` : 'null (STUN-only)'}`);
+    if (rtc) { diag('startRtc ABORT (rtc already set)'); return; }
     rtc = connectPhoneRtc({
       clientId,
       // SIGNALING IS A ONE-SHOT → `sendQueued`, not `send`. If the channel is mid
       // re-create (the 0.3-2.5 s window after subscribing, while the TURN fetch runs)
       // the offer is HELD and flushed on the next SUBSCRIBED instead of vanishing.
-      signal: (event, payload) => rc.sendQueued({ type: 'broadcast', event, payload }),
+      signal: (event, payload) => {
+        const sent = rc.sendQueued({ type: 'broadcast', event, payload });
+        if (event !== RTC_EV.ice) diag(`signal ${event} -> ${sent ? 'SENT' : 'QUEUED (channel not ready)'}`);
+        return sent;
+      },
       pcFactory: makePeerFactory([...RTC_ICE_SERVERS, ...(turn ?? [])], rtcRelayOnly),
       onControlOpen: () => {
         rtcUp = true;
         rtcAttempts = 0;   // paired — restore the full budget for a later re-pair
+        diag('CONTROL DC OPEN — P2P is up, leaving Realtime');
         sendJoin();     // announce over the DataChannel FIRST (proves the path)
         rc.stop();      // then leave Realtime — signaling done, quota stops here
       },
@@ -291,10 +328,10 @@ function startRtc() {
         // continues over Realtime throughout either way.
         rtc = null;
         if (rtcAttempts < RTC_MAX_ATTEMPTS) {
-          console.info(`[rtc] ${new Date().toISOString()} pairing attempt ${rtcAttempts}/${RTC_MAX_ATTEMPTS} failed — retrying`);
+          diag(`pairing attempt ${rtcAttempts}/${RTC_MAX_ATTEMPTS} FAILED (DC never opened) — retrying`);
           rtcRetryTimer = window.setTimeout(() => { rtcRetryTimer = null; startRtc(); }, RTC_RETRY_DELAY_MS);
         } else {
-          console.info(`[rtc] ${new Date().toISOString()} P2P unavailable after ${RTC_MAX_ATTEMPTS} attempts — staying on Realtime`);
+          diag(`P2P unavailable after ${RTC_MAX_ATTEMPTS} attempts — staying on Realtime`);
         }
       },
       onDead: () => {
@@ -302,9 +339,16 @@ function startRtc() {
         rtcUp = false;
         rtc = null;
         rtcAttempts = 0;   // it worked once → a fresh budget for the re-pair
+        diag('P2P DIED (was open) — resuming Realtime + re-pairing');
         rc.resume();    // re-subscribe → onReady → sendJoin + startRtc (fresh offer)
       },
     });
+    diag('peer created, offer in flight');
+  }).catch((e) => {
+    // Previously SWALLOWED: any throw in this chain (PC construction, createOffer,
+    // …) left rtc null with no log and no retry — a silent permanent fallback.
+    rtcStarting = false;
+    diag(`startRtc THREW: ${String(e)}`);
   });
 }
 
@@ -315,7 +359,12 @@ const rc = createResilientChannel(
     label: 'phone',
     // Re-announce on every (re)connect + kick off the P2P pairing (fresh offer;
     // covers first load AND the resume() path after a dead P2P transport).
-    onReady: () => { startLobby(); sendJoin(); startRtc(); },
+    onReady: () => {
+      flushDiag();                       // the channel is live → drain anything buffered pre-ready
+      diag(`channel SUBSCRIBED (code=${code} rtcUp=${rtcUp})`);
+      startLobby(); sendJoin(); startRtc();
+    },
+    onDrop: (status) => diag(`channel DROPPED (${status})`),
   },
 );
 window.addEventListener('pagehide', sendLeave);

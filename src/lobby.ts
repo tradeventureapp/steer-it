@@ -191,6 +191,11 @@ export const EV = {
   name: 'name',       // { id, name }   — player rename (immediate)
   leave: 'leave',     // { id }         — clean disconnect (best-effort)
   control: 'control', // { id, slot, steer, throttle, brake, handbrake }
+  // TEMP DIAGNOSTIC RELAY — the phone's console is unreachable during a real test
+  // (it's on the phone), and the pairing failure we're chasing happens entirely on
+  // that side. The phone mirrors its key signaling events here so BOTH halves show
+  // up in the DESKTOP console as `[phone->desktop]`. Remove once pairing is proven.
+  diag: 'diag',       // { id, t, msg } — phone-side signaling trace
   // desktop → phone
   lobby: 'lobby',     // { players: LobbyPlayer[], cap }
   full: 'full',       // { id }         — your join was rejected (all slots taken)
