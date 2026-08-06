@@ -70,9 +70,12 @@ export const XP_CONFIG = {
 
   // ---- end conditions ---------------------------------------------------------
   crashImpact: 0.8,         // collideWithRects impact above which a barrier hit ends the run.
-  offTrackWheels: 2,        // MORE THAN this many wheels off the track (asphalt/kerb) ends the run
-                            //   (2 off = recoverable, 3+ = over). Only bites where a surface mask
-                            //   exists (the circuit); on the ovals the crash-end covers it.
+  offTrackWheels: 2,        // MORE THAN this many wheels OUTSIDE the drivable track end the run
+                            //   (2 off = recoverable, 3+ = over). "Off" is decided by the map's
+                            //   TRACK GEOMETRY (maps.onTrackAt) — ribbon + kerbs are on track
+                            //   whatever they're paved with, so dirt/asphalt sections never
+                            //   count as off. Only bites where a map HAS ribbon geometry (the
+                            //   circuit family); on the ovals the crash-end covers it.
 };
 
 export type XpEndReason = 'crash' | 'slow' | 'offtrack' | null;

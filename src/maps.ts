@@ -86,11 +86,22 @@ export interface MapDefinition {
   // so the whole grass path is dead code and those maps stay byte-identical.
   surfaceAt?(x: number, y: number): Surface;
 
-  // The RACING surface(s) — a wheel on one of these is ON TRACK; anything else is
-  // OFF track (used by XP mode's off-track end so it's per-map, not "asphalt = track"
-  // hardcoded). Default ['asphalt'] (the asphalt oval + circuit). The DIRT oval, where
-  // dirt IS the track, declares ['dirt']. Data-driven ⇒ new surfaces work automatically.
-  trackSurfaces?: readonly Surface[];
+  // IS THIS POINT ON THE TRACK? — pure TRACK GEOMETRY, deliberately SURFACE-AGNOSTIC.
+  //
+  // ⚠️ This replaced a per-map list of "racing surfaces". That whitelist was the root of a
+  // recurring bug: every time a map gained a surface that wasn't on its list (the dirt oval,
+  // then the rallycross dirt section) that surface read as OFF TRACK and ended XP runs on
+  // the racing line. Asking "which material am I on?" is simply the wrong question — the
+  // right one is "am I inside the drivable ribbon?".
+  //
+  // So: anything INSIDE the ribbon is on track whatever it is paved with (asphalt, dirt, and
+  // any surface added later — no list to update, the bug cannot come back). Kerbs count as
+  // ON track: they are drivable track extensions. Only leaving the ribbon — grass, gravel
+  // run-off — is off track.
+  //
+  // ABSENT ⇒ the map has no ribbon geometry (the desktop, both barrier-bounded ovals) and
+  // every point counts as on track; those maps lean on their crash-end instead.
+  onTrackAt?(x: number, y: number): boolean;
 
   // RENDER-ONLY tyre-mark class for a map with NO per-point mask (desktop, ovals).
   // The saturation mark system stamps the whole map in this class (rubber on
@@ -760,9 +771,10 @@ function makeStadiumMap(opts: {
       ? { surfaceAt: (_x: number, _y: number): Surface => opts.physicsSurface! }
       : {}),
 
-    // Racing surface for the off-track check: the DIRT oval's track IS dirt, so a
-    // wheel on dirt is ON track there; the asphalt oval defaults to ['asphalt'].
-    trackSurfaces: [opts.physicsSurface ?? 'asphalt'],
+    // NO `onTrackAt`: a stadium oval has no ribbon-vs-surround geometry — the whole
+    // enclosed area IS the track, bounded by barriers, and its single surface covers all
+    // of it. So every point is on track and the map leans on its crash-end. (This used to
+    // declare a racing-surface whitelist, which is exactly the pattern that kept breaking.)
 
     // Tyre-mark look (render-only): the asphalt ring lays grey rubber; the DIRT ring
     // lays a brown gouged scuff (the 'gravel' cap — a darkening multiply that keeps the
@@ -1558,9 +1570,32 @@ function circuitClassAt(x: number, y: number): MarkClass {
   if (g && _gvW === _maskW && _gvH === _maskH && g[i]) return 'gravel';
   return 'grass';
 }
+/**
+ * TRACK GEOMETRY for the circuit family (circuit + rallycross): on track = inside the
+ * drivable ribbon, INCLUDING kerbs (a kerb is a track extension you may ride).
+ *
+ * Note WHAT THIS DOES NOT ASK: nothing about the material. The mask stores geometry —
+ * MASK_ASPHALT is "ribbon", MASK_KERB is "kerb" — and a surface painted on top of the
+ * ribbon (rallycross dirt) does not change the geometry underneath, so it is on track for
+ * free. Off track is the mask's own outside: grass, plus the gravel run-off traps, which
+ * are carved OUTSIDE the ribbon by construction.
+ */
+function circuitOnTrackAt(x: number, y: number): boolean {
+  const c = circuitClassAt(x, y);
+  return c === 'asphalt' || c === 'kerb';
+}
+
 /** Ground under a world point for `map`. Maps with no mask (desktop, ovals) are all asphalt. */
 export function surfaceAt(map: MapDefinition, x: number, y: number): Surface {
   return map.surfaceAt ? map.surfaceAt(x, y) : 'asphalt';
+}
+
+/**
+ * Is this world point on `map`'s drivable track? Maps with no ribbon geometry (desktop,
+ * the barrier-bounded ovals) report TRUE everywhere — they have no outside to fall off into.
+ */
+export function onTrackAt(map: MapDefinition, x: number, y: number): boolean {
+  return map.onTrackAt ? map.onTrackAt(x, y) : true;
 }
 /**
  * RENDER-ONLY mark class at a world point — 'kerb' split out of 'asphalt' so tyre marks can
@@ -2625,6 +2660,11 @@ export const circuitMap: MapDefinition = {
   // Ribbon + kerbs = asphalt, the rest = grass (baked bitmap, O(1) lookup). Supplying this
   // is what ARMS the per-wheel grass grip/drag in physics4 — no other map defines it.
   surfaceAt: circuitSurfaceAt,
+
+  // TRACK GEOMETRY (ribbon + kerbs), independent of what the ribbon is paved with.
+  // rallycrossMap spreads this map, so its dirt section inherits the SAME geometry and is
+  // on track without declaring anything — which is the whole point of the change.
+  onTrackAt: circuitOnTrackAt,
 
   // OPEN track: NO edge barriers — drive off onto the grass freely. The only collision is the
   // infield BILLBOARD LEGS — a small solid circle (leg diameter) at each grass leg's ground point.

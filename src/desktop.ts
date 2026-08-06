@@ -9,7 +9,7 @@ import {
 import { collideCars, applyInputs } from './cars';
 import { TyreMarks } from './marks';
 import {
-  getMap, listMaps, DEFAULT_MAP_ID, markClassAt, setCircuitSurfaceReady,
+  getMap, listMaps, DEFAULT_MAP_ID, markClassAt, onTrackAt, setCircuitSurfaceReady,
   circuitFitDebug,
   rallycrossPathWorld, nearestRallycrossIndex, RALLYCROSS_PATH_LEN,
   getRallycrossDirt, setRallycrossDirt,
@@ -3555,6 +3555,26 @@ function wheelSurfaces(car: Car): Surface[] {
   const g = wheelDebug(car.state)?.surface;
   return g ? [g[1], g[0], g[3], g[2]] : ALL_ASPHALT;
 }
+/**
+ * How many of the car's four wheels are OUTSIDE the drivable track (0-4).
+ *
+ * Asks the MAP'S GEOMETRY at each wheel's world position — deliberately NOT "what surface
+ * is this wheel on?". That distinction is the fix for a bug that came back three times: a
+ * material whitelist marks any newly-added surface (dirt on the oval, then the rallycross
+ * dirt section) as off-track even though it IS the racing line. Geometry can't drift out of
+ * date, so a future surface needs no change here.
+ *
+ * Maps with no ribbon geometry (desktop, the barrier-bounded ovals) report 0 — nothing to
+ * fall off — which keeps their crash-end as the only run ender, exactly as before.
+ */
+function wheelsOffTrack(car: Car): number {
+  if (!currentMap.onTrackAt) return 0;
+  const f = frontWheelPositions(car.state), r = rearWheelPositions(car.state);
+  let off = 0;
+  for (const w of [f.L, f.R, r.L, r.R]) if (!onTrackAt(currentMap, w.x, w.y)) off++;
+  return off;
+}
+
 // Per-wheel LATERAL slip, same crossed mapping (front L/R, rear L/R).
 function wheelSlips(car: Car): [number, number, number, number] {
   const sl = wheelDebug(car.state)?.slip;
@@ -3864,13 +3884,10 @@ function frame(now: number) {
     // ---- XP MODE: read the SOLO car's speed + sideways slip + off-track wheels and
     // accrue score. Pure read — physics/drift untouched. Banks + shows the end card on end.
     if (isXpMode() && lead && xpRun.active) {
-      // Off-track = a wheel on a surface that is NOT one of THIS map's racing surfaces
-      // (per-map, not "asphalt = track" hardcoded — so the dirt oval, where dirt IS the
-      // track, doesn't read as off-track). >2 off ends the run. Only bites where the map
-      // has a surface mask (the circuit); the barrier-bounded ovals lean on their crash-end.
-      const onTrack = currentMap.trackSurfaces ?? ['asphalt'];
-      const off = wheelSurfaces(lead).filter((s) => !onTrack.includes(s)).length;
-      updateXpRun(xpRun, realDt, lead.state.speed, lead.state.rearSlip, xpCrash, off);
+      // Off-track is decided by TRACK GEOMETRY (is the wheel outside the drivable ribbon?),
+      // never by which material it is standing on — see maps.onTrackAt. >2 wheels off ends
+      // the run. Maps without ribbon geometry report 0 and lean on their crash-end.
+      updateXpRun(xpRun, realDt, lead.state.speed, lead.state.rearSlip, xpCrash, wheelsOffTrack(lead));
       if (xpRun.ended && !xpEndHandled) handleXpEnd();
     }
 
