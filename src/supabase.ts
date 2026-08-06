@@ -61,7 +61,20 @@ export function channelName(code: string) {
 type BroadcastMsg = { type: 'broadcast'; event: string; payload: unknown };
 
 export interface ResilientChannel {
-  send(msg: BroadcastMsg): void;
+  /**
+   * FIRE-AND-FORGET send: DROPPED when the channel isn't ready. Correct for the 30 Hz
+   * control stream (a stale tilt packet is worthless — the next tick supersedes it).
+   * Returns whether it actually went out, so callers can diagnose.
+   */
+  send(msg: BroadcastMsg): boolean;
+  /**
+   * MUST-NOT-LOSE send: queued when the channel isn't ready and flushed on the next
+   * SUBSCRIBED. Correct for WebRTC signaling (offer/answer/ICE), which are ONE-SHOTS —
+   * a dropped offer used to strand a phone on the Realtime fallback for the whole
+   * session, because nothing ever re-sent it. Returns true if it went out immediately,
+   * false if it was queued.
+   */
+  sendQueued(msg: BroadcastMsg): boolean;
   isReady(): boolean;
   current(): RealtimeChannel;
   // WebRTC migration (V1): once the P2P DataChannel is open the PHONE leaves
@@ -100,6 +113,31 @@ export function createResilientChannel(
 
   const log = (msg: string) => console.info(`[${label}] ${isoNow()} ${msg}`);
 
+  // ---- outbound queue for MUST-NOT-LOSE messages (WebRTC signaling) ----------
+  // ROOT CAUSE this fixes: `send()` silently dropped anything published while the
+  // channel was between instances. Control packets tolerate that (30 Hz, the next
+  // tick resends), but an offer/answer/ICE is a ONE-SHOT — and the phone sends its
+  // offer 0.3-2.5 s AFTER subscribing (it waits on the TURN fetch first), which is
+  // exactly the window where a re-create bumps `gen` and invalidates in-flight
+  // sends. One lost offer stranded that phone on Realtime for the whole session.
+  // Queued messages survive the re-create and go out on the next SUBSCRIBED.
+  const QUEUE_MAX = 24;          // bounded — a pairing is ~10 messages
+  const QUEUE_TTL_MS = 10_000;   // ≈ the pairing fallback window; a stale offer is
+                                 // worse than none (it would clobber a fresh peer)
+  let queue: Array<{ msg: BroadcastMsg; at: number }> = [];
+
+  function flushQueue() {
+    if (!ready || !queue.length) return;
+    const pending = queue;
+    queue = [];
+    const now = Date.now();
+    for (const q of pending) {
+      if (now - q.at > QUEUE_TTL_MS) { log(`dropped STALE queued ${q.msg.event} (${now - q.at}ms old)`); continue; }
+      try { ch.send(q.msg); log(`flushed queued ${q.msg.event}`); }
+      catch (e) { log(`flush failed for ${q.msg.event}: ${e}`); }
+    }
+  }
+
   function scheduleReconnect(reason: string) {
     if (stopped || reconnectTimer) return;
     const delay = Math.min(250 * 2 ** attempts, MAX_BACKOFF_MS); // 250,500,1k,2k,4k,8k…
@@ -132,6 +170,10 @@ export function createResilientChannel(
       if (status === 'SUBSCRIBED') {
         ready = true;
         subscribedAt = Date.now();
+        // Flush BEFORE onReady: anything that couldn't go out while we were between
+        // instances (a WebRTC offer above all) must reach the peer as early as
+        // possible — and before onReady enqueues a fresh round of signaling.
+        flushQueue();
         hooks.onReady?.();
       } else if (status === 'CLOSED' || status === 'TIMED_OUT' || status === 'CHANNEL_ERROR') {
         const wasReady = ready;
@@ -150,8 +192,17 @@ export function createResilientChannel(
 
   return {
     send(msg) {
-      if (!ready) return;                     // resends on the next heartbeat/tick
-      try { ch.send(msg); } catch (e) { log(`send failed: ${e}`); }
+      if (!ready) return false;               // resends on the next heartbeat/tick
+      try { ch.send(msg); return true; } catch (e) { log(`send failed: ${e}`); return false; }
+    },
+    sendQueued(msg) {
+      if (ready) {
+        try { ch.send(msg); return true; } catch (e) { log(`send failed for ${msg.event}: ${e}`); }
+      }
+      if (queue.length >= QUEUE_MAX) queue.shift();   // bounded: drop the oldest
+      queue.push({ msg, at: Date.now() });
+      log(`QUEUED ${msg.event} (channel not ready) — flushes on (re)subscribe`);
+      return false;
     },
     isReady: () => ready,
     current: () => ch,
@@ -159,6 +210,7 @@ export function createResilientChannel(
       if (stopped) return;
       stopped = true;
       ready = false;
+      queue = [];   // deliberate leave = P2P is up ⇒ signaling is done; nothing pending matters
       if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
       // Invalidate this instance's callbacks BEFORE removing it — removal emits CLOSED,
       // and a deliberate leave must never look like a drop worth reconnecting.

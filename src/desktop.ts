@@ -3358,7 +3358,9 @@ function handleStateMessage(_id: string, msg: { ev: string; payload: unknown }) 
 // for new/reconnecting players). Control packets route through the SAME
 // handleControl as Realtime ones.
 const rtcHost = createRtcHost({
-  signal: (event, payload) => rc.send({ type: 'broadcast', event, payload }),
+  // The ANSWER + host ICE are one-shots exactly like the phone's offer — queue them
+  // so a channel re-create can't silently swallow the reply and strand the pairing.
+  signal: (event, payload) => rc.sendQueued({ type: 'broadcast', event, payload }),
   onControl: (_id, payload) => handleControl(payload),
   onStateMessage: handleStateMessage,
   // STEP 3: per-pairing connection-path log — the boss-visible split. 'relay'

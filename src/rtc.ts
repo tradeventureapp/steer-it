@@ -190,7 +190,10 @@ function parseJson(data: unknown): unknown {
 // =============================================================================
 export interface PhoneRtcOpts {
   clientId: string;
-  signal: (event: string, payload: unknown) => void;      // → Supabase channel
+  // → Supabase channel. Returns whether it went out IMMEDIATELY (false = queued for
+  // the next (re)subscribe). Signaling is a one-shot, so the caller wires this to
+  // `sendQueued`, and a `false` here is the fingerprint of the lost-offer bug.
+  signal: (event: string, payload: unknown) => boolean;
   onControlOpen: () => void;   // control DC open → caller migrates off Realtime
   onStateMessage: (msg: StateMsg) => void;                // lobby / full
   onFallback: () => void;      // never opened within fallbackMs → stay on Realtime
@@ -247,7 +250,11 @@ export function connectPhoneRtc(o: PhoneRtcOpts): PhoneRtc {
   // offer (trickle ICE — candidates flow separately as they arrive)
   pc.createOffer()
     .then((offer) => pc.setLocalDescription(offer).then(() => {
-      o.signal(RTC_EV.offer, { id, sdp: offer });
+      // DIAGNOSTIC: the offer is the one message that MUST arrive — if it doesn't, the
+      // desktop never creates a peer and the phone is stranded on the Realtime fallback.
+      // Log whether it went out live or had to be queued for the next (re)subscribe.
+      const sent = o.signal(RTC_EV.offer, { id, sdp: offer });
+      console.info(`[rtc] ${new Date().toISOString()} offer ${sent ? 'SENT' : 'QUEUED (channel not ready)'} id=${id}`);
     }))
     .catch((e) => console.warn('[rtc] offer failed', e));
 
@@ -282,7 +289,7 @@ export function connectPhoneRtc(o: PhoneRtcOpts): PhoneRtc {
 //  DESKTOP side — host manager, one peer per phone, join/leave mid-game.
 // =============================================================================
 export interface RtcHostOpts {
-  signal: (event: string, payload: unknown) => void;      // → Supabase channel
+  signal: (event: string, payload: unknown) => boolean;   // → Supabase channel (see PhoneRtcOpts)
   onControl: (id: string, payload: unknown) => void;      // same shape as EV.control
   onStateMessage: (id: string, msg: StateMsg) => void;    // join/color/name/leave
   // Fired when a phone's control channel OPENS on the host — the desktop logs
@@ -361,6 +368,9 @@ export function createRtcHost(o: RtcHostOpts): RtcHost {
       const id = typeof p?.id === 'string' ? p.id : '';
       if (!id) return;
       if (event === RTC_EV.offer && p.sdp) {
+        // DIAGNOSTIC: pairs with the phone's "offer SENT/QUEUED". If the phone logs SENT
+        // and this never appears, the offer was lost in transit (signaling), NOT ICE/TURN.
+        console.info(`[rtc] ${new Date().toISOString()} offer RECEIVED from ${id}`);
         acceptOffer(id, p.sdp);
       } else if (event === RTC_EV.ice && p.from === 'phone' && p.candidate) {
         peers.get(id)?.pc.addIceCandidate(p.candidate).catch(() => { /* late/stale */ });

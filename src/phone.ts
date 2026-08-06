@@ -236,6 +236,16 @@ function wirePhone(ch: RealtimeChannel) {
 let rtc: PhoneRtc | null = null;
 let rtcUp = false;
 let rtcStarting = false;   // creds fetch in flight — guard double-entry
+// BOUNDED PAIRING RETRIES. A pairing used to get exactly ONE attempt per channel
+// (re)connect: if that attempt failed for a transient reason — above all a lost
+// offer — the phone stayed on the Realtime fallback for the WHOLE session, because
+// nothing retried. Now a failed attempt is retried a couple of times before we
+// concede. Bounded (and delayed) so a genuinely NAT-blocked phone still settles on
+// Realtime quickly instead of looping offers forever.
+const RTC_MAX_ATTEMPTS = 3;        // the initial attempt + 2 retries
+const RTC_RETRY_DELAY_MS = 1200;   // brief pause so a re-subscribe can land first
+let rtcAttempts = 0;
+let rtcRetryTimer: number | null = null;
 // ?rtc=relay → ICE may use ONLY relay candidates = the forced-TURN test switch
 // (any network then MUST pair via the TURN relay or fall back).
 const rtcRelayOnly = params.get('rtc') === 'relay';
@@ -246,7 +256,10 @@ function routeStateMsg(m: StateMsg) {
 }
 
 function startRtc() {
-  if (!code || rtc || rtcStarting) return;   // one attempt per (re)connect — no retry storm
+  if (!code || rtc || rtcStarting) return;   // an attempt is already live — no retry storm
+  if (rtcAttempts >= RTC_MAX_ATTEMPTS) return;   // budget spent → settled on Realtime
+  if (rtcRetryTimer !== null) { clearTimeout(rtcRetryTimer); rtcRetryTimer = null; }
+  rtcAttempts++;
   rtcStarting = true;
   // STEP 3: fetch short-lived TURN creds (2 s timeout). null on ANY failure →
   // STUN-only (the V1 behavior) — TURN being down never blocks pairing.
@@ -259,23 +272,36 @@ function startRtc() {
     if (rtc) return;
     rtc = connectPhoneRtc({
       clientId,
-      signal: (event, payload) => rc.send({ type: 'broadcast', event, payload }),
+      // SIGNALING IS A ONE-SHOT → `sendQueued`, not `send`. If the channel is mid
+      // re-create (the 0.3-2.5 s window after subscribing, while the TURN fetch runs)
+      // the offer is HELD and flushed on the next SUBSCRIBED instead of vanishing.
+      signal: (event, payload) => rc.sendQueued({ type: 'broadcast', event, payload }),
       pcFactory: makePeerFactory([...RTC_ICE_SERVERS, ...(turn ?? [])], rtcRelayOnly),
       onControlOpen: () => {
         rtcUp = true;
+        rtcAttempts = 0;   // paired — restore the full budget for a later re-pair
         sendJoin();     // announce over the DataChannel FIRST (proves the path)
         rc.stop();      // then leave Realtime — signaling done, quota stops here
       },
       onStateMessage: routeStateMsg,
       onFallback: () => {
-        // P2P didn't come up (NAT/firewall) — stay on Realtime. rtc stays null
-        // so a later reconnect event can retry with a fresh attempt.
+        // P2P didn't come up within RTC_FALLBACK_MS. Could be a genuinely blocked NAT
+        // — or a transient loss (the offer that never arrived). RETRY a bounded number
+        // of times with a fresh PC + fresh offer before conceding to Realtime; play
+        // continues over Realtime throughout either way.
         rtc = null;
+        if (rtcAttempts < RTC_MAX_ATTEMPTS) {
+          console.info(`[rtc] ${new Date().toISOString()} pairing attempt ${rtcAttempts}/${RTC_MAX_ATTEMPTS} failed — retrying`);
+          rtcRetryTimer = window.setTimeout(() => { rtcRetryTimer = null; startRtc(); }, RTC_RETRY_DELAY_MS);
+        } else {
+          console.info(`[rtc] ${new Date().toISOString()} P2P unavailable after ${RTC_MAX_ATTEMPTS} attempts — staying on Realtime`);
+        }
       },
       onDead: () => {
         // P2P WAS up and died (network change, backgrounded, host gone).
         rtcUp = false;
         rtc = null;
+        rtcAttempts = 0;   // it worked once → a fresh budget for the re-pair
         rc.resume();    // re-subscribe → onReady → sendJoin + startRtc (fresh offer)
       },
     });
