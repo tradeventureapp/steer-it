@@ -221,10 +221,13 @@ not trusted). `EV` events: phone→desktop `join|color|name|leave|control`; desk
    disconnect/reclaim, the live standings + podium order + rematch, and a mid-race DNF — all through
    real Supabase (preview has no real WebSocket). Logic is unit-tested; transport isn't headless-testable.
 2. **WebRTC/TURN live check** — P2P pairing over Supabase signaling, forced-relay (`?rtc=relay`),
-   LTE fallback share. ⚠️ **Re-test after `e67621c`**: `/api/turn` now HARD-GATES on `?s=`, so confirm
-   a real QR scan still gets relay creds (the gate was proven against all 528 host-generated codes
-   headlessly, but Vite serves no `/api`, so the live path is untested). A failure degrades to
-   STUN-only, not a broken join. Also re-check the 600 s TTL re-pairs transparently mid-session.
+   LTE fallback share. ⚠️ **Re-test after `8087df8`** (the lost-offer fix): a phone on the SAME WIFI
+   must now log desktop `offer RECEIVED from <id>` → `connected via **direct**`, with NO
+   "via fallback (Realtime)" line. The mechanism is proven headlessly (queue 14/14, e2e 6/6 where the
+   OLD wiring reproduces the bug) but the live path needs a real phone. Also confirm after `e67621c`
+   that a QR scan still gets relay creds (`/api/turn` hard-gates on `?s=`; proven against all 528
+   host-generated codes, but Vite serves no `/api` so it was untested live) and that the 600 s TTL
+   re-pairs transparently mid-session.
 
 ### Security — OPEN whitehat findings (analysed + confirmed against the code)
 The XSS/takeover half of Finding 1 is **FIXED + pushed** (`0eb7300`, see §8). These remain:
@@ -394,6 +397,15 @@ The XSS/takeover half of Finding 1 is **FIXED + pushed** (`0eb7300`, see §8). T
 - **Transport:** the phone still sees an intermittent control dropout every few minutes (the
   underlying mobile-WS reconnect). The RESILIENCE lifecycle makes it GRACEFUL (car preserved in
   place, input ramps to neutral then resumes — no respawn, no runaway). Shrinkable, not eliminable.
+- **⚠️ SIGNALING IS A ONE-SHOT — never publish it with `rc.send()` (`8087df8`).** `send()` silently
+  DROPS while the channel is between instances; that is right for the 30 Hz control stream (the next
+  tick supersedes) and WRONG for WebRTC offer/answer/ICE, which nothing re-sends. A dropped offer
+  meant the desktop never called `acceptOffer`, so `hasPeer()` stayed false and the phone was
+  stranded on the Realtime fallback for the WHOLE session — on the same WiFi, where direct P2P needs
+  no TURN at all. **Rule: anything that must not be lost goes through `rc.sendQueued()`** (holds it,
+  flushes on the next SUBSCRIBED, bounded 24 + 10 s TTL so a stale offer can't clobber a fresh peer).
+  Pairing also now retries 3× (1.2 s apart) before conceding. Diagnostics to read when it misbehaves:
+  phone `offer SENT|QUEUED` → desktop `offer RECEIVED` → `connected via direct|relay|fallback`.
 - **No car without a phone** — cars = slots, spawned on connect (the keyboard local car is the
   exception, for testing).
 - **Leaderboards not online** — XP best + race results are LOCAL only; the online path needs the
