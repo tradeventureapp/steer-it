@@ -223,8 +223,30 @@ not trusted). `EV` events: phone→desktop `join|color|name|leave|control`; desk
 2. **WebRTC/TURN live check** — P2P pairing over Supabase signaling, forced-relay (`?rtc=relay`),
    LTE fallback share; then the Cloudflare **TURN usage cap** before the scale push.
 
-### Before leaderboards go live
-3. **Leaderboard SECURITY DEFINER submit RPC** with a per-map/day cap — scores are currently
+### Security — OPEN whitehat findings (analysed + confirmed against the code)
+The XSS/takeover half of Finding 1 is **FIXED + pushed** (`0eb7300`, see §8). These remain:
+
+3a. **Controller identity impersonation (medium).** The host maps `payload.id` → slot with NO
+   sender binding (`handleControl`/`handleColor`/`handleName`/`handleLeave` in desktop.ts). Ids are
+   broadcast to the whole room in the `EV.lobby` snapshot, so anyone with the 4-char code can drive,
+   rename or **kick** another player's slot. ⚠️ Supabase Realtime **broadcast carries no attested
+   sender**, so "bind to the Realtime sender" is NOT implementable — but the **WebRTC path already
+   has a real per-connection id** (`rtc.ts` passes it; desktop.ts `onControl: (_id, …)` **discards
+   it**) = cheap partial fix. Note `acceptOffer` also lets a forged `rtc-offer` **close a victim's
+   live peer**, so binding alone is insufficient — the id must be unforgeable at join. Options, all
+   preserving ANONYMOUS join: (B) bind the P2P id + reject offer-hijack of an active peer; (F) long
+   random secret in the QR URL (entropy is free in a QR; the 4-char code is only 32⁴ ≈ 1.05M via
+   `Math.random`); (C) **TOFU keypair** — phone's id = hash(pubkey), host binds on first sight
+   (real fix, NO server); (D) server-issued token + session registry (also fixes 3b).
+3b. **Unauthenticated TURN credential issuance (medium).** `api/turn.js` returns working creds when
+   `?s=` is missing/empty/invalid — `codeOk` is computed but used ONLY in the log line. Origin +
+   Referer are only checked WHEN PRESENT (a non-browser client just omits them), and the per-IP
+   limit is an in-memory Map per warm Vercel instance (not global). Cheap wins: reject invalid `s`,
+   cut `TTL_SECONDS` 1800 → ~600, distributed rate limit + global daily ceiling. The real fix needs
+   a **server-side session registry, which does NOT exist today** (no room/code tracking anywhere in
+   `api/`; the only tables are `profiles` + `devices`; the code is generated client-side in
+   desktop.ts and never leaves the client). See the Cloudflare cap caveat in §8.
+3c. **Leaderboard SECURITY DEFINER submit RPC** with a per-map/day cap — scores are currently
    client-authoritative; a signed server RPC is required before online leaderboards ship. (Today
    XP best + race results are LOCAL only.)
 
@@ -293,10 +315,24 @@ not trusted). `EV` events: phone→desktop `join|color|name|leave|control`; desk
     will need per-portal relaxing IF we ever embed on CrazyGames etc.
   - `verify-session` is **ownership-checked**; `turn.js` is **Origin-gated** (allow-list; env unset
     → 503 → STUN-only, nothing breaks).
+- **PHONE INPUT IS UNTRUSTED — the colour path is hardened (`0eb7300`).** A phone-supplied colour
+  used to be stored + rendered verbatim into the host's **`innerHTML`** sinks ⇒ script execution in
+  the HOST origin ⇒ its Supabase session (localStorage) was readable = account/entitlement takeover.
+  Now: `sanitizeColor()` (lobby.ts) clamps to the shipped palette at the transport boundary
+  (`handleColor` **and** `handleJoin`) **and** inside `LobbyState.join`, so `p.color` cannot hold a
+  non-palette string; `cssColor()` guarantees only a literal `#rrggbb` reaches CSS; the roster
+  swatch label is escaped and `colorName()` never echoes an unknown string. **Rule: any new
+  phone-supplied field gets the same treatment — validate at the boundary, escape at the sink.**
+  ⚠️ The site CSP is `frame-ancestors` only (**no `script-src`**), so nothing blocks injected script
+  as a second line of defence — a real `script-src` would be worth adding.
 - **SMTP:** live via **Resend** (support@ / steeritapp@gmail.com).
 - **Realtime:** message usage **~12% of the 2M** plan.
-- **TODO:** Cloudflare **TURN usage cap**; the **leaderboard SECURITY DEFINER submit RPC** (per-map/
-  day cap) before scores go online (client-authoritative today — see §5).
+- **TODO:** the two OPEN whitehat findings in §5; the **leaderboard SECURITY DEFINER submit RPC**
+  (per-map/day cap) before scores go online (client-authoritative today — see §5).
+  ⚠️ Cloudflare docs expose **no per-key hard usage/spend cap** for Realtime TURN (only per-allocation
+  rate limits: >5 new IP/s, 5-10 kpps, 50-100 Mbps; $0.05/real-time GB standalone). So the old
+  "set a TURN usage cap" TODO is **not achievable as a hard cap** — use billing alerts + monitoring,
+  treat **key rotation as the kill switch**, and make the app-side issuance gate the real control.
 - **Deploy:** Vercel Pro, auto-rebuild on push to `main`. `vercel.json` holds the rewrites (legal
   pages, `/play`) + headers + the `steer-it.vercel.app` `X-Robots-Tag: noindex`.
 
