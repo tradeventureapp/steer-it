@@ -125,12 +125,57 @@ export function sanitizeName(raw: unknown): string {
     .slice(0, NAME_MAX);
 }
 
+// =============================================================================
+//  COLOUR VALIDATION — a phone-supplied colour is UNTRUSTED INPUT.
+//
+//  The host renders player colours into its own DOM (roster dot, live standings,
+//  finish feed, podium/results). Those are string-built `innerHTML` sinks, so an
+//  unvalidated colour is not merely a wrong swatch — it is an HTML-injection
+//  (XSS) vector on the HOST page, whose origin holds the host's Supabase session.
+//  A colour therefore NEVER travels as "whatever the phone sent": it is clamped
+//  to the shipped palette here, at the one gate both transports pass through.
+//
+//  The allow-list is the UNION of the shipped palettes (the shared 8 + the legacy
+//  Blitz 12). Union rather than the current mode's palette so an OLD CACHED PHONE
+//  build that still sends a legacy hex keeps its colour instead of silently
+//  losing it — every entry is one of our own literals, so the union is exactly as
+//  safe as any single palette.
+// =============================================================================
+const _ALLOWED_COLORS: ReadonlyMap<string, string> = new Map(
+  [..._REX, ..._BLITZ].map((c) => [c.hex.toLowerCase(), c.hex] as const),
+);
+
+/**
+ * A phone-supplied colour clamped to the palette: returns the CANONICAL palette hex,
+ * or null if the value is not an offered colour (unknown hex, wrong type, or an
+ * injection payload). Callers treat null as "no colour supplied" — the player keeps
+ * their current/default colour, so a rejected value never breaks a join.
+ */
+export function sanitizeColor(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  return _ALLOWED_COLORS.get(raw.trim().toLowerCase()) ?? null;
+}
+
+/**
+ * RENDER-TIME guarantee: the only thing that may reach a CSS value / style attribute
+ * is a literal `#rrggbb`. Storage is already palette-clamped (`sanitizeColor`), so this
+ * is a SECOND, INDEPENDENT barrier — even if some future path stored an unvalidated
+ * string, it can never break out of the attribute and become markup. Anything else
+ * collapses to `fallback`.
+ */
+export function cssColor(raw: unknown, fallback = '#1d3fa0'): string {
+  return typeof raw === 'string' && /^#[0-9a-f]{6}$/i.test(raw.trim()) ? raw.trim() : fallback;
+}
+
 export function colorName(hex: string): string {
-  const h = hex.toLowerCase();
+  const h = String(hex ?? '').toLowerCase();
   // Search the SHARED 8-colour palette first (Blitz RS + Stee-Rex both use it), then the
   // legacy Blitz 12 (kept for any older stored hex) → the roster shows a name, not a raw hex.
   const c = _REX.find((c) => c.hex.toLowerCase() === h) ?? _BLITZ.find((c) => c.hex.toLowerCase() === h);
-  return c ? c.name : hex;
+  // NOT a known colour → return a NEUTRAL LABEL, never the raw string. This function's
+  // result is rendered as roster text, so echoing an arbitrary input back would re-open
+  // the injection path the colour clamp closes.
+  return c ? c.name : (/^#[0-9a-f]{6}$/i.test(h) ? h : 'Custom');
 }
 // Default colour for a slot (wraps the shared 8-colour palette so N > palette still works) —
 // so an un-picked car spawns in a DISTINCT colour that both cars' pickers recognise.
@@ -204,12 +249,19 @@ export class LobbyState {
     id: string, color: string | undefined, now: number, name?: string,
   ): { slot: number | null; changed: boolean } {
     const cleanName = name === undefined ? undefined : (sanitizeName(name) || '');
+    // COLOUR CLAMP (storage backstop). Every colour that enters the lobby model passes
+    // `sanitizeColor` HERE, so `p.color` can only ever hold a palette hex no matter which
+    // call site (or future transport) supplied it. A rejected colour degrades to
+    // "none supplied" — the player keeps their current colour / the slot default — so a
+    // bad value never blocks a join. Callers ALSO validate at the transport boundary
+    // (desktop.ts handleColor/handleJoin); this is the defence-in-depth second layer.
+    const cleanColor = color === undefined ? undefined : (sanitizeColor(color) ?? undefined);
     let slot = this.slotOf(id);
     if (slot !== null) {
       const p = this.players.get(slot)!;
       p.lastSeen = now;
       let changed = false;
-      if (color && color !== p.color) { p.color = color; changed = true; }
+      if (cleanColor && cleanColor !== p.color) { p.color = cleanColor; changed = true; }
       if (cleanName !== undefined && cleanName !== (p.name ?? '')) {
         p.name = cleanName || undefined;
         changed = true;
@@ -220,7 +272,7 @@ export class LobbyState {
     if (slot === null) return { slot: null, changed: false };
     this.players.set(slot, {
       id,
-      color: color || defaultColorForSlot(slot),
+      color: cleanColor || defaultColorForSlot(slot),
       name: cleanName ? cleanName : undefined,
       lastSeen: now,
     });

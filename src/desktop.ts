@@ -24,6 +24,7 @@ import { createMusicPlayer } from './music';
 import { collectDiag, noteError, noteStep } from './diag';
 import {
   PLAYER_CAP, LOBBY_SYNC_MS, RESILIENCE, EV, colorName, LobbyState, paletteForMode,
+  sanitizeColor, cssColor,
 } from './lobby';
 import { ROAD_SPEC, STEEREX_SILVER, STEEREX_SPECS, steerexSkinForColor, BLITZ_SPECS, blitzSkinForColor,
   BLITZ_RS_COLORS, FURY_SPEC, type VehicleSpec, type CarColor } from './vehicles';
@@ -2766,7 +2767,7 @@ function renderFinishFeed(): void {
   if (finishFeed.length === 0 || raceResultsOpen) { finishFeedEl.hidden = true; return; }
   finishFeedEl.hidden = false;
   finishFeedEl.innerHTML = finishFeed.map((e) =>
-    `<div class="ff-row" style="--c:${e.color}">` +
+    `<div class="ff-row" style="--c:${cssColor(e.color)}">` +
     `<span class="ff-pos">✓ P${e.position}</span>` +
     `<span class="ff-name">${escapeHtml(e.name)}</span>` +
     `<span class="ff-time">${formatRaceTime(e.finishMs)}</span></div>`,
@@ -2812,7 +2813,7 @@ function updateLiveStandings(now: number): void {
   liveStandingsEl.innerHTML = order.map((o) => {
     const color = cars.get(o.slot)?.color || DEFAULT_CAR_COLOR;
     const lap = o.finished ? '✓' : `L${o.lap}`;
-    return `<div class="ls-row" style="--c:${color}">`
+    return `<div class="ls-row" style="--c:${cssColor(color)}">`
       + `<span class="ls-pos">P${o.position}</span>`
       + `<span class="ls-name">${escapeHtml(playerName(o.slot))}</span>`
       + `<span class="ls-lap">${lap}</span></div>`;
@@ -2851,14 +2852,14 @@ function openRaceResults(now: number) {
     if (e) {
       (pod.querySelector('.pod-name') as HTMLElement).textContent = e.name;
       (pod.querySelector('.pod-time') as HTMLElement).textContent = formatRaceTime(e.finishMs);
-      pod.style.setProperty('--c', e.color);
+      pod.style.setProperty('--c', cssColor(e.color));
     }
   }
   // Below the podium: finishers 4th+ AND every DNF car, in rank order (DNF shows "DNF").
   if (resultsRestEl) {
     resultsRestEl.innerHTML = rows.filter((e) => e.dnf || e.position >= 4).map((e) =>
       `<div class="rr-row${e.dnf ? ' rr-dnf' : ''}"><span>P${e.position}</span>` +
-      `<span class="rr-name" style="color:${e.color}">${escapeHtml(e.name)}</span>` +
+      `<span class="rr-name" style="color:${cssColor(e.color)}">${escapeHtml(e.name)}</span>` +
       `<span>${e.dnf ? 'DNF' : formatRaceTime(e.finishMs)}</span></div>`).join('');
   }
   if (raceResultsEl) raceResultsEl.hidden = false;
@@ -3260,10 +3261,14 @@ function renderLobbyUI() {
   if (!rosterEl) return;
   rosterEl.innerHTML = n === 0 ? '' : snap.map((p) => {
     const label = escapeHtml(playerName(p.slot));   // same name resolver as the standings/podium
+    // Colour is PHONE-SUPPLIED: `cssColor` guarantees a literal #rrggbb reaches the style
+    // attribute (it can never close the quote and become markup), and the swatch NAME is
+    // escaped like the player name — same discipline for every phone-controlled field.
+    const dot = cssColor(p.color);
     return `<div class="roster-row">` +
-      `<span class="roster-dot" style="background:${p.color};box-shadow:0 0 8px ${p.color}"></span>` +
+      `<span class="roster-dot" style="background:${dot};box-shadow:0 0 8px ${dot}"></span>` +
       `<span class="roster-name">${label}</span>` +
-      `<span class="roster-color">${colorName(p.color)}</span>` +
+      `<span class="roster-color">${escapeHtml(colorName(p.color))}</span>` +
       `<span class="roster-ok">●</span>` +
     `</div>`;
   }).join('');
@@ -3274,10 +3279,11 @@ function renderLobbyUI() {
 // (wireDesktop below) and the WebRTC DataChannels (rtcHost callbacks). The
 // input pipeline, lobby, and RESILIENCE liveness behave identically either way.
 function handleJoin(payload: unknown) {
-  const p = payload as { id?: unknown; color?: string; name?: string };
+  const p = payload as { id?: unknown; color?: unknown; name?: string };
   const id = String(p?.id ?? '');
   if (!id) return;
-  const r = lobby.join(id, p?.color, Date.now(), p?.name);
+  // The join heartbeat also carries a colour → clamp it on the SAME gate as EV.color.
+  const r = lobby.join(id, sanitizeColor(p?.color) ?? undefined, Date.now(), p?.name);
   if (r.slot === null) {
     // lobby full — tell the phone on whichever transport reaches it
     rc.send({ type: 'broadcast', event: EV.full, payload: { id } });
@@ -3289,7 +3295,11 @@ function handleJoin(payload: unknown) {
 
 function handleColor(payload: unknown) {
   const id = String((payload as { id?: unknown })?.id ?? '');
-  const color = (payload as { color?: string })?.color;
+  // UNTRUSTED INPUT. A phone-supplied colour is rendered into the HOST's own DOM, so it is
+  // clamped to the shipped palette HERE, at the transport boundary, before it can be stored
+  // or drawn. Anything not an offered colour — including an HTML-injection payload — is
+  // dropped and the player simply keeps their current colour (join is never broken).
+  const color = sanitizeColor((payload as { color?: unknown })?.color);
   if (!id || !color) return;
   if (lobby.setColor(id, color, Date.now()).changed) broadcastLobby();
 }
