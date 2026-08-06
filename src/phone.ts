@@ -250,10 +250,10 @@ function startRtc() {
   rtcStarting = true;
   // STEP 3: fetch short-lived TURN creds (2 s timeout). null on ANY failure →
   // STUN-only (the V1 behavior) — TURN being down never blocks pairing.
-  // Pass the room code so the endpoint can tie each issuance to a room in its
-  // logs (abuse = one IP pulling creds for many/random codes). It is NOT a gate:
-  // an old cached build with no code still gets creds (see api/turn.js).
-  const turnUrl = code ? `/api/turn?s=${encodeURIComponent(code)}` : '/api/turn';
+  // The room code is REQUIRED: /api/turn now hard-gates on it (403 without a
+  // well-formed one), so no unauthenticated caller can pull working relay creds.
+  // Always present here — the guard above returns early when `code` is empty.
+  const turnUrl = `/api/turn?s=${encodeURIComponent(code)}`;
   fetchTurnServers(fetch, 2000, turnUrl).then((turn) => {
     rtcStarting = false;
     if (rtc) return;
