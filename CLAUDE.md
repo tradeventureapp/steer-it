@@ -233,18 +233,26 @@ not trusted). `EV` events: phone→desktop `join|color|name|leave|control`; desk
 ### Security — OPEN whitehat findings (analysed + confirmed against the code)
 The XSS/takeover half of Finding 1 is **FIXED + pushed** (`0eb7300`, see §8). These remain:
 
-3a. **Controller identity impersonation (medium).** The host maps `payload.id` → slot with NO
-   sender binding (`handleControl`/`handleColor`/`handleName`/`handleLeave` in desktop.ts). Ids are
-   broadcast to the whole room in the `EV.lobby` snapshot, so anyone with the 4-char code can drive,
-   rename or **kick** another player's slot. ⚠️ Supabase Realtime **broadcast carries no attested
-   sender**, so "bind to the Realtime sender" is NOT implementable — but the **WebRTC path already
-   has a real per-connection id** (`rtc.ts` passes it; desktop.ts `onControl: (_id, …)` **discards
-   it**) = cheap partial fix. Note `acceptOffer` also lets a forged `rtc-offer` **close a victim's
-   live peer**, so binding alone is insufficient — the id must be unforgeable at join. Options, all
-   preserving ANONYMOUS join: (B) bind the P2P id + reject offer-hijack of an active peer; (F) long
-   random secret in the QR URL (entropy is free in a QR; the 4-char code is only 32⁴ ≈ 1.05M via
-   `Math.random`); (C) **TOFU keypair** — phone's id = hash(pubkey), host binds on first sight
-   (real fix, NO server); (D) server-issued token + session registry (also fixes 3b).
+3a. **Controller identity impersonation — MITIGATED (`19b5870`), Realtime path still open.**
+   DONE: (B) **P2P id binding** — the host routes control/join/colour/name/leave by the
+   **DataChannel's verified peer id** (bound at pairing, never re-read from a message), via
+   `actingId()` in desktop.ts; a payload claiming a different id is DROPPED. ⚠️ `handleControl`'s
+   legacy id-less branch is checked on the RAW payload BEFORE `actingId`, so a rejected spoof can't
+   fall through and be handed slot 0 — keep that order. (B2) **offer-hijack guard** — `acceptOffer`
+   used to `close(id)` unconditionally, letting a forged offer tear down a victim's live peer; an id
+   is now protected while IN USE (`lastSeen` + `PEER_HIJACK_GUARD_MS` 3 s), liveness-based so a
+   genuine reconnect still works. (F) **room secret** — a 24-char (~144-bit) crypto key rides in the
+   QR (`&k=`) and is part of the Realtime **TOPIC** (`steer:<code>-<key>`), NOT a payload token:
+   broadcast is public, so a token in messages would be readable by exactly the attacker it excludes.
+   Enumerating the 4-char code no longer allows subscribing, observing ids, or publishing. Code gen
+   moved to `crypto.getRandomValues`. Join is QR-only, so zero UX cost — but a phone reaching `/play`
+   **without `k`** (old QR / hand-typed link) lands on a different topic and won't see the room; a
+   rescan fixes it.
+   **STILL OPEN:** Supabase **broadcast carries no attested sender**, so on the REALTIME FALLBACK a
+   participant already on the topic can still forge another player's id. The attacker is now narrowed
+   to someone actually shown the QR. Closing it needs (C) **TOFU keypair** — phone id = hash(pubkey),
+   host binds on first sight (real fix, NO server) — or (D) server-issued token + session registry
+   (also fixes 3b).
 3b. **Unauthenticated TURN credential issuance — MITIGATED (`e67621c`), not fully closed.**
    DONE: `?s=` is now a HARD GATE (no well-formed `CODE_RE` code → 403 *before* the Cloudflare call,
    generic body); `TTL_SECONDS` 1800 → **600**; rate limits on **three axes** (per-IP 60→30, NEW
@@ -590,7 +598,10 @@ carrying forward:
   timing. **Lesson: verify by MEASUREMENT (mask A/B, pixel harness, PNG-export "eyes") — browser
   screenshots hang here; the physics golden proves no regression.**
 - **Perf lessons:** cap the backing-store DPR (1.5), bake the smoke sprite, and never composite a
-  full-screen layer every frame (the tyre-marks cached-bgCanvas + dirty-rect fix).
+  full-screen layer every frame (the tyre-marks cached-bgCanvas + dirty-rect fix). Also: any canvas
+  you `getImageData` from must be created with `getContext('2d', { willReadFrequently: true })` —
+  attributes are fixed at the FIRST `getContext`, so setting it at the read site is a NO-OP if the
+  context already exists (swept in `19b5870`: mask/bake canvases in maps/surfaces/steerex-sprite).
 
 ---
 
