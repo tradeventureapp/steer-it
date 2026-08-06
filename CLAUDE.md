@@ -221,7 +221,10 @@ not trusted). `EV` events: phone→desktop `join|color|name|leave|control`; desk
    disconnect/reclaim, the live standings + podium order + rematch, and a mid-race DNF — all through
    real Supabase (preview has no real WebSocket). Logic is unit-tested; transport isn't headless-testable.
 2. **WebRTC/TURN live check** — P2P pairing over Supabase signaling, forced-relay (`?rtc=relay`),
-   LTE fallback share; then the Cloudflare **TURN usage cap** before the scale push.
+   LTE fallback share. ⚠️ **Re-test after `e67621c`**: `/api/turn` now HARD-GATES on `?s=`, so confirm
+   a real QR scan still gets relay creds (the gate was proven against all 528 host-generated codes
+   headlessly, but Vite serves no `/api`, so the live path is untested). A failure degrades to
+   STUN-only, not a broken join. Also re-check the 600 s TTL re-pairs transparently mid-session.
 
 ### Security — OPEN whitehat findings (analysed + confirmed against the code)
 The XSS/takeover half of Finding 1 is **FIXED + pushed** (`0eb7300`, see §8). These remain:
@@ -238,14 +241,18 @@ The XSS/takeover half of Finding 1 is **FIXED + pushed** (`0eb7300`, see §8). T
    random secret in the QR URL (entropy is free in a QR; the 4-char code is only 32⁴ ≈ 1.05M via
    `Math.random`); (C) **TOFU keypair** — phone's id = hash(pubkey), host binds on first sight
    (real fix, NO server); (D) server-issued token + session registry (also fixes 3b).
-3b. **Unauthenticated TURN credential issuance (medium).** `api/turn.js` returns working creds when
-   `?s=` is missing/empty/invalid — `codeOk` is computed but used ONLY in the log line. Origin +
-   Referer are only checked WHEN PRESENT (a non-browser client just omits them), and the per-IP
-   limit is an in-memory Map per warm Vercel instance (not global). Cheap wins: reject invalid `s`,
-   cut `TTL_SECONDS` 1800 → ~600, distributed rate limit + global daily ceiling. The real fix needs
-   a **server-side session registry, which does NOT exist today** (no room/code tracking anywhere in
-   `api/`; the only tables are `profiles` + `devices`; the code is generated client-side in
-   desktop.ts and never leaves the client). See the Cloudflare cap caveat in §8.
+3b. **Unauthenticated TURN credential issuance — MITIGATED (`e67621c`), not fully closed.**
+   DONE: `?s=` is now a HARD GATE (no well-formed `CODE_RE` code → 403 *before* the Cloudflare call,
+   generic body); `TTL_SECONDS` 1800 → **600**; rate limits on **three axes** (per-IP 60→30, NEW
+   per-code 24/min, NEW per-instance breaker 600/min), checked before any is recorded, recording
+   ATTEMPTS (each costs a CF API call), pruning expired entries instead of clearing the whole map.
+   **STILL OPEN:** the gate is a **FORMAT** check, not a **liveness** check — a well-formed
+   *invented* code still passes, because there is **no server-side session registry** (no room/code
+   tracking in `api/`; only `profiles` + `devices` tables; the code is generated client-side in
+   desktop.ts and never leaves the client). Closing it = a `sessions` table the host writes on start
+   + a lookup in turn.js (~1-2 days) — the same registry option (D) in 3a would need. Also open: the
+   limiters are **per warm instance**, so the true global ceiling is higher; a real distributed
+   limiter needs Upstash / Vercel KV (~3-5 h, new infra). See the Cloudflare cap caveat in §8.
 3c. **Leaderboard SECURITY DEFINER submit RPC** with a per-map/day cap — scores are currently
    client-authoritative; a signed server RPC is required before online leaderboards ship. (Today
    XP best + race results are LOCAL only.)
@@ -313,8 +320,12 @@ The XSS/takeover half of Finding 1 is **FIXED + pushed** (`0eb7300`, see §8). T
   - **Security headers** (`vercel.json`): `frame-ancestors 'self'`, `X-Content-Type-Options`,
     `Referrer-Policy`, `X-Frame-Options SAMEORIGIN`, `Permissions-Policy`. ⚠️ `frame-ancestors 'self'`
     will need per-portal relaxing IF we ever embed on CrazyGames etc.
-  - `verify-session` is **ownership-checked**; `turn.js` is **Origin-gated** (allow-list; env unset
-    → 503 → STUN-only, nothing breaks).
+  - `verify-session` is **ownership-checked**. `turn.js` (`e67621c`) is **session-code-gated**
+    (no well-formed `?s=` → 403 *before* the Cloudflare call, so a rejected request never bills the
+    key), **TTL 600 s**, and rate-limited on **three axes** (per-IP 30 / per-code 24 / per-instance
+    600 per minute) — plus the Origin allow-list. Env unset → 503 → STUN-only, nothing breaks; any
+    non-ok response degrades a phone to STUN-only rather than failing the join. Remaining gaps +
+    the registry/KV work are tracked in §5 3b.
 - **PHONE INPUT IS UNTRUSTED — the colour path is hardened (`0eb7300`).** A phone-supplied colour
   used to be stored + rendered verbatim into the host's **`innerHTML`** sinks ⇒ script execution in
   the HOST origin ⇒ its Supabase session (localStorage) was readable = account/entitlement takeover.
