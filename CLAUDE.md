@@ -220,14 +220,15 @@ not trusted). `EV` events: phone→desktop `join|color|name|leave|control`; desk
 1. **2-phone live multiplayer test** — two cars steering simultaneously, car-car collisions,
    disconnect/reclaim, the live standings + podium order + rematch, and a mid-race DNF — all through
    real Supabase (preview has no real WebSocket). Logic is unit-tested; transport isn't headless-testable.
-2. **WebRTC/TURN live check** — P2P pairing over Supabase signaling, forced-relay (`?rtc=relay`),
-   LTE fallback share. ⚠️ **Re-test after `8087df8`** (the lost-offer fix): a phone on the SAME WIFI
-   must now log desktop `offer RECEIVED from <id>` → `connected via **direct**`, with NO
-   "via fallback (Realtime)" line. The mechanism is proven headlessly (queue 14/14, e2e 6/6 where the
-   OLD wiring reproduces the bug) but the live path needs a real phone. Also confirm after `e67621c`
-   that a QR scan still gets relay creds (`/api/turn` hard-gates on `?s=`; proven against all 528
-   host-generated codes, but Vite serves no `/api` so it was untested live) and that the 600 s TTL
-   re-pairs transparently mid-session.
+2. **WebRTC P2P — ✅ VERIFIED LIVE (`ed3b79c`).** A real iPhone + Edge desktop on the same WiFi logs
+   `connected via **direct**`. The three-tier transport works end to end with the `e67621c` TURN gate
+   in place. **Still to check:** forced-relay (`?rtc=relay`) and the LTE/cellular share (i.e. the
+   RELAY tier specifically — only the direct tier is proven), and that the 600 s TTL re-pairs
+   transparently mid-session.
+   ⚠️ **Debugging lesson — check the DEVICE before the code.** The long fallback hunt was **iOS
+   LOCKDOWN MODE**, which disables WebRTC outright; the code was fine. That path is now handled
+   gracefully (see §12) and self-reports in one line. Any future "P2P won't pair" report: rule out
+   Lockdown Mode / an in-app WKWebView browser (a QR scanner or Instagram, not Safari proper) FIRST.
 
 ### Security — OPEN whitehat findings (analysed + confirmed against the code)
 The XSS/takeover half of Finding 1 is **FIXED + pushed** (`0eb7300`, see §8). These remain:
@@ -404,8 +405,16 @@ The XSS/takeover half of Finding 1 is **FIXED + pushed** (`0eb7300`, see §8). T
   stranded on the Realtime fallback for the WHOLE session — on the same WiFi, where direct P2P needs
   no TURN at all. **Rule: anything that must not be lost goes through `rc.sendQueued()`** (holds it,
   flushes on the next SUBSCRIBED, bounded 24 + 10 s TTL so a stale offer can't clobber a fresh peer).
-  Pairing also now retries 3× (1.2 s apart) before conceding. Diagnostics to read when it misbehaves:
-  phone `offer SENT|QUEUED` → desktop `offer RECEIVED` → `connected via direct|relay|fallback`.
+  Pairing also now retries 3× (1.2 s apart) before conceding. The desktop prints ONE line per
+  pairing: `player <id> connected via direct | relay (TURN) | fallback (Realtime)`.
+- **WebRTC may be ABSENT even on a modern browser — handled, don't "fix" it again (`2ae2f95`).**
+  **iOS Lockdown Mode disables WebRTC outright**, and some in-app WKWebView browsers (a QR-scanner
+  app, Instagram — not Safari proper) don't expose it either. `peerConnectionCtor()` resolves
+  `RTCPeerConnection ?? webkitRTCPeerConnection ?? mozRTCPeerConnection`; if none exists the phone
+  logs one line, skips the retry budget, and plays over Realtime. **Never reference a bare
+  `RTCPeerConnection`** — it throws ReferenceError inside `startRtc`'s promise chain, and without the
+  `.catch()` there that is SWALLOWED into a silent permanent fallback. (SDP/ICE are passed as plain
+  objects, so no `RTCSessionDescription`/`RTCIceCandidate` constructors exist to break.)
 - **No car without a phone** — cars = slots, spawned on connect (the keyboard local car is the
   exception, for testing).
 - **Leaderboards not online** — XP best + race results are LOCAL only; the online path needs the
