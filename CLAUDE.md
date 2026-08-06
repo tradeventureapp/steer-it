@@ -86,6 +86,8 @@ dev-only SIM test car (§13).
 - `race.ts` — race logic (pure): `RaceState` + `RaceManager` (per-slot laps, finish order, DNF),
   circuit anti-cheat (armed forward crossing), `RACE_CONFIG`, editor mutators, `formatRaceTime`.
 - `xp.ts` — XP MODE (pure): endless solo score run, drift multiplier. Only READS speed/slip.
+  **Off-track = TRACK GEOMETRY, never surface material** (`maps.onTrackAt` → `wheelsOffTrack`
+  in desktop.ts) — see the rule in §3.
 - `vehicles.ts` — vehicle IDENTITY + specs: `VehicleSpec` (`overrides`, `branch`, `arcade`, **`phys4`**,
   `dims`, `sprite`, `fxScale`), `ROAD_SPEC` (Blitz), `STEEREX_SILVER/BLACK`, `FURY_SPEC` + dims +
   colour palettes. Pure data — NO real make/model names anywhere.
@@ -146,6 +148,16 @@ not trusted). `EV` events: phone→desktop `join|color|name|leave|control`; desk
 - **Blitz RS is the golden benchmark.** Its physics4 output is byte-identical (0.0e+0) to a saved
   baseline; new cars are added as per-car param overrides that leave Blitz's numbers untouched.
   Any change to the SHARED force path breaks that and must be a deliberate, re-baselined decision.
+
+### Track / surfaces
+- **ASK GEOMETRY, NOT MATERIAL.** "Am I on the track?" is answered by the track MASK (am I inside
+  the drivable ribbon?), never by "is this wheel on asphalt?". A material allow-list ROTS: the same
+  bug shipped THREE times (dirt oval, then the rallycross dirt section) because each new surface was
+  off-track until someone remembered to list it. Fixed at the root in `0ac65ad` — `trackSurfaces`
+  (the whitelist) is deleted; `MapDefinition.onTrackAt(x,y)` is the one check. Ribbon **and kerbs**
+  = on track whatever they're paved with; grass + gravel run-off = off. A NEW surface painted on the
+  ribbon is on-track for free — there is no list to update, so it cannot regress again. Maps with no
+  ribbon geometry (desktop, the barrier-bounded ovals) are on-track everywhere by definition.
 
 ### Multiplayer / general
 - **Build for N, not hardcoded for 2.** Slots/cars/colours keyed by slot; cap = `PLAYER_CAP`.
