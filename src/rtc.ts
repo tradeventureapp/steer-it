@@ -322,6 +322,8 @@ export interface RtcHostOpts {
   // the connection path here (connectionPathOf(pc): direct vs relay/TURN).
   onPeerConnected?: (id: string, pc: PeerLike) => void;
   pcFactory?: PeerFactory;
+  /** Injectable clock (tests). Defaults to Date.now. */
+  now?: () => number;
 }
 export interface RtcHost {
   handleSignal(event: string, payload: unknown): void;    // rtc-offer / rtc-ice(phone)
@@ -332,11 +334,24 @@ export interface RtcHost {
   close(id: string): void;
 }
 
-interface HostPeer { pc: PeerLike; control: DataChannelLike | null; state: DataChannelLike | null; }
+interface HostPeer {
+  pc: PeerLike; control: DataChannelLike | null; state: DataChannelLike | null;
+  /** Last time this peer actually delivered a message — the proof it's alive. */
+  lastSeen: number;
+}
+
+// An `rtc-offer` carries a SELF-DECLARED id, so a well-formed offer naming a victim's
+// id used to run `close(id)` and rebind that identity to the sender — tearing down the
+// victim's live DataChannel. An identity is now protected FOR AS LONG AS IT IS IN USE:
+// a peer that delivered a message within this window cannot be displaced by a new offer.
+// A genuine reconnect is unaffected — a phone whose P2P died stops delivering, so the
+// window lapses within a couple of seconds and its own re-offer is accepted.
+const PEER_HIJACK_GUARD_MS = 3000;
 
 export function createRtcHost(o: RtcHostOpts): RtcHost {
   const peers = new Map<string, HostPeer>();
   const factory = o.pcFactory ?? defaultPeerFactory;
+  const now = o.now ?? (() => Date.now());
 
   function close(id: string) {
     const p = peers.get(id);
@@ -345,10 +360,22 @@ export function createRtcHost(o: RtcHostOpts): RtcHost {
     try { p.pc.close(); } catch { /* ignore */ }
   }
 
+  // Is this peer demonstrably still in use by its real owner?
+  function isLive(p: HostPeer): boolean {
+    return p.control?.readyState === 'open' && (now() - p.lastSeen) < PEER_HIJACK_GUARD_MS;
+  }
+
   function acceptOffer(id: string, sdp: unknown) {
-    close(id);   // reconnect: a fresh offer REPLACES the old peer for this phone
+    const existing = peers.get(id);
+    if (existing && isLive(existing)) {
+      // HIJACK GUARD: this id is bound to a peer that is actively delivering. Refuse to
+      // re-bind it — the real owner keeps its DataChannel and its car.
+      console.warn(`[rtc-host] ignored an offer re-claiming the live id ${id}`);
+      return;
+    }
+    close(id);   // reconnect: a fresh offer REPLACES the old (dead/silent) peer
     const pc = factory();
-    const peer: HostPeer = { pc, control: null, state: null };
+    const peer: HostPeer = { pc, control: null, state: null, lastSeen: now() };
     peers.set(id, peer);
 
     pc.ondatachannel = (ev) => {
@@ -359,12 +386,16 @@ export function createRtcHost(o: RtcHostOpts): RtcHost {
         else ch.onopen = () => o.onPeerConnected?.(id, pc);
         ch.onmessage = (m) => {
           const p = parseJson(m.data);
+          peer.lastSeen = now();
+          // `id` is the DataChannel's OWN peer — verified by the transport, not
+          // self-declared — so the host routes by it instead of the payload's claim.
           if (p) o.onControl(id, p);
         };
       } else if (ch.label === 'state') {
         peer.state = ch;
         ch.onmessage = (m) => {
           const msg = parseJson(m.data) as StateMsg | null;
+          peer.lastSeen = now();
           if (msg && typeof msg.ev === 'string') o.onStateMessage(id, msg);
         };
       }

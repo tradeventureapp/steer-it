@@ -284,7 +284,10 @@ function cleanFill(shape: SurfaceShape, rc: SurfaceRC, tex: CanvasImageSource,
   insetPx: number): CanvasImageSource | null {
   const S = scratch(1, rc.wPx, rc.hPx), A = scratch(2, rc.wPx, rc.hPx), D = scratch(3, rc.wPx, rc.hPx);
   if (!S || !A || !D) return null;
-  const s = S.getContext('2d'), a = A.getContext('2d'), d = D.getContext('2d');
+  // `s` receives shapeAlpha → a SurfaceShape, and gravelShape reads its pixels back
+  // (the edge re-sharpen), so it must be a readback-friendly context. `a`/`d` are
+  // composite-only.
+  const s = S.getContext('2d', { willReadFrequently: true }), a = A.getContext('2d'), d = D.getContext('2d');
   if (!s || !a || !d) return null;
 
   shapeAlpha(s, shape, rc);                                  // pristine alpha
@@ -336,7 +339,7 @@ function paintThrough(
 ): void {
   if (!tex) return;
   const buf = scratch(0, rc.wPx, rc.hPx); if (!buf) return;
-  const b = buf.getContext('2d'); if (!b) return;
+  const b = buf.getContext('2d', { willReadFrequently: true }); if (!b) return;   // gravelShape reads it back
   shapeAlpha(b, shape, rc);           // ← the map's geometry paints the region's alpha
   b.globalCompositeOperation = 'source-in';
   b.drawImage(tex, 0, 0, rc.wPx, rc.hPx);

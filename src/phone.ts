@@ -76,6 +76,11 @@ const IS_IOS = /iP(hone|od|ad)/.test(navigator.userAgent)
 // ---------- DOM ----------
 const params = new URLSearchParams(window.location.search);
 const code = (params.get('s') || '').toUpperCase();
+// ROOM SECRET from the QR (`&k=`). It is part of the Realtime TOPIC (see channelName), so
+// a phone that reached this page WITHOUT it — an old QR, a hand-typed link, someone who
+// merely read the 4-char code off the screen — lands on a different topic and simply never
+// sees the room. That is the intent: the short code is a label, not a credential.
+const roomKey = params.get('k') || '';
 // FIRST-PAINT CAR HINT: the host encodes the chosen mode in the QR/join URL (?m=arcade|sim),
 // so we know which car's colours to draw BEFORE the first lobby message arrives — no flash of
 // the other car's palette. Unknown/absent (an old QR, a hand-typed link) → we render NO
@@ -323,7 +328,7 @@ function startRtc() {
 
 // Resilient channel: reconnects after a blip so input resumes without a rescan.
 const rc = createResilientChannel(
-  channelName(code), { broadcast: { self: false } }, wirePhone,
+  channelName(code, roomKey), { broadcast: { self: false } }, wirePhone,
   {
     label: 'phone',
     // Re-announce on every (re)connect + kick off the P2P pairing (fresh offer;

@@ -40,8 +40,22 @@ export const supabase = createClient(url, key, {
   },
 });
 
-export function channelName(code: string) {
-  return `steer:${code}`;
+/**
+ * The Realtime topic for a room.
+ *
+ * SECURITY: the room secret (`key`, from the QR's `&k=`) is part of the TOPIC NAME, not a
+ * token inside the messages. That matters — Supabase broadcast is public and carries no
+ * attested sender, so a secret sent as a payload field would be readable by anyone already
+ * subscribed, i.e. by exactly the attacker it is meant to exclude. Putting it in the topic
+ * means someone who only enumerated the 4-char code cannot subscribe AT ALL: they can't
+ * observe traffic, can't learn player ids, and can't publish. Being on the topic is itself
+ * proof of having had the QR.
+ *
+ * The 4-char code stays in the name purely so the topic stays tied to the room shown on
+ * screen. `key` omitted → the legacy topic (used only where no room secret exists).
+ */
+export function channelName(code: string, key?: string) {
+  return key ? `steer:${code}-${key}` : `steer:${code}`;
 }
 
 // =============================================================================

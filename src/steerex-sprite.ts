@@ -190,7 +190,7 @@ let _opaque: { lenPx: number; widPx: number; cxPx: number; cyPx: number } | null
 /** The measured opaque bbox of the Stee-Rex bitmap (null until the first skin bakes). */
 export function steerexOpaque() { return _opaque; }
 function measureOpaque(cv: HTMLCanvasElement) {
-  const c = cv.getContext('2d');
+  const c = cv.getContext('2d', { willReadFrequently: true });
   if (!c) return;
   const d = c.getImageData(0, 0, cv.width, cv.height).data;
   let x0 = cv.width, y0 = cv.height, x1 = -1, y1 = -1;
@@ -224,7 +224,10 @@ export function steerexSprite(skin: SteerexSkin): HTMLCanvasElement | null {
         const cv = document.createElement('canvas');
         cv.width = Math.round(VB.w * STEEREX_RASTER);
         cv.height = Math.round(VB.h * STEEREX_RASTER);
-        const c = cv.getContext('2d');
+        // willReadFrequently HERE is the one that counts: getContext attributes are fixed
+        // at FIRST creation, and measureOpaque() below re-gets this same context to read
+        // the bitmap back. Setting it only in measureOpaque would be a no-op.
+        const c = cv.getContext('2d', { willReadFrequently: true });
         if (!c) { _loading.delete(skin); return; }   // no ctx (memory) → allow a later retry
         c.drawImage(img, 0, 0, cv.width, cv.height);
         _cache.set(skin, cv);

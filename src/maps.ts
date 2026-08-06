@@ -1490,7 +1490,9 @@ function circuitMask(): Uint8Array | null {
   const H = Math.max(1, Math.round(CIRCUIT_LOGICAL.heightM * CIRCUIT_MASK_PPM));
   const cv = document.createElement('canvas');
   cv.width = W; cv.height = H;
-  const c = cv.getContext('2d');
+  // willReadFrequently: this canvas exists ONLY to be read back with getImageData below.
+  // Without it the browser keeps it GPU-backed and each readback forces a GPU→CPU sync.
+  const c = cv.getContext('2d', { willReadFrequently: true });
   if (!c) { _circuitMask = null; return null; }
   const toMask = (sx: number, sy: number): Pt => {
     const w = circuitToWorld(sx, sy);
@@ -1802,7 +1804,7 @@ function gravelMask(): Uint8Array | null {
   const W = Math.max(1, Math.round(CIRCUIT_LOGICAL.widthM * P));
   const H = Math.max(1, Math.round(CIRCUIT_LOGICAL.heightM * P));
   const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
-  const c = cv.getContext('2d');
+  const c = cv.getContext('2d', { willReadFrequently: true });   // read back via getImageData
   if (!c) { _gravelMask = null; return null; }
   const toM = (sx: number, sy: number): Pt => {
     const w = circuitToWorld(sx, sy); return [w.x * P, w.y * P];
@@ -1967,7 +1969,7 @@ function gravelAlphaCanvas(): HTMLCanvasElement | null {
   const mask = gravelMask();
   if (!mask || typeof document === 'undefined') return null;
   const mc = document.createElement('canvas'); mc.width = _gvW; mc.height = _gvH;
-  const mcx = mc.getContext('2d'); if (!mcx) return null;
+  const mcx = mc.getContext('2d', { willReadFrequently: true }); if (!mcx) return null;   // read back
   const img = mcx.createImageData(_gvW, _gvH);
   for (let i = 0; i < _gvW * _gvH; i++) if (mask[i]) img.data[i * 4 + 3] = 255;
   mcx.putImageData(img, 0, 0);
@@ -2456,7 +2458,7 @@ function bakeAdArt(out: HTMLCanvasElement, img: HTMLImageElement, crop?: readonl
   // Trim fully-transparent margins → the opaque content bbox (a padded logo still fills the face).
   let bx = 0, by = 0, bw = iw, bh = ih;
   const c = document.createElement('canvas'); c.width = iw; c.height = ih;
-  const g = c.getContext('2d');
+  const g = c.getContext('2d', { willReadFrequently: true });   // alpha readback below
   if (g) {
     g.drawImage(img, 0, 0);
     const d = g.getImageData(0, 0, iw, ih).data;
@@ -2747,7 +2749,7 @@ function rallyDirtMask(): Uint8Array | null {
   const W = Math.max(1, Math.round(CIRCUIT_LOGICAL.widthM * CIRCUIT_MASK_PPM));
   const H = Math.max(1, Math.round(CIRCUIT_LOGICAL.heightM * CIRCUIT_MASK_PPM));
   const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
-  const c = cv.getContext('2d');
+  const c = cv.getContext('2d', { willReadFrequently: true });   // read back via getImageData
   if (!c) { _rallyDirtMask = null; return null; }
   c.fillStyle = '#000'; c.fillRect(0, 0, W, H);
   const seg = CIRCUIT_PATH.slice(RALLYCROSS_DIRT.i0, RALLYCROSS_DIRT.i1 + 1)

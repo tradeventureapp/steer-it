@@ -51,7 +51,7 @@ function stripBackground(d: Uint8ClampedArray, W: number, H: number) {
 }
 
 function measureOpaque(cv: HTMLCanvasElement) {
-  const c = cv.getContext('2d');
+  const c = cv.getContext('2d', { willReadFrequently: true });
   if (!c) return;
   const d = c.getImageData(0, 0, cv.width, cv.height).data;
   let x0 = cv.width, y0 = cv.height, x1 = -1, y1 = -1;

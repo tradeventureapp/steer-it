@@ -60,11 +60,27 @@ import { nicknameFormatError, nicknameCooldownDaysLeft } from './nickname';
 inject();
 
 // ---------- Session ----------
-const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-const code = Array.from(
-  { length: 4 },
-  () => ALPHABET[Math.floor(Math.random() * ALPHABET.length)]
-).join('');
+// CRYPTO-random picks. Both alphabets below have a length that divides 2^32 exactly
+// (32 and 64), so the modulo introduces NO bias. Never Math.random for anything that
+// gates access to a room.
+function randomChars(n: number, alphabet: string): string {
+  const buf = new Uint32Array(n);
+  crypto.getRandomValues(buf);
+  let out = '';
+  for (let i = 0; i < n; i++) out += alphabet[buf[i] % alphabet.length];
+  return out;
+}
+const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';   // 32, confusable-free (no I/O/0/1)
+const code = randomChars(4, ALPHABET);
+// ---- ROOM SECRET -------------------------------------------------------------
+// The 4-char code is only 32^4 ≈ 1.05M — enumerable, and it is DISPLAYED on screen, so
+// it can also just be read off a photo. It is therefore a HUMAN LABEL, not a credential.
+// The real room identity is this 24-char (~144-bit) secret, which rides invisibly in the
+// QR and forms part of the Realtime topic (see channelName). Someone who guesses or reads
+// the short code still cannot subscribe to the room, observe it, or publish into it.
+// Zero UX cost: joining is QR-only (there is no manual code entry), so nobody types this.
+const ROOM_KEY_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';  // 64
+const roomKey = randomChars(24, ROOM_KEY_ALPHABET);
 // Build the phone URL from a FIXED production base so the QR always points at
 // the stable public domain — never the Vercel deployment URL the desktop page
 // happened to be opened from (those are auth-walled per-deploy). Falls back to
@@ -78,7 +94,7 @@ const publicBase = (
 // while it waits for the host's first lobby message). The lobby message remains the
 // authority and corrects a stale URL; the param is purely a first-paint hint.
 let raceMode: RaceMode = 'sim';
-const playUrl = () => `${publicBase}/play?s=${code}&m=${raceMode}`;
+const playUrl = () => `${publicBase}/play?s=${code}&m=${raceMode}&k=${roomKey}`;
 
 const qrCanvas = document.getElementById('qr') as HTMLCanvasElement;
 const codeText = document.getElementById('code-text') as HTMLDivElement;
@@ -3278,9 +3294,34 @@ function renderLobbyUI() {
 // One function per event, called from BOTH transports: the Realtime channel
 // (wireDesktop below) and the WebRTC DataChannels (rtcHost callbacks). The
 // input pipeline, lobby, and RESILIENCE liveness behave identically either way.
-function handleJoin(payload: unknown) {
+//
+// ---- ACTING IDENTITY ---------------------------------------------------------
+// Every phone→host message names the player it acts for. Where that name comes from
+// decides whether it can be forged:
+//   • P2P (the PRIMARY transport): `authId` is the id the DataChannel is BOUND to —
+//     established at pairing and verified by the transport, never re-read from the
+//     message. It WINS, and a payload that claims a different id is a spoof attempt
+//     and is DROPPED.
+//   • REALTIME (fallback): Supabase broadcast carries NO attested sender, so the
+//     claimed id is all that exists. Unverifiable by construction — see the residual
+//     risk noted in CLAUDE.md §5 3a.
+const spoofWarned = new Set<string>();
+function actingId(payload: unknown, authId?: string): string | null {
+  const claimed = String((payload as { id?: unknown })?.id ?? '');
+  if (!authId) return claimed || null;         // Realtime: unverified (documented)
+  if (claimed && claimed !== authId) {
+    if (!spoofWarned.has(authId)) {            // once per peer — never a log flood
+      spoofWarned.add(authId);
+      console.warn(`[sec] ${nowIso()} peer ${authId} sent a payload claiming id ${claimed} — dropped`);
+    }
+    return null;
+  }
+  return authId;                                // verified by the DataChannel binding
+}
+
+function handleJoin(payload: unknown, authId?: string) {
   const p = payload as { id?: unknown; color?: unknown; name?: string };
-  const id = String(p?.id ?? '');
+  const id = actingId(payload, authId);
   if (!id) return;
   // The join heartbeat also carries a colour → clamp it on the SAME gate as EV.color.
   const r = lobby.join(id, sanitizeColor(p?.color) ?? undefined, Date.now(), p?.name);
@@ -3293,8 +3334,8 @@ function handleJoin(payload: unknown) {
   }
 }
 
-function handleColor(payload: unknown) {
-  const id = String((payload as { id?: unknown })?.id ?? '');
+function handleColor(payload: unknown, authId?: string) {
+  const id = actingId(payload, authId);
   // UNTRUSTED INPUT. A phone-supplied colour is rendered into the HOST's own DOM, so it is
   // clamped to the shipped palette HERE, at the transport boundary, before it can be stored
   // or drawn. Anything not an offered colour — including an HTML-injection payload — is
@@ -3304,27 +3345,31 @@ function handleColor(payload: unknown) {
   if (lobby.setColor(id, color, Date.now()).changed) broadcastLobby();
 }
 
-function handleName(payload: unknown) {
-  const id = String((payload as { id?: unknown })?.id ?? '');
+function handleName(payload: unknown, authId?: string) {
+  const id = actingId(payload, authId);
   const name = (payload as { name?: string })?.name;
   if (!id || name === undefined) return;
   if (lobby.setName(id, name, Date.now()).changed) broadcastLobby();
 }
 
-function handleLeave(payload: unknown) {
-  const id = String((payload as { id?: unknown })?.id ?? '');
+function handleLeave(payload: unknown, authId?: string) {
+  const id = actingId(payload, authId);
   if (id && lobby.leave(id).changed) broadcastLobby();
 }
 
-function handleControl(payload: unknown) {
-  const id = String((payload as { id?: unknown })?.id ?? '');
-  // STEP 2: every connected slot drives its OWN car. Route by the desktop's
-  // authoritative id→slot map (never trust the phone's self-reported slot).
-  if (!id) {                                       // legacy id-less → drive slot 0
+function handleControl(payload: unknown, authId?: string) {
+  // LEGACY id-less packet → drive slot 0. Checked on the RAW payload BEFORE actingId,
+  // because a REJECTED SPOOF must never fall through to this branch and end up driving
+  // slot 0 — that would hand the attacker a car instead of dropping the packet.
+  if (!authId && !String((payload as { id?: unknown })?.id ?? '')) {
     const c0 = cars.get(0);
     if (c0) { applyInputs(c0.target, payload as Inputs); c0.lastInputAt = performance.now(); }
     return;
   }
+  // STEP 2: every connected slot drives its OWN car. Route by the desktop's
+  // authoritative id→slot map (never trust the phone's self-reported slot).
+  const id = actingId(payload, authId);
+  if (!id) return;                                 // spoofed id over a verified peer → drop
   const r = lobby.join(id, undefined, Date.now()); // lazy-join if join was missed
   if (r.changed) broadcastLobby();                 // → syncCars spawns the car
   if (r.slot === null) return;                     // lobby full
@@ -3344,12 +3389,14 @@ function handleControl(payload: unknown) {
 // Route a phone→desktop one-shot arriving on the reliable "state" DataChannel
 // (the phone leaves the Realtime channel once P2P is up, so join heartbeats,
 // color, name, and leave arrive HERE for P2P phones).
-function handleStateMessage(_id: string, msg: { ev: string; payload: unknown }) {
+// `id` is the DataChannel's VERIFIED peer — passed on as the acting identity so a P2P
+// phone can only ever act as itself (rename / recolour / leave included).
+function handleStateMessage(id: string, msg: { ev: string; payload: unknown }) {
   switch (msg.ev) {
-    case EV.join: handleJoin(msg.payload); break;
-    case EV.color: handleColor(msg.payload); break;
-    case EV.name: handleName(msg.payload); break;
-    case EV.leave: handleLeave(msg.payload); break;
+    case EV.join: handleJoin(msg.payload, id); break;
+    case EV.color: handleColor(msg.payload, id); break;
+    case EV.name: handleName(msg.payload, id); break;
+    case EV.leave: handleLeave(msg.payload, id); break;
   }
 }
 
@@ -3361,7 +3408,9 @@ const rtcHost = createRtcHost({
   // The ANSWER + host ICE are one-shots exactly like the phone's offer — queue them
   // so a channel re-create can't silently swallow the reply and strand the pairing.
   signal: (event, payload) => rc.sendQueued({ type: 'broadcast', event, payload }),
-  onControl: (_id, payload) => handleControl(payload),
+  // The DataChannel's peer id is VERIFIED (bound at pairing, not re-read from the
+  // message) — route by it instead of the payload's self-declared claim.
+  onControl: (id, payload) => handleControl(payload, id),
   onStateMessage: handleStateMessage,
   // STEP 3: per-pairing connection-path log — the boss-visible split. 'relay'
   // = the TURN relay carried it; 'direct' = pure P2P; 'unknown' = stats absent.
@@ -3405,7 +3454,7 @@ function wireDesktop(ch: RealtimeChannel) {
 // Resilient channel: auto-reconnects on a dropped socket (the ~60s idle/timeout)
 // and re-accepts the existing players by id — no QR rescan.
 const rc = createResilientChannel(
-  channelName(code), { broadcast: { self: false } }, wireDesktop,
+  channelName(code, roomKey), { broadcast: { self: false } }, wireDesktop,
   {
     label: 'desktop',
     onReady: () => {
