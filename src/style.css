@@ -1541,7 +1541,44 @@ body.desktop #hud-tr {
 }
 /* Retro-arcade "SCAN TO PLAY" join panel — deep purple, neon glow, logo
    wordmark. Matches the phone controller / STEER IT logo. */
+/* CLOSE (×) — the QR panel's only keyboard-free dismissal, so it must be a real
+   touch target: 44×44 (WCAG 2.5.5 "Target Size"), not a glyph you have to aim at.
+   ⚠️ #qr-panel is pointer-events:none (a click-through HUD so it never eats a click
+   meant for the game), so this button MUST opt back in or it is unclickable. */
+.qr-x {
+  position: absolute; top: 7px; right: 7px;
+  pointer-events: auto;                       /* the panel is click-through — this is not */
+  appearance: none; cursor: pointer; padding: 0;
+  width: 44px; height: 44px;                  /* the touch target, independent of the glyph */
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-display); font-weight: 800; font-size: 21px; line-height: 1;
+  color: var(--text-dim);
+  background: rgba(8, 4, 18, 0.5);
+  border: 1.5px solid var(--border-dim);
+  border-radius: 12px;
+  transition: color .15s ease, background .15s ease, border-color .15s ease,
+              box-shadow .15s ease, transform .1s ease;
+}
+/* Reads as interactive on desktop; the sunset accent is the shared CTA language. */
+.qr-x:hover, .qr-x:focus-visible {
+  color: #fff;
+  background: linear-gradient(100deg, rgba(255, 138, 61, 0.28) 0%, rgba(255, 45, 143, 0.30) 55%, rgba(122, 31, 255, 0.28) 100%);
+  border-color: rgba(255, 45, 149, 0.75);
+  box-shadow: 0 0 15px rgba(255, 45, 149, 0.45);
+}
+.qr-x:focus-visible { outline: 2px solid rgba(255, 194, 74, 0.85); outline-offset: 2px; }
+.qr-x:active { transform: scale(0.92); }
+/* The counterpart: brings the panel BACK once it's been dismissed. Same size + language,
+   pinned where the panel's corner was. `[hidden]` must beat .qr-x's display:flex. */
+.qr-show {
+  position: fixed; top: 20px; right: 20px; z-index: 10;
+  font-size: 13px; letter-spacing: 1.5px;
+}
+.qr-show[hidden] { display: none; }
+@media (prefers-reduced-motion: reduce) { .qr-x { transition: none; } .qr-x:active { transform: none; } }
+
 #qr-panel {
+  position: relative;   /* anchors .qr-x */
   pointer-events: none;
   font-family: var(--font-display);
   padding: 15px 17px 13px;

@@ -882,6 +882,9 @@
 
     <aside id="hud-tr">
       <div id="qr-panel">
+        <!-- Dismiss without a keyboard. The panel is a click-through HUD
+             (pointer-events:none), so .qr-x opts back in — see style.css. -->
+        <button type="button" id="qr-close" class="qr-x" aria-label="Hide QR code" title="Hide QR (Q)">×</button>
         <div id="qr-logo"><img src="/logos/steer-it-mark.png" alt="STEER IT" /></div>
         <div id="qr-scan">SCAN TO PLAY</div>
         <div id="qr-frame">
@@ -890,9 +893,12 @@
         <div id="code-text">····</div>
         <div id="status">Waiting for phone…</div>
         <div id="lobby-roster"></div>
-        <div id="qr-hint">press Q to hide</div>
+        <div id="qr-hint">tap × or press Q to hide</div>
       </div>
     </aside>
+    <!-- RE-OPEN. With the panel closed there is otherwise NO on-screen way back to the
+         QR, so a touch host could dismiss it and never recover the join code. -->
+    <button type="button" id="qr-show" class="qr-x qr-show" aria-label="Show QR code" title="Show QR (Q)" hidden>QR</button>
 
     <aside id="hud-bl">
       <div id="speedo">

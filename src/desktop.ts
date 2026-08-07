@@ -132,6 +132,9 @@ const rearSlipValEl  = document.getElementById('rear-slip-val') as HTMLSpanEleme
 const wspinValEl     = document.getElementById('wspin-val')     as HTMLSpanElement | null;
 const hudBlEl        = document.getElementById('hud-bl')         as HTMLElement | null;
 const hudTrEl        = document.getElementById('hud-tr')         as HTMLElement | null;
+const qrPanelEl      = document.getElementById('qr-panel')       as HTMLElement | null;
+const qrCloseEl      = document.getElementById('qr-close')       as HTMLButtonElement | null;
+const qrShowEl       = document.getElementById('qr-show')        as HTMLButtonElement | null;
 const pauseOverlayEl = document.getElementById('pause-overlay')  as HTMLElement | null;
 const editorEl       = document.getElementById('editor')         as HTMLElement | null;
 const editorStatusEl = document.getElementById('editor-status')  as HTMLDivElement | null;
@@ -335,8 +338,26 @@ const fx = new Effects();
 let qrOn = true;
 // The QR/join panel shows only once a map is loaded (menu dismissed) and qrOn.
 function updateQrVisibility() {
-  if (hudTrEl) hudTrEl.style.display = (qrOn && !menuOpen) ? 'block' : 'none';
+  const inGame = !menuOpen;
+  if (hudTrEl) hudTrEl.style.display = (qrOn && inGame) ? 'block' : 'none';
+  // The re-open affordance is the exact complement: shown only while in game with the
+  // panel dismissed. Without it a touch host could close the QR and never get the join
+  // code back (Q was the only way in, and a tablet has no Q).
+  if (qrShowEl) qrShowEl.hidden = !(inGame && !qrOn);
 }
+// The QR panel used to be dismissable ONLY with Q, which locked out every device
+// without a physical keyboard (tablets, touchscreens, a phone used as the display).
+// These two buttons are the keyboard-free path; Q still works exactly as before.
+qrCloseEl?.addEventListener('click', () => {
+  qrOn = false;
+  updateQrVisibility();
+  qrCloseEl.blur();   // don't leave a focus ring on a now-hidden control
+});
+qrShowEl?.addEventListener('click', () => {
+  qrOn = true;
+  updateQrVisibility();
+  qrShowEl.blur();
+});
 window.addEventListener('keydown', (e) => {
   if (menuOpen) return;   // game keys are inert while the host menu is open
   // D = debug HUD + PHYSICS4 TUNE panel — DEV ONLY (see DEV_TUNER above). With the
@@ -350,6 +371,16 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'q' || e.key === 'Q') {
     qrOn = !qrOn;
     updateQrVisibility();
+  }
+  // ESC dismisses the QR panel when the user is actually INTERACTING with it (focus is
+  // inside the panel — they tabbed to or clicked the ×). Deliberately NOT a global Esc
+  // binding: Esc already toggles PAUSE and the QR is visible by default, so binding it
+  // globally would shadow pause for every player. Q stays the global keyboard shortcut.
+  if (e.key === 'Escape' && qrOn && qrPanelEl?.contains(document.activeElement)) {
+    e.preventDefault();
+    qrOn = false;
+    updateQrVisibility();
+    return;
   }
   if (e.key === 'p' || e.key === 'P' || e.key === 'Escape') {
     if (e.key === 'Escape') e.preventDefault();   // just toggle the menu, nothing else
