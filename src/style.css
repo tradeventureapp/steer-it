@@ -1541,23 +1541,36 @@ body.desktop #hud-tr {
 }
 /* Retro-arcade "SCAN TO PLAY" join panel — deep purple, neon glow, logo
    wordmark. Matches the phone controller / STEER IT logo. */
-/* CLOSE (×) — the QR panel's only keyboard-free dismissal, so it must be a real
-   touch target: 44×44 (WCAG 2.5.5 "Target Size"), not a glyph you have to aim at.
+/* CLOSE (×) — the QR panel's only keyboard-free dismissal.
+   VISIBLE box is 32×32 (deliberately subtle — it must not compete with the QR code),
+   but the TAP TARGET stays 44×44 via the ::before below. Those two are decoupled on
+   purpose: shrinking the artwork must never shrink the thing a thumb has to hit.
    ⚠️ #qr-panel is pointer-events:none (a click-through HUD so it never eats a click
    meant for the game), so this button MUST opt back in or it is unclickable. */
 .qr-x {
   position: absolute; top: 7px; right: 7px;
   pointer-events: auto;                       /* the panel is click-through — this is not */
   appearance: none; cursor: pointer; padding: 0;
-  width: 44px; height: 44px;                  /* the touch target, independent of the glyph */
+  width: 32px; height: 32px;                  /* VISIBLE size only — see ::before for the target */
   display: flex; align-items: center; justify-content: center;
-  font-family: var(--font-display); font-weight: 800; font-size: 21px; line-height: 1;
+  font-family: var(--font-display); font-weight: 800; font-size: 15px; line-height: 1;
   color: var(--text-dim);
   background: rgba(8, 4, 18, 0.5);
   border: 1.5px solid var(--border-dim);
-  border-radius: 12px;
+  border-radius: 9px;
   transition: color .15s ease, background .15s ease, border-color .15s ease,
               box-shadow .15s ease, transform .1s ease;
+}
+/* THE TOUCH TARGET (WCAG 2.5.5): an invisible 44×44 area centred on the smaller visible
+   button, so a tablet user still gets a comfortable hit box. A pseudo-element is part of
+   its host for hit-testing, so this genuinely extends the button's clickable area — it is
+   not decoration. Never give it a background: it must stay invisible. */
+.qr-x::before {
+  content: '';
+  position: absolute; top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 44px; height: 44px;
+  border-radius: inherit;
 }
 /* Reads as interactive on desktop; the sunset accent is the shared CTA language. */
 .qr-x:hover, .qr-x:focus-visible {
@@ -1568,10 +1581,13 @@ body.desktop #hud-tr {
 }
 .qr-x:focus-visible { outline: 2px solid rgba(255, 194, 74, 0.85); outline-offset: 2px; }
 .qr-x:active { transform: scale(0.92); }
-/* The counterpart: brings the panel BACK once it's been dismissed. Same size + language,
-   pinned where the panel's corner was. `[hidden]` must beat .qr-x's display:flex. */
+/* The counterpart: brings the panel BACK once it's been dismissed, pinned where the
+   panel's corner was. Kept at the FULL 44×44 visible size — unlike the ×, this is the
+   ONLY control on screen while the panel is hidden, so it has nothing to compete with
+   and everything to gain from being findable. `[hidden]` must beat .qr-x's display:flex. */
 .qr-show {
   position: fixed; top: 20px; right: 20px; z-index: 10;
+  width: 44px; height: 44px; border-radius: 12px;
   font-size: 13px; letter-spacing: 1.5px;
 }
 .qr-show[hidden] { display: none; }
