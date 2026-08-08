@@ -62,3 +62,21 @@ export function trackOnce(key: string, name: string, props?: EventProps): boolea
 export function resetOnce(...keys: string[]): void {
   for (const k of keys) fired.delete(k);
 }
+
+/**
+ * A duration as a low-cardinality BUCKET LABEL.
+ *
+ * Raw seconds are useless in an analytics dashboard: every session produces a distinct
+ * value, so the property explodes into thousands of one-hit rows you cannot read or
+ * compare. Five buckets answer the actual question — did they bounce, or did they play?
+ *
+ * Boundaries are inclusive-low / exclusive-high, so 30 000 ms is the first '30s-2m'.
+ */
+export function durationBucket(ms: number): string {
+  const s = Math.max(0, ms) / 1000;
+  if (s < 30) return '0-30s';
+  if (s < 120) return '30s-2m';
+  if (s < 300) return '2-5m';
+  if (s < 900) return '5-15m';
+  return '15m+';
+}

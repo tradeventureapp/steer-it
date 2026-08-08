@@ -22,7 +22,8 @@ import { startPageEscort } from './page-escort';
 import { startHowScene } from './how-anim';
 import { createMusicPlayer } from './music';
 import { collectDiag, noteError, noteStep } from './diag';
-import { trackOnce, resetOnce } from './analytics';
+import { trackOnce, resetOnce, durationBucket } from './analytics';
+import { FreeRideSession } from './session';
 import {
   PLAYER_CAP, LOBBY_SYNC_MS, RESILIENCE, EV, colorName, LobbyState, paletteForMode,
   sanitizeColor, cssColor,
@@ -2932,6 +2933,68 @@ let xpEndHandled = false;            // bank/record exactly once per ended run
 let xpBest = 0;                      // stored best for the ACTIVE car+map (refreshed on start)
 let xpBestKeyActive = '';           // the localStorage key for the run in progress (snapshotted)
 const isXpMode = () => isCircuitMap() && circuitMode === 'xp';
+
+// =============================================================================
+//  FREE RIDE session timing — the funnel's blind spot.
+//
+//  race-started/race-finished only exist in the PREMIUM race mode, so FREE RIDE (what
+//  most visitors actually play) went dark after player-joined. These two events answer
+//  the only question that matters there: did they drive, or did they bounce?
+//
+//  Design notes that decide whether the data is worth anything:
+//   • STARTED means a car is genuinely being DRIVEN, not that the screen loaded. A
+//     bounce that never touches the controls must not count as a session.
+//   • The clock counts VISIBLE time only. A tab left open in a background window would
+//     otherwise report a fake 15m+.
+//   • ENDED is terminal and fires exactly once, whichever signal arrives first —
+//     pagehide, the tab being hidden, or simply LEAVING free ride (menu / race / XP /
+//     editor). Without that last one, quitting to the menu and closing the tab 20
+//     minutes later would be reported as a 20-minute free ride.
+//   • Sampled on a 500 ms timer, deliberately NOT from the physics step or a render
+//     frame: tracking must never sit on the hot path.
+// =============================================================================
+const FR_SAMPLE_MS = 500;
+const FR_MOVING_MPS = 2;     // ~7 km/h — actually driving, not a nudge off the grid
+const freeRide = new FreeRideSession();   // the timing RULES live in session.ts (pure, tested)
+
+const inFreeRide = () =>
+  !menuOpen && !editorMode && !raceWarmup && selectedGameMode === 'free' && !isRaceLive() && !isXpMode();
+const anyCarMoving = () => {
+  for (const c of cars.values()) if (c.state.speed > FR_MOVING_MPS) return true;
+  return false;
+};
+// Turn a state-machine signal into the event. `players` is a COUNT — never an id.
+function emitFreeRide(sig: 'start' | 'end' | null, now: number) {
+  if (sig === 'start') trackOnce('freeride-started', 'freeride-started', { players: cars.size });
+  else if (sig === 'end') {
+    trackOnce('freeride-ended', 'freeride-ended',
+      { bucket: durationBucket(freeRide.elapsedMs(now)), players: cars.size });
+  }
+}
+
+// Sampled on a timer, NOT from the physics step or a render frame.
+window.setInterval(() => {
+  if (freeRide.isEnded()) return;
+  const now = Date.now();
+  if (!freeRide.isStarted()) {
+    if (inFreeRide() && anyCarMoving()) emitFreeRide(freeRide.begin(now), now);
+    return;
+  }
+  // Left free ride (exit to menu, started a race, switched to XP, opened the editor) →
+  // the session is over. Counting on would bill unrelated time to free ride.
+  if (!inFreeRide()) emitFreeRide(freeRide.leave(now), now);
+}, FR_SAMPLE_MS);
+
+// visibilitychange is the reliable MOBILE signal — an app switch can freeze the page so
+// pagehide never arrives in time. Hidden also pauses the clock, so a tab parked in a
+// background window can never report a fake long session.
+document.addEventListener('visibilitychange', () => {
+  const now = Date.now();
+  if (document.visibilityState === 'hidden') emitFreeRide(freeRide.hide(now), now);
+  else freeRide.show(now);
+});
+// pagehide, NOT beforeunload: beforeunload is unreliable on mobile Safari (most traffic).
+window.addEventListener('pagehide', () => { const now = Date.now(); emitFreeRide(freeRide.leave(now), now); });
 
 // XP best is keyed by BOTH car AND map: `steerit.xp.best.<carKey>.<mapId>`. A RWD Blitz vs an AWD
 // Fury, tarmac vs dirt — totally different drifts, so each car+map combo keeps its OWN record; they
