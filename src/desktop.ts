@@ -22,6 +22,7 @@ import { startPageEscort } from './page-escort';
 import { startHowScene } from './how-anim';
 import { createMusicPlayer } from './music';
 import { collectDiag, noteError, noteStep } from './diag';
+import { trackOnce, resetOnce } from './analytics';
 import {
   PLAYER_CAP, LOBBY_SYNC_MS, RESILIENCE, EV, colorName, LobbyState, paletteForMode,
   sanitizeColor, cssColor,
@@ -339,6 +340,10 @@ let qrOn = true;
 // The QR/join panel shows only once a map is loaded (menu dismissed) and qrOn.
 function updateQrVisibility() {
   const inGame = !menuOpen;
+  // FUNNEL: the session is up and phones can join. Fired ONCE — this runs on every
+  // Q toggle and every menu transition, so an unguarded call would count dozens of
+  // times per session and make the top of the funnel meaningless.
+  if (qrOn && inGame) trackOnce('qr-shown', 'qr-shown');
   if (hudTrEl) hudTrEl.style.display = (qrOn && inGame) ? 'block' : 'none';
   // The re-open affordance is the exact complement: shown only while in game with the
   // panel dismissed. Without it a touch host could close the QR and never get the join
@@ -2871,6 +2876,10 @@ function updateLiveStandings(now: number): void {
 // show the podium (top-3 FINISHERS) + a rest list of remaining finishers and DNF
 // stragglers. `now` builds the final standings (finishers + ranked DNF).
 function openRaceResults(now: number) {
+  // FUNNEL: the race ran to completion (everyone finished, or the DNF timeout expired).
+  // Called from the loop's completion poll but guarded by raceResultsOpen upstream AND
+  // by the per-race key here, so it fires exactly once per race, not per frame.
+  trackOnce('race-finished', 'race-finished', { players: cars.size });
   raceResultsOpen = true;
   refreshFreeze();
   if (finishFeedEl) finishFeedEl.hidden = true;
@@ -3022,6 +3031,9 @@ function armStandingStart() {
 function enterRaceWarmup(laps: number) {
   pendingRaceLaps = Math.max(1, laps);
   raceWarmup = true;
+  // A NEW race is being set up (first race or a rematch) → re-arm the per-race events
+  // so the next start/finish is counted. Everything else stays fired-once per session.
+  resetOnce('race-started', 'race-finished');
   circuitMode = 'laps';        // not XP
   editorLaps = 0;              // free roam: no start line ⇒ free driving, no counting
   document.body.classList.remove('circuit-xp');
@@ -3037,6 +3049,10 @@ function enterRaceWarmup(laps: number) {
 function startRaceFromWarmup() {
   if (!raceWarmup) return;
   raceWarmup = false;
+  // FUNNEL: a race actually begins (the grid is set and the 3-2-1 is armed). Keyed per
+  // race — enterRaceWarmup re-arms it — so a rematch is legitimately counted again,
+  // while a re-entrant call within the same race is not.
+  trackOnce('race-started', 'race-started', { players: cars.size });
   skidCtx.clearRect(0, 0, logicalPxW, logicalPxH);   // wipe warm-up skids/marks
   clearMarkLayers();
   for (const car of cars.values()) {
@@ -3269,10 +3285,22 @@ let channelReady = false;
 let sweepGraceUntil = 0;
 const nowIso = () => new Date().toISOString();
 
+// FUNNEL: which phones we've already counted. Ids live ONLY here as Set members —
+// they are never sent to analytics; the event carries the resulting COUNT only.
+const countedPlayers = new Set<string>();
+
 function broadcastLobby() {
   // mode + palette ride along so each phone builds the RIGHT colour picker
   // (SIM → Blitz colours, ARCADE → Stee-Rex silver/black) and drives the right car.
   const payload = { players: lobby.snapshot(), cap: PLAYER_CAP, mode: raceMode, colors: activePalette() };
+  // A phone is "joined" once it holds a slot. This runs on every roster change (both
+  // join paths — the join heartbeat AND handleControl's lazy-join — land here), so the
+  // Set is what makes it exactly one event per phone across reconnects and re-renders.
+  for (const p of payload.players) {
+    if (countedPlayers.has(p.id)) continue;
+    countedPlayers.add(p.id);
+    trackOnce(`player-joined:${countedPlayers.size}`, 'player-joined', { players: countedPlayers.size });
+  }
   // BOTH transports: Realtime for fallback/mid-pairing phones, the reliable
   // "state" DataChannel for P2P phones (they LEFT the Realtime channel).
   rc.send({ type: 'broadcast', event: EV.lobby, payload });

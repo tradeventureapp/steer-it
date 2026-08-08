@@ -11,6 +11,7 @@ import {
   type LobbyPlayer, type ControlSample,
 } from './lobby';
 import { inject } from '@vercel/analytics';
+import { trackOnce } from './analytics';
 
 // Vercel Web Analytics — framework-agnostic vanilla init (NOT the React
 // <Analytics/> component). Injects the tracking script for the phone controller
@@ -196,6 +197,21 @@ function startLobby() {
 
 // Desktop → phone handlers — TRANSPORT-AGNOSTIC (called from the Realtime
 // channel AND the reliable "state" DataChannel).
+// ---- FUNNEL: did this phone ever get control of a car? -----------------------------
+// The number actually worth having: someone scanned the QR and never got to drive.
+//
+// ⚠️ Deliberately NOT wired to the P2P fallback. A phone on the Realtime transport is
+// playing perfectly well — counting that as "failed" would invent a problem that isn't
+// there and bury the real failures. P2P health is a SEPARATE signal (transport-fallback).
+const JOIN_WATCHDOG_MS = 20000;   // generous: a slow network + a busy host still make it
+let joinWatchdog: number | null = window.setTimeout(() => {
+  joinWatchdog = null;
+  trackOnce('phone-failed', 'phone-failed', { reason: 'timeout' });
+}, JOIN_WATCHDOG_MS);
+function clearJoinWatchdog() {
+  if (joinWatchdog !== null) { clearTimeout(joinWatchdog); joinWatchdog = null; }
+}
+
 function handleLobby(payload: unknown) {
   const list = ((payload as { players?: LobbyPlayer[] })?.players ?? []) as LobbyPlayer[];
   // Rebuild the colour picker for the host's chosen mode's palette (if sent).
@@ -203,6 +219,10 @@ function handleLobby(payload: unknown) {
   if (Array.isArray(colors) && colors.length) buildColorPicker(colors);
   const me = list.find((p) => p.id === clientId);
   if (me) {
+    // FUNNEL: holding a slot IS controlling a car — the honest "connected" moment, and
+    // it covers BOTH transports (P2P and the Realtime fallback both get here). Fired
+    // once: lobby messages arrive continuously and on every reclaim/reconnect.
+    if (trackOnce('phone-connected', 'phone-connected')) clearJoinWatchdog();
     lobbyFull = false;
     mySlot = me.slot;
     if (!selectedColor) { selectedColor = me.color; highlightSwatch(); }
@@ -216,6 +236,9 @@ function handleLobby(payload: unknown) {
 }
 function handleFull(payload: unknown) {
   if ((payload as { id?: string })?.id === clientId && mySlot === null) {
+    // The other genuine "never got a car": the room was already full.
+    trackOnce('phone-failed', 'phone-failed', { reason: 'lobby-full' });
+    clearJoinWatchdog();
     lobbyFull = true;
     renderLobby();
   }
@@ -271,6 +294,8 @@ function startRtc() {
   // budget on it would only delay the same outcome.
   if (!peerConnectionCtor()) {
     rtcAttempts = RTC_MAX_ATTEMPTS;
+    // P2P HEALTH (not a failure — the player is fine on Realtime).
+    trackOnce('transport-fallback', 'transport-fallback', { reason: 'no-webrtc' });
     console.info(`[rtc] no WebRTC on this engine (Lockdown Mode / in-app browser) — using Realtime. ${rtcSupportReport()}`);
     return;
   }
@@ -308,6 +333,10 @@ function startRtc() {
         rtc = null;
         if (rtcAttempts < RTC_MAX_ATTEMPTS) {
           rtcRetryTimer = window.setTimeout(() => { rtcRetryTimer = null; startRtc(); }, RTC_RETRY_DELAY_MS);
+        } else {
+          // P2P conceded after the full retry budget → the player continues on Realtime.
+          // Separate from phone-failed ON PURPOSE: this is transport quality, not a lost player.
+          trackOnce('transport-fallback', 'transport-fallback', { reason: 'pairing-timeout' });
         }
       },
       onDead: () => {
