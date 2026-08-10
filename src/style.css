@@ -363,6 +363,45 @@ body.desktop #game { display: block; width: 100vw; height: 100vh; }
 .auth-sec input:focus { outline: none; border-color: rgba(255, 45, 149, 0.7); box-shadow: 0 0 12px rgba(255, 45, 149, 0.3); }
 .auth-sec input::placeholder { color: rgba(197, 182, 230, 0.55); }
 .auth-sec .menu-btn { width: 100%; margin-top: 2px; }
+/* CONTINUE WITH GOOGLE — Google requires their official mark and standard wording, but
+   not their white/grey chrome, which would sit on this sunset card like a sticker. So:
+   our dark glass surface + sunset focus/hover, with the logo kept on the WHITE tile
+   Google's terms ask for (it must never be recoloured or sit on a busy background). */
+.google-btn {
+  width: 100%; display: flex; align-items: center; justify-content: center; gap: 10px;
+  appearance: none; cursor: pointer;
+  padding: 11px 14px; border-radius: 10px;
+  font-family: var(--font-body); font-size: 15px; font-weight: 600; color: #fff;
+  background: rgba(8, 4, 18, 0.6);
+  border: 1.5px solid var(--border-dim);
+  transition: border-color .15s ease, box-shadow .15s ease, background .15s ease, transform .1s ease;
+}
+.google-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 45, 149, 0.7);
+  box-shadow: 0 0 14px rgba(255, 45, 149, 0.3);
+}
+.google-btn:focus-visible { outline: 2px solid rgba(255, 194, 74, 0.85); outline-offset: 2px; }
+.google-btn:active { transform: scale(0.985); }
+.google-btn[disabled] { opacity: .6; cursor: default; }
+/* The mark keeps its own white tile — recolouring or tinting it is not permitted. */
+.google-g {
+  display: flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: 5px; background: #fff; flex: 0 0 auto;
+}
+/* "or" divider between the provider button and the email form. */
+.auth-or {
+  display: flex; align-items: center; gap: 10px;
+  margin: 14px 0 12px; color: var(--text-dim);
+  font-family: var(--font-body); font-size: 12px; text-transform: uppercase; letter-spacing: 1.5px;
+}
+.auth-or::before, .auth-or::after {
+  content: ''; flex: 1 1 auto; height: 1px; background: var(--border-dim);
+}
+@media (prefers-reduced-motion: reduce) {
+  .google-btn { transition: none; } .google-btn:active { transform: none; }
+}
+
 .auth-links { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
 .auth-link {
   appearance: none; background: none; border: none; cursor: pointer;

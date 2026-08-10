@@ -52,7 +52,7 @@ import { inject } from '@vercel/analytics';
 import {
   initAuth, onAuthChange, getAuthState, signIn, signUp, signOut,
   sendPasswordReset, updatePassword, checkEntitlement, getAccessToken,
-  checkNickname, changeNickname, hasSessionHint, type AuthState,
+  checkNickname, changeNickname, hasSessionHint, signInWithGoogle, type AuthState,
 } from './auth';
 import { nicknameFormatError, nicknameCooldownDaysLeft } from './nickname';
 
@@ -1390,7 +1390,7 @@ function setAuthMsg(text: string, isError: boolean) {
   authMsgEl.hidden = !text;
   authMsgEl.classList.toggle('is-error', isError);
 }
-function openAuthModal(section: 'form' | 'forgot' | 'account' | 'recovery') {
+function openAuthModal(section: 'form' | 'forgot' | 'account' | 'recovery' | 'nickname') {
   if (!authModalEl) return;
   if (section === 'form') applyAuthMode();
   // Always open the account panel with the nickname editor collapsed (no stale state).
@@ -1967,6 +1967,50 @@ document.getElementById('auth-password2')?.addEventListener('input', () => {
 document.getElementById('auth-forgot')?.addEventListener('click', () => authSection('forgot'));
 document.getElementById('forgot-back')?.addEventListener('click', () => authSection('form'));
 
+// ---- CONTINUE WITH GOOGLE ----
+// signInWithOAuth navigates AWAY to Google, so there is nothing to await: on success
+// this page is replaced. Only a failure to even start the redirect returns here.
+document.getElementById('auth-google')?.addEventListener('click', () => {
+  const btn = document.getElementById('auth-google') as HTMLButtonElement | null;
+  if (btn) btn.disabled = true;
+  setAuthMsg('Opening Google…', false);
+  void signInWithGoogle().then((r) => {
+    if (r.error) { setAuthMsg(r.error, true); if (btn) btn.disabled = false; }
+  });
+});
+
+// ---- PICK A NICKNAME (OAuth accounts arrive without one) ----
+document.getElementById('oauth-nick-form')?.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const input = document.getElementById('oauth-nick-input') as HTMLInputElement | null;
+  const save = document.getElementById('oauth-nick-save') as HTMLButtonElement | null;
+  const hint = document.getElementById('oauth-nick-hint');
+  const nick = (input?.value || '').trim();
+  if (!nick) return;
+  if (save) save.disabled = true;
+  if (hint) { hint.hidden = false; hint.textContent = 'Checking…'; }
+  void (async () => {
+    // Same server-side rules as signup: format, profanity, uniqueness. The FIRST set
+    // is exempt from the 30-day cooldown (last_nickname_change is null until now).
+    const avail = await checkNickname(nick);
+    if (!avail.ok) {
+      if (hint) hint.textContent = avail.reason === 'taken' ? 'That nickname is taken.'
+        : avail.reason === 'profane' ? 'Please choose another nickname.'
+        : '3–20 characters: A–Z, 0–9, _ or -';
+      if (save) save.disabled = false;
+      return;
+    }
+    const r = await changeNickname(nick);
+    if (save) save.disabled = false;
+    if (!r.ok) {
+      if (hint) hint.textContent = r.reason === 'taken' ? 'That nickname was just taken — try another.' : 'Could not save that nickname.';
+      return;
+    }
+    if (hint) hint.hidden = true;
+    openAuthModal('account');
+  })();
+});
+
 document.getElementById('auth-form')?.addEventListener('submit', (e) => {
   e.preventDefault();
   const email = (document.getElementById('auth-email') as HTMLInputElement).value.trim();
@@ -2095,6 +2139,19 @@ onAuthChange((s) => {
   if (authRedirectResumeDone || s.loading || !s.user) return;
   authRedirectResumeDone = true;
   if (openedViaAuthRedirect) resumePurchaseIfIntended();
+});
+// A Google account arrives with NO nickname (Google doesn't supply one), so it would
+// show as "Player N" everywhere. Prompt once the entitlement read has resolved — that's
+// when `nickname` is server truth rather than a cache guess. Once per page: never nag,
+// and never fight a modal the host already has open.
+let nickPromptDone = false;
+onAuthChange((s) => {
+  if (nickPromptDone || s.loading || !s.user || !s.entitlementKnown) return;
+  if (s.recovery) return;                    // setting a new password takes precedence
+  if (s.nickname) { nickPromptDone = true; return; }
+  if (authModalEl && !authModalEl.hidden) return;   // busy — catch them next load
+  nickPromptDone = true;
+  openAuthModal('nickname');
 });
 // Manual entitlement check for the host to verify premium is recognised:
 // run `steerCheckEntitlement()` in the browser console → logs what the client
