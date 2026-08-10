@@ -88,6 +88,32 @@ const roomKey = params.get('k') || '';
 // swatches at all and wait for the host's palette, which is still the authority either way.
 const urlPalette = paletteForMode(params.get('m'));
 
+// =============================================================================
+//  FUNNEL DIAGNOSTICS — where does a scan die?
+//
+//  `qr-shown` counts hosts showing a QR; the phone-side events counted far fewer.
+//  That gap could be "nobody scanned" OR "they scanned and the page died", and the
+//  two need completely different fixes. These events split them apart.
+//
+//  All values are fixed enum strings — never the code, the key, an id or a name.
+// =============================================================================
+trackOnce('phone-boot', 'phone-boot');   // THE DENOMINATOR: this page actually ran
+
+// A link that cannot possibly work: no `?s=` (nothing to join) or no `&k=` (the room
+// secret is part of the Realtime TOPIC, so without it we subscribe somewhere the host
+// isn't and wait forever).
+//
+// ⚠️ This only catches a MALFORMED link. A STALE one — a well-formed `s`+`k` from a
+// session that has since ended — is indistinguishable from a good link here; the phone
+// subscribes happily and simply never hears a host. That case shows up instead as
+// `phone-failed {stage:'subscribed-no-lobby-msg'}` below.
+if (!code) trackOnce('phone-bad-link', 'phone-bad-link', { missing: 'code' });
+else if (!roomKey) trackOnce('phone-bad-link', 'phone-bad-link', { missing: 'key' });
+
+// What the watchdog reports about HOW FAR the phone got (see JOIN_WATCHDOG_MS).
+let everSubscribed = false;
+let everGotLobbyMsg = false;
+
 const stageEl     = document.getElementById('phone-stage')    as HTMLDivElement;
 const unlockBtn   = document.getElementById('unlock')         as HTMLButtonElement;
 const pedalsEl    = document.getElementById('pedals')         as HTMLDivElement;
@@ -206,13 +232,25 @@ function startLobby() {
 const JOIN_WATCHDOG_MS = 20000;   // generous: a slow network + a busy host still make it
 let joinWatchdog: number | null = window.setTimeout(() => {
   joinWatchdog = null;
-  trackOnce('phone-failed', 'phone-failed', { reason: 'timeout' });
+  // STAGE = how far the phone actually got before giving up. This is the property that
+  // turns "2 phones failed" into an actionable cause:
+  //   no-subscribe ............ Realtime never came up (network / Supabase / blocked WS)
+  //   subscribed-no-lobby-msg . we're on a topic but NO host ever answered — a stale or
+  //                             wrong-room link, or the host left the game screen
+  //   lobby-msg-but-no-slot ... a host IS there and talking, but we're not in the roster
+  const stage = !everSubscribed ? 'no-subscribe'
+    : !everGotLobbyMsg ? 'subscribed-no-lobby-msg'
+      : 'lobby-msg-but-no-slot';
+  trackOnce('phone-failed', 'phone-failed', { reason: 'timeout', stage });
 }, JOIN_WATCHDOG_MS);
 function clearJoinWatchdog() {
   if (joinWatchdog !== null) { clearTimeout(joinWatchdog); joinWatchdog = null; }
 }
 
 function handleLobby(payload: unknown) {
+  // A host answered us — true on EITHER transport (Realtime or the state DataChannel).
+  // Distinguishes "nobody is listening on this topic" from "we're just not in the roster".
+  everGotLobbyMsg = true;
   const list = ((payload as { players?: LobbyPlayer[] })?.players ?? []) as LobbyPlayer[];
   // Rebuild the colour picker for the host's chosen mode's palette (if sent).
   const colors = (payload as { colors?: { name: string; hex: string }[] })?.colors;
@@ -356,13 +394,30 @@ function startRtc() {
 }
 
 // Resilient channel: reconnects after a blip so input resumes without a rescan.
+// Did the Realtime channel EVER come up? Reported once, on the first resolution, so later
+// reconnect churn can't skew it. This is what separates "the transport never started"
+// from "the transport was fine, nobody answered".
+//
+// Only two states, deliberately: `subscribed` or `timeout`. There is no 'error' state
+// because the resilient channel only invokes onDrop for a channel that WAS ready
+// (supabase.ts: `if (wasReady) hooks.onDrop?.()`), so a never-subscribing channel never
+// reports one — it silently retries with backoff. `timeout` is therefore the only honest
+// signal for "never came up", and wiring an unreachable 'error' would just be dead code.
+const CHANNEL_REPORT_MS = 10000;
+const reportChannel = (state: string) => trackOnce('phone-channel', 'phone-channel', { state });
+window.setTimeout(() => reportChannel('timeout'), CHANNEL_REPORT_MS);
+
 const rc = createResilientChannel(
   channelName(code, roomKey), { broadcast: { self: false } }, wirePhone,
   {
     label: 'phone',
     // Re-announce on every (re)connect + kick off the P2P pairing (fresh offer;
     // covers first load AND the resume() path after a dead P2P transport).
-    onReady: () => { startLobby(); sendJoin(); startRtc(); },
+    onReady: () => {
+      everSubscribed = true;
+      reportChannel('subscribed');
+      startLobby(); sendJoin(); startRtc();
+    },
   },
 );
 window.addEventListener('pagehide', sendLeave);
