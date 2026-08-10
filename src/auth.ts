@@ -330,24 +330,14 @@ export async function signInWithGoogle(): Promise<{ error?: string }> {
 
 export async function signIn(email: string, password: string): Promise<{ error?: string }> {
   // Normalise so a user who typed an alias signs into the SAME account.
-  // TRANSITIONAL FALLBACK — try the address AS TYPED first, then the normalised form.
-  //
-  // New accounts store the address as typed, but accounts created before that change
-  // stored the MUTATED form (Gmail dots + "+tags" stripped). Without this fallback the
-  // two changes — deploying this code, and correcting those rows in the database —
-  // would each break email login for the other's duration: deploy first and a dotted
-  // address no longer matches the dotless row; fix the rows first and the old code
-  // still sends the dotless form. Trying both closes that window in EITHER order, and
-  // becomes dead weight (safely) once no legacy rows remain.
-  const typed = (email || '').trim().toLowerCase();
-  const { error } = await supabase.auth.signInWithPassword({ email: typed, password });
-  if (!error) return {};
-  const legacy = normalizeEmail(email);
-  if (legacy !== typed) {
-    const retry = await supabase.auth.signInWithPassword({ email: legacy, password });
-    if (!retry.error) return {};
-  }
-  return { error: msg(error) };
+  // Sign in with the address AS TYPED — the same form signUp stores, so it matches
+  // exactly. (NOT normalizeEmail: that would send the dot-stripped form and fail to
+  // match a real Gmail address like steer.it@gmail.com.)
+  const { error } = await supabase.auth.signInWithPassword({
+    email: (email || '').trim().toLowerCase(), password,
+  });
+  if (error) return { error: msg(error) };
+  return {};
 }
 
 export async function signOut(): Promise<void> {
@@ -359,30 +349,22 @@ export async function signOut(): Promise<void> {
   await supabase.auth.signOut();
 }
 
-// Both of these take the SAME transitional care as signIn: address as typed first, and
-// also the legacy normalised form when it differs. These endpoints deliberately do NOT
-// error on an unknown address (so they can't be used to probe which emails exist), which
-// means a single miss would fail SILENTLY — the user waits for a mail that never comes.
-// Sending to both closes that window; at most one of the two matches an account.
+// Address AS TYPED, matching how signUp stores it. These endpoints deliberately do NOT
+// error on an unknown address (so they can't be used to probe which emails exist), so
+// sending the wrong form would fail SILENTLY — the user waits for a mail that never
+// comes. Typed is the stored form, so there is nothing to reconcile.
 export async function sendPasswordReset(email: string): Promise<{ error?: string }> {
-  const typed = (email || '').trim().toLowerCase();
-  const legacy = normalizeEmail(email);
-  const { error } = await supabase.auth.resetPasswordForEmail(typed, { redirectTo: redirectTo() });
-  if (legacy !== typed) {
-    await supabase.auth.resetPasswordForEmail(legacy, { redirectTo: redirectTo() }).catch(() => { /* best effort */ });
-  }
+  const { error } = await supabase.auth.resetPasswordForEmail(
+    (email || '').trim().toLowerCase(), { redirectTo: redirectTo() });
   if (error) return { error: msg(error) };
   return {};
 }
 
 export async function resendVerification(email: string): Promise<{ error?: string }> {
-  const typed = (email || '').trim().toLowerCase();
-  const legacy = normalizeEmail(email);
-  const { error } = await supabase.auth.resend({ type: 'signup', email: typed, options: { emailRedirectTo: redirectTo() } });
-  if (legacy !== typed) {
-    try { await supabase.auth.resend({ type: 'signup', email: legacy, options: { emailRedirectTo: redirectTo() } }); }
-    catch { /* best effort */ }
-  }
+  const { error } = await supabase.auth.resend({
+    type: 'signup', email: (email || '').trim().toLowerCase(),
+    options: { emailRedirectTo: redirectTo() },
+  });
   if (error) return { error: msg(error) };
   return {};
 }
