@@ -214,6 +214,26 @@ body.desktop #game { display: block; width: 100vw; height: 100vh; }
   position: relative; min-height: 100svh;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
 }
+/* PRODUCT HUNT badge — a secondary mark under the hero CTA, never a second button.
+   The box is sized EXPLICITLY (250×54, the badge's own dimensions) so the space is
+   reserved before the image arrives: a slow, blocked or ad-blocked PH request then
+   causes ZERO layout shift instead of jolting the hero as it loads. */
+.ph-badge {
+  width: 250px; height: 54px;
+  margin: 16px auto 0;
+  opacity: 0.85;                       /* subdued so it doesn't compete with TRY FREE */
+  transition: opacity .15s ease;
+}
+.ph-badge:hover { opacity: 1; }
+/* FAILED (PH down / blocked / offline — set by desktop.ts): drop the broken image but
+   KEEP the reserved box. Collapsing it instead would re-centre the hero column and jog
+   the CTA ~35px — a visible jump for every ad-blocker user, which is exactly the shift
+   the reservation exists to prevent. An empty 250×54 gap is invisible; a jump is not. */
+.ph-badge.is-failed img { display: none; }
+.ph-badge a { display: block; width: 250px; height: 54px; }
+.ph-badge img { display: block; width: 250px; height: 54px; border: 0; }
+@media (prefers-reduced-motion: reduce) { .ph-badge { transition: none; } }
+
 /* A quiet nudge to scroll for the concept below the fold. */
 .scroll-cue {
   position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 2;
