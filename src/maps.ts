@@ -2906,7 +2906,7 @@ const AUTHORED_SKETCH: Array<[number, number]> = [
   [1776,551],[1774,633],[1797,680],[1740,719],[1611,713],[1520,715],[1397,710],
   [1271,712],
 ];
-const AUTHORED_BAND = 134;
+const AUTHORED_BAND = 150;
 // DIRT section — a contiguous arc [i0→i1] of the 1000-pt ribbon (forward, wrap
 // allowed), marked in the editor; null = all-asphalt. Same model as RALLYCROSS_DIRT.
 const AUTHORED_DIRT: { i0: number; i1: number } | null = { i0: 205, i1: 664 };
