@@ -107,8 +107,11 @@ trackOnce('phone-boot', 'phone-boot');   // THE DENOMINATOR: this page actually 
 // session that has since ended — is indistinguishable from a good link here; the phone
 // subscribes happily and simply never hears a host. That case shows up instead as
 // `phone-failed {stage:'subscribed-no-lobby-msg'}` below.
-if (!code) trackOnce('phone-bad-link', 'phone-bad-link', { missing: 'code' });
-else if (!roomKey) trackOnce('phone-bad-link', 'phone-bad-link', { missing: 'key' });
+// NOTE the split between KEY and NAME below (and at every other variant site): the key
+// is CONSTANT so the once-guard covers all variants of the same fact, while the name
+// carries the variant so it shows as its own row in a dashboard that only lists names.
+if (!code) trackOnce('phone-bad-link', 'phone-bad-link-code', { missing: 'code' });
+else if (!roomKey) trackOnce('phone-bad-link', 'phone-bad-link-key', { missing: 'key' });
 
 // What the watchdog reports about HOW FAR the phone got (see JOIN_WATCHDOG_MS).
 let everSubscribed = false;
@@ -241,7 +244,10 @@ let joinWatchdog: number | null = window.setTimeout(() => {
   const stage = !everSubscribed ? 'no-subscribe'
     : !everGotLobbyMsg ? 'subscribed-no-lobby-msg'
       : 'lobby-msg-but-no-slot';
-  trackOnce('phone-failed', 'phone-failed', { reason: 'timeout', stage });
+  // KEY 'phone-failed' (constant) + NAME carrying the stage. The constant key is what
+  // guarantees ONE failure per session: a phone that reports no-subscribe here can never
+  // later also fire the lobby-full variant below, because both share this key.
+  trackOnce('phone-failed', `phone-failed-${stage}`, { reason: 'timeout', stage });
 }, JOIN_WATCHDOG_MS);
 function clearJoinWatchdog() {
   if (joinWatchdog !== null) { clearTimeout(joinWatchdog); joinWatchdog = null; }
@@ -275,7 +281,7 @@ function handleLobby(payload: unknown) {
 function handleFull(payload: unknown) {
   if ((payload as { id?: string })?.id === clientId && mySlot === null) {
     // The other genuine "never got a car": the room was already full.
-    trackOnce('phone-failed', 'phone-failed', { reason: 'lobby-full' });
+    trackOnce('phone-failed', 'phone-failed-lobby-full', { reason: 'lobby-full' });
     clearJoinWatchdog();
     lobbyFull = true;
     renderLobby();
@@ -333,7 +339,7 @@ function startRtc() {
   if (!peerConnectionCtor()) {
     rtcAttempts = RTC_MAX_ATTEMPTS;
     // P2P HEALTH (not a failure — the player is fine on Realtime).
-    trackOnce('transport-fallback', 'transport-fallback', { reason: 'no-webrtc' });
+    trackOnce('transport-fallback', 'transport-fallback-no-webrtc', { reason: 'no-webrtc' });
     console.info(`[rtc] no WebRTC on this engine (Lockdown Mode / in-app browser) — using Realtime. ${rtcSupportReport()}`);
     return;
   }
@@ -374,7 +380,7 @@ function startRtc() {
         } else {
           // P2P conceded after the full retry budget → the player continues on Realtime.
           // Separate from phone-failed ON PURPOSE: this is transport quality, not a lost player.
-          trackOnce('transport-fallback', 'transport-fallback', { reason: 'pairing-timeout' });
+          trackOnce('transport-fallback', 'transport-fallback-pairing-timeout', { reason: 'pairing-timeout' });
         }
       },
       onDead: () => {
@@ -404,7 +410,7 @@ function startRtc() {
 // reports one — it silently retries with backoff. `timeout` is therefore the only honest
 // signal for "never came up", and wiring an unreachable 'error' would just be dead code.
 const CHANNEL_REPORT_MS = 10000;
-const reportChannel = (state: string) => trackOnce('phone-channel', 'phone-channel', { state });
+const reportChannel = (state: string) => trackOnce('phone-channel', `phone-channel-${state}`, { state });
 window.setTimeout(() => reportChannel('timeout'), CHANNEL_REPORT_MS);
 
 const rc = createResilientChannel(

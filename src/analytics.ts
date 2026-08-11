@@ -64,6 +64,29 @@ export function resetOnce(...keys: string[]): void {
 }
 
 /**
+ * Make an enum/bucket label safe to append to an EVENT NAME ('15m+' → '15m-plus').
+ *
+ * WHY VARIANTS LIVE IN THE NAME AT ALL: Vercel Web Analytics only reliably shows event
+ * NAMES and counts on our plan — the per-property breakdown is not visible (Pro allows
+ * just 2 properties per event, and the drill-down appears to be a Plus feature). A
+ * breakdown that can't be read is not a measurement, so the variant goes in the name
+ * where it always shows as its own row. The property is sent as well, so it lights up
+ * for free if Web Analytics Plus is ever enabled.
+ *
+ * ⚠️ The variant must NEVER be folded into the trackOnce KEY — see the call sites: the
+ * key stays constant so one session still reports exactly ONE failure, whichever
+ * variant it turns out to be.
+ */
+export function nameSlug(label: string): string {
+  return label
+    .replace(/\+/g, '-plus')          // '15m+' → '15m-plus' (keep it name-safe)
+    .replace(/[^a-z0-9-]+/gi, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .toLowerCase();
+}
+
+/**
  * A duration as a low-cardinality BUCKET LABEL.
  *
  * Raw seconds are useless in an analytics dashboard: every session produces a distinct

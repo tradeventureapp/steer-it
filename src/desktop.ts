@@ -22,7 +22,7 @@ import { startPageEscort } from './page-escort';
 import { startHowScene } from './how-anim';
 import { createMusicPlayer } from './music';
 import { collectDiag, noteError, noteStep } from './diag';
-import { trackOnce, resetOnce, durationBucket } from './analytics';
+import { trackOnce, resetOnce, durationBucket, nameSlug } from './analytics';
 import { FreeRideSession } from './session';
 import {
   PLAYER_CAP, LOBBY_SYNC_MS, RESILIENCE, EV, colorName, LobbyState, paletteForMode,
@@ -3042,8 +3042,12 @@ const anyCarMoving = () => {
 function emitFreeRide(sig: 'start' | 'end' | null, now: number) {
   if (sig === 'start') trackOnce('freeride-started', 'freeride-started', { players: cars.size });
   else if (sig === 'end') {
-    trackOnce('freeride-ended', 'freeride-ended',
-      { bucket: durationBucket(freeRide.elapsedMs(now)), players: cars.size });
+    // The BUCKET is the entire point of this event, so it goes in the NAME — a breakdown
+    // that can't be read in the dashboard measures nothing. Key stays constant so the
+    // session still ends exactly once whichever bucket it lands in.
+    const bucket = durationBucket(freeRide.elapsedMs(now));
+    trackOnce('freeride-ended', `freeride-ended-${nameSlug(bucket)}`,
+      { bucket, players: cars.size });
   }
 }
 
