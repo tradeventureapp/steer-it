@@ -459,7 +459,29 @@ export const FURY_SPEC: VehicleSpec = {
   phys4: FURY_PHYS4,                       // its OWN real per-wheel sim physics (AWD rallycross)
   dims: FURY_DIMS,
   fxScale: 1.4,                           // rallycross → a bigger off-road throw
-  sprite: { car: 'fury', skin: 'lombard' },
+  sprite: { car: 'fury', skin: 'white' },   // default / fallback = the original white livery
 };
+
+// The Fury shares the SAME 8-colour palette as the other two cars — the phone picker already
+// sends one of these hexes. Recolouring is a masked multiply on the body region declared by
+// public/Fury-mask.png; the glass, chevrons, logo tile and taillights are excluded there.
+// Every skin is the SAME car: it spreads FURY_SPEC, so `phys4`/`dims` are byte-identical
+// across all 8 and only the livery differs. Blitz has no `phys4` at all ⇒ its golden is
+// untouched by any of this.
+const FURY_SKINS: FurySkin[] = ['silver', 'black', 'blue', 'red', 'purple', 'white', 'orange', 'yellow'];
+function furySpec(skin: FurySkin): VehicleSpec {
+  return { ...FURY_SPEC, sprite: { car: 'fury', skin } };
+}
+export const FURY_SPECS: Record<FurySkin, VehicleSpec> = {
+  silver: furySpec('silver'), black: furySpec('black'), blue: furySpec('blue'),
+  red: furySpec('red'), purple: furySpec('purple'), white: FURY_SPEC,
+  orange: furySpec('orange'), yellow: furySpec('yellow'),
+};
+/** The Fury skin a picked swatch hex resolves to (unknown → 'white', the original livery). */
+export function furySkinForColor(hex: string): FurySkin {
+  const h = hex.trim().toLowerCase();
+  const i = STEEREX_SKIN_COLORS.findIndex((c) => c.hex.toLowerCase() === h);
+  return i >= 0 ? FURY_SKINS[i] : 'white';
+}
 
 export const VEHICLE_SPECS: VehicleSpec[] = [ROAD_SPEC, STEEREX_SILVER, STEEREX_BLACK];

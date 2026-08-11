@@ -29,9 +29,9 @@ import {
   sanitizeColor, cssColor,
 } from './lobby';
 import { ROAD_SPEC, STEEREX_SILVER, STEEREX_SPECS, steerexSkinForColor, BLITZ_SPECS, blitzSkinForColor,
-  BLITZ_RS_COLORS, FURY_SPEC, type VehicleSpec, type CarColor } from './vehicles';
+  BLITZ_RS_COLORS, FURY_SPEC, FURY_SPECS, furySkinForColor, type VehicleSpec, type CarColor } from './vehicles';
 import { steerexSprite, steerexScaled, steerexOpaque, preloadSteerex, type SteerexSkin } from './steerex-sprite';
-import { furySprite, furyScaled, furyOpaque, preloadFury } from './fury-sprite';
+import { furySprite, furyScaled, furyOpaque, preloadFury, type FurySkin } from './fury-sprite';
 import { blitzSprite, blitzScaled, blitzOpaque, preloadBlitz, type BlitzSkin } from './blitz-sprite';
 import { step4, PHYS4, wheelDebug, type Physics4Params } from './physics4';
 
@@ -1189,7 +1189,7 @@ function drawFuryImage(cvs: HTMLCanvasElement, dpr: number) {
   const W = cvs.width / dpr, H = cvs.height / dpr;
   c.setTransform(dpr, 0, 0, dpr, 0, 0);
   c.clearRect(0, 0, W, H);
-  const sprite = furySprite('lombard');
+  const sprite = furySprite('white');   // menu tile / flyout = the original white livery
   if (!sprite) { window.setTimeout(() => drawFuryImage(cvs, dpr), 120); return; }
   const op = furyOpaque();
   const sx = op ? op.cxPx - op.widPx / 2 : 0;
@@ -2715,7 +2715,9 @@ function specForColor(hex: string): VehicleSpec {
   // SIM: Blitz RS by default; the DEV host may instead pick the Fury 200 EVO test
   // car in the car picker (furySelected() is dev-gated, so a normal host can never
   // resolve to FURY_SPEC even if selectedCarKey were somehow 'fury').
-  if (raceMode !== 'arcade') return furySelected() ? FURY_SPEC : BLITZ_SPECS[blitzSkinForColor(hex)];
+  if (raceMode !== 'arcade') {
+    return furySelected() ? FURY_SPECS[furySkinForColor(hex)] : BLITZ_SPECS[blitzSkinForColor(hex)];
+  }
   // ARCADE: each of the 8 Stee-Rex swatch hexes → its metallic skin spec (unknown → silver).
   return STEEREX_SPECS[steerexSkinForColor(hex)];
 }
@@ -4447,7 +4449,8 @@ function drawSteerex(car: Car, skin: SteerexSkin) {
 
 // Dev-only Fury sprite — same blit path as Stee-Rex (width-anchored to its real dims).
 function drawFury(car: Car) {
-  const cv = furySprite('lombard');
+  const skin: FurySkin = car.spec.sprite?.car === 'fury' ? car.spec.sprite.skin : 'white';
+  const cv = furySprite(skin);
   const op = furyOpaque();
   if (!cv || !op) return;   // not decoded/measured yet — preloaded on dev reveal, momentary
   const s = car.state;
@@ -4456,7 +4459,7 @@ function drawFury(car: Car) {
   const m = ctx.getTransform();
   const ctxScale = Math.hypot(m.a, m.b) || 1;
   const onScreenLenDev = op.lenPx * scale * ctxScale;
-  const mip = furyScaled('lombard', onScreenLenDev * 2)
+  const mip = furyScaled(skin, onScreenLenDev * 2)
     ?? { cv, widPx: op.widPx, cxPx: op.cxPx, cyPx: op.cyPx };
   const mipScale = (widM * PX()) / mip.widPx;
   const prevSmooth = ctx.imageSmoothingEnabled, prevQ = ctx.imageSmoothingQuality;

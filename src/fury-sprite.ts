@@ -10,11 +10,36 @@
 //  works as a sprite over any surface — the car's own dark parts, interior to the
 //  silhouette, are kept), then measure the opaque bbox for the pivot + scale. The
 //  same blit path as Stee-Rex draws it, width-anchored to the Fury's real widthM.
-//  Drop a logo-cleaned PNG in at the same path and it just works (a transparent OR
-//  black background both bake correctly).
+//
+//  ---- THE 8 COLOURS: WHY A MASK ASSET AND NOT A COLOUR RULE --------------------
+//  Blitz recolours itself with a pure arithmetic test (light + desaturated = body).
+//  That rule CANNOT work here: Fury carries branding, and its glass (rgb ~168,184,204,
+//  saturation 36) sits close enough to white bodywork to be swept up, while its white
+//  decals are the EXACT same RGB as white bodywork — no colour-only rule can separate
+//  those two, and a connected-component rule fails as well because the bodywork itself
+//  splits into several large regions.
+//
+//  So the body region is stated explicitly by `public/Fury-mask.png` (WHITE = recolour,
+//  BLACK = leave). It is pixel-aligned with the sprite, greyscale, ~13 KB. That also
+//  makes the 8 colours geometrically IDENTICAL by construction — one source bitmap, so
+//  no shape/shadow/perspective drift between colours (and the hitbox never depends on
+//  the art anyway: it comes from FURY_DIMS).
 // =============================================================================
 
-export type FurySkin = 'lombard';
+// The 8 shared body colours — SAME order + hexes as STEEREX_SKIN_COLORS / BlitzSkin, so all
+// three cars answer the one phone picker. `blitzSkinForColor`'s sibling lives in vehicles.ts.
+export type FurySkin = 'silver' | 'black' | 'blue' | 'red' | 'purple' | 'white' | 'orange' | 'yellow';
+
+const SKIN_TINT: Record<FurySkin, [number, number, number]> = {
+  silver: [201, 206, 214],   // #c9ced6
+  black:  [42, 45, 52],      // #2a2d34
+  blue:   [47, 108, 203],    // #2f6ccb
+  red:    [204, 43, 56],     // #cc2b38
+  purple: [124, 75, 198],    // #7c4bc6
+  white:  [242, 240, 236],   // #f2f0ec
+  orange: [224, 106, 28],    // #e06a1c
+  yellow: [234, 182, 28],    // #eab61c
+};
 
 const SRC = '/Fury.png';                 // served from public/ at the site root
 // BACKGROUND = near PURE BLACK (every channel ≤ this), NOT just low luma. The Fury art has
@@ -25,8 +50,13 @@ const SRC = '/Fury.png';                 // served from public/ at the site root
 // is removed. (Kept < the mirror's 17 so the mirrors survive.)
 const BG_MAX = 14;
 
+const MASK_SRC = '/Fury-mask.png';       // WHITE = recolour this pixel, BLACK = keep as-is
+
 const _cache = new Map<FurySkin, HTMLCanvasElement>();
-const _loading = new Set<FurySkin>();
+// The stripped base + the body mask, decoded ONCE; every skin is baked from these.
+let _base: { data: Uint8ClampedArray; W: number; H: number } | null = null;
+let _mask: Uint8Array | null = null;
+let _baseLoading = false;
 let _opaque: { lenPx: number; widPx: number; cxPx: number; cyPx: number } | null = null;
 
 /** The measured opaque bbox of the Fury bitmap (null until it bakes). */
@@ -50,14 +80,12 @@ function stripBackground(d: Uint8ClampedArray, W: number, H: number) {
   }
 }
 
-function measureOpaque(cv: HTMLCanvasElement) {
-  const c = cv.getContext('2d', { willReadFrequently: true });
-  if (!c) return;
-  const d = c.getImageData(0, 0, cv.width, cv.height).data;
-  let x0 = cv.width, y0 = cv.height, x1 = -1, y1 = -1;
-  for (let y = 0; y < cv.height; y++) {
-    for (let x = 0; x < cv.width; x++) {
-      if (d[(y * cv.width + x) * 4 + 3] > 8) {
+// Opaque bbox measured straight off the stripped RGBA — no canvas round-trip needed.
+function measureOpaqueData(d: Uint8ClampedArray, W: number, H: number) {
+  let x0 = W, y0 = H, x1 = -1, y1 = -1;
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      if (d[(y * W + x) * 4 + 3] > 8) {
         if (x < x0) x0 = x; if (x > x1) x1 = x;
         if (y < y0) y0 = y; if (y > y1) y1 = y;
       }
@@ -67,45 +95,91 @@ function measureOpaque(cv: HTMLCanvasElement) {
   _opaque = { lenPx: y1 - y0 + 1, widPx: x1 - x0 + 1, cxPx: (x0 + x1 + 1) / 2, cyPx: (y0 + y1 + 1) / 2 };
 }
 
+// Decode a PNG to RGBA once. Used for BOTH the sprite and the mask.
+function decodeToData(src: string): Promise<{ data: Uint8ClampedArray; W: number; H: number }> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.src = src;
+    const read = () => {
+      const W = img.naturalWidth, H = img.naturalHeight;
+      if (!W || !H) { reject(new Error('empty image')); return; }
+      const cv = document.createElement('canvas');
+      cv.width = W; cv.height = H;
+      const c = cv.getContext('2d', { willReadFrequently: true });
+      if (!c) { reject(new Error('no 2d context')); return; }
+      c.drawImage(img, 0, 0);
+      resolve({ data: c.getImageData(0, 0, W, H).data, W, H });
+    };
+    const fail = () => reject(new Error('decode failed'));
+    if (typeof img.decode === 'function') img.decode().then(read).catch(fail);
+    else { img.onload = read; img.onerror = fail; }
+  });
+}
+
+// One-time decode of the sprite + mask. Skins bake off these.
+function kickBase(): void {
+  if (_base || _baseLoading) return;
+  _baseLoading = true;
+  Promise.all([decodeToData(SRC), decodeToData(MASK_SRC)]).then(([base, mask]) => {
+    stripBackground(base.data, base.W, base.H);
+    // The mask MUST be pixel-aligned with the sprite. If it isn't (a re-export at the
+    // wrong size), recolouring would smear across the branding — so refuse the mask and
+    // ship the car in its original livery rather than a corrupted one.
+    if (mask.W !== base.W || mask.H !== base.H) {
+      console.warn(`[fury] mask ${mask.W}x${mask.H} != sprite ${base.W}x${base.H} — recolour disabled`);
+    } else {
+      const m = new Uint8Array(base.W * base.H);
+      for (let p = 0; p < m.length; p++) m[p] = mask.data[p * 4] > 128 ? 1 : 0;   // threshold at mid-grey
+      _mask = m;
+    }
+    _base = base;
+    measureOpaqueData(base.data, base.W, base.H);
+  }).catch(() => { _baseLoading = false; });   // transient → allow a later retry
+}
+
+// Copy the stripped base and multiply the MASKED pixels toward the tint. Multiplying by the
+// pixel's own brightness is what preserves the render's shading instead of flat-filling it.
+function bakeSkin(skin: FurySkin): HTMLCanvasElement | null {
+  if (!_base) return null;
+  const { data: src, W, H } = _base;
+  const cv = document.createElement('canvas');
+  cv.width = W; cv.height = H;
+  const c = cv.getContext('2d');
+  if (!c) return null;
+  const id = c.createImageData(W, H);
+  const dst = id.data;
+  const [tr, tg, tb] = SKIN_TINT[skin];
+  for (let i = 0, p = 0; i < src.length; i += 4, p++) {
+    const a = src[i + 3];
+    const r = src[i], g = src[i + 1], b = src[i + 2];
+    dst[i] = r; dst[i + 1] = g; dst[i + 2] = b; dst[i + 3] = a;
+    if (a <= 8 || !_mask || !_mask[p]) continue;
+    const br = Math.max(r, g, b) / 255;
+    dst[i] = Math.round(tr * br);
+    dst[i + 1] = Math.round(tg * br);
+    dst[i + 2] = Math.round(tb * br);
+  }
+  c.putImageData(id, 0, 0);
+  return cv;
+}
+
 /**
- * The cached Fury bitmap (transparent background, nose UP, its opaque centre = the rotation
- * pivot). Null until the PNG has decoded + baked — kicks the async bake on the first call.
+ * The cached Fury bitmap for a colour skin (transparent background, nose UP, opaque centre =
+ * the rotation pivot). Null until the sprite + mask have decoded — kicks that once, then
+ * bakes and caches each skin on demand.
  */
-export function furySprite(skin: FurySkin = 'lombard'): HTMLCanvasElement | null {
+export function furySprite(skin: FurySkin = 'white'): HTMLCanvasElement | null {
   if (typeof document === 'undefined') return null;
   const hit = _cache.get(skin);
   if (hit) return hit;
-  if (!_loading.has(skin)) {
-    _loading.add(skin);
-    const img = new Image();
-    img.src = SRC;
-    const bake = () => {
-      try {
-        const W = img.naturalWidth, H = img.naturalHeight;
-        if (!W || !H) { _loading.delete(skin); return; }
-        const cv = document.createElement('canvas');
-        cv.width = W; cv.height = H;
-        const c = cv.getContext('2d', { willReadFrequently: true });
-        if (!c) { _loading.delete(skin); return; }
-        c.drawImage(img, 0, 0);
-        const id = c.getImageData(0, 0, W, H);
-        stripBackground(id.data, W, H);
-        c.putImageData(id, 0, 0);
-        _cache.set(skin, cv);
-        if (!_opaque) measureOpaque(cv);
-      } catch {
-        _loading.delete(skin);   // bake threw (memory / tainted) → allow a later retry
-      }
-    };
-    const fail = () => { _loading.delete(skin); };
-    if (typeof img.decode === 'function') img.decode().then(bake).catch(fail);
-    else { img.onload = bake; img.onerror = fail; }
-  }
-  return null;
+  if (!_base) { kickBase(); return null; }
+  const cv = bakeSkin(skin);
+  if (cv) _cache.set(skin, cv);
+  return cv;
 }
 
-/** Warm the sprite so a Fury car is never invisible on first spawn. */
-export function preloadFury(): void { furySprite('lombard'); }
+/** Warm the decode so a Fury car is never invisible on first spawn. */
+export function preloadFury(): void { furySprite('white'); }
 
 // ---- MIPMAP DOWNSCALE CACHE (crisp small render) — same approach as Stee-Rex ----
 export interface FuryMip { cv: HTMLCanvasElement; widPx: number; cxPx: number; cyPx: number; }
