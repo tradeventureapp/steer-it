@@ -22,9 +22,9 @@ Core hook: **phone as a steering wheel + drifting across a desktop + zero-fricti
 
 Live at **`steerit.app`** (the QR is built from `VITE_PUBLIC_BASE_URL`, not the deployment-hash
 URL; `steer-it.vercel.app` also serves it, `noindex`ed). **Business model is LIVE:** free to
-play + a one-time **$6.90 Premium** (Stripe, real payments — see §6). Two cars exist today:
-**Blitz RS** (the SIM car) and **Stee-Rex** (the arcade car); a third, **Fury 200 EVO**, is a
-dev-only SIM test car (§13).
+play + a one-time **$6.90 Premium** (Stripe, real payments — see §6). Three cars: **Blitz RS** and
+**Fury 200 EVO** (SIM, both premium) and **Stee-Rex** (arcade, free). All three share ONE 8-colour
+palette picked on the phone (§13).
 
 ---
 
@@ -92,7 +92,8 @@ dev-only SIM test car (§13).
   `dims`, `sprite`, `fxScale`), `ROAD_SPEC` (Blitz), `STEEREX_SILVER/BLACK`, `FURY_SPEC` + dims +
   colour palettes. Pure data — NO real make/model names anywhere.
 - `steerex-sprite.ts` / `fury-sprite.ts` — the two SVG sprite cars, rasterised + cached (nose-up,
-  centred on the rotation pivot, mipmap downscale). Fury sprite is a rough placeholder (to redo).
+  centred on the rotation pivot, mipmap downscale). Fury recolours from ONE base + `Fury-mask.png`
+  (§13) — Stee-Rex is vector per-skin, Blitz uses an arithmetic body test.
 - `auth.ts` — HOST auth + entitlement (Supabase Auth): sign-up/in, email verify, password reset,
   `is_premium` (server truth, RLS), nickname (RPC-validated + 30-day cooldown), device cap (5).
   Phones NEVER import it — joining stays account-free.
@@ -441,7 +442,7 @@ The XSS/takeover half of Finding 1 is **FIXED + pushed** (`0eb7300`, see §8). T
   SECURITY DEFINER RPC (§5/§8).
 - **The RAF-driven loop throttles** in a backgrounded / headless tab — matters for timing checks in preview.
 - **The two deferred physics items (§15)** are known model simplifications, analysed, not yet fixed.
-- **Fury sprite is rough placeholder art** (to redo); Fury is dev-only.
+- **Fury art is the designer's Tradeventure render** (public + premium, 8 mask-driven colours — §13).
 
 ---
 
@@ -472,11 +473,25 @@ lore / hard 300 km/h limiter, easy provokable drift, catchable). The arcade bran
 drift-assist knobs (`arcadeSpinGrip`, `arcadeDriftGrip`, `arcadeHbLatGrip`, `arcadeDriftAssist`, …)
 gated behind `branch === 'arcade'` so SIM is untouched. Dims 4.027 × 2.000 m, `fxScale 1.7`. **Free.**
 
-### Fury 200 EVO — dev-only SIM car (NEW, real AWD rallycross physics)
-A Group-B rallycross special (Ford RS200 Evolution silhouette + Lombard-RAC-style white/blue
-livery — internal reference only, public name "Fury 200 EVO"). **Gated to the dev host** (`isDev()`
-= logged-in email ∈ `DEV_EMAILS` = `dykous94@gmail.com`); appears in the SIM car picker **only** for
-that account. Invisible + unselectable + never even sprite-baked for any normal user.
+### Fury 200 EVO — PREMIUM SIM car (real AWD rallycross physics)
+A Group-B rallycross special (Ford RS200 Evolution silhouette + Tradeventure white/blue livery —
+internal reference only, public name "Fury 200 EVO"). **Public + premium** — it sits in the SIM car
+picker for everyone (`furySelected()` is just `selectedCarKey === 'fury'`; the old `isDev()` gate is
+gone — `isDev` now only guards `DEV_MAP_IDS` and the dirt-edit tool).
+- **8 COLOURS, mask-driven (`d5dc7d2`).** Same 8 swatches as Blitz/Stee-Rex, same phone picker.
+  Blitz's arithmetic "light + desaturated = body" rule CANNOT work here and must not be reused:
+  Fury's GLASS (saturation 36) falls inside it, and its white decals are the EXACT same RGB as
+  white bodywork, so no colour-only test separates them (a connected-component rule fails too —
+  the bodywork itself splits into several large regions). The body region is therefore stated
+  explicitly by **`public/Fury-mask.png`** (WHITE = recolour, BLACK = keep; greyscale, pixel-aligned,
+  13 KB). Protected: glass, chevrons, logo tile, taillights, vents, blue wordmarks. Taking the body
+  colour BY DESIGN: pinstripes, logo arrow, the white "Trade" on the spoiler — livery accents.
+  One source bitmap ⇒ the 8 colours are geometrically identical (no drift); the hitbox is
+  `FURY_DIMS`, never the art. `fury-sprite.ts` refuses a mask whose size doesn't match the sprite
+  (logs + disables recolour) rather than smearing colour over the branding.
+  ⚠️ Known + accepted: on Graphite the dark hood/spoiler text loses contrast, on Blue the navy
+  chevrons sit close to the body. Inherent to fixed branding over a variable body, invisible at
+  in-game size, and the car-select tile shows white.
 - **Mechanism:** a `VehicleSpec.phys4: Partial<Physics4Params>` (the sim analogue of `arcade`)
   layered on `PHYS4` by `physFor`; the physics4 AWD path is gated on `driveSplitFront > 0` (NOT on
   branch), so a SIM car drives all four wheels **with no engine change**. Blitz has no `phys4` →
@@ -492,7 +507,7 @@ that account. Invisible + unselectable + never even sprite-baked for any normal 
   wheelspin** (AWD traction); cornering **1.45 vs 1.84 g** (lower tarmac peak) but planted mid-corner;
   power-on tail-out **β 41° vs 28°** and lift-off **β 38° vs 5°** (eager, hard-to-gather rotation —
   low polar moment + 50/50 + rear-biased AWD). No NaN, bounded. An AWD rally monster vs the RWD
-  race coupé. Sprite = rough placeholder (§12). Physics awaits the phone feel-test.
+  race coupé. Physics awaits the phone feel-test.
 
 ---
 

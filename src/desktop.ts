@@ -2712,9 +2712,9 @@ function activePalette(): CarColor[] {
 // Blitz RS (colour tints the vector body). ARCADE → the Stee-Rex skin whose
 // swatch matches the colour (Graphite → black, anything else → silver default).
 function specForColor(hex: string): VehicleSpec {
-  // SIM: Blitz RS by default; the DEV host may instead pick the Fury 200 EVO test
-  // car in the car picker (furySelected() is dev-gated, so a normal host can never
-  // resolve to FURY_SPEC even if selectedCarKey were somehow 'fury').
+  // SIM: Blitz RS by default, or the Fury 200 EVO when it's the picked car (both are
+  // premium SIM cars — the Fury's old dev-only gate is long gone). Either way the phone's
+  // chosen hex selects the livery: both cars share the same 8 swatches.
   if (raceMode !== 'arcade') {
     return furySelected() ? FURY_SPECS[furySkinForColor(hex)] : BLITZ_SPECS[blitzSkinForColor(hex)];
   }
