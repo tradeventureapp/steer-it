@@ -66,9 +66,20 @@ palette picked on the phone (§13).
 - `world.ts` — the drawn desktop map (`layoutDesktop`, wallpaper/overlay, collision rects, icon drag).
 - `maps.ts` — MAP SYSTEM: `MapDefinition`, registry, and the maps — `desktopMap` (open),
   the STADIUM-oval twins `flatTrackMap` (dirt) + `asphaltTrackMap` (both from `makeStadiumMap`),
-  and `circuitMap` (the winding road course: globally-smooth ribbon, GP kerbs, gravel traps,
-  built-in start/finish + laps). Surface masks (`surfaceAt` / `markClassAt`) drive grass/gravel
-  physics + tyre-mark class. `FLAT_LOGICAL` fixed-world scaling.
+  `circuitMap` (the winding road course: globally-smooth ribbon, GP kerbs, gravel traps,
+  built-in start/finish + laps), and `authoredCircuitMap` ('circuit2' / "Circuit II" — the
+  boss's track-editor layout: asphalt ribbon + grass, procedural oval-style tarmac,
+  derived finish/far/spawn/mask, optional `AUTHORED_DIRT` `{i0,i1}` arc (dirt physics +
+  packed-earth render, rallycross model), optional `AUTHORED_FINISH_I` (marked finish path
+  index; null = auto lowest point; drawn as the circuit-style plain white line), and
+  `AUTHORED_KERBS` `{i0,i1,side}[]` (shared `buildAuthoredKerbQuads`; kerbs are baked into
+  the 3-tone mask as rideable 'kerb' class → asphalt physics, on-track, kerb tyre marks;
+  kerb vertices count toward the fit extent) — DEV-GATED in desktop.ts until sign-off; a
+  new editor export drops in by replacing the five AUTHORED_* constants). Surface masks (`surfaceAt` /
+  `markClassAt`) drive grass/gravel physics + tyre-mark class. `FLAT_LOGICAL` fixed-world
+  scaling. ⚠️ `SURFACES.asphalt`'s image fill is the designer's pre-rendered CIRCUIT art
+  (kerbs/gravel baked in) — NEVER use it to paint a different ribbon shape; paint procedurally
+  (see `drawAuthoredSurface`).
 - `surfaces.ts` — the surface LIBRARY (`SurfaceDef` joins renderer + physics binding + effects
   identity; grass/gravel/asphalt). The circuit paints the designer's `track-surfaces.png` bitmap
   (asphalt), procedural fallback until decoded (WebKit decode-gate fix).
@@ -101,6 +112,19 @@ palette picked on the phone (§13).
 - `api/` (serverless, plain JS): `_lib.js` (env + Stripe client + `PRICE_ID`), `create-checkout-session.js`,
   `stripe-webhook.js` (grants premium), `verify-session.js` (ownership-checked fallback),
   `billing-debug.js`, `turn.js` (Cloudflare TURN creds, Origin-gated).
+- `track-editor.html` + `src/track-editor.ts` — DEV-ONLY track authoring tool (root page,
+  served by `npm run dev`, NOT a build input → never ships). Author a NEW circuit-family
+  layout: freehand centreline → simplified to control points → fed through the REAL
+  pipeline (`buildCircuitPath`) → drag / dblclick-add / rightclick-delete points, band-width
+  slider. Main canvas = blank WHITE paper, stroke/spline/points in black ink (boss's spec),
+  and it is WYSIWYG: world aspect + the game's own placement transform (fit scale + bbox
+  centring), so drawn space ≡ in-game space. Seeds the boss's current sketch on first open;
+  IMPORT parses a pasted export block / bare `[x,y]` array (+ optional CS_BAND) back in;
+  the side mini view renders the true in-game look (real surface painters, true fit) →
+  EXPORT emits the `CIRCUIT_SKETCH` + `CS_BAND` constants maps.ts consumes (1760×780 frame).
+  maps.ts exports for it (zero-behavior refactor, fingerprint-proven identical):
+  `buildCircuitPath(sketch)` (the former inline CIRCUIT_PATH builder), `circuitBandScale(band)`
+  (the `_bandScale` formula), `CIRCUIT_FIT`, `FLAT_LOGICAL`, `type Pt`.
 
 ### Build / test / run
 - `npm run dev` (Vite, 5173) · `npm run build` (`tsc && vite build`) · `npm run preview` · `npx tsc --noEmit`.
@@ -193,6 +217,52 @@ not trusted). `EV` events: phone→desktop `join|color|name|leave|control`; desk
 - **XP MODE** — endless solo score run (drift multiplier), best in localStorage per map.
 - **Track editor (E)** — per map type; on OPEN maps a place-elements editor, on CIRCUIT maps a
   laps/XP panel. **Locked to the Desktop map + PREMIUM only** (free users get the upsell).
+- **Track AUTHORING tool (dev)** — `track-editor.html` (see §2): draw a new circuit layout
+  freehand, refine control points + band width live through the real circuit pipeline, export
+  drop-in `AUTHORED_SKETCH`/`AUTHORED_BAND`/`AUTHORED_DIRT`/`AUTHORED_FINISH_I`/`AUTHORED_KERBS`.
+  Marking tools (each a toolbar button + clicks on the ribbon, right-click cancels/clears):
+  DIRT (two clicks → `{i0,i1}` path-index arc, forward in drawing direction, wrap allowed),
+  OKRAJ DIRTU (TOGGLE: click points across the band at a dirt end, dblclick commits — points
+  connected STRAIGHT per boss's spec → `AUTHORED_DIRT_EDGES` 0–2 polylines, auto-assigned to
+  the NEARER end, a new one replaces it; a line BEYOND an end MOVES that end out to the
+  line — the band stretches to reach it, is destination-out CUT to the exact polyline
+  (+EXT=12-sample margin), and the dirt PHYSICS border follows to the line's nearest path
+  index (`AUTHORED_DIRT_EDGE_INFO` extStart/extEnd) so grip and render agree to within the
+  polyline's irregularity, the rallycross-accepted divergence; `AUTHORED_GRAVEL` run-off
+  polygons (gravel physics via the 4-tone mask, off-track, under-ribbon paint); ⚠️ the cut polygon is
+  LOCALISED — intersected with the band segment around ITS end (index window) — because the
+  winding track can bring ANOTHER dirt section close to the line and an unbounded
+  destination-out cut erased it there (boss-reported bug, fixed in both map and editor);
+  the editor's `dirtLayer` is the ONE shared shape for ink tint, mini paint and both
+  worn-line clips),
+  GRAVEL (TOGGLE: click points around a run-off area, dblclick closes the polygon — straight
+  connections; multiple patches; right-click discards/deletes-under-click/exits →
+  `AUTHORED_GRAVEL` polygons, painted UNDER the tarmac circuit-style so ribbon overlap hides,
+  baked into the now 4-tone mask as class 3 → real 'gravel' physics + gravel marks, OFF-track),
+  CÍL/finish (ONE click → `AUTHORED_FINISH_I` path index; null = auto lowest-point; rendered
+  as the circuit's plain white line, no checker), KERB (two clicks ON AN ASPHALT EDGE →
+  `{i0,i1,side}`; the side (+1 left/−1 right of travel) is read from where the first click
+  lands vs the centreline; multiple kerbs; right-click on a kerb deletes it), STOPA/ideal
+  line (TOGGLE mode: freehand strokes over the track, brush = band×0.30, right-click deletes
+  the last stroke → `AUTHORED_LINE` `{w,pts}[]`; render-only in-game — dark rubbered band on
+  tarmac, DIRT_LOOK.line worn tone on dirt, both scratch-layer clipped, rallycross language;
+  ⚠️ the export now carries stroke points, so IMPORT scopes ctrl parsing to the
+  AUTHORED_SKETCH block). Kerb geometry
+  comes from ONE shared builder (`buildAuthoredKerbQuads` in maps.ts — circuit kerb language,
+  red/white + blue, every dimension a FRACTION of the band ⇒ proportionally smaller on a
+  narrower road), used by both the editor and the map so they render identically. UNDO:
+  ZPĚT button + Ctrl+Z, snapshot history (cap 100) pushed before EVERY mutation (drag,
+  add/delete point, stroke fit, band gesture = one step, dirt/finish/kerb marking, import,
+  new track); a no-move click on a point is dropped so it never eats a step.
+- **Circuit II ('circuit2', dev-gated)** — the boss's first authored track, LIVE as a playable
+  map: asphalt ribbon on grass + his marked DIRT arc (i0 205→664), full race wiring (start
+  gate + forward derived from the path tangent, far-point arming, 2-column standing grid that
+  FOLLOWS THE RIBBON — a straight-line grid put P8 on grass when the finish sat near a corner,
+  laps, XP) all derived from his exported sketch. ⚠️ The finish derives from the LOWEST drawn
+  point — his `[1740,719]` sits ~7 u below the long straight (~710–715), so the line sits at
+  the straight's right end; levelling the bottom points would centre it. `flatFinishOf` /
+  `lapFarPointOf` extracted from the circuit's inline derivations (fingerprint-proven identical,
+  incl. startLine + spawns: `738f2808`). Awaiting boss sign-off → then de-gate (public premium).
 - **Cars** — Blitz RS (vector), Stee-Rex (SVG sprite, 2 skins, arcade tune), Fury 200 EVO (SVG
   sprite, dev-only SIM, real AWD physics). Tyre smoke, colour-tinted skids, saturating tyre marks.
 - **Keyboard driving** — arrow keys + Space drive a local slot-0 car through the identical physics

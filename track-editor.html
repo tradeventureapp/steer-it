@@ -1,0 +1,68 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex" />
+  <title>Steer It — track editor (dev)</title>
+  <style>
+    body { margin: 0; background: #14110d; color: #e8e2d6; font-family: system-ui, sans-serif; }
+    header { padding: 10px 14px 6px; }
+    h1 { font-size: 16px; margin: 0 0 4px; }
+    #status { font-size: 13px; color: #b7ae9c; margin: 4px 0 8px; min-height: 17px; }
+    .bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+    button { background: #2a2c33; color: #e8e2d6; border: 1px solid #444; border-radius: 6px; padding: 7px 12px; font-size: 13px; cursor: pointer; }
+    button:hover { background: #3a3d45; }
+    button.active { background: #b8532a; border-color: #d0673a; }
+    button.primary { background: #b8532a; border-color: #d0673a; }
+    label { font-size: 13px; color: #b7ae9c; }
+    input[type=range] { width: 220px; accent-color: #d0673a; }
+    #width-out { font-size: 13px; color: #ffd27a; min-width: 120px; }
+    main { display: flex; gap: 12px; padding: 0 14px 14px; align-items: flex-start; }
+    #cv { width: 100%; height: auto; display: block; border: 1px solid #333; border-radius: 6px; touch-action: none; }
+    .left { flex: 1 1 auto; min-width: 0; }
+    aside { flex: 0 0 356px; }
+    aside h2 { font-size: 12px; color: #8f877a; margin: 2px 0 6px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+    #mini { width: 340px; height: auto; display: block; border: 1px solid #333; border-radius: 6px; background: #000; }
+    #stats { margin-top: 10px; font-size: 13px; }
+    #stats .row { display: flex; justify-content: space-between; padding: 3px 0; border-bottom: 1px dotted #2c2a24; }
+    #stats .row span { color: #b7ae9c; }
+    #stats .warn { margin-top: 8px; color: #ffb84d; }
+    #stats .ok { margin-top: 8px; color: #7fce7f; }
+    #out { width: 100%; box-sizing: border-box; height: 150px; margin-top: 10px; background: #1c1a16; color: #b7ae9c; border: 1px solid #333; border-radius: 6px; font: 12px monospace; padding: 6px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Track editor — nová trať pro circuit pipeline (dev nástroj, není součást hry)</h1>
+    <div id="status">načítám…</div>
+    <div class="bar">
+      <button id="new">NOVÁ TRAŤ</button>
+      <button id="undo">ZPĚT (Ctrl+Z)</button>
+      <label>šířka tratě:</label>
+      <input id="width" type="range" min="60" max="220" step="2" value="124" />
+      <span id="width-out"></span>
+      <button id="finish">CÍL</button>
+      <button id="kerb">KERB</button>
+      <button id="dirt">DIRT ÚSEK</button>
+      <button id="dirtedge">OKRAJ DIRTU</button>
+      <button id="gravel">GRAVEL</button>
+      <button id="line">STOPA</button>
+      <button id="export" class="primary">EXPORT (pro maps.ts)</button>
+      <button id="import">IMPORT (z pole dole)</button>
+    </div>
+  </header>
+  <main>
+    <div class="left">
+      <canvas id="cv"></canvas>
+    </div>
+    <aside>
+      <h2>Náhled ve hře (celá obrazovka)</h2>
+      <canvas id="mini"></canvas>
+      <div id="stats"></div>
+      <textarea id="out" placeholder="Export se objeví tady (a ve schránce). Pro IMPORT sem vlož body — celý export nebo jen pole [x,y],[x,y],… — a klikni IMPORT."></textarea>
+    </aside>
+  </main>
+  <script type="module" src="/src/track-editor.ts"></script>
+</body>
+</html>

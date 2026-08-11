@@ -28,7 +28,7 @@ const cleanRouteRewrite = {
 };
 
 export default defineConfig({
-  server: { host: true },
+  server: { host: true, port: Number(process.env.PORT) || 5173 },
   plugins: [cleanRouteRewrite],
   build: {
     rollupOptions: {

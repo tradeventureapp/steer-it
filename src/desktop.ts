@@ -514,8 +514,8 @@ function mapGameModes(id: string | null): readonly string[] {
 const FREE_MAP_IDS = ['desktop', 'asphalt'];
 // DEV-ONLY maps — WIP tracks hidden from the map-select for every normal user. Rallycross is now a
 // PUBLIC premium map (visible to all, premium-locked like the other non-free maps), so it's no
-// longer here. Empty = no dev-only maps at the moment.
-const DEV_MAP_IDS: string[] = [];
+// longer here. 'circuit2' = the boss's authored track (track-editor.html) awaiting his sign-off.
+const DEV_MAP_IDS: string[] = ['circuit2'];
 const FREE_MODE_KEYS = ['free'];
 const isPremium = () => getAuthState().isPremium;
 // Entitlement still resolving for a logged-in host (a session appeared but the

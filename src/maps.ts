@@ -469,7 +469,7 @@ function drawFloodlight(ctx: CanvasRenderingContext2D, x: number, y: number, dir
 // stadium shape is preserved. Falls back to 1920×1080 off-DOM (unit tests).
 const SCREEN_W = (typeof window !== 'undefined' && window.screen?.width)  || 1920;
 const SCREEN_H = (typeof window !== 'undefined' && window.screen?.height) || 1080;
-const FLAT_LOGICAL = {
+export const FLAT_LOGICAL = {
   widthM:  SCREEN_W / CONFIG.pxPerMeter,
   heightM: SCREEN_H / CONFIG.pxPerMeter,
 };
@@ -937,7 +937,7 @@ const CIRCUIT_LOGICAL = { widthM: FLAT_LOGICAL.widthM, heightM: FLAT_LOGICAL.hei
 // smoothed (circular box blur) so curvature can't spike at any node → the whole
 // ribbon is evenly rounded with NO sharp point anywhere, (4) resampled again to stay
 // even. Computed ONCE at load; the surface just strokes the resulting polyline.
-type Pt = [number, number];
+export type Pt = [number, number];
 
 function sampleSpline(ctrl: Pt[], perSeg: number): Pt[] {
   const n = ctrl.length, out: Pt[] = [];
@@ -1010,9 +1010,15 @@ const CIRCUIT_SAMPLES = 1000;
 // which is the visible outward BULGE. Flattening clamps those dips back up to it.
 const CIRCUIT_STRAIGHT_Y = Math.max(...CIRCUIT_SKETCH.map((p) => p[1]));
 
-const CIRCUIT_PATH: Pt[] = ((): Pt[] => {
+// THE circuit-family centreline builder, parameterised by the sketch so the dev
+// track editor (track-editor.html) can run NEW layouts through the IDENTICAL code
+// path. For CIRCUIT_SKETCH this computes exactly what the old inline builder did
+// (straightY ≡ CIRCUIT_STRAIGHT_Y): dense centripetal Catmull-Rom → arc-length
+// resample → circular box-blur → resample → finish-straight flatten.
+export function buildCircuitPath(sketch: Pt[]): Pt[] {
+  const straightY = Math.max(...sketch.map((q) => q[1]));
   let p = resampleClosed(
-    smoothClosed(resampleClosed(sampleSpline(CIRCUIT_SKETCH, 48), CIRCUIT_SAMPLES), 14, 2),
+    smoothClosed(resampleClosed(sampleSpline(sketch, 48), CIRCUIT_SAMPLES), 14, 2),
     CIRCUIT_SAMPLES,
   );
   // FINISH-STRAIGHT FLATTEN — a dead-level, straight segment the WHOLE bottom length,
@@ -1025,20 +1031,25 @@ const CIRCUIT_PATH: Pt[] = ((): Pt[] => {
   // smooth lifts the junction points up into the corners.
   const maxY = Math.max(...p.map((q) => q[1]));
   const flatten = (q: Pt): Pt =>
-    q[1] > CIRCUIT_STRAIGHT_Y && q[1] > maxY - 45 ? [q[0], CIRCUIT_STRAIGHT_Y] : q;
+    q[1] > straightY && q[1] > maxY - 45 ? [q[0], straightY] : q;
   p = p.map(flatten);
   p = smoothClosed(p, 4, 3);
   p = p.map(flatten);
   return p;
-})();
+}
+
+const CIRCUIT_PATH: Pt[] = buildCircuitPath(CIRCUIT_SKETCH);
 
 // Finish line = the centre of the dead-flat bottom straight (level, at straightY).
-const CIRCUIT_FINISH = ((): { x: number; y: number } => {
-  const fx = CIRCUIT_PATH
-    .filter((p) => Math.abs(p[1] - CIRCUIT_STRAIGHT_Y) < 1e-6)
+// Parameterised (path + straightY) so an AUTHORED circuit-family map derives its
+// finish through the identical rule; for CIRCUIT_PATH this is the old inline IIFE.
+function flatFinishOf(path: Pt[], straightY: number): { x: number; y: number } {
+  const fx = path
+    .filter((p) => Math.abs(p[1] - straightY) < 1e-6)
     .map((p) => p[0]);
-  return { x: (Math.min(...fx) + Math.max(...fx)) / 2, y: CIRCUIT_STRAIGHT_Y };
-})();
+  return { x: (Math.min(...fx) + Math.max(...fx)) / 2, y: straightY };
+}
+const CIRCUIT_FINISH = flatFinishOf(CIRCUIT_PATH, CIRCUIT_STRAIGHT_Y);
 
 // The lap's FAR POINT: the "must reach" that ARMS a lap (see the startLine below). DERIVED
 // from the ribbon, not eyeballed, so it stays right if the shape is ever re-drawn.
@@ -1052,33 +1063,35 @@ const CIRCUIT_FINISH = ((): { x: number; y: number } => {
 // min(arc, straight-line) — the criterion that actually bounds the shortcut. On this layout
 // that is the top of the right-hand upper sweep: 181 m by arc, 135 m straight, so the
 // cheapest possible fake lap costs ~269 m (3.5× better than the arc-midpoint's ~77 m).
-const CIRCUIT_FAR = ((): { x: number; y: number } => {
-  const N = CIRCUIT_PATH.length;
+// Parameterised for the same reason as flatFinishOf — identical maths, any path.
+function lapFarPointOf(path: Pt[], finish: { x: number; y: number }): { x: number; y: number } {
+  const N = path.length;
   // index of the finish on the (evenly-resampled) path
   let fi = 0, fd = Infinity;
-  CIRCUIT_PATH.forEach((p, i) => {
-    const d = (p[0] - CIRCUIT_FINISH.x) ** 2 + (p[1] - CIRCUIT_FINISH.y) ** 2;
+  path.forEach((p, i) => {
+    const d = (p[0] - finish.x) ** 2 + (p[1] - finish.y) ** 2;
     if (d < fd) { fd = d; fi = i; }
   });
   const seg: number[] = [];
   let total = 0;
   for (let i = 0; i < N; i++) {
     const j = (i + 1) % N;
-    const d = Math.hypot(CIRCUIT_PATH[j][0] - CIRCUIT_PATH[i][0], CIRCUIT_PATH[j][1] - CIRCUIT_PATH[i][1]);
+    const d = Math.hypot(path[j][0] - path[i][0], path[j][1] - path[i][1]);
     seg.push(d); total += d;
   }
-  let best = { score: -1, p: CIRCUIT_PATH[fi] };
+  let best = { score: -1, p: path[fi] };
   let run = 0;
   for (let k = 0; k < N; k++) {
     const i = (fi + k) % N;
     const arc = Math.min(run, total - run);          // shorter way round to this point
-    const straight = Math.hypot(CIRCUIT_PATH[i][0] - CIRCUIT_FINISH.x, CIRCUIT_PATH[i][1] - CIRCUIT_FINISH.y);
+    const straight = Math.hypot(path[i][0] - finish.x, path[i][1] - finish.y);
     const score = Math.min(arc, straight);
-    if (score > best.score) best = { score, p: CIRCUIT_PATH[i] };
+    if (score > best.score) best = { score, p: path[i] };
     run += seg[i];
   }
   return { x: best.p[0], y: best.p[1] };
-})();
+}
+const CIRCUIT_FAR = lapFarPointOf(CIRCUIT_PATH, CIRCUIT_FINISH);
 
 // ---- Apex KERBS — red/white striped curbs on the INSIDE edge of the corners -----
 // Real circuits line the apex (inside) of corners with red/white striped kerbs. We
@@ -1605,6 +1618,7 @@ export function onTrackAt(map: MapDefinition, x: number, y: number): boolean {
 export function markClassAt(map: MapDefinition, x: number, y: number): MarkClass {
   if (map.surfaceAt === circuitSurfaceAt) return circuitClassAt(x, y);
   if (map.surfaceAt === rallycrossSurfaceAt) return rallycrossClassAt(x, y);
+  if (map.surfaceAt === authoredSurfaceAt) return authoredMarkClassAt(x, y);
   return 'asphalt';
 }
 /** Debug/verification: the baked mask + its dims (builds it on first call). */
@@ -1817,12 +1831,18 @@ const _trueExtent = (() => {
   return { minX, minY, maxX, maxY, w: maxX - minX, h: maxY - minY };
 })();
 
-const _bandScale = computeStadium(FLAT_LOGICAL.widthM, FLAT_LOGICAL.heightM).bandW * (2 / 3) / CS_BAND;
+// The band-derived "natural" scale (metres per sketch-unit) for a circuit-family band
+// width — the SAME oval-derived formula CS_SCALE starts from, exported so the dev
+// track editor previews a new layout at the true in-game scale.
+export function circuitBandScale(band: number): number {
+  return computeStadium(FLAT_LOGICAL.widthM, FLAT_LOGICAL.heightM).bandW * (2 / 3) / band;
+}
+const _bandScale = circuitBandScale(CS_BAND);
 // Safety margin: the true extent must occupy at most this fraction of the world on each
 // axis, so a strip of grass always frames the track and nothing can touch the edge. On a
 // 16:9 screen `_bandScale` is still the binding (smaller) scale, so 16:9 stays EXACTLY as
 // shipped; only narrower ratios hit the fit cap and scale down.
-const CIRCUIT_FIT = 0.988;                       // 16:9 fills ~98.7%, so this keeps it band-bound (identical); narrower ratios scale down to fit
+export const CIRCUIT_FIT = 0.988;                // 16:9 fills ~98.7%, so this keeps it band-bound (identical); narrower ratios scale down to fit
 const CS_SCALE = Math.min(                       // metres per sketch unit
   _bandScale,
   (FLAT_LOGICAL.widthM * CIRCUIT_FIT) / _trueExtent.w,
@@ -2869,8 +2889,632 @@ export const rallycrossMap: MapDefinition = {
 };
 
 // Register the built-in maps. The desktop is FIRST (the default).
+// =============================================================================
+//  MAP 6 — CIRCUIT II (authored in track-editor.html, the boss's own layout).
+//  The editor's export run through the SAME pipeline as the circuit: an asphalt
+//  ribbon on grass and nothing else (no kerbs / gravel / billboards — v1 by
+//  request: "asphalt, grass around"). Geometry, mask, finish, far point, spawn —
+//  ALL derive from the two authored constants below, so a new export from the
+//  editor drops in by replacing just them. Dev-gated in desktop.ts (DEV_MAP_IDS)
+//  until the boss promotes it.
+// =============================================================================
+const AUTHORED_SKETCH: Array<[number, number]> = [
+  [1089,712],[911,710],[822,710],[758,618],[787,519],[875,480],[890,377],
+  [777,278],[634,304],[519,441],[438,607],[183,626],[91,505],[80,271],
+  [196,179],[421,249],[652,77],[965,100],[1016,307],[1061,475],[1278,492],
+  [1326,171],[1507,43],[1685,196],[1634,310],[1529,307],[1444,399],[1509,551],
+  [1776,551],[1774,633],[1797,680],[1740,719],[1611,713],[1520,715],[1397,710],
+  [1271,712],
+];
+const AUTHORED_BAND = 134;
+// DIRT section — a contiguous arc [i0→i1] of the 1000-pt ribbon (forward, wrap
+// allowed), marked in the editor; null = all-asphalt. Same model as RALLYCROSS_DIRT.
+const AUTHORED_DIRT: { i0: number; i1: number } | null = { i0: 205, i1: 664 };
+// DIRT transition EDGES — 0–2 hand-marked boundary polylines (sketch units), each
+// spanning the band from one asphalt edge to the other at a dirt end. Points are
+// connected STRAIGHT (the boss's spec: "just connect the dots"); each line is
+// assigned to the NEARER dirt end by proximity, the band is extended a little past
+// that end and CUT to the drawn line — so the tarmac↔dirt border is exactly the
+// marked polyline. [] = both ends keep the plain straight cut.
+const AUTHORED_DIRT_EDGES: Array<Array<[number, number]>> = [
+  [[1407,188],[1408,171],[1406,167],[1397,163],[1390,161],[1386,161],[1377,155],[1376,147],[1365,140],[1361,140],[1349,136],[1346,127],[1344,115],[1343,106],[1332,100],[1332,92],[1329,87]],
+  [[429,488],[440,492],[448,495],[457,498],[461,503],[473,505],[489,500],[500,499],[522,502],[529,502],[541,497],[548,490],[563,490],[571,490],[574,492]],
+];
+// GRAVEL run-off patches — closed polygons (sketch units) marked in the editor,
+// points connected STRAIGHT. Painted UNDER the tarmac (circuit style: overlap with
+// the ribbon simply hides beneath it) and baked into the mask as real 'gravel'
+// physics; a patch is OFF TRACK (a run-off, outside the ribbon geometry).
+const AUTHORED_GRAVEL: Array<Array<[number, number]>> = [];
+// FINISH — a path index marked in the editor (one click); null = derived from the
+// lowest drawn point (the flatten straight), the original behaviour.
+const AUTHORED_FINISH_I: number | null = 966;
+// KERBS — arcs hugging ONE asphalt edge (side +1 = left of travel, −1 = right),
+// each marked in the editor with two clicks on that edge.
+export interface AuthoredKerb { i0: number; i1: number; side: -1 | 1 }
+const AUTHORED_KERBS: AuthoredKerb[] = [
+  { i0: 25, i1: 90, side: 1 },
+  { i0: 84, i1: 184, side: -1 },
+  { i0: 196, i1: 379, side: 1 },
+  { i0: 376, i1: 428, side: -1 },
+  { i0: 422, i1: 525, side: 1 },
+  { i0: 545, i1: 632, side: -1 },
+  { i0: 639, i1: 769, side: 1 },
+  { i0: 761, i1: 843, side: -1 },
+  { i0: 835, i1: 907, side: 1 },
+  { i0: 893, i1: 32, side: -1 },
+];
+
+// IDEAL LINE — the boss's hand-drawn racing line (the editor's STOPA tool): freehand
+// strokes in sketch units + brush width. RENDER-ONLY (no physics, no mask): a subtle
+// darker rubbered band on the tarmac, the lighter worn tone on the dirt stretch —
+// the rallycross worn-line language. [] = none.
+const AUTHORED_LINE: Array<{ w: number; pts: Array<[number, number]> }> = [
+  { w: 40, pts: [[1403,752],[1400,751],[1396,751],[1392,751],[1387,751],[1381,751],[1375,751],[1370,751],[1365,751],[1360,751],[1356,751],[1353,751],[1349,751],[1344,751],[1340,751],[1335,751],[1332,751],[1328,751],[1324,751],[1320,751],[1317,751],[1313,751],[1311,750],[1307,750],[1303,750],[1298,749],[1296,747],[1292,747],[1288,747],[1285,747],[1280,747],[1275,747],[1271,746],[1267,746],[1264,746],[1260,746],[1256,746],[1252,746],[1249,746],[1245,746],[1241,746],[1238,746],[1234,746],[1230,746],[1227,746],[1223,746],[1219,746],[1214,746],[1210,746],[1207,746],[1203,746],[1199,746],[1194,746],[1188,746],[1183,746],[1178,746],[1175,746],[1171,746],[1167,746],[1164,746],[1159,746],[1155,746],[1151,746],[1146,746],[1142,746],[1139,746],[1135,746],[1131,746],[1128,746],[1124,746],[1120,746],[1117,746],[1113,746],[1108,745],[1104,745],[1100,745],[1098,744],[1094,744],[1091,742],[1087,741],[1083,741],[1079,741],[1076,740],[1071,739],[1067,737],[1063,736],[1061,735],[1058,734],[1055,732],[1052,731],[1049,730],[1046,729],[1044,728],[1041,726],[1039,724],[1035,724],[1031,721],[1029,720],[1025,720],[1023,719],[1020,718],[1016,718],[1014,716],[1011,715],[1009,714],[1005,714],[1003,713],[999,711],[995,711],[993,710],[990,709],[988,708],[984,708],[982,707],[979,705],[976,705],[973,704],[971,703],[968,702],[965,702],[962,700],[960,699],[957,698],[955,697],[951,697],[948,695],[945,693],[940,692],[937,690],[934,690],[930,689],[927,688],[925,687],[921,687],[919,686],[916,684],[915,682],[913,681],[909,681],[906,678],[903,678],[901,676],[899,674],[897,673],[894,672],[892,671],[890,668],[888,667],[885,666],[883,665],[880,662],[878,661],[876,658],[873,657],[872,655],[869,653],[868,651],[866,650],[863,647],[862,645],[861,642],[858,641],[857,639],[856,636],[855,634],[852,631],[851,629],[851,625],[850,623],[850,619],[848,616],[848,613],[847,610],[846,608],[845,605],[845,602],[845,598],[843,595],[843,592],[842,588],[842,584],[841,582],[841,578],[840,576],[840,572],[840,568],[840,565],[840,561],[840,557],[840,553],[840,550],[840,546],[840,542],[840,539],[840,535],[840,531],[840,528],[840,523],[840,519],[840,514],[840,510],[840,505],[840,502],[840,498],[840,494],[838,492],[838,488],[838,484],[838,481],[838,477],[838,473],[837,471],[837,467],[837,463],[837,460],[836,457],[836,453],[836,450],[836,446],[836,442],[836,439],[836,435],[836,431],[836,427],[836,424],[836,420],[836,416],[835,414],[835,410],[834,408],[832,405],[832,402],[831,399],[830,397],[829,394],[827,390],[826,388],[825,386],[824,383],[822,381],[821,378],[819,377],[817,374],[816,372],[814,371],[811,368],[809,366],[806,363],[804,362],[803,360],[800,358],[799,356],[796,355],[793,352],[790,350],[788,348],[787,346],[784,345],[782,344],[778,342],[774,341],[769,340],[767,339],[764,337],[761,337],[756,336],[752,336],[749,335],[746,335],[742,335],[740,334],[736,334],[733,332],[730,332],[727,331],[724,331],[720,331],[716,331],[712,331],[709,331],[705,331],[701,331],[696,331],[693,331],[688,331],[684,331],[681,332],[678,334],[674,334],[672,335],[668,336],[664,336],[662,339],[659,340],[656,340],[653,341],[651,342],[647,342],[644,345],[639,345],[637,346],[635,348],[632,350],[630,351],[626,353],[623,355],[620,356],[616,358],[614,360],[611,361],[607,363],[604,365],[600,367],[596,369],[594,371],[590,373],[588,374],[585,377],[583,379],[580,382],[578,383],[574,386],[571,388],[569,390],[567,392],[565,394],[562,395],[559,399],[555,400],[554,403],[550,405],[548,408],[544,410],[541,414],[538,418],[533,420],[529,424],[527,426],[525,429],[522,430],[520,434],[516,436],[513,439],[511,441],[508,444],[505,447],[501,450],[499,452],[496,455],[494,457],[491,460],[487,462],[482,466],[480,469],[476,472],[473,476],[470,477],[468,479],[466,482],[464,483],[463,486],[461,488],[459,489],[457,492],[455,494],[454,497],[452,499],[449,502],[448,504],[445,507],[443,509],[440,511],[438,514],[434,516],[432,520],[428,523],[426,525],[424,528],[422,529],[419,531],[416,534],[413,536],[411,539],[408,540],[406,542],[403,544],[401,546],[398,548],[396,550],[394,552],[391,555],[387,557],[384,558],[381,561],[377,563],[375,565],[372,566],[370,567],[368,568],[364,569],[361,571],[355,572],[350,573],[345,574],[343,576],[339,576],[337,577],[333,577],[329,577],[324,577],[321,577],[317,578],[313,578],[309,578],[306,579],[302,579],[297,579],[293,579],[290,579],[286,579],[282,579],[279,579],[275,579],[271,579],[267,579],[264,579],[260,579],[255,579],[251,579],[249,578],[245,578],[240,576],[235,574],[232,574],[230,572],[227,572],[224,571],[222,569],[219,567],[216,566],[213,565],[211,562],[208,561],[206,558],[203,556],[201,555],[198,553],[197,551],[196,547],[193,545],[190,541],[187,539],[186,536],[185,534],[182,532],[181,530],[178,528],[176,526],[175,524],[172,523],[171,520],[170,518],[167,515],[165,513],[164,510],[161,509],[160,507],[159,504],[157,502],[155,500],[154,498],[151,494],[150,492],[149,489],[149,486],[148,483],[146,481],[145,478],[145,474],[144,471],[143,468],[141,465],[140,462],[139,458],[139,453],[138,450],[138,446],[138,442],[136,439],[136,435],[136,431],[136,427],[136,424],[135,421],[135,418],[135,414],[135,410],[134,408],[134,404],[134,400],[133,398],[133,394],[133,390],[133,387],[133,383],[133,379],[133,376],[133,372],[133,368],[131,366],[131,362],[131,358],[131,355],[131,351],[131,347],[131,344],[133,341],[133,337],[135,335],[135,331],[136,329],[138,325],[139,321],[140,319],[141,316],[144,315],[145,313],[148,310],[150,306],[151,304],[154,302],[155,299],[157,297],[159,294],[161,292],[164,289],[166,287],[169,286],[170,283],[172,282],[175,281],[177,279],[180,278],[183,277],[187,276],[190,274],[193,273],[197,271],[201,269],[204,268],[207,267],[209,266],[212,265],[214,263],[217,262],[219,261],[222,260],[224,258],[227,257],[229,256],[233,255],[235,253],[238,252],[241,252],[244,251],[248,250],[251,248],[255,246],[260,246],[262,245],[266,242],[270,241],[275,240],[277,239],[280,237],[284,236],[286,235],[288,234],[292,234],[295,232],[297,231],[301,231],[305,231],[306,229],[308,227],[312,227],[314,226],[317,225],[321,225],[323,224],[327,224],[330,224],[334,224],[338,224],[342,224],[345,224],[348,223],[350,221],[354,221],[356,220],[359,219],[363,216],[366,215],[369,214],[371,213],[374,210],[376,209],[380,208],[382,206],[385,205],[387,204],[390,203],[392,200],[396,199],[398,198],[401,194],[405,193],[407,192],[410,190],[412,188],[415,187],[417,185],[419,183],[423,182],[424,179],[427,178],[429,177],[432,176],[433,173],[436,172],[438,169],[440,167],[443,165],[445,163],[448,161],[450,160],[453,157],[454,155],[458,155],[459,152],[461,151],[464,150],[466,148],[470,146],[474,145],[475,142],[479,142],[480,140],[484,140],[486,137],[489,136],[491,135],[494,134],[497,132],[499,130],[502,130],[505,127],[510,126],[512,124],[516,124],[518,121],[523,121],[526,119],[529,119],[532,118],[534,116],[537,115],[541,115],[543,114],[546,113],[549,113],[553,113],[555,111],[559,111],[563,111],[565,110],[569,110],[573,109],[576,109],[580,109],[586,109],[592,109],[596,109],[600,109],[604,109],[607,109],[611,109],[616,109],[618,108],[622,108],[626,108],[630,108],[633,108],[639,108],[643,108],[647,108],[651,108],[656,108],[659,108],[663,108],[667,108],[669,106],[673,106],[677,106],[680,106],[684,106],[688,106],[691,106],[694,105],[698,105],[701,105],[705,105],[709,105],[712,105],[716,105],[720,105],[724,105],[730,105],[735,105],[738,105],[742,105],[746,105],[752,105],[757,105],[759,106],[763,106],[766,108],[769,108],[774,108],[782,109],[788,110],[791,111],[795,111],[799,111],[803,113],[808,114],[811,114],[814,115],[817,115],[821,115],[824,116],[826,118],[830,118],[835,120],[838,120],[842,123],[847,124],[850,125],[852,126],[855,129],[857,130],[859,132],[863,135],[867,136],[868,139],[871,140],[873,141],[874,144],[878,145],[879,147],[882,148],[884,150],[887,151],[889,153],[892,155],[893,157],[895,158],[899,160],[901,161],[904,162],[905,165],[908,166],[910,167],[913,171],[918,173],[920,177],[922,179],[924,182],[926,183],[927,185],[930,187],[930,190],[932,192],[935,193],[935,197],[937,198],[940,199],[941,202],[944,203],[945,205],[946,208],[948,209],[950,211],[953,211],[955,214],[957,215],[958,218],[961,219],[963,220],[966,221],[967,224],[969,225],[972,226],[974,229],[976,231],[978,232],[979,235],[982,236],[984,239],[986,241],[987,245],[989,247],[992,248],[993,251],[994,253],[997,256],[999,260],[1000,263],[1002,266],[1003,268],[1004,271],[1005,273],[1007,276],[1008,278],[1009,281],[1010,284],[1011,287],[1013,289],[1014,292],[1016,293],[1018,295],[1018,299],[1020,302],[1020,305],[1021,308],[1023,310],[1024,313],[1025,315],[1026,319],[1028,321],[1029,324],[1030,326],[1031,329],[1032,331],[1034,334],[1035,336],[1036,339],[1037,341],[1039,344],[1041,345],[1042,347],[1044,350],[1045,352],[1046,355],[1049,356],[1051,357],[1052,360],[1054,362],[1056,365],[1058,366],[1060,368],[1062,371],[1065,372],[1066,376],[1068,378],[1071,381],[1073,383],[1076,384],[1077,387],[1079,388],[1082,389],[1083,392],[1084,394],[1087,397],[1091,399],[1094,402],[1097,404],[1099,405],[1102,409],[1104,410],[1105,413],[1109,415],[1113,418],[1115,419],[1118,421],[1121,421],[1125,424],[1130,425],[1133,426],[1136,427],[1140,429],[1145,430],[1147,431],[1151,432],[1154,434],[1157,434],[1161,434],[1166,434],[1170,435],[1176,435],[1180,435],[1183,435],[1188,435],[1192,435],[1196,435],[1199,435],[1203,435],[1207,435],[1209,434],[1213,432],[1215,431],[1218,430],[1222,429],[1224,427],[1227,426],[1229,425],[1231,423],[1234,421],[1236,420],[1238,418],[1240,416],[1243,414],[1245,411],[1248,410],[1250,408],[1251,405],[1254,404],[1255,402],[1256,398],[1259,397],[1260,394],[1261,392],[1262,389],[1264,387],[1265,383],[1267,379],[1269,377],[1270,373],[1271,371],[1272,367],[1274,365],[1275,361],[1276,358],[1277,356],[1280,352],[1282,348],[1283,346],[1286,341],[1288,339],[1290,335],[1292,332],[1293,330],[1295,327],[1296,325],[1297,321],[1301,318],[1303,313],[1306,308],[1308,304],[1311,299],[1314,293],[1317,288],[1319,284],[1320,282],[1323,279],[1325,274],[1329,271],[1332,267],[1333,263],[1334,260],[1337,257],[1338,255],[1340,251],[1341,248],[1343,245],[1344,242],[1346,239],[1348,236],[1349,232],[1351,230],[1353,225],[1355,223],[1358,219],[1359,215],[1360,213],[1361,210],[1362,208],[1365,204],[1367,202],[1369,199],[1370,197],[1372,193],[1374,190],[1376,188],[1379,185],[1380,183],[1382,182],[1384,179],[1385,177],[1388,173],[1392,169],[1395,167],[1398,162],[1401,161],[1406,157],[1411,153],[1416,151],[1421,147],[1424,145],[1428,144],[1430,142],[1433,141],[1434,139],[1438,139],[1440,137],[1443,136],[1447,136],[1450,134],[1455,134],[1459,132],[1463,130],[1466,130],[1470,129],[1472,127],[1476,127],[1479,125],[1484,124],[1487,124],[1491,123],[1495,123],[1498,123],[1502,123],[1507,123],[1511,123],[1515,123],[1518,123],[1522,123],[1526,123],[1529,123],[1534,124],[1538,124],[1540,125],[1543,126],[1547,126],[1549,127],[1553,129],[1555,130],[1558,131],[1560,134],[1563,135],[1565,136],[1568,137],[1569,140],[1571,142],[1574,144],[1576,147],[1579,150],[1581,152],[1584,153],[1585,156],[1586,158],[1587,161],[1589,163],[1590,166],[1591,168],[1592,172],[1594,174],[1595,177],[1596,179],[1596,183],[1597,187],[1599,192],[1600,195],[1600,199],[1600,203],[1600,206],[1600,210],[1600,214],[1600,218],[1599,220],[1597,223],[1597,226],[1595,229],[1594,231],[1592,235],[1591,239],[1590,241],[1587,245],[1587,248],[1585,251],[1584,255],[1581,260],[1580,262],[1579,266],[1576,268],[1575,272],[1574,276],[1571,279],[1570,283],[1569,286],[1566,289],[1565,293],[1564,295],[1563,298],[1560,299],[1559,303],[1558,308],[1555,311],[1554,314],[1552,318],[1550,320],[1549,323],[1548,325],[1547,327],[1545,330],[1543,334],[1542,336],[1540,339],[1539,341],[1538,345],[1536,347],[1536,351],[1534,353],[1533,356],[1533,360],[1532,362],[1531,365],[1529,367],[1528,369],[1528,373],[1527,376],[1527,379],[1526,383],[1524,387],[1524,390],[1523,393],[1523,397],[1522,399],[1522,403],[1521,405],[1521,409],[1521,413],[1521,416],[1521,420],[1521,424],[1521,427],[1521,431],[1522,435],[1523,439],[1523,442],[1524,446],[1526,450],[1526,453],[1528,457],[1529,460],[1529,463],[1531,466],[1532,468],[1534,469],[1536,473],[1538,476],[1540,478],[1542,481],[1544,482],[1545,484],[1548,487],[1550,488],[1554,490],[1557,492],[1559,493],[1563,497],[1565,498],[1568,499],[1571,500],[1575,503],[1579,504],[1581,505],[1585,507],[1590,508],[1592,509],[1597,511],[1601,513],[1605,515],[1610,516],[1613,518],[1616,519],[1618,520],[1622,521],[1625,523],[1627,524],[1631,524],[1633,526],[1636,528],[1639,529],[1643,530],[1647,531],[1650,532],[1653,534],[1654,536],[1657,537],[1659,539],[1663,540],[1664,542],[1667,544],[1669,545],[1671,547],[1674,548],[1675,551],[1678,552],[1681,555],[1684,556],[1686,557],[1688,560],[1690,561],[1691,563],[1694,565],[1695,567],[1697,568],[1699,571],[1701,573],[1702,576],[1705,578],[1706,581],[1709,583],[1709,587],[1711,590],[1712,593],[1714,595],[1715,599],[1715,603],[1715,607],[1715,610],[1715,614],[1715,618],[1715,621],[1715,625],[1715,629],[1715,632],[1714,635],[1712,637],[1712,641],[1710,642],[1710,646],[1707,647],[1705,649],[1704,652],[1701,655],[1700,657],[1697,660],[1694,662],[1692,666],[1690,668],[1686,671],[1685,673],[1683,676],[1681,678],[1679,679],[1676,682],[1675,684],[1673,686],[1671,688],[1669,689],[1667,690],[1664,693],[1662,694],[1660,697],[1657,699],[1654,700],[1653,703],[1649,704],[1648,707],[1646,708],[1643,709],[1641,711],[1638,713],[1636,715],[1632,716],[1629,718],[1626,719],[1622,720],[1620,721],[1617,723],[1615,724],[1612,725],[1608,725],[1605,726],[1602,728],[1599,728],[1595,728],[1591,729],[1587,729],[1585,730],[1581,730],[1578,730],[1574,730],[1570,731],[1568,732],[1565,734],[1561,734],[1559,735],[1557,736],[1553,736],[1549,737],[1545,739],[1543,740],[1539,740],[1536,741],[1533,742],[1529,742],[1527,744],[1523,745],[1519,745],[1517,746],[1513,746],[1507,747],[1505,749],[1501,749],[1497,749],[1495,750],[1491,750],[1487,750],[1484,750],[1481,751],[1476,751],[1472,751],[1468,751],[1464,751],[1460,752],[1456,752],[1453,752],[1449,752],[1445,752],[1442,752],[1438,752],[1434,752],[1429,752],[1426,752],[1422,752],[1418,752],[1414,753],[1411,753],[1407,753],[1403,753],[1400,753],[1396,753],[1392,753],[1388,753],[1384,753],[1380,753],[1377,752],[1375,751]] },
+];
+
+export interface AuthoredKerbQuad { pts: [Pt, Pt, Pt, Pt]; fill: string }
+// Red/white striped kerb + solid blue border hugging one asphalt edge along a marked
+// arc — the CIRCUIT's kerb language with every dimension a FRACTION OF THE BAND
+// (the same fractions the circuit uses at CS_BAND 124), so a narrower road gets
+// proportionally smaller kerbs. Sketch units in and out; blue quads come first in the
+// result (painted under the stripes). Shared by the authored map AND the track editor
+// so both render the identical geometry.
+export function buildAuthoredKerbQuads(path: Pt[], band: number, kerbs: AuthoredKerb[]): AuthoredKerbQuad[] {
+  const N = path.length;
+  const blue: AuthoredKerbQuad[] = [], stripes: AuthoredKerbQuad[] = [];
+  const seam = band * (KERB_SEAM / 124);
+  const kerbW = band * 0.11 * KERB_NARROW;
+  const blueW = band * 0.045 * KERB_NARROW;
+  const stripeLen = band * (KERB_STRIPE / 124);
+  const rIn = band / 2 - seam;                     // pinned at the asphalt edge; reach is OUTWARD
+  for (const k of kerbs) {
+    const span = ((k.i1 - k.i0) % N + N) % N;
+    if (span < 2) continue;
+    const pts: Pt[] = [], nrm: Pt[] = [], arc: number[] = [0];
+    for (let n = 0; n <= span; n++) {
+      const i = (k.i0 + n) % N;
+      const a = path[((i - 2) % N + N) % N], b = path[(i + 2) % N];
+      const tx = b[0] - a[0], ty = b[1] - a[1];
+      const tl = Math.hypot(tx, ty) || 1;
+      pts.push(path[i]);
+      nrm.push([k.side * (-ty / tl), k.side * (tx / tl)]);
+      if (n > 0) arc.push(arc[n - 1] + Math.hypot(pts[n][0] - pts[n - 1][0], pts[n][1] - pts[n - 1][1]));
+    }
+    const total = arc[arc.length - 1];
+    const taper = stripeLen * 1.5;                 // ends taper to nothing over ~1.5 stripes
+    const reach = (s: number) => Math.max(0, Math.min(1, s / taper, (total - s) / taper));
+    const at = (n: number, r: number): Pt => [pts[n][0] + nrm[n][0] * r, pts[n][1] + nrm[n][1] * r];
+    for (let n = 0; n < span; n++) {
+      const f0 = reach(arc[n]), f1 = reach(arc[n + 1]);
+      blue.push({
+        pts: [at(n, rIn), at(n + 1, rIn), at(n + 1, rIn + f1 * (kerbW + blueW)), at(n, rIn + f0 * (kerbW + blueW))],
+        fill: KERB_BLUE,
+      });
+      const stripeIdx = Math.floor(((arc[n] + arc[n + 1]) / 2) / stripeLen);
+      stripes.push({
+        pts: [at(n, rIn), at(n + 1, rIn), at(n + 1, rIn + f1 * kerbW), at(n, rIn + f0 * kerbW)],
+        fill: stripeIdx % 2 ? KERB_WHITE : KERB_RED,
+      });
+    }
+  }
+  return [...blue, ...stripes];
+}
+
+const AUTHORED_LOGICAL = { widthM: FLAT_LOGICAL.widthM, heightM: FLAT_LOGICAL.heightM };
+const AUTHORED_PATH: Pt[] = buildCircuitPath(AUTHORED_SKETCH);
+const AUTHORED_KERB_QUADS = buildAuthoredKerbQuads(AUTHORED_PATH, AUTHORED_BAND, AUTHORED_KERBS);
+// Fit = the editor's WYSIWYG maths: the TRUE drawn extent (ribbon inflated by band/2
+// PLUS every kerb vertex — the circuit's fit lesson), band-bound scale capped so the
+// whole drawn thing always fits the screen.
+const AUTHORED_EXTENT = (() => {
+  const half = AUTHORED_BAND / 2;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  const acc = (x: number, y: number) => {
+    if (x < minX) minX = x; if (x > maxX) maxX = x;
+    if (y < minY) minY = y; if (y > maxY) maxY = y;
+  };
+  for (const p of AUTHORED_PATH) { acc(p[0] - half, p[1] - half); acc(p[0] + half, p[1] + half); }
+  for (const q of AUTHORED_KERB_QUADS) for (const p of q.pts) acc(p[0], p[1]);
+  return { minX, minY, maxX, maxY, w: maxX - minX, h: maxY - minY };
+})();
+const AUTHORED_SCALE = Math.min(
+  circuitBandScale(AUTHORED_BAND),
+  (AUTHORED_LOGICAL.widthM * CIRCUIT_FIT) / AUTHORED_EXTENT.w,
+  (AUTHORED_LOGICAL.heightM * CIRCUIT_FIT) / AUTHORED_EXTENT.h,
+);
+const AUTHORED_TRACK_W = AUTHORED_SCALE * AUTHORED_BAND;
+const AUTHORED_BCX = (AUTHORED_EXTENT.minX + AUTHORED_EXTENT.maxX) / 2;
+const AUTHORED_BCY = (AUTHORED_EXTENT.minY + AUTHORED_EXTENT.maxY) / 2;
+function authoredToWorld(sx: number, sy: number): { x: number; y: number } {
+  return {
+    x: (sx - AUTHORED_BCX) * AUTHORED_SCALE + AUTHORED_LOGICAL.widthM / 2,
+    y: (sy - AUTHORED_BCY) * AUTHORED_SCALE + AUTHORED_LOGICAL.heightM / 2,
+  };
+}
+const AUTHORED_STRAIGHT_Y = Math.max(...AUTHORED_SKETCH.map((p) => p[1]));
+// The finish PATH INDEX: the marked one when the editor set it, else derived — the
+// centre of the flatten straight, falling back to the lowest path point.
+const AUTHORED_FINISH_IDX = (() => {
+  const N = AUTHORED_PATH.length;
+  if (AUTHORED_FINISH_I !== null) return ((AUTHORED_FINISH_I % N) + N) % N;
+  const f = flatFinishOf(AUTHORED_PATH, AUTHORED_STRAIGHT_Y);
+  let bi = 0;
+  if (Number.isFinite(f.x)) {
+    let bd = Infinity;
+    AUTHORED_PATH.forEach((p, i) => {
+      const d = (p[0] - f.x) ** 2 + (p[1] - f.y) ** 2;
+      if (d < bd) { bd = d; bi = i; }
+    });
+  } else {
+    AUTHORED_PATH.forEach((p, i) => { if (p[1] > AUTHORED_PATH[bi][1]) bi = i; });
+  }
+  return bi;
+})();
+const AUTHORED_FINISH = { x: AUTHORED_PATH[AUTHORED_FINISH_IDX][0], y: AUTHORED_PATH[AUTHORED_FINISH_IDX][1] };
+const AUTHORED_FAR = lapFarPointOf(AUTHORED_PATH, AUTHORED_FINISH);
+const AUTHORED_PATH_WORLD: Pt[] = AUTHORED_PATH.map((p) => {
+  const w = authoredToWorld(p[0], p[1]);
+  return [w.x, w.y];
+});
+
+// Nearest ribbon index to a world point (the rallycross lookup pattern) — only ever
+// consulted for points already known to be ON the ribbon, to test dirt membership.
+function nearestAuthoredIdx(x: number, y: number): number {
+  let bi = 0, bd = Infinity;
+  for (let i = 0; i < AUTHORED_PATH_WORLD.length; i++) {
+    const p = AUTHORED_PATH_WORLD[i];
+    const d = (p[0] - x) ** 2 + (p[1] - y) ** 2;
+    if (d < bd) { bd = d; bi = i; }
+  }
+  return bi;
+}
+
+// The marked boundary lines, assigned to their NEARER dirt end, plus the arc
+// EXTENSION each one implies: a line drawn BEYOND an end MOVES that end out to the
+// line (the band is stretched to reach it, the cut trims it back to the exact
+// polyline, and the PHYSICS border follows to the line's nearest path index so grip
+// and render agree). A line inside the arc just trims (extension 0).
+const AUTHORED_DIRT_EDGE_INFO = (() => {
+  const none = { start: null as Array<[number, number]> | null, end: null as Array<[number, number]> | null, extStart: 0, extEnd: 0 };
+  if (!AUTHORED_DIRT) return none;
+  const N = AUTHORED_PATH.length;
+  const nearestSketchIdx = (x: number, y: number): number => {
+    let bi = 0, bd = Infinity;
+    for (let i = 0; i < N; i++) {
+      const p = AUTHORED_PATH[i];
+      const d = (p[0] - x) ** 2 + (p[1] - y) ** 2;
+      if (d < bd) { bd = d; bi = i; }
+    }
+    return bi;
+  };
+  const p0 = AUTHORED_PATH[AUTHORED_DIRT.i0], p1 = AUTHORED_PATH[AUTHORED_DIRT.i1];
+  const info = { ...none };
+  for (const line of AUTHORED_DIRT_EDGES) {
+    if (line.length < 2) continue;
+    const ms = line[Math.floor(line.length / 2)];
+    const dS = (ms[0] - p0[0]) ** 2 + (ms[1] - p0[1]) ** 2;
+    const dE = (ms[0] - p1[0]) ** 2 + (ms[1] - p1[1]) ** 2;
+    const li = nearestSketchIdx(ms[0], ms[1]);
+    if (dS <= dE) {
+      info.start = line;
+      const back = (AUTHORED_DIRT.i0 - li + N) % N;       // beyond the start = backward
+      info.extStart = back < N / 2 ? back : 0;
+    } else {
+      info.end = line;
+      const fwd = (li - AUTHORED_DIRT.i1 + N) % N;        // beyond the end = forward
+      info.extEnd = fwd < N / 2 ? fwd : 0;
+    }
+  }
+  return info;
+})();
+
+function authoredDirtAt(x: number, y: number): boolean {
+  if (!AUTHORED_DIRT) return false;
+  const N = AUTHORED_PATH.length;
+  const span = (AUTHORED_DIRT.i1 - AUTHORED_DIRT.i0 + N) % N;
+  const from = (AUTHORED_DIRT.i0 - AUTHORED_DIRT_EDGE_INFO.extStart + N) % N;
+  const full = span + AUTHORED_DIRT_EDGE_INFO.extStart + AUTHORED_DIRT_EDGE_INFO.extEnd;
+  return (nearestAuthoredIdx(x, y) - from + N) % N <= full;
+}
+
+// Racing direction = INCREASING path index (the drawing direction — the boss draws the
+// bottom straight in the direction of travel). Tangent a few points ahead → a stable
+// forward angle at any spot, whatever the layout does (no hardcoded −x assumption).
+function authoredForwardAt(idx: number): number {
+  const N = AUTHORED_PATH_WORLD.length;
+  const a = AUTHORED_PATH_WORLD[idx], b = AUTHORED_PATH_WORLD[(idx + 8) % N];
+  return Math.atan2(b[1] - a[1], b[0] - a[0]);
+}
+const AUTHORED_FORWARD = authoredForwardAt(AUTHORED_FINISH_IDX);
+
+// Standing grid that FOLLOWS THE RIBBON: walk backward along the path (against the
+// racing direction) by the slot's arc distance, then offset laterally along the local
+// normal. Two staggered columns sized from THIS track's width. Because the grid rides
+// the centreline, every box stays on asphalt whatever the layout does behind the line
+// (a straight-line grid put P8 on the grass when the finish sat near a corner).
+function authoredGridPose(slot: number): { x: number; y: number; heading: number } {
+  const N = AUTHORED_PATH_WORLD.length;
+  const col = slot % 2, row = Math.floor(slot / 2);
+  const back = CONFIG.wheelbase * 1.73 + row * CONFIG.wheelbase * 3.0 + col * CONFIG.wheelbase * 1.0;
+  const lane = (col === 0 ? -1 : 1) * AUTHORED_TRACK_W * 0.18;
+  let i = AUTHORED_FINISH_IDX, run = 0, guard = 0;
+  while (run < back && guard++ < N) {
+    const j = ((i - 1) % N + N) % N;
+    run += Math.hypot(
+      AUTHORED_PATH_WORLD[i][0] - AUTHORED_PATH_WORLD[j][0],
+      AUTHORED_PATH_WORLD[i][1] - AUTHORED_PATH_WORLD[j][1],
+    );
+    i = j;
+  }
+  const heading = authoredForwardAt(i);
+  const nx = -Math.sin(heading), ny = Math.cos(heading);   // left/right normal of travel
+  const p = AUTHORED_PATH_WORLD[i];
+  return { x: p[0] + nx * lane, y: p[1] + ny * lane, heading };
+}
+
+// 2-tone surface mask (grass 0 / ribbon 1) — same bake + threshold approach as the
+// circuit's, minus the kerb tone (there are no kerbs to classify).
+let _authoredMask: Uint8Array | null | undefined;
+let _authoredMW = 0, _authoredMH = 0;
+function authoredMask(): Uint8Array | null {
+  if (_authoredMask !== undefined) return _authoredMask;
+  if (typeof document === 'undefined') { _authoredMask = null; return null; }   // off-DOM tests
+  const W = Math.max(1, Math.round(AUTHORED_LOGICAL.widthM * CIRCUIT_MASK_PPM));
+  const H = Math.max(1, Math.round(AUTHORED_LOGICAL.heightM * CIRCUIT_MASK_PPM));
+  const cv = document.createElement('canvas');
+  cv.width = W; cv.height = H;
+  const c = cv.getContext('2d', { willReadFrequently: true });   // exists only to be read back
+  if (!c) { _authoredMask = null; return null; }
+  // Painted in FOUR tones so ONE raster carries the class (the circuit's approach):
+  // grass 0, gravel LOW, ribbon MID, kerb HIGH. Gravel goes down FIRST — the ribbon
+  // and kerbs paint over it, so a patch can never override the track itself.
+  c.fillStyle = '#000'; c.fillRect(0, 0, W, H);
+  c.fillStyle = '#303030';
+  for (const poly of AUTHORED_GRAVEL) {
+    if (poly.length < 3) continue;
+    c.beginPath();
+    for (let i = 0; i < poly.length; i++) {
+      const w = authoredToWorld(poly[i][0], poly[i][1]);
+      if (i === 0) c.moveTo(w.x * CIRCUIT_MASK_PPM, w.y * CIRCUIT_MASK_PPM);
+      else c.lineTo(w.x * CIRCUIT_MASK_PPM, w.y * CIRCUIT_MASK_PPM);
+    }
+    c.closePath(); c.fill();
+  }
+  c.strokeStyle = '#808080';
+  c.lineJoin = 'round'; c.lineCap = 'round';
+  c.beginPath();
+  const p0 = authoredToWorld(AUTHORED_PATH[0][0], AUTHORED_PATH[0][1]);
+  c.moveTo(p0.x * CIRCUIT_MASK_PPM, p0.y * CIRCUIT_MASK_PPM);
+  for (let i = 1; i < AUTHORED_PATH.length; i++) {
+    const w = authoredToWorld(AUTHORED_PATH[i][0], AUTHORED_PATH[i][1]);
+    c.lineTo(w.x * CIRCUIT_MASK_PPM, w.y * CIRCUIT_MASK_PPM);
+  }
+  c.closePath();
+  c.lineWidth = AUTHORED_TRACK_W * CIRCUIT_MASK_PPM;
+  c.stroke();
+  c.fillStyle = '#f0f0f0';
+  for (const q of AUTHORED_KERB_QUADS) {
+    c.beginPath();
+    for (let i = 0; i < 4; i++) {
+      const w = authoredToWorld(q.pts[i][0], q.pts[i][1]);
+      if (i === 0) c.moveTo(w.x * CIRCUIT_MASK_PPM, w.y * CIRCUIT_MASK_PPM);
+      else c.lineTo(w.x * CIRCUIT_MASK_PPM, w.y * CIRCUIT_MASK_PPM);
+    }
+    c.closePath(); c.fill();
+  }
+  try {
+    const img = c.getImageData(0, 0, W, H).data;
+    const mask = new Uint8Array(W * H);
+    // thresholds midway between the painted tones (half-coverage rule at AA edges):
+    // 240 kerb · 128 ribbon · 48 gravel · 0 grass
+    for (let i = 0; i < W * H; i++) {
+      const t = img[i * 4];
+      mask[i] = t > 184 ? 2 : t > 88 ? 1 : t > 24 ? 3 : 0;   // 2 kerb · 1 ribbon · 3 gravel · 0 grass
+    }
+    _authoredMW = W; _authoredMH = H;
+    _authoredMask = mask;
+    return mask;
+  } catch (err) {
+    // don't cache the failure — a later call retries; lookups fall back to asphalt-everywhere
+    noteError('authored-mask', err); console.warn('[circuit2] surface mask build failed:', err);
+    return null;
+  }
+}
+function authoredClassAt(x: number, y: number): MarkClass {
+  const m = authoredMask();
+  if (!m) return 'asphalt';        // no raster (off-DOM) → never penalise
+  const mx = (x * CIRCUIT_MASK_PPM) | 0, my = (y * CIRCUIT_MASK_PPM) | 0;
+  if (mx < 0 || my < 0 || mx >= _authoredMW || my >= _authoredMH) return 'grass';
+  const v = m[my * _authoredMW + mx];
+  return v === 2 ? 'kerb' : v === 1 ? 'asphalt' : v === 3 ? 'gravel' : 'grass';
+}
+function authoredSurfaceAt(x: number, y: number): Surface {
+  const c = authoredClassAt(x, y);
+  if (c === 'kerb') return 'asphalt';                 // a kerb IS asphalt to the physics
+  if (c === 'gravel') return 'gravel';                // run-off patch — real gravel grip
+  if (c !== 'asphalt') return 'grass';
+  return authoredDirtAt(x, y) ? 'dirt' : 'asphalt';   // dirt laid OVER the ribbon (physics 'dirt')
+}
+// RENDER-ONLY mark class: kerbs scuff as kerbs, brown gouge marks on dirt AND gravel.
+function authoredMarkClassAt(x: number, y: number): MarkClass {
+  const c = authoredClassAt(x, y);
+  if (c === 'kerb') return 'kerb';
+  if (c === 'gravel') return 'gravel';
+  if (c !== 'asphalt') return 'grass';
+  return authoredDirtAt(x, y) ? 'gravel' : 'asphalt';
+}
+// TRACK GEOMETRY: on track = ribbon AND kerbs (a kerb is a track extension you may
+// ride), never a material question — the dirt overlay does not change the geometry.
+function authoredOnTrackAt(x: number, y: number): boolean {
+  const c = authoredClassAt(x, y);
+  return c === 'asphalt' || c === 'kerb';
+}
+
+function drawAuthoredSurface(ctx: CanvasRenderingContext2D, wPx: number, hPx: number) {
+  const pxPerM = wPx / AUTHORED_LOGICAL.widthM;
+  const rc = { wPx, hPx, pxPerM };
+  // 1. GRASS — the whole field.
+  SURFACES.grass.paint(ctx, (m, r) => { m.fillRect(0, 0, r.wPx, r.hPx); }, rc);
+  // 1b. GRAVEL run-off patches — marked polygons (points connected straight), painted
+  //     UNDER the tarmac (circuit order), so overlap with the ribbon hides beneath it.
+  if (AUTHORED_GRAVEL.length) {
+    SURFACES.gravel.paint(ctx, (m) => {
+      for (const poly of AUTHORED_GRAVEL) {
+        if (poly.length < 3) continue;
+        m.beginPath();
+        for (let i = 0; i < poly.length; i++) {
+          const w = authoredToWorld(poly[i][0], poly[i][1]);
+          if (i === 0) m.moveTo(w.x * pxPerM, w.y * pxPerM);
+          else m.lineTo(w.x * pxPerM, w.y * pxPerM);
+        }
+        m.closePath(); m.fill();
+      }
+    }, rc);
+  }
+  // 2. ASPHALT — the ribbon, painted PROCEDURALLY in the oval's asphalt style (clean
+  //    dark tarmac + a faint rubbered-in racing line). NOT SURFACES.asphalt here: its
+  //    image fill is the designer's pre-rendered CIRCUIT art (kerbs/gravel baked in),
+  //    which leaks the old track's features through any other ribbon shape.
+  const trace = (m: CanvasRenderingContext2D) => {
+    m.beginPath();
+    const q0 = authoredToWorld(AUTHORED_PATH[0][0], AUTHORED_PATH[0][1]);
+    m.moveTo(q0.x * pxPerM, q0.y * pxPerM);
+    for (let i = 1; i < AUTHORED_PATH.length; i++) {
+      const w = authoredToWorld(AUTHORED_PATH[i][0], AUTHORED_PATH[i][1]);
+      m.lineTo(w.x * pxPerM, w.y * pxPerM);
+    }
+    m.closePath();
+    m.lineJoin = 'round'; m.lineCap = 'round';
+  };
+  trace(ctx);                                               // ONE flat tone — the lighter of the
+  ctx.strokeStyle = '#3b3e44';                              // oval's two (boss's pick); no gradient,
+  ctx.lineWidth = AUTHORED_TRACK_W * pxPerM;                // no darker worn-line stripe
+  ctx.stroke();
+
+  // The dirt SHAPE (band over the marked arc, clipped to the ribbon) — NAMED so it
+  // both paints the dirt (2b) and clips the worn line (2c). An end WITH a marked
+  // boundary polyline (AUTHORED_DIRT_EDGES) gets the band extended past it and CUT
+  // to the drawn line (the rallycross approach); an end without one keeps the plain
+  // straight butt cut.
+  const dirtShape = AUTHORED_DIRT
+    ? (m: CanvasRenderingContext2D): void => {
+        const N = AUTHORED_PATH.length;
+        const span = (AUTHORED_DIRT.i1 - AUTHORED_DIRT.i0 + N) % N;
+        const d0 = AUTHORED_DIRT.i0;
+        // marked lines + the extensions they imply (module-computed, physics uses the same)
+        const { start: edgeStart, end: edgeEnd, extStart, extEnd } = AUTHORED_DIRT_EDGE_INFO;
+        const EXT = 12;                            // cut margin past the line (path samples)
+        const from = edgeStart ? -(extStart + EXT) : 0, to = span + (edgeEnd ? extEnd + EXT : 0);
+        m.beginPath();
+        for (let n = from; n <= to; n++) {
+          const p = AUTHORED_PATH_WORLD[((d0 + n) % N + N) % N];
+          if (n === from) m.moveTo(p[0] * pxPerM, p[1] * pxPerM);
+          else m.lineTo(p[0] * pxPerM, p[1] * pxPerM);
+        }
+        m.lineJoin = 'round'; m.lineCap = 'butt';
+        m.lineWidth = AUTHORED_TRACK_W * pxPerM;
+        m.stroke();
+        // CUT to each drawn boundary: the marked points connected STRAIGHT, both ends
+        // extended past the band edges, closed with a polygon toward the asphalt side.
+        // The polygon is LOCALISED (intersected with the band segment around ITS end,
+        // the [winFrom..winTo] index window) — the winding track can bring ANOTHER
+        // dirt section close to the line, and an unbounded cut erased it there.
+        const cut = (lineS: Array<[number, number]>, backIdxDir: 1 | -1, endIdx: number,
+          winFrom: number, winTo: number): void => {
+          const C = scratch(2, wPx, hPx), cc = C ? C.getContext('2d') : null;
+          if (!C || !cc) return;                   // no scratch → skip the cut (plain end stays)
+          cc.setTransform(1, 0, 0, 1, 0, 0);
+          cc.clearRect(0, 0, wPx, hPx);
+          cc.fillStyle = cc.strokeStyle = '#fff';
+          const e: Pt[] = lineS.map(([sx, sy]) => {
+            const w = authoredToWorld(sx, sy);
+            return [w.x * pxPerM, w.y * pxPerM];
+          });
+          const reach = AUTHORED_TRACK_W * pxPerM;
+          const ext = (a: Pt, b: Pt): Pt => {
+            const dx = a[0] - b[0], dy = a[1] - b[1];
+            const L = Math.hypot(dx, dy) || 1;
+            return [a[0] + (dx / L) * reach, a[1] + (dy / L) * reach];
+          };
+          const poly = [ext(e[0], e[1]), ...e, ext(e[e.length - 1], e[e.length - 2])];
+          const bp = AUTHORED_PATH_WORLD[((endIdx + backIdxDir * 10) % N + N) % N];
+          const ep = AUTHORED_PATH_WORLD[((endIdx % N) + N) % N];
+          let bx = bp[0] - ep[0], by = bp[1] - ep[1];
+          const bl = Math.hypot(bx, by) || 1;
+          bx /= bl; by /= bl;
+          const BIG = reach * 4;
+          cc.beginPath();
+          cc.moveTo(poly[0][0], poly[0][1]);
+          for (let k = 1; k < poly.length; k++) cc.lineTo(poly[k][0], poly[k][1]);
+          cc.lineTo(poly[poly.length - 1][0] + bx * BIG, poly[poly.length - 1][1] + by * BIG);
+          cc.lineTo(poly[0][0] + bx * BIG, poly[0][1] + by * BIG);
+          cc.closePath();
+          cc.fill();
+          cc.globalCompositeOperation = 'destination-in';
+          cc.beginPath();
+          for (let n = winFrom; n <= winTo; n++) {
+            const p = AUTHORED_PATH_WORLD[((n % N) + N) % N];
+            if (n === winFrom) cc.moveTo(p[0] * pxPerM, p[1] * pxPerM);
+            else cc.lineTo(p[0] * pxPerM, p[1] * pxPerM);
+          }
+          cc.lineJoin = 'round'; cc.lineCap = 'butt';
+          cc.lineWidth = AUTHORED_TRACK_W * pxPerM * 1.3;
+          cc.stroke();
+          cc.globalCompositeOperation = 'source-over';
+          m.globalCompositeOperation = 'destination-out';
+          m.drawImage(C, 0, 0);
+          m.globalCompositeOperation = 'source-over';
+        };
+        if (edgeStart) {
+          cut(edgeStart, -1, ((d0 - extStart) % N + N) % N,
+            d0 - extStart - EXT, d0 + 40);
+        }
+        if (edgeEnd) {
+          cut(edgeEnd, 1, (d0 + span + extEnd) % N,
+            d0 + span - 40, d0 + span + extEnd + EXT);
+        }
+        m.globalCompositeOperation = 'destination-in';
+        trace(m);
+        m.lineWidth = AUTHORED_TRACK_W * pxPerM;
+        m.stroke();
+        m.globalCompositeOperation = 'source-over';
+      }
+    : null;
+
+  // IDEAL-LINE layer: the drawn strokes on a scratch, clipped by a shape painted on a
+  // second scratch (destination-in), composited at the pass's alpha. Two passes: dark
+  // rubbered on the tarmac (2a, under the dirt), lighter worn tone on the dirt (2c).
+  const lineLayer = (tone: string, alpha: number, shapeFn: (m: CanvasRenderingContext2D) => void): void => {
+    if (!AUTHORED_LINE.length) return;
+    const L = scratch(3, wPx, hPx), lc = L ? L.getContext('2d') : null;
+    const M = scratch(4, wPx, hPx), mc = M ? M.getContext('2d') : null;
+    if (!L || !lc || !M || !mc) return;
+    lc.setTransform(1, 0, 0, 1, 0, 0); lc.clearRect(0, 0, wPx, hPx);
+    lc.lineCap = 'round'; lc.lineJoin = 'round';
+    lc.strokeStyle = tone;
+    for (const st of AUTHORED_LINE) {
+      if (st.pts.length < 2) continue;
+      lc.lineWidth = Math.max(1, st.w * AUTHORED_SCALE * pxPerM);   // EXACT drawn brush width
+      lc.beginPath();
+      st.pts.forEach(([sx, sy], i) => {                              // EXACT drawn points — no smoothing
+        const w = authoredToWorld(sx, sy);
+        if (i === 0) lc.moveTo(w.x * pxPerM, w.y * pxPerM);
+        else lc.lineTo(w.x * pxPerM, w.y * pxPerM);
+      });
+      lc.stroke();
+    }
+    mc.setTransform(1, 0, 0, 1, 0, 0); mc.clearRect(0, 0, wPx, hPx);
+    mc.fillStyle = mc.strokeStyle = '#fff';
+    mc.lineJoin = 'round'; mc.lineCap = 'round';
+    shapeFn(mc);
+    lc.globalCompositeOperation = 'destination-in';
+    lc.drawImage(M, 0, 0);
+    lc.globalCompositeOperation = 'source-over';
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.drawImage(L, 0, 0);
+    ctx.restore();
+  };
+  // 2a. worn line, TARMAC pass — subtle darker rubbered band, clipped to the ribbon.
+  lineLayer('#181a1e', 0.38, (m) => { trace(m); m.lineWidth = AUTHORED_TRACK_W * pxPerM; m.stroke(); });
+
+  // 2b. DIRT section — the marked arc, packed-earth surface laid over the ribbon.
+  if (dirtShape) {
+    SURFACES.dirt.paint(ctx, dirtShape, rc);
+    // 2c. worn line, DIRT pass — just LIGHTER, nothing fancy (rallycross language),
+    //     clipped to the dirt so it can't smudge onto the tarmac or grass.
+    const [lr, lg, lb] = DIRT_LOOK.line;
+    lineLayer(`rgb(${lr},${lg},${lb})`, 1, dirtShape);
+  }
+  // 3. KERBS — blue borders first, stripes on top (the builder pre-orders them).
+  for (const q of AUTHORED_KERB_QUADS) {
+    ctx.fillStyle = q.fill;
+    ctx.beginPath();
+    for (let i = 0; i < 4; i++) {
+      const w = authoredToWorld(q.pts[i][0], q.pts[i][1]);
+      if (i === 0) ctx.moveTo(w.x * pxPerM, w.y * pxPerM);
+      else ctx.lineTo(w.x * pxPerM, w.y * pxPerM);
+    }
+    ctx.closePath(); ctx.fill();
+  }
+  // 4. START/FINISH — one plain white line across the local travel direction, in the
+  //    circuit's paint family (same tone/alpha/width as its start line).
+  const fin = authoredToWorld(AUTHORED_FINISH.x, AUTHORED_FINISH.y);
+  const qx = Math.cos(AUTHORED_FORWARD + Math.PI / 2), qy = Math.sin(AUTHORED_FORWARD + Math.PI / 2);
+  ctx.save();
+  ctx.strokeStyle = `rgba(${WHITE_LINE_RGB},${WHITE_LINE_ALPHA})`;
+  ctx.lineWidth = Math.max(1, WHITE_LINE_W_M * pxPerM);
+  ctx.lineCap = 'butt';
+  ctx.beginPath();
+  ctx.moveTo((fin.x - qx * AUTHORED_TRACK_W / 2) * pxPerM, (fin.y - qy * AUTHORED_TRACK_W / 2) * pxPerM);
+  ctx.lineTo((fin.x + qx * AUTHORED_TRACK_W / 2) * pxPerM, (fin.y + qy * AUTHORED_TRACK_W / 2) * pxPerM);
+  ctx.stroke();
+  ctx.restore();
+}
+
+export const authoredCircuitMap: MapDefinition = {
+  id: 'circuit2',
+  name: 'Circuit II',
+  gameModes: ['free', 'race', 'xp'],
+  // start-only gate ⇒ circuit (laps); the editor shows the LAPS panel, like the ovals.
+  trackType: 'circuit',
+  smokeColor: [248, 248, 251],    // white rubber smoke (asphalt)
+  fixedWorld: AUTHORED_LOGICAL,   // one screen ⇒ standard car size, no camera scroll
+
+  surfaceAt: authoredSurfaceAt,   // arms per-wheel grass grip/drag in physics4
+  onTrackAt: authoredOnTrackAt,   // ribbon geometry (XP off-track, race cut detection)
+
+  // OPEN track: no barriers, drive off onto the grass freely.
+  createWorld(widthM, heightM) {
+    return { width: widthM, height: heightM, rects: [], arcs: [] };
+  },
+
+  drawBackground(ctx, wPx, hPx) { drawAuthoredSurface(ctx, wPx, hPx); },
+  drawObstacles() { /* nothing on the grass — no billboards, no walls */ },
+
+  // Same gate semantics as the circuit: one start line on the derived finish, the
+  // gate lying across the local direction of travel, lap arms at the far point.
+  startLine(world) {
+    void world;
+    const c = authoredToWorld(AUTHORED_FINISH.x, AUTHORED_FINISH.y);
+    const far = authoredToWorld(AUTHORED_FAR.x, AUTHORED_FAR.y);
+    return {
+      type: 'start',
+      x: c.x,
+      y: c.y,
+      radius: AUTHORED_TRACK_W / 2,
+      angle: AUTHORED_FORWARD + Math.PI / 2,   // the gate lies ACROSS the travel direction
+      forward: AUTHORED_FORWARD,
+      farX: far.x,
+      farY: far.y,
+      farRadius: AUTHORED_TRACK_W,
+    };
+  },
+
+  // Standing start behind the line — the grid follows the ribbon (authoredGridPose),
+  // so every box sits on asphalt whatever the layout does behind the line.
+  spawn(slot, world) {
+    void world;
+    return authoredGridPose(slot);
+  },
+
+  // No walls: just the soft world-edge clamp (grass extends to the edge).
+  wrap(car, world) {
+    const m = 1.5;
+    let clamped = false;
+    if (car.x < m) { car.x = m; car.vx = 0; clamped = true; }
+    else if (car.x > world.width - m) { car.x = world.width - m; car.vx = 0; clamped = true; }
+    if (car.y < m) { car.y = m; car.vy = 0; clamped = true; }
+    else if (car.y > world.height - m) { car.y = world.height - m; car.vy = 0; clamped = true; }
+    return clamped;
+  },
+
+  draggableObstacles: false,
+};
+
 registerMap(desktopMap);
 registerMap(flatTrackMap);
 registerMap(asphaltTrackMap);
 registerMap(circuitMap);
 registerMap(rallycrossMap);
+registerMap(authoredCircuitMap);
