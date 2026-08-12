@@ -48,6 +48,8 @@ const gravelWidthEl = document.getElementById('gravel-width') as HTMLInputElemen
 const gravelWidthOutEl = document.getElementById('gravel-width-out') as HTMLElement;
 const bbWidthEl = document.getElementById('bb-width') as HTMLInputElement;
 const bbWidthOutEl = document.getElementById('bb-width-out') as HTMLElement;
+const lineWidthEl = document.getElementById('line-width') as HTMLInputElement;
+const lineWidthOutEl = document.getElementById('line-width-out') as HTMLElement;
 const outEl = document.getElementById('out') as HTMLTextAreaElement;
 
 cv.width = CW; cv.height = CH;
@@ -117,7 +119,7 @@ let lines: LineStroke[] = [];
 let lineMode = false;                              // toggle: draw strokes until switched off
 let drawingLine = false;
 let lineStroke: Pt[] = [];
-const LINE_W_FRAC = 0.30;                          // brush width as a fraction of the band
+let lineBrush = 45;                                // STOPA brush width (sketch units) — the slider
 
 // derived (computeAll)
 let path: Pt[] | null = null;
@@ -475,7 +477,7 @@ function drawTrack(c: CanvasRenderingContext2D, wPx: number, hPx: number,
   // brown dirt). Game view: the map's two passes — dark rubbered clipped to the
   // ribbon, lighter worn tone clipped to the dirt — via scratch layers.
   const allStrokes: LineStroke[] = drawingLine && lineStroke.length > 1
-    ? [...lines, { w: Math.round(band * LINE_W_FRAC), pts: lineStroke }]
+    ? [...lines, { w: Math.round(lineBrush), pts: lineStroke }]
     : lines;
   if (allStrokes.length) {
     const strokeAll = (m: CanvasRenderingContext2D, tone: string) => {
@@ -721,6 +723,7 @@ function renderStats() {
   widthOutEl.textContent = fit ? `${band} u ≈ ${(fit.scale * band).toFixed(1)} m` : `${band} u`;
   gravelWidthOutEl.textContent = fit ? `${gravelBrush} u ≈ ${(fit.scale * gravelBrush).toFixed(1)} m` : `${gravelBrush} u`;
   bbWidthOutEl.textContent = fit ? `${Math.round(billboardScale * 100)} % ≈ ${(BILLBOARD_DIMS.W_M * billboardScale).toFixed(0)} m` : `${Math.round(billboardScale * 100)} %`;
+  lineWidthOutEl.textContent = fit ? `${lineBrush} u ≈ ${(fit.scale * lineBrush).toFixed(1)} m` : `${lineBrush} u`;
   if (!path || !fit) { statsEl.innerHTML = ''; return; }
   const fillW = (fit.w * fit.scale) / FLAT_LOGICAL.widthM;
   const fillH = (fit.h * fit.scale) / FLAT_LOGICAL.heightM;
@@ -803,7 +806,7 @@ function undo() {
 
 // ---- persistence + export ---------------------------------------------------------
 function save() {
-  try { localStorage.setItem(STORE_KEY, JSON.stringify({ v: 1, ctrl, band, dirt, finishI, kerbs, lines, dirtEdges, gravels, gravelBrush, billboards, billboardScale })); } catch { /* dev tool */ }
+  try { localStorage.setItem(STORE_KEY, JSON.stringify({ v: 1, ctrl, band, dirt, finishI, kerbs, lines, dirtEdges, gravels, gravelBrush, billboards, billboardScale, lineBrush })); } catch { /* dev tool */ }
 }
 function restore(): boolean {
   try {
@@ -813,7 +816,7 @@ function restore(): boolean {
       v: number; ctrl: Pt[]; band: number; dirt?: { i0: number; i1: number } | null;
       finishI?: number | null; kerbs?: AuthoredKerb[]; lines?: LineStroke[]; dirtEdges?: Pt[][];
       gravels?: GravelStroke[]; gravelBrush?: number;
-      billboards?: BillboardMark[]; billboardScale?: number;
+      billboards?: BillboardMark[]; billboardScale?: number; lineBrush?: number;
     };
     if (d.v !== 1 || !Array.isArray(d.ctrl) || d.ctrl.length < MIN_CTRL) return false;
     ctrl = d.ctrl.map(([x, y]) => [x, y] as Pt);
@@ -845,6 +848,8 @@ function restore(): boolean {
       : [];
     if (typeof d.billboardScale === 'number') billboardScale = d.billboardScale;
     bbWidthEl.value = String(Math.round(billboardScale * 100));
+    if (typeof d.lineBrush === 'number') lineBrush = d.lineBrush;
+    lineWidthEl.value = String(lineBrush);
     widthEl.value = String(band);
     return true;
   } catch { return false; }
@@ -1069,7 +1074,7 @@ function endPointer() {
     drawingLine = false;
     if (lineStroke.length >= 2) {
       pushHistory();
-      lines.push({ w: Math.round(band * LINE_W_FRAC), pts: lineStroke.map(([x, y]) => [Math.round(x), Math.round(y)] as Pt) });
+      lines.push({ w: Math.round(lineBrush), pts: lineStroke.map(([x, y]) => [Math.round(x), Math.round(y)] as Pt) });
       save();
       setStatus(`STOPA: tah přidán ✓ (${lines.length} tahů). Další tah, pravý klik = smazat poslední, STOPA tlačítko = konec.`);
     }
@@ -1260,6 +1265,13 @@ gravelWidthEl.addEventListener('input', () => {
   if (gravelMode) scheduleRender();                // live-preview the new brush width
 });
 
+lineWidthEl.addEventListener('input', () => {
+  lineBrush = Number(lineWidthEl.value);
+  renderStats();
+  if (lineMode) scheduleRender();                  // live-preview the new brush width
+});
+lineWidthEl.addEventListener('change', save);
+
 bbWidthEl.addEventListener('input', () => {
   billboardScale = Number(bbWidthEl.value) / 100;
   if (selectedBb !== null && billboards[selectedBb]) {
@@ -1295,7 +1307,7 @@ document.getElementById('line')!.addEventListener('click', () => {
   document.getElementById('line')!.classList.toggle('active', lineMode);
   cv.style.cursor = lineMode ? 'crosshair' : 'default';
   setStatus(lineMode
-    ? 'STOPA: kresli ideální stopu volnou rukou přes trať (klidně víc tahů). Pravý klik = smazat poslední tah, STOPA tlačítko = konec.'
+    ? 'STOPA: kresli ideální stopu volnou rukou (víc tahů). Šířku měň sliderem „stopa šířka". Pravý klik = smazat poslední tah, STOPA tlačítko = konec.'
     : 'STOPA: režim ukončen. ' + HINT_EDIT);
 });
 

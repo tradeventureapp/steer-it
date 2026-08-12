@@ -252,7 +252,8 @@ not trusted). `EV` events: phone→desktop `join|color|name|leave|control`; desk
   `{i0,i1,side}`; the side (+1 left/−1 right of travel) is read from where the first click
   lands vs the centreline; multiple kerbs; right-click on a kerb deletes it), STOPA/ideal
   line (TOGGLE mode: freehand strokes over the track, brush = band×0.30, right-click deletes
-  the last stroke → `AUTHORED_LINE` `{w,pts}[]`; render-only in-game — dark rubbered band on
+  the last stroke, "stopa šířka" slider sets the brush width (per-stroke, adjustable) →
+  `AUTHORED_LINE` `{w,pts}[]`; render-only in-game — dark rubbered band on
   tarmac, DIRT_LOOK.line worn tone on dirt, both scratch-layer clipped, rallycross language,
   drawn via the shared `traceWornPolyline` (1-2-1 blur ×3 + quadratics through midpoints, so
   the stroke's sides don't show hand jitter — data stays raw, smoothing is render-time);
