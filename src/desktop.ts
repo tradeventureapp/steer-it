@@ -829,7 +829,12 @@ function renderMapPreview(c: CanvasRenderingContext2D, def: MapDefinition, RW: n
   try {
     const w = def.createWorld(RW / CONFIG.pxPerMeter, RH / CONFIG.pxPerMeter);
     def.drawBackground(c, RW, RH);
-    def.drawObstacles(c, w, CONFIG.pxPerMeter, null);
+    // The ad maps (the circuit + Circuit II — the ones with `adAt`) draw ONLY their
+    // billboard ground shadows in drawObstacles, and the raised billboard bodies live in
+    // drawAboveCars (never called for a thumbnail). So the select-screen preview shows the
+    // bare track — no billboards, no shadows — exactly like the circuit tile. In-game and
+    // the editor are untouched (they keep the full billboards + shadows).
+    if (!def.adAt) def.drawObstacles(c, w, CONFIG.pxPerMeter, null);
   } catch { /* a preview must never break the menu */ }
 }
 
