@@ -3080,6 +3080,14 @@ export function buildAuthoredKerbQuads(path: Pt[], band: number, kerbs: Authored
       if (n > 0) arc.push(arc[n - 1] + Math.hypot(pts[n][0] - pts[n - 1][0], pts[n][1] - pts[n - 1][1]));
     }
     const total = arc[arc.length - 1];
+    // A SHORT kerb (a tight hairpin-tongue tip, ~15 stripes here vs 24+ for the rest) crushes:
+    // its 14+ arc-stripes cram into the raycast-clamped sliver as a red/white starburst, and
+    // where the tip points into OPEN road the raycast finds no facing edge so blue reaches full
+    // and pokes into the tarmac. Render it as the boss asked: TWO clean stripes (red then white,
+    // split at the arc midpoint) with the reach tucked so blue can't overhang the grass.
+    const shortKerb = total / stripeLen < 18;
+    const shortCap = kerbW + blueW * 0.4;          // tucks the tip's blue back off the road
+    const capAt = (n: number) => shortKerb ? Math.min(allowed[n], shortCap) : allowed[n];
     const taper = stripeLen * 1.5;                 // ends taper to nothing over ~1.5 stripes
     const reach = (s: number) => Math.max(0, Math.min(1, s / taper, (total - s) / taper));
     const at = (n: number, r: number): Pt => [pts[n][0] + nrm[n][0] * r, pts[n][1] + nrm[n][1] * r];
@@ -3118,16 +3126,20 @@ export function buildAuthoredKerbQuads(path: Pt[], band: number, kerbs: Authored
     }
     for (let n = 0; n < span; n++) {
       const f0 = reach(arc[n]), f1 = reach(arc[n + 1]);
-      const b0 = Math.min(f0 * (kerbW + blueW), allowed[n]);
-      const b1 = Math.min(f1 * (kerbW + blueW), allowed[n + 1]);
+      const c0 = capAt(n), c1 = capAt(n + 1);
+      const b0 = Math.min(f0 * (kerbW + blueW), c0);
+      const b1 = Math.min(f1 * (kerbW + blueW), c1);
       blue.push({
         pts: [at(n, rIn), at(n + 1, rIn), at(n + 1, rIn + b1), at(n, rIn + b0)],
         fill: KERB_BLUE,
       });
-      const stripeIdx = Math.floor(((arc[n] + arc[n + 1]) / 2) / stripeLen);
+      const midArc = (arc[n] + arc[n + 1]) / 2;
+      const fill = shortKerb
+        ? (midArc < total / 2 ? KERB_RED : KERB_WHITE)          // just two halves — no starburst
+        : (Math.floor(midArc / stripeLen) % 2 ? KERB_WHITE : KERB_RED);
       stripes.push({
-        pts: [at(n, rIn), at(n + 1, rIn), at(n + 1, rIn + Math.min(f1 * kerbW, allowed[n + 1])), at(n, rIn + Math.min(f0 * kerbW, allowed[n]))],
-        fill: stripeIdx % 2 ? KERB_WHITE : KERB_RED,
+        pts: [at(n, rIn), at(n + 1, rIn), at(n + 1, rIn + Math.min(f1 * kerbW, c1)), at(n, rIn + Math.min(f0 * kerbW, c0))],
+        fill,
       });
     }
   }
