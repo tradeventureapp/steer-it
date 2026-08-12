@@ -238,10 +238,11 @@ not trusted). `EV` events: phone→desktop `join|color|name|leave|control`; desk
   destination-out cut erased it there (boss-reported bug, fixed in both map and editor);
   the editor's `dirtLayer` is the ONE shared shape for ink tint, mini paint and both
   worn-line clips),
-  GRAVEL (TOGGLE: click points around a run-off area, dblclick closes the polygon — straight
-  connections; multiple patches; right-click discards/deletes-under-click/exits →
-  `AUTHORED_GRAVEL` polygons, painted UNDER the tarmac circuit-style so ribbon overlap hides,
-  baked into the now 4-tone mask as class 3 → real 'gravel' physics + gravel marks, OFF-track),
+  GRAVEL (TOGGLE: FREEHAND swaths — draw with the mouse like drawing the track, adjustable
+  brush width via the "gravel štětec" slider; multiple strokes; right-click deletes the last,
+  or exits → `AUTHORED_GRAVEL` `{w,pts}[]` strokes stroked at brush width (traceWornPolyline
+  smoothing), painted UNDER the tarmac circuit-style so ribbon overlap hides, baked into the
+  4-tone mask as class 3 → real 'gravel' physics + gravel marks, OFF-track),
   CÍL/finish (ONE click → `AUTHORED_FINISH_I` path index; null = auto lowest-point; rendered
   as the circuit's plain white line, no checker), KERB (two clicks ON AN ASPHALT EDGE →
   `{i0,i1,side}`; the side (+1 left/−1 right of travel) is read from where the first click

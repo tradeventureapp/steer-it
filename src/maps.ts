@@ -2920,11 +2920,11 @@ const AUTHORED_DIRT_EDGES: Array<Array<[number, number]>> = [
   [[1407,188],[1408,171],[1406,167],[1397,163],[1390,161],[1386,161],[1377,155],[1376,147],[1365,140],[1361,140],[1349,136],[1346,127],[1344,115],[1343,106],[1332,100],[1332,92],[1329,87]],
   [[429,488],[440,492],[448,495],[457,498],[461,503],[473,505],[489,500],[500,499],[522,502],[529,502],[541,497],[548,490],[563,490],[571,490],[574,492]],
 ];
-// GRAVEL run-off patches — closed polygons (sketch units) marked in the editor,
-// points connected STRAIGHT. Painted UNDER the tarmac (circuit style: overlap with
-// the ribbon simply hides beneath it) and baked into the mask as real 'gravel'
-// physics; a patch is OFF TRACK (a run-off, outside the ribbon geometry).
-const AUTHORED_GRAVEL: Array<Array<[number, number]>> = [];
+// GRAVEL run-off — FREEHAND strokes (sketch units + brush width `w`), painted like a
+// drawn swath: each stroke is stroked at its brush width (smoothed). Laid UNDER the
+// tarmac (circuit style: overlap with the ribbon hides beneath it) and baked into the
+// mask as real 'gravel' physics; gravel is OFF TRACK (a run-off, outside the ribbon).
+const AUTHORED_GRAVEL: Array<{ w: number; pts: Array<[number, number]> }> = [];
 // FINISH — a path index marked in the editor (one click); null = derived from the
 // lowest drawn point (the flatten straight), the original behaviour.
 const AUTHORED_FINISH_I: number | null = 966;
@@ -3274,16 +3274,16 @@ function authoredMask(): Uint8Array | null {
   // grass 0, gravel LOW, ribbon MID, kerb HIGH. Gravel goes down FIRST — the ribbon
   // and kerbs paint over it, so a patch can never override the track itself.
   c.fillStyle = '#000'; c.fillRect(0, 0, W, H);
-  c.fillStyle = '#303030';
-  for (const poly of AUTHORED_GRAVEL) {
-    if (poly.length < 3) continue;
-    c.beginPath();
-    for (let i = 0; i < poly.length; i++) {
-      const w = authoredToWorld(poly[i][0], poly[i][1]);
-      if (i === 0) c.moveTo(w.x * CIRCUIT_MASK_PPM, w.y * CIRCUIT_MASK_PPM);
-      else c.lineTo(w.x * CIRCUIT_MASK_PPM, w.y * CIRCUIT_MASK_PPM);
-    }
-    c.closePath(); c.fill();
+  c.strokeStyle = c.fillStyle = '#303030';
+  c.lineCap = 'round'; c.lineJoin = 'round';
+  for (const st of AUTHORED_GRAVEL) {
+    if (st.pts.length < 2) continue;
+    c.lineWidth = Math.max(1, st.w * AUTHORED_SCALE * CIRCUIT_MASK_PPM);
+    traceWornPolyline(c, st.pts, ([sx, sy]) => {
+      const w = authoredToWorld(sx, sy);
+      return [w.x * CIRCUIT_MASK_PPM, w.y * CIRCUIT_MASK_PPM];
+    });
+    c.stroke();
   }
   c.strokeStyle = '#808080';
   c.lineJoin = 'round'; c.lineCap = 'round';
@@ -3364,15 +3364,15 @@ function drawAuthoredSurface(ctx: CanvasRenderingContext2D, wPx: number, hPx: nu
   //     UNDER the tarmac (circuit order), so overlap with the ribbon hides beneath it.
   if (AUTHORED_GRAVEL.length) {
     SURFACES.gravel.paint(ctx, (m) => {
-      for (const poly of AUTHORED_GRAVEL) {
-        if (poly.length < 3) continue;
-        m.beginPath();
-        for (let i = 0; i < poly.length; i++) {
-          const w = authoredToWorld(poly[i][0], poly[i][1]);
-          if (i === 0) m.moveTo(w.x * pxPerM, w.y * pxPerM);
-          else m.lineTo(w.x * pxPerM, w.y * pxPerM);
-        }
-        m.closePath(); m.fill();
+      m.lineCap = 'round'; m.lineJoin = 'round';
+      for (const st of AUTHORED_GRAVEL) {
+        if (st.pts.length < 2) continue;
+        m.lineWidth = Math.max(1, st.w * AUTHORED_SCALE * pxPerM);
+        traceWornPolyline(m, st.pts, ([sx, sy]) => {
+          const w = authoredToWorld(sx, sy);
+          return [w.x * pxPerM, w.y * pxPerM];
+        });
+        m.stroke();
       }
     }, rc);
   }

@@ -43,6 +43,8 @@ const statusEl = document.getElementById('status') as HTMLElement;
 const statsEl = document.getElementById('stats') as HTMLElement;
 const widthEl = document.getElementById('width') as HTMLInputElement;
 const widthOutEl = document.getElementById('width-out') as HTMLElement;
+const gravelWidthEl = document.getElementById('gravel-width') as HTMLInputElement;
+const gravelWidthOutEl = document.getElementById('gravel-width-out') as HTMLElement;
 const outEl = document.getElementById('out') as HTMLTextAreaElement;
 
 cv.width = CW; cv.height = CH;
@@ -79,9 +81,14 @@ let dirtEdges: Pt[][] = [];
 let dirtEdgeMode = false;
 let dirtEdgePts: Pt[] = [];                        // the line being clicked right now
 // GRAVEL run-off patches — closed polygons clicked point by point, connected STRAIGHT.
-let gravels: Pt[][] = [];
+// GRAVEL run-off — FREEHAND strokes with an adjustable brush width (like drawing the
+// track). Each committed stroke keeps the brush width it was drawn at.
+interface GravelStroke { w: number; pts: Pt[] }
+let gravels: GravelStroke[] = [];
 let gravelMode = false;
-let gravelPts: Pt[] = [];                          // the polygon being clicked right now
+let drawingGravel = false;
+let gravelStroke: Pt[] = [];                       // the stroke being drawn right now
+let gravelBrush = 70;                              // brush width (sketch units) — the slider
 // FINISH — a marked path index (one click); null = auto (derived from the lowest point).
 let finishI: number | null = null;
 let finishMode = false;
@@ -392,25 +399,29 @@ function drawTrack(c: CanvasRenderingContext2D, wPx: number, hPx: number,
   }
   if (!path) return;
   const pts = path;
-  // GRAVEL patches — UNDER the ribbon (overlap hides beneath it, circuit order):
-  // real gravel surface in the game view, flat gravel-base tone on the ink paper.
-  if (gravels.length) {
-    const shapeAll = (m: CanvasRenderingContext2D) => {
-      for (const poly of gravels) {
-        if (poly.length < 3) continue;
-        m.beginPath();
-        for (let i = 0; i < poly.length; i++) {
-          if (i === 0) m.moveTo(ox + poly[i][0] * s, oy + poly[i][1] * s);
-          else m.lineTo(ox + poly[i][0] * s, oy + poly[i][1] * s);
-        }
-        m.closePath(); m.fill();
+  // GRAVEL — freehand swaths UNDER the ribbon (overlap hides beneath it, circuit
+  // order): real gravel surface in the game view, flat gravel-base tone on the ink
+  // paper. Includes the stroke being drawn right now, at the current brush width.
+  const gravelNow: GravelStroke[] = drawingGravel && gravelStroke.length > 1
+    ? [...gravels, { w: gravelBrush, pts: gravelStroke }]
+    : gravels;
+  if (gravelNow.length) {
+    const strokeAll = (m: CanvasRenderingContext2D) => {
+      m.lineCap = 'round'; m.lineJoin = 'round';
+      for (const st of gravelNow) {
+        if (st.pts.length < 2) continue;
+        m.lineWidth = Math.max(1, st.w * s);
+        traceWornPolyline(m, st.pts, ([x2, y2]) => [ox + x2 * s, oy + y2 * s]);
+        m.stroke();
       }
     };
     if (ink) {
-      c.fillStyle = `rgb(${GRAVEL_LOOK.base[0]},${GRAVEL_LOOK.base[1]},${GRAVEL_LOOK.base[2]})`;
-      shapeAll(c);
+      c.save();
+      c.strokeStyle = `rgb(${GRAVEL_LOOK.base[0]},${GRAVEL_LOOK.base[1]},${GRAVEL_LOOK.base[2]})`;
+      strokeAll(c);
+      c.restore();
     } else {
-      SURFACES.gravel.paint(c, (m) => shapeAll(m), { wPx, hPx, pxPerM });
+      SURFACES.gravel.paint(c, (m) => strokeAll(m), { wPx, hPx, pxPerM });
     }
   }
   if (ink) {
@@ -597,25 +608,7 @@ function render() {
     c.fillStyle = '#c9382f'; c.fill();
     c.lineWidth = 2; c.strokeStyle = '#ffffff'; c.stroke();
   }
-  if (gravelMode && gravelPts.length) {            // gravel polygon in progress
-    c.save();
-    if (gravelPts.length > 1) {
-      c.setLineDash([5, 4]);
-      c.strokeStyle = `rgb(${GRAVEL_LOOK.base[0]},${GRAVEL_LOOK.base[1]},${GRAVEL_LOOK.base[2]})`;
-      c.lineWidth = 2;
-      c.beginPath();
-      c.moveTo(vt.ox + gravelPts[0][0] * vt.s, vt.oy + gravelPts[0][1] * vt.s);
-      for (let i = 1; i < gravelPts.length; i++) c.lineTo(vt.ox + gravelPts[i][0] * vt.s, vt.oy + gravelPts[i][1] * vt.s);
-      c.stroke();
-      c.setLineDash([]);
-    }
-    for (const p of gravelPts) {
-      c.beginPath(); c.arc(vt.ox + p[0] * vt.s, vt.oy + p[1] * vt.s, 6, 0, Math.PI * 2);
-      c.fillStyle = `rgb(${GRAVEL_LOOK.base[0]},${GRAVEL_LOOK.base[1]},${GRAVEL_LOOK.base[2]})`; c.fill();
-      c.lineWidth = 2; c.strokeStyle = '#5a5648'; c.stroke();
-    }
-    c.restore();
-  }
+  // (the gravel stroke being drawn is rendered live inside the gravel layer above.)
   // Dirt boundary markers: committed lines show ONLY in OKRAJ DIRTU mode (they're
   // deletion targets there) — outside the mode the cut itself is the visual truth,
   // and the dashed overlays read as stray brown lines on the dirt (boss's report).
@@ -679,6 +672,7 @@ function render() {
 
 function renderStats() {
   widthOutEl.textContent = fit ? `${band} u ≈ ${(fit.scale * band).toFixed(1)} m` : `${band} u`;
+  gravelWidthOutEl.textContent = fit ? `${gravelBrush} u ≈ ${(fit.scale * gravelBrush).toFixed(1)} m` : `${gravelBrush} u`;
   if (!path || !fit) { statsEl.innerHTML = ''; return; }
   const fillW = (fit.w * fit.scale) / FLAT_LOGICAL.widthM;
   const fillH = (fit.h * fit.scale) / FLAT_LOGICAL.heightM;
@@ -704,7 +698,7 @@ function renderStats() {
 interface Snapshot {
   ctrl: Pt[]; band: number; dirt: { i0: number; i1: number } | null;
   finishI: number | null; kerbs: AuthoredKerb[]; lines: LineStroke[]; dirtEdges: Pt[][];
-  gravels: Pt[][];
+  gravels: GravelStroke[];
 }
 const history: Snapshot[] = [];
 let bandGesture = false;                           // one history entry per slider gesture
@@ -718,7 +712,7 @@ function snap(): Snapshot {
     kerbs: kerbs.map((k) => ({ ...k })),
     lines: lines.map((st) => ({ w: st.w, pts: st.pts.map(([x, y]) => [x, y] as Pt) })),
     dirtEdges: dirtEdges.map((l) => l.map(([x, y]) => [x, y] as Pt)),
-    gravels: gravels.map((l) => l.map(([x, y]) => [x, y] as Pt)),
+    gravels: gravels.map((st) => ({ w: st.w, pts: st.pts.map(([x, y]) => [x, y] as Pt) })),
   };
 }
 function pushHistory() {
@@ -737,7 +731,7 @@ function resetMarkModes() {
   finishMode = false; kerbMode = 0; dirtMode = 0;
   lineMode = false; drawingLine = false; lineStroke = [];
   dirtEdgeMode = false; dirtEdgePts = [];
-  gravelMode = false; gravelPts = [];
+  gravelMode = false; drawingGravel = false; gravelStroke = [];
   document.getElementById('line')!.classList.remove('active');
   document.getElementById('dirtedge')!.classList.remove('active');
   document.getElementById('gravel')!.classList.remove('active');
@@ -758,7 +752,7 @@ function undo() {
 
 // ---- persistence + export ---------------------------------------------------------
 function save() {
-  try { localStorage.setItem(STORE_KEY, JSON.stringify({ v: 1, ctrl, band, dirt, finishI, kerbs, lines, dirtEdges, gravels })); } catch { /* dev tool */ }
+  try { localStorage.setItem(STORE_KEY, JSON.stringify({ v: 1, ctrl, band, dirt, finishI, kerbs, lines, dirtEdges, gravels, gravelBrush })); } catch { /* dev tool */ }
 }
 function restore(): boolean {
   try {
@@ -767,7 +761,7 @@ function restore(): boolean {
     const d = JSON.parse(raw) as {
       v: number; ctrl: Pt[]; band: number; dirt?: { i0: number; i1: number } | null;
       finishI?: number | null; kerbs?: AuthoredKerb[]; lines?: LineStroke[]; dirtEdges?: Pt[][];
-      gravels?: Pt[][];
+      gravels?: GravelStroke[]; gravelBrush?: number;
     };
     if (d.v !== 1 || !Array.isArray(d.ctrl) || d.ctrl.length < MIN_CTRL) return false;
     ctrl = d.ctrl.map(([x, y]) => [x, y] as Pt);
@@ -788,9 +782,11 @@ function restore(): boolean {
           .map((l) => l.map(([x, y]) => [x, y] as Pt))
       : [];
     gravels = Array.isArray(d.gravels)
-      ? d.gravels.filter((l) => Array.isArray(l) && l.length >= 3)
-          .map((l) => l.map(([x, y]) => [x, y] as Pt))
+      ? d.gravels.filter((st) => st && typeof st.w === 'number' && Array.isArray(st.pts) && st.pts.length >= 2)
+          .map((st) => ({ w: st.w, pts: st.pts.map(([x, y]) => [x, y] as Pt) }))
       : [];
+    if (typeof d.gravelBrush === 'number') gravelBrush = d.gravelBrush;
+    gravelWidthEl.value = String(gravelBrush);
     widthEl.value = String(band);
     return true;
   } catch { return false; }
@@ -814,11 +810,11 @@ function exportText(): string {
     : ['const AUTHORED_DIRT_EDGES: Array<Array<[number, number]>> = [];'];
   const gravelLines = gravels.length
     ? [
-        'const AUTHORED_GRAVEL: Array<Array<[number, number]>> = [',
-        ...gravels.map((l) => `  [${l.map(([x, y]) => `[${x},${y}]`).join(',')}],`),
+        'const AUTHORED_GRAVEL: Array<{ w: number; pts: Array<[number, number]> }> = [',
+        ...gravels.map((st) => `  { w: ${st.w}, pts: [${st.pts.map(([x, y]) => `[${x},${y}]`).join(',')}] },`),
         '];',
       ]
-    : ['const AUTHORED_GRAVEL: Array<Array<[number, number]>> = [];'];
+    : ['const AUTHORED_GRAVEL: Array<{ w: number; pts: Array<[number, number]> }> = [];'];
   const finishLine = `const AUTHORED_FINISH_I: number | null = ${finishI !== null ? finishI : 'null'};`;
   const lineLines = lines.length
     ? [
@@ -869,10 +865,9 @@ cv.addEventListener('pointerdown', (e) => {
     setStatus(`OKRAJ DIRTU: ${dirtEdgePts.length} bodů — dvojklik = hotovo, pravý klik = zrušit.`);
     return;
   }
-  if (gravelMode) {                                // GRAVEL: collect polygon points
-    gravelPts.push([Math.round(p[0]), Math.round(p[1])]);
-    scheduleRender();
-    setStatus(`GRAVEL: ${gravelPts.length} bodů — dvojklik = uzavřít plochu, pravý klik = zrušit.`);
+  if (gravelMode) {                                // GRAVEL: freehand swath over the map
+    drawingGravel = true; gravelStroke = [p];
+    try { cv.setPointerCapture(e.pointerId); } catch { /* synthetic pointer */ }
     return;
   }
   if (lineMode && path) {                          // STOPA: freehand stroke over the track
@@ -945,6 +940,10 @@ cv.addEventListener('pointerdown', (e) => {
 
 cv.addEventListener('pointermove', (e) => {
   const p = toSketch(e);
+  if (drawingGravel) {
+    if (dist(gravelStroke[gravelStroke.length - 1], p) > 2.5) { gravelStroke.push(p); scheduleRender(); }
+    return;
+  }
   if (drawingLine) {
     if (dist(lineStroke[lineStroke.length - 1], p) > 2.5) { lineStroke.push(p); scheduleRender(); }
     return;
@@ -964,6 +963,18 @@ cv.addEventListener('pointermove', (e) => {
 });
 
 function endPointer() {
+  if (drawingGravel) {
+    drawingGravel = false;
+    if (gravelStroke.length >= 2) {
+      pushHistory();
+      gravels.push({ w: Math.round(gravelBrush), pts: gravelStroke.map(([x, y]) => [Math.round(x), Math.round(y)] as Pt) });
+      save();
+      setStatus(`GRAVEL: štěrk přidán ✓ (${gravels.length} tahů). Kresli dál, pravý klik = smazat poslední, GRAVEL tlačítko = konec.`);
+    }
+    gravelStroke = [];
+    refresh();
+    return;
+  }
   if (drawingLine) {
     drawingLine = false;
     if (lineStroke.length >= 2) {
@@ -1017,23 +1028,7 @@ cv.addEventListener('dblclick', (e) => {
     }
     return;
   }
-  if (gravelMode) {                                // dblclick = close the gravel polygon
-    while (gravelPts.length >= 2 && dist(gravelPts[gravelPts.length - 1], gravelPts[gravelPts.length - 2]) < 3) {
-      gravelPts.pop();                             // drop the double-click's duplicate tail points
-    }
-    if (gravelPts.length >= 3) {
-      pushHistory();
-      gravels.push(gravelPts.map(([x, y]) => [x, y] as Pt));
-      gravelPts = [];
-      save(); refresh();
-      setStatus(`GRAVEL: plocha uzavřena ✓ (celkem ${gravels.length}). Další plocha, pravý klik = smazat, GRAVEL tlačítko = konec.`);
-    } else {
-      gravelPts = [];
-      scheduleRender();
-      setStatus('GRAVEL: potřebuju aspoň 3 body — klikej kolem plochy a pak dvojklik.');
-    }
-    return;
-  }
+  if (gravelMode) return;                          // gravel is freehand — dblclick does nothing
   if (!ctrl.length) return;
   const p = toSketch(e);
   if (handleAt(e) !== null) return;                // double-click ON a point does nothing
@@ -1052,38 +1047,14 @@ cv.addEventListener('dblclick', (e) => {
   save(); refresh();
 });
 
-// Standard ray-cast point-in-polygon (for right-click patch deletion).
-function pointInPoly(p: Pt, poly: Pt[]): boolean {
-  let inside = false;
-  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-    const xi = poly[i][0], yi = poly[i][1], xj = poly[j][0], yj = poly[j][1];
-    if ((yi > p[1]) !== (yj > p[1]) && p[0] < ((xj - xi) * (p[1] - yi)) / (yj - yi) + xi) inside = !inside;
-  }
-  return inside;
-}
-
 cv.addEventListener('contextmenu', (e) => {
   e.preventDefault();
-  if (gravelMode) {
-    if (gravelPts.length) {                        // discard the half-clicked polygon
-      gravelPts = [];
-      scheduleRender();
-      setStatus('GRAVEL: rozklikaná plocha zrušena.');
-    } else if (gravels.length) {                   // delete the patch under the click (else nearest)
+  if (gravelMode) {                                // right-click = delete the last swath (else exit)
+    if (gravels.length) {
       pushHistory();
-      const pcl = toSketch(e);
-      let di = gravels.findIndex((poly) => pointInPoly(pcl, poly));
-      if (di < 0) {
-        let bd = Infinity;
-        gravels.forEach((poly, i) => {
-          const ms = poly[Math.floor(poly.length / 2)];
-          const d = (ms[0] - pcl[0]) ** 2 + (ms[1] - pcl[1]) ** 2;
-          if (d < bd) { bd = d; di = i; }
-        });
-      }
-      gravels.splice(di, 1);
+      gravels.pop();
       save(); refresh();
-      setStatus(`GRAVEL: plocha smazána (${gravels.length} zbývá).`);
+      setStatus(`GRAVEL: poslední tah smazán (${gravels.length} zbývá).`);
     } else {
       resetMarkModes();
       cv.style.cursor = 'default';
@@ -1177,6 +1148,12 @@ cv.addEventListener('contextmenu', (e) => {
   save(); refresh();
 });
 
+gravelWidthEl.addEventListener('input', () => {
+  gravelBrush = Number(gravelWidthEl.value);
+  renderStats();
+  if (gravelMode) scheduleRender();                // live-preview the new brush width
+});
+
 widthEl.addEventListener('input', () => {
   if (!bandGesture) { bandGesture = true; pushHistory(); }   // one undo step per slider gesture
   band = Number(widthEl.value);
@@ -1227,7 +1204,7 @@ document.getElementById('gravel')!.addEventListener('click', () => {
   document.getElementById('gravel')!.classList.toggle('active', gravelMode);
   cv.style.cursor = gravelMode ? 'crosshair' : 'default';
   setStatus(gravelMode
-    ? 'GRAVEL: klikej body KOLEM únikové zóny (vedle tratě), dvojklik = uzavřít plochu. Pravý klik = zrušit/smazat.'
+    ? 'GRAVEL: kresli štěrk volnou rukou (klidně přes okraj tratě, schová se pod ni). Tloušťku měň sliderem „gravel štětec". Pravý klik = smazat poslední tah.'
     : 'GRAVEL: režim ukončen. ' + HINT_EDIT);
 });
 
@@ -1326,14 +1303,14 @@ document.getElementById('import')!.addEventListener('click', () => {
   gravels = [];
   const gvBlock = /AUTHORED_GRAVEL[^=]*=\s*\[([\s\S]*?)\];/.exec(txt);
   if (gvBlock) {
-    const gre = /\[((?:\s*\[[^\]]*\]\s*,?)+)\]/g;
-    let gm2: RegExpExecArray | null;
-    while ((gm2 = gre.exec(gvBlock[1]))) {
+    const gsre = /\{\s*w:\s*(\d+(?:\.\d+)?)\s*,\s*pts:\s*\[((?:\s*\[[^\]]*\]\s*,?)*)\]\s*\}/g;
+    let gsm: RegExpExecArray | null;
+    while ((gsm = gsre.exec(gvBlock[1]))) {
       const gpts: Pt[] = [];
       const pre3 = /\[\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*\]/g;
       let pm3: RegExpExecArray | null;
-      while ((pm3 = pre3.exec(gm2[1]))) gpts.push([Math.round(Number(pm3[1])), Math.round(Number(pm3[2]))]);
-      if (gpts.length >= 3) gravels.push(gpts);
+      while ((pm3 = pre3.exec(gsm[2]))) gpts.push([Math.round(Number(pm3[1])), Math.round(Number(pm3[2]))]);
+      if (gpts.length >= 2) gravels.push({ w: Number(gsm[1]), pts: gpts });
     }
   }
   hoverIdx = null; dragIdx = null; stroke = []; drawing = false;
@@ -1361,7 +1338,7 @@ document.getElementById('export')!.addEventListener('click', async () => {
 // render + peek at the derived state from the console.
 (window as unknown as { __trackEditor?: unknown }).__trackEditor = {
   forceRender: () => { computeAll(); render(); },
-  state: () => ({ ctrl, band, dirt, dirtEdges, gravels, finishI, kerbs, lines, kerbQuads: kerbQuads.length, pathPts: path ? path.length : 0, fit }),
+  state: () => ({ ctrl, band, dirt, dirtEdges, gravels, gravelBrush, finishI, kerbs, lines, kerbQuads: kerbQuads.length, pathPts: path ? path.length : 0, fit }),
   view: () => viewT(),
   pathAt: (i: number) => (path ? path[((i % path.length) + path.length) % path.length] : null),
 };
