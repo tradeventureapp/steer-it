@@ -1737,6 +1737,9 @@ function startPremiumPurchase() {
 //   • The X (dismiss) appears after ~5 s; before that it can't be closed.
 //   • The CTA goes straight to the purchase flow (startPremiumPurchase): logged in
 //     → Stripe checkout; logged out → signup first, buy-intent preserved → checkout.
+// KILL-SWITCH: flip to true to bring the interstitial promo back. Left OFF temporarily
+// (the whole promo mechanism below is intact — only its trigger is short-circuited).
+const PREMIUM_PROMO_ENABLED = false;
 const PROMO_COOLDOWN_MS = 3 * 60 * 1000;   // one promo per 3 min, across all triggers
 const PROMO_CLOSE_DELAY_MS = 5000;         // X appears after ~5 s
 let promoLastAt = -Infinity;
@@ -1765,6 +1768,7 @@ function hidePromoCountdown(): void {
   if (count) count.hidden = true;
 }
 function maybeShowPremiumPromo(): void {
+  if (!PREMIUM_PROMO_ENABLED) return;                         // temporarily disabled (see the flag)
   if (!premiumPromoEl) return;
   if (getAuthState().isPremium) return;                       // premium: never
   if (!premiumPromoEl.hidden) return;                          // already showing
