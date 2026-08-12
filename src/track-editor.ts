@@ -17,6 +17,7 @@
 // previews a hair larger than it will ship).
 import {
   buildCircuitPath, circuitBandScale, CIRCUIT_FIT, FLAT_LOGICAL, buildAuthoredKerbQuads,
+  buildAuthoredEdgeLines, WHITE_LINE_INSET_M, WHITE_LINE_W_M, traceWornPolyline,
 } from './maps';
 import type { Pt, AuthoredKerb, AuthoredKerbQuad } from './maps';
 import { SURFACES, preloadSurfaceAssets, onSurfaceAssetsReady, DIRT_LOOK, GRAVEL_LOOK } from './surfaces';
@@ -243,13 +244,15 @@ function dirtLayer(wPx: number, hPx: number, s: number, ox: number, oy: number):
     m.drawImage(C, 0, 0);
     m.globalCompositeOperation = 'source-over';
   };
+  // window OVERSHOOTS the band end by 12 samples — with both butt faces at the same
+  // index, AA left a half-erased 1px dirt sliver across the track there
   if (edgeStart) {
     cutTo(edgeStart, -1, ((d0 - extStart) % N + N) % N,
-      d0 - extStart - EXT, d0 + 40);
+      d0 - extStart - EXT - 12, d0 + 40);
   }
   if (edgeEnd) {
     cutTo(edgeEnd, 1, (d0 + span + extEnd) % N,
-      d0 + span - 40, d0 + span + extEnd + EXT);
+      d0 + span - 40, d0 + span + extEnd + EXT + 12);
   }
   m.globalCompositeOperation = 'destination-in';
   traceClosed(m, pth, s, ox, oy);
@@ -458,11 +461,7 @@ function drawTrack(c: CanvasRenderingContext2D, wPx: number, hPx: number,
       for (const st of allStrokes) {
         if (st.pts.length < 2) continue;
         m.lineWidth = Math.max(1, st.w * s);
-        m.beginPath();
-        st.pts.forEach(([x2, y2], i) => {
-          if (i === 0) m.moveTo(ox + x2 * s, oy + y2 * s);
-          else m.lineTo(ox + x2 * s, oy + y2 * s);
-        });
+        traceWornPolyline(m, st.pts, ([x2, y2]) => [ox + x2 * s, oy + y2 * s]);
         m.stroke();
       }
     };
@@ -501,6 +500,27 @@ function drawTrack(c: CanvasRenderingContext2D, wPx: number, hPx: number,
         });
       }
     }
+  }
+
+  // WHITE EDGE LINES — thin boundary lines along both asphalt edges (shared builder,
+  // kerb-aware insets); the kerbs paint OVER their seam right after.
+  if (fit) {
+    const lineWU = WHITE_LINE_W_M / fit.scale;
+    const edgeLines = buildAuthoredEdgeLines(pts, band, kerbs, WHITE_LINE_INSET_M / fit.scale, lineWU);
+    c.save();
+    c.strokeStyle = 'rgba(238,240,242,0.7)';
+    c.lineWidth = Math.max(1, lineWU * s);
+    c.lineJoin = 'round';
+    for (const line of edgeLines) {
+      c.beginPath();
+      for (let i = 0; i < line.length; i++) {
+        if (i === 0) c.moveTo(ox + line[i][0] * s, oy + line[i][1] * s);
+        else c.lineTo(ox + line[i][0] * s, oy + line[i][1] * s);
+      }
+      c.closePath();
+      c.stroke();
+    }
+    c.restore();
   }
 
   // KERBS — the shared builder's quads; REAL colours in both views (they ARE the info).
@@ -596,7 +616,10 @@ function render() {
     }
     c.restore();
   }
-  if (dirtEdges.length || dirtEdgePts.length) {    // dirt boundary lines: committed + in progress
+  // Dirt boundary markers: committed lines show ONLY in OKRAJ DIRTU mode (they're
+  // deletion targets there) — outside the mode the cut itself is the visual truth,
+  // and the dashed overlays read as stray brown lines on the dirt (boss's report).
+  if ((dirtEdgeMode && dirtEdges.length) || dirtEdgePts.length) {
     c.save();
     c.setLineDash([5, 4]);
     const poly = (line: Pt[]) => {
@@ -605,8 +628,10 @@ function render() {
       for (let i = 1; i < line.length; i++) c.lineTo(vt.ox + line[i][0] * vt.s, vt.oy + line[i][1] * vt.s);
       c.stroke();
     };
-    c.strokeStyle = 'rgba(0,0,0,0.4)'; c.lineWidth = 1.5;
-    for (const line of dirtEdges) if (line.length > 1) poly(line);
+    if (dirtEdgeMode) {
+      c.strokeStyle = 'rgba(0,0,0,0.4)'; c.lineWidth = 1.5;
+      for (const line of dirtEdges) if (line.length > 1) poly(line);
+    }
     c.setLineDash([]);
     if (dirtEdgePts.length) {
       if (dirtEdgePts.length > 1) {

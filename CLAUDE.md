@@ -72,7 +72,10 @@ palette picked on the phone (§13).
   derived finish/far/spawn/mask, optional `AUTHORED_DIRT` `{i0,i1}` arc (dirt physics +
   packed-earth render, rallycross model), optional `AUTHORED_FINISH_I` (marked finish path
   index; null = auto lowest point; drawn as the circuit-style plain white line), and
-  `AUTHORED_KERBS` `{i0,i1,side}[]` (shared `buildAuthoredKerbQuads`; kerbs are baked into
+  WHITE EDGE LINES along both asphalt edges (shared `buildAuthoredEdgeLines` — circuit
+  language: 0.34 m line, 0.55 m inset on free stretches, tucked to the kerb seam under
+  kerbs with a ±3-sample eased transition, runs across the dirt like the rallycross,
+  kerbs paint over the joint), and `AUTHORED_KERBS` `{i0,i1,side}[]` (shared `buildAuthoredKerbQuads`; kerbs are baked into
   the 3-tone mask as rideable 'kerb' class → asphalt physics, on-track, kerb tyre marks;
   kerb vertices count toward the fit extent) — DEV-GATED in desktop.ts until sign-off; a
   new editor export drops in by replacing the five AUTHORED_* constants). Surface masks (`surfaceAt` /
@@ -245,12 +248,20 @@ not trusted). `EV` events: phone→desktop `join|color|name|leave|control`; desk
   lands vs the centreline; multiple kerbs; right-click on a kerb deletes it), STOPA/ideal
   line (TOGGLE mode: freehand strokes over the track, brush = band×0.30, right-click deletes
   the last stroke → `AUTHORED_LINE` `{w,pts}[]`; render-only in-game — dark rubbered band on
-  tarmac, DIRT_LOOK.line worn tone on dirt, both scratch-layer clipped, rallycross language;
+  tarmac, DIRT_LOOK.line worn tone on dirt, both scratch-layer clipped, rallycross language,
+  drawn via the shared `traceWornPolyline` (1-2-1 blur ×3 + quadratics through midpoints, so
+  the stroke's sides don't show hand jitter — data stays raw, smoothing is render-time);
   ⚠️ the export now carries stroke points, so IMPORT scopes ctrl parsing to the
   AUTHORED_SKETCH block). Kerb geometry
   comes from ONE shared builder (`buildAuthoredKerbQuads` in maps.ts — circuit kerb language,
   red/white + blue, every dimension a FRACTION of the band ⇒ proportionally smaller on a
-  narrower road), used by both the editor and the map so they render identically. UNDO:
+  narrower road), used by both the editor and the map so they render identically. The builder
+  RAYCAST-clamps each sample's reach to HALF the grass gap along its normal (prefilter skips
+  open grass), so two kerbs facing each other across a thin tongue (the tight hairpin before
+  the finish) meet cleanly at its middle and run out along the tongue's rounded tip instead
+  of crossing into a deformed tangle — an unclamped version deformed there (boss report),
+  and a nearest-point clamp falsely thinned ordinary inside kerbs (own-corner distance reads
+  as "opposing"; the raycast doesn't, because the ray moves AWAY from the own path). UNDO:
   ZPĚT button + Ctrl+Z, snapshot history (cap 100) pushed before EVERY mutation (drag,
   add/delete point, stroke fit, band gesture = one step, dirt/finish/kerb marking, import,
   new track); a no-move click on a point is dropped so it never eats a step.
