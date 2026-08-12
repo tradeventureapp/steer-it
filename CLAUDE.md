@@ -243,6 +243,10 @@ not trusted). `EV` events: phone→desktop `join|color|name|leave|control`; desk
   or exits → `AUTHORED_GRAVEL` `{w,pts}[]` strokes stroked at brush width (traceWornPolyline
   smoothing), painted UNDER the tarmac circuit-style so ribbon overlap hides, baked into the
   4-tone mask as class 3 → real 'gravel' physics + gravel marks, OFF-track),
+  BILLBOARD (place an ad slot by click — feet on the grass — drag to move, "billboard velikost"
+  slider sizes the SELECTED board, right-click deletes → `AUTHORED_BILLBOARDS` `{sx,sy,scale}[]`;
+  same machinery as the circuit's: shared `drawBillboardBody`/`drawBillboardShadow`/`BILLBOARD_DIMS`,
+  leg-ground collision arcs, drive-under-to-hide draw order; `ad:` added by hand in maps.ts later),
   CÍL/finish (ONE click → `AUTHORED_FINISH_I` path index; null = auto lowest-point; rendered
   as the circuit's plain white line, no checker), KERB (two clicks ON AN ASPHALT EDGE →
   `{i0,i1,side}`; the side (+1 left/−1 right of travel) is read from where the first click

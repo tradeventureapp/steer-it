@@ -18,6 +18,7 @@
 import {
   buildCircuitPath, circuitBandScale, CIRCUIT_FIT, FLAT_LOGICAL, buildAuthoredKerbQuads,
   buildAuthoredEdgeLines, WHITE_LINE_INSET_M, WHITE_LINE_W_M, traceWornPolyline,
+  drawBillboardShadow, drawBillboardBody, BILLBOARD_DIMS,
 } from './maps';
 import type { Pt, AuthoredKerb, AuthoredKerbQuad } from './maps';
 import { SURFACES, preloadSurfaceAssets, onSurfaceAssetsReady, DIRT_LOOK, GRAVEL_LOOK } from './surfaces';
@@ -45,6 +46,8 @@ const widthEl = document.getElementById('width') as HTMLInputElement;
 const widthOutEl = document.getElementById('width-out') as HTMLElement;
 const gravelWidthEl = document.getElementById('gravel-width') as HTMLInputElement;
 const gravelWidthOutEl = document.getElementById('gravel-width-out') as HTMLElement;
+const bbWidthEl = document.getElementById('bb-width') as HTMLInputElement;
+const bbWidthOutEl = document.getElementById('bb-width-out') as HTMLElement;
 const outEl = document.getElementById('out') as HTMLTextAreaElement;
 
 cv.width = CW; cv.height = CH;
@@ -89,6 +92,15 @@ let gravelMode = false;
 let drawingGravel = false;
 let gravelStroke: Pt[] = [];                       // the stroke being drawn right now
 let gravelBrush = 70;                              // brush width (sketch units) — the slider
+// BILLBOARDS — ad slots (sketch base position + per-board scale). Placed by click,
+// moved by drag, sized by the "billboard velikost" slider (adjusts the selected one).
+interface BillboardMark { sx: number; sy: number; scale: number }
+let billboards: BillboardMark[] = [];
+let billboardMode = false;
+let billboardScale = 1;                            // scale for NEW boards / the selected one
+let selectedBb: number | null = null;
+let draggingBb = false;
+let bbScaleGesture = false;                        // one undo step per slider gesture
 // FINISH — a marked path index (one click); null = auto (derived from the lowest point).
 let finishI: number | null = null;
 let finishMode = false;
@@ -578,6 +590,41 @@ function drawTrack(c: CanvasRenderingContext2D, wPx: number, hPx: number,
     }
     c.restore();
   }
+
+  // BILLBOARDS — drawn LAST (topmost, as they occlude cars in game): shadow then body,
+  // at true metre scale. The selected board gets a dashed highlight (ink view only) so
+  // the "billboard velikost" slider clearly targets it.
+  if (billboards.length) {
+    const pxM = wPx / FLAT_LOGICAL.widthM;
+    billboards.forEach((b, i) => {
+      const cx = ox + b.sx * s, cy = oy + b.sy * s;
+      drawBillboardShadow(c, cx, cy, pxM * b.scale);
+      drawBillboardBody(c, cx, cy, pxM * b.scale);
+      if (ink && i === selectedBb) {
+        const halfW = (BILLBOARD_DIMS.W_M / 2) * b.scale * pxM;
+        const postH = BILLBOARD_DIMS.POST_H_M * b.scale * pxM;
+        const boardH = BILLBOARD_DIMS.BOARD_H_M * b.scale * pxM;
+        c.save();
+        c.setLineDash([6, 4]); c.strokeStyle = '#ffd27a'; c.lineWidth = 2;
+        c.strokeRect(cx - halfW - 4, cy - postH - boardH - 4, halfW * 2 + 8, postH + boardH + 10);
+        c.setLineDash([]); c.restore();
+      }
+    });
+  }
+}
+
+// Index of the billboard whose footprint (panel + posts + base) contains sketch point p.
+function billboardAt(p: Pt): number | null {
+  if (!fit) return null;
+  const mPerS = fit.scale;   // metres per sketch unit
+  for (let i = billboards.length - 1; i >= 0; i--) {
+    const b = billboards[i];
+    const halfW = (BILLBOARD_DIMS.W_M / 2) * b.scale / mPerS;
+    const postH = BILLBOARD_DIMS.POST_H_M * b.scale / mPerS;
+    const boardH = BILLBOARD_DIMS.BOARD_H_M * b.scale / mPerS;
+    if (p[0] >= b.sx - halfW && p[0] <= b.sx + halfW && p[1] >= b.sy - postH - boardH && p[1] <= b.sy + 8) return i;
+  }
+  return null;
 }
 
 function render() {
@@ -673,6 +720,7 @@ function render() {
 function renderStats() {
   widthOutEl.textContent = fit ? `${band} u ≈ ${(fit.scale * band).toFixed(1)} m` : `${band} u`;
   gravelWidthOutEl.textContent = fit ? `${gravelBrush} u ≈ ${(fit.scale * gravelBrush).toFixed(1)} m` : `${gravelBrush} u`;
+  bbWidthOutEl.textContent = fit ? `${Math.round(billboardScale * 100)} % ≈ ${(BILLBOARD_DIMS.W_M * billboardScale).toFixed(0)} m` : `${Math.round(billboardScale * 100)} %`;
   if (!path || !fit) { statsEl.innerHTML = ''; return; }
   const fillW = (fit.w * fit.scale) / FLAT_LOGICAL.widthM;
   const fillH = (fit.h * fit.scale) / FLAT_LOGICAL.heightM;
@@ -698,7 +746,7 @@ function renderStats() {
 interface Snapshot {
   ctrl: Pt[]; band: number; dirt: { i0: number; i1: number } | null;
   finishI: number | null; kerbs: AuthoredKerb[]; lines: LineStroke[]; dirtEdges: Pt[][];
-  gravels: GravelStroke[];
+  gravels: GravelStroke[]; billboards: BillboardMark[];
 }
 const history: Snapshot[] = [];
 let bandGesture = false;                           // one history entry per slider gesture
@@ -713,6 +761,7 @@ function snap(): Snapshot {
     lines: lines.map((st) => ({ w: st.w, pts: st.pts.map(([x, y]) => [x, y] as Pt) })),
     dirtEdges: dirtEdges.map((l) => l.map(([x, y]) => [x, y] as Pt)),
     gravels: gravels.map((st) => ({ w: st.w, pts: st.pts.map(([x, y]) => [x, y] as Pt) })),
+    billboards: billboards.map((b) => ({ ...b })),
   };
 }
 function pushHistory() {
@@ -732,16 +781,18 @@ function resetMarkModes() {
   lineMode = false; drawingLine = false; lineStroke = [];
   dirtEdgeMode = false; dirtEdgePts = [];
   gravelMode = false; drawingGravel = false; gravelStroke = [];
+  billboardMode = false; draggingBb = false; selectedBb = null;
   document.getElementById('line')!.classList.remove('active');
   document.getElementById('dirtedge')!.classList.remove('active');
   document.getElementById('gravel')!.classList.remove('active');
+  document.getElementById('billboard')!.classList.remove('active');
 }
 
 function undo() {
   const s = history.pop();
   if (!s) { setStatus('ZPĚT: žádná další změna v historii.'); return; }
   ctrl = s.ctrl; band = s.band; dirt = s.dirt; finishI = s.finishI; kerbs = s.kerbs; lines = s.lines;
-  dirtEdges = s.dirtEdges; gravels = s.gravels;
+  dirtEdges = s.dirtEdges; gravels = s.gravels; billboards = s.billboards;
   widthEl.value = String(band);
   resetMarkModes();
   dragIdx = null; hoverIdx = null; stroke = []; drawing = false;
@@ -752,7 +803,7 @@ function undo() {
 
 // ---- persistence + export ---------------------------------------------------------
 function save() {
-  try { localStorage.setItem(STORE_KEY, JSON.stringify({ v: 1, ctrl, band, dirt, finishI, kerbs, lines, dirtEdges, gravels, gravelBrush })); } catch { /* dev tool */ }
+  try { localStorage.setItem(STORE_KEY, JSON.stringify({ v: 1, ctrl, band, dirt, finishI, kerbs, lines, dirtEdges, gravels, gravelBrush, billboards, billboardScale })); } catch { /* dev tool */ }
 }
 function restore(): boolean {
   try {
@@ -762,6 +813,7 @@ function restore(): boolean {
       v: number; ctrl: Pt[]; band: number; dirt?: { i0: number; i1: number } | null;
       finishI?: number | null; kerbs?: AuthoredKerb[]; lines?: LineStroke[]; dirtEdges?: Pt[][];
       gravels?: GravelStroke[]; gravelBrush?: number;
+      billboards?: BillboardMark[]; billboardScale?: number;
     };
     if (d.v !== 1 || !Array.isArray(d.ctrl) || d.ctrl.length < MIN_CTRL) return false;
     ctrl = d.ctrl.map(([x, y]) => [x, y] as Pt);
@@ -787,6 +839,12 @@ function restore(): boolean {
       : [];
     if (typeof d.gravelBrush === 'number') gravelBrush = d.gravelBrush;
     gravelWidthEl.value = String(gravelBrush);
+    billboards = Array.isArray(d.billboards)
+      ? d.billboards.filter((b) => b && typeof b.sx === 'number' && typeof b.sy === 'number')
+          .map((b) => ({ sx: b.sx, sy: b.sy, scale: typeof b.scale === 'number' ? b.scale : 1 }))
+      : [];
+    if (typeof d.billboardScale === 'number') billboardScale = d.billboardScale;
+    bbWidthEl.value = String(Math.round(billboardScale * 100));
     widthEl.value = String(band);
     return true;
   } catch { return false; }
@@ -815,6 +873,13 @@ function exportText(): string {
         '];',
       ]
     : ['const AUTHORED_GRAVEL: Array<{ w: number; pts: Array<[number, number]> }> = [];'];
+  const bbLines = billboards.length
+    ? [
+        'const AUTHORED_BILLBOARDS: Array<{ sx: number; sy: number; scale: number; ad?: AdSlot }> = [',
+        ...billboards.map((b) => `  { sx: ${b.sx}, sy: ${b.sy}, scale: ${+b.scale.toFixed(2)} },`),
+        '];',
+      ]
+    : ['const AUTHORED_BILLBOARDS: Array<{ sx: number; sy: number; scale: number; ad?: AdSlot }> = [];'];
   const finishLine = `const AUTHORED_FINISH_I: number | null = ${finishI !== null ? finishI : 'null'};`;
   const lineLines = lines.length
     ? [
@@ -843,6 +908,7 @@ function exportText(): string {
     dirtLine,
     ...edgeLines,
     ...gravelLines,
+    ...bbLines,
     finishLine,
     ...kerbLines,
     ...lineLines,
@@ -859,6 +925,23 @@ function refresh() { computeAll(); scheduleRender(); }
 cv.addEventListener('pointerdown', (e) => {
   if (e.button !== 0) return;
   const p = toSketch(e);
+  if (billboardMode) {                             // BILLBOARD: select+drag an existing one, else place a new one
+    pushHistory();
+    const hit = billboardAt(p);
+    if (hit !== null) {
+      selectedBb = hit;
+      billboardScale = billboards[hit].scale;
+      bbWidthEl.value = String(Math.round(billboardScale * 100));
+    } else {
+      billboards.push({ sx: Math.round(p[0]), sy: Math.round(p[1]), scale: billboardScale });
+      selectedBb = billboards.length - 1;
+    }
+    draggingBb = true;
+    try { cv.setPointerCapture(e.pointerId); } catch { /* synthetic pointer */ }
+    renderStats(); scheduleRender();
+    setStatus(`BILLBOARD: táhni = přemísti · slider „billboard velikost" = velikost · pravý klik = smazat. (${billboards.length} celkem)`);
+    return;
+  }
   if (dirtEdgeMode) {                              // OKRAJ DIRTU: collect boundary points
     dirtEdgePts.push([Math.round(p[0]), Math.round(p[1])]);
     scheduleRender();
@@ -940,6 +1023,11 @@ cv.addEventListener('pointerdown', (e) => {
 
 cv.addEventListener('pointermove', (e) => {
   const p = toSketch(e);
+  if (draggingBb && selectedBb !== null) {         // move the selected billboard's base
+    billboards[selectedBb] = { ...billboards[selectedBb], sx: Math.round(p[0]), sy: Math.round(p[1]) };
+    scheduleRender();
+    return;
+  }
   if (drawingGravel) {
     if (dist(gravelStroke[gravelStroke.length - 1], p) > 2.5) { gravelStroke.push(p); scheduleRender(); }
     return;
@@ -957,12 +1045,14 @@ cv.addEventListener('pointermove', (e) => {
     refresh();
     return;
   }
+  if (billboardMode) { cv.style.cursor = billboardAt(p) !== null ? 'grab' : 'crosshair'; return; }
   if (dirtMode || kerbMode || finishMode || dirtEdgeMode || gravelMode) { cv.style.cursor = 'crosshair'; return; }
   const hi = handleAt(e);
   if (hi !== hoverIdx) { hoverIdx = hi; cv.style.cursor = hi !== null ? 'grab' : (ctrl.length ? 'default' : 'crosshair'); scheduleRender(); }
 });
 
 function endPointer() {
+  if (draggingBb) { draggingBb = false; dropNoopHistoryTop(); save(); return; }
   if (drawingGravel) {
     drawingGravel = false;
     if (gravelStroke.length >= 2) {
@@ -1049,6 +1139,22 @@ cv.addEventListener('dblclick', (e) => {
 
 cv.addEventListener('contextmenu', (e) => {
   e.preventDefault();
+  if (billboardMode) {                             // right-click on a billboard = delete it (else exit)
+    const hit = billboardAt(toSketch(e));
+    if (hit !== null) {
+      pushHistory();
+      billboards.splice(hit, 1);
+      selectedBb = null;
+      save(); refresh();
+      setStatus(`BILLBOARD: smazán (${billboards.length} zbývá).`);
+    } else {
+      resetMarkModes();
+      cv.style.cursor = 'default';
+      scheduleRender();
+      setStatus('BILLBOARD: režim ukončen. ' + HINT_EDIT);
+    }
+    return;
+  }
   if (gravelMode) {                                // right-click = delete the last swath (else exit)
     if (gravels.length) {
       pushHistory();
@@ -1154,6 +1260,16 @@ gravelWidthEl.addEventListener('input', () => {
   if (gravelMode) scheduleRender();                // live-preview the new brush width
 });
 
+bbWidthEl.addEventListener('input', () => {
+  billboardScale = Number(bbWidthEl.value) / 100;
+  if (selectedBb !== null && billboards[selectedBb]) {
+    if (!bbScaleGesture) { bbScaleGesture = true; pushHistory(); }   // one undo step per gesture
+    billboards[selectedBb] = { ...billboards[selectedBb], scale: billboardScale };
+  }
+  renderStats(); scheduleRender();
+});
+bbWidthEl.addEventListener('change', () => { bbScaleGesture = false; save(); });
+
 widthEl.addEventListener('input', () => {
   if (!bandGesture) { bandGesture = true; pushHistory(); }   // one undo step per slider gesture
   band = Number(widthEl.value);
@@ -1196,6 +1312,20 @@ document.getElementById('dirtedge')!.addEventListener('click', () => {
     : 'OKRAJ DIRTU: režim ukončen. ' + HINT_EDIT);
 });
 
+document.getElementById('billboard')!.addEventListener('click', () => {
+  if (!path) { setStatus('BILLBOARD: nejdřív nakresli trať.'); return; }
+  const on = !billboardMode;
+  resetMarkModes();
+  billboardMode = on;
+  document.getElementById('billboard')!.classList.toggle('active', billboardMode);
+  cv.style.cursor = billboardMode ? 'crosshair' : 'default';
+  bbWidthEl.value = String(Math.round(billboardScale * 100));
+  renderStats(); scheduleRender();
+  setStatus(billboardMode
+    ? 'BILLBOARD: klikni na trávu = umísti (nohama na zem) · táhni = přemísti · slider „billboard velikost" = velikost · pravý klik = smazat.'
+    : 'BILLBOARD: režim ukončen. ' + HINT_EDIT);
+});
+
 document.getElementById('gravel')!.addEventListener('click', () => {
   if (!path) { setStatus('GRAVEL: nejdřív nakresli trať.'); return; }
   const on = !gravelMode;
@@ -1236,7 +1366,7 @@ document.getElementById('new')!.addEventListener('click', () => {
   if (ctrl.length && !confirm('Zahodit rozdělanou trať a začít znovu? (ZPĚT ji umí vrátit)')) return;
   if (ctrl.length) pushHistory();
   ctrl = []; stroke = []; hoverIdx = null; dragIdx = null;
-  dirt = null; finishI = null; kerbs = []; lines = []; dirtEdges = []; gravels = [];
+  dirt = null; finishI = null; kerbs = []; lines = []; dirtEdges = []; gravels = []; billboards = [];
   resetMarkModes();
   outEl.value = '';
   save();
@@ -1313,10 +1443,17 @@ document.getElementById('import')!.addEventListener('click', () => {
       if (gpts.length >= 2) gravels.push({ w: Number(gsm[1]), pts: gpts });
     }
   }
+  billboards = [];
+  const bbBlock = /AUTHORED_BILLBOARDS[^=]*=\s*\[([\s\S]*?)\];/.exec(txt);
+  if (bbBlock) {
+    const bre = /\{\s*sx:\s*(-?\d+(?:\.\d+)?)\s*,\s*sy:\s*(-?\d+(?:\.\d+)?)\s*,\s*scale:\s*(\d+(?:\.\d+)?)/g;
+    let bm2: RegExpExecArray | null;
+    while ((bm2 = bre.exec(bbBlock[1]))) billboards.push({ sx: Math.round(Number(bm2[1])), sy: Math.round(Number(bm2[2])), scale: Number(bm2[3]) });
+  }
   hoverIdx = null; dragIdx = null; stroke = []; drawing = false;
   resetMarkModes();
   save(); refresh();
-  setStatus(`IMPORT: ${ctrl.length} bodů${bm ? `, šířka ${band}` : ''}${dm ? ', dirt' : ''}${dirtEdges.length ? `, ${dirtEdges.length}× okraj dirtu` : ''}${gravels.length ? `, ${gravels.length}× gravel` : ''}${kerbs.length ? `, ${kerbs.length}× kerb` : ''}${finishI !== null ? ', cílovka' : ''}${lines.length ? `, stopa (${lines.length} tahů)` : ''} ✓ — ` + HINT_EDIT);
+  setStatus(`IMPORT: ${ctrl.length} bodů${bm ? `, šířka ${band}` : ''}${dm ? ', dirt' : ''}${dirtEdges.length ? `, ${dirtEdges.length}× okraj dirtu` : ''}${gravels.length ? `, ${gravels.length}× gravel` : ''}${billboards.length ? `, ${billboards.length}× billboard` : ''}${kerbs.length ? `, ${kerbs.length}× kerb` : ''}${finishI !== null ? ', cílovka' : ''}${lines.length ? `, stopa (${lines.length} tahů)` : ''} ✓ — ` + HINT_EDIT);
   cv.style.cursor = 'default';
 });
 
@@ -1338,7 +1475,7 @@ document.getElementById('export')!.addEventListener('click', async () => {
 // render + peek at the derived state from the console.
 (window as unknown as { __trackEditor?: unknown }).__trackEditor = {
   forceRender: () => { computeAll(); render(); },
-  state: () => ({ ctrl, band, dirt, dirtEdges, gravels, gravelBrush, finishI, kerbs, lines, kerbQuads: kerbQuads.length, pathPts: path ? path.length : 0, fit }),
+  state: () => ({ ctrl, band, dirt, dirtEdges, gravels, gravelBrush, billboards, finishI, kerbs, lines, kerbQuads: kerbQuads.length, pathPts: path ? path.length : 0, fit }),
   view: () => viewT(),
   pathAt: (i: number) => (path ? path[((i % path.length) + path.length) % path.length] : null),
 };
