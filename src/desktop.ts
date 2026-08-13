@@ -967,12 +967,13 @@ function promoBadge(text: string): HTMLSpanElement {
   b.textContent = text;
   return b;
 }
-// The "NEW · FREE FOR NOW" promo badge is tied to the free-promo list: it shows only while
-// the map is being given away for free, so pulling it from FREE_MAP_IDS drops the badge too.
+// Circuit II's "NEW" badge. A PREMIUM host already owns everything, so for them it's just
+// "NEW"; a free host during the promo gets the "FREE FOR NOW" hook (and if the promo ends —
+// circuit2 pulled from FREE_MAP_IDS — it falls back to plain "NEW").
 function promoBadgeFor(id: string): HTMLSpanElement | null {
-  return id === 'circuit2' && FREE_MAP_IDS.includes('circuit2')
-    ? promoBadge('NEW · FREE FOR NOW')
-    : null;
+  if (id !== 'circuit2') return null;
+  const freeHook = !isPremium() && FREE_MAP_IDS.includes('circuit2');
+  return promoBadge(freeHook ? 'NEW · FREE FOR NOW' : 'NEW');
 }
 function buildMapTiles() {
   if (!mapTilesEl) return;
@@ -991,7 +992,13 @@ function buildMapTiles() {
     return { cvs, c };
   };
 
-  for (const { id } of listMaps()) {
+  // Circuit II sits FIRST in the picker (the freshest track, shown off up front). Stable
+  // sort keeps every other map in its registration order. Purely visual — the default
+  // selection stays null until a click, so this doesn't change what's pre-selected.
+  const ordered = [...listMaps()].sort(
+    (a, b) => (b.id === 'circuit2' ? 1 : 0) - (a.id === 'circuit2' ? 1 : 0),
+  );
+  for (const { id } of ordered) {
     if (!mapVisible(id)) continue;   // dev-only WIP maps (Rallycross) are hidden from normal users
     const def = getMap(id);
     if (!def) continue;
