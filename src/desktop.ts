@@ -4269,6 +4269,17 @@ function ensureRecCanvas(): boolean {
   return !!recCtx;
 }
 
+// FLOOR zoom (step 0) = the LEAST magnification that still fills the ENTIRE 9:16 frame with
+// map — zero letterbox on either axis. The crop is REC_W×REC_H ÷ recZoom in world (logical)
+// px, so fitting it INSIDE the world on both axes needs recZoom ≥ REC_W/worldW AND
+// ≥ REC_H/worldH; the MAX of the two is the floor. On a landscape map the portrait crop's
+// HEIGHT is the limiting axis, so at the floor the crop height exactly equals the world
+// height (fully filled), and the wider axis pans. '-' clamps here (wider = black bars).
+function recFloorZoom(): number {
+  const w = Math.max(1, logicalPxW), h = Math.max(1, logicalPxH);
+  return Math.max(REC_W / w, REC_H / h);
+}
+
 // One capture pass: swap the module ctx + camera at the off-screen canvas, paint the
 // SAME scene through a follow-cam of the host car, then restore synchronously. Runs
 // only while recording; a no-op otherwise. Never affects the on-screen frame.
@@ -4282,16 +4293,28 @@ function captureRecFrame(): void {
   ctx = recCtx;
   ctx.setTransform(1, 0, 0, 1, 0, 0);   // 1080×1920 backing = output, no dpr
 
-  // Follow camera: centre the host car (fallback: world centre). The BASE scale is the live
-  // ON-SCREEN scale (savedScale) — so at step 0 the world maps at exactly the on-screen scale
-  // and the recording is just the 9:16 crop (no magnification). '+' steps multiply from there.
+  // Follow camera: centre the host car (fallback: world centre). The BASE scale is the FLOOR
+  // zoom (recFloorZoom) — the least magnification that still fills the ENTIRE 9:16 frame with
+  // map, no letterbox. '+' steps multiply from there.
   const lead = primaryCar();
   const cxPx = (lead ? lead.state.x : logicalPxW / CONFIG.pxPerMeter / 2) * CONFIG.pxPerMeter;
   const cyPx = (lead ? lead.state.y : logicalPxH / CONFIG.pxPerMeter / 2) * CONFIG.pxPerMeter;
-  const recZoom = savedScale * Math.pow(REC_ZOOM_STEP, recZoomSteps);
+  const recZoom = recFloorZoom() * Math.pow(REC_ZOOM_STEP, recZoomSteps);
   viewScale = recZoom;
-  viewOffX = REC_W / 2 - cxPx * recZoom;
-  viewOffY = REC_H / 2 - cyPx * recZoom;
+  // CLAMP to the world bounds (same standard follow-cam clamp as the on-screen updateCamera,
+  // here with the 9:16 crop REC_W×REC_H at recZoom). vw/vh = the visible world extent in
+  // LOGICAL px = crop size ÷ recZoom, so the margin shrinks as you zoom in — at higher zoom the
+  // car can get closer to the edge before the camera stops. Per axis, independently: if the
+  // world is larger than the crop, clamp the camera to [0, world − crop] (the car then goes
+  // OFF-centre toward the edge, view stays full + inside the map); if the crop is larger than
+  // the world on that axis, centre it (it can't fit inside). Derived from logicalPxW/H (the real
+  // world size), never a hardcoded margin.
+  const vw = REC_W / recZoom, vh = REC_H / recZoom;
+  let camX = cxPx - vw / 2, camY = cyPx - vh / 2;
+  camX = logicalPxW > vw ? Math.max(0, Math.min(logicalPxW - vw, camX)) : (logicalPxW - vw) / 2;
+  camY = logicalPxH > vh ? Math.max(0, Math.min(logicalPxH - vh, camY)) : (logicalPxH - vh) / 2;
+  viewOffX = -camX * recZoom;
+  viewOffY = -camY * recZoom;
 
   paintWorld(REC_W, REC_H, { x: 0, y: 0 });   // no screen-shake in the clip
 
@@ -4331,7 +4354,7 @@ function startRecording(): void {
   recActive = true;
   recStartMs = performance.now();
   showRecOverlay();
-  console.info(`[rec] recording ${REC_W}×${REC_H}@${REC_FPS} ${mime} zoom +${recZoomSteps} (default = on-screen scale)`);
+  console.info(`[rec] recording ${REC_W}×${REC_H}@${REC_FPS} ${mime} zoom +${recZoomSteps} (default = fill-9:16 floor)`);
 }
 
 function stopRecording(): void {

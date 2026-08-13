@@ -290,16 +290,27 @@ not trusted). `EV` events: phone→desktop `join|color|name|leave|control`; desk
 - **Screen-recording mode (DEV-ONLY)** — a capture tool for the dev to make vertical 9:16 social
   clips. Gated by `isDev()` (DEV_EMAILS); for every non-dev host the keys do nothing and nothing
   appears. **`R`** toggles capture. **Zoom is measured in integer STEPS above a DEFAULT floor**:
-  the **default (step 0) = MINIMUM zoom** — the off-screen view maps the world at the SAME scale as
-  the live on-screen view (`recZoom = the on-screen viewScale`), so it is just the 9:16 crop around
-  the host car with **NO magnification** (most track visible, background sharpest, no bitmap
-  upscaling). **`+`** zooms in one step (×1.15 = +15%/step, ceiling 24 steps); **`-`** steps back out
-  but is **clamped at the default** (never wider than the 9:16 crop). Each take starts at step 0. A
+  the **default (step 0) = the least magnification that still FILLS THE ENTIRE 9:16 frame with map,
+  NO letterbox** (`recFloorZoom() = max(REC_W/logicalPxW, REC_H/logicalPxH)` — the crop
+  `REC_W×REC_H ÷ recZoom` must fit inside the world on BOTH axes; on a landscape map the portrait
+  crop's HEIGHT is the limiting axis, so at the floor the crop height exactly equals the world
+  height and the wider axis pans). This is the most-track / least-zoom framing that never shows
+  black bars — e.g. Circuit II (256×144 m ⇒ 1920×1080 logical px) floors at **recZoom 1.778**.
+  **`+`** zooms in one step (×1.15 = +15%/step, ceiling 24 steps); **`-`** steps back out but is
+  **clamped at the floor** (wider would introduce black bars). Each take starts at step 0. A
   small dev-only **`ZOOM +N`** indicator sits next to the REC chip (+0 at the floor). It renders a
   SECOND, OFF-SCREEN 1080×1920 view that follows the host car (`primaryCar`) and records it via
   `recCanvas.captureStream(60)` + `MediaRecorder` (video-only, no audio track — music is added in
   the editor later; ~16 Mbps VP9/VP8 webm); pressing `R` again stops and auto-downloads a
-  timestamped `steerit-YYYYMMDD-HHMMSS.webm`. Implemented by factoring the world paint out of
+  timestamped `steerit-YYYYMMDD-HHMMSS.webm`. The follow-cam CLAMPS to the world bounds (same
+  standard clamp as the on-screen `updateCamera`, here with the 9:16 crop `REC_W×REC_H` at the
+  current `recZoom`): it centres the host car while it can, but near a map edge the camera STOPS at
+  the world boundary and the car goes OFF-CENTRE toward the frame edge — the crop never leaves the
+  map. Per-axis + derived from the real world size (`logicalPxW/H`) and the current crop size
+  (`crop = REC_W/H ÷ recZoom`), so the margin shrinks as you zoom in (clamps closer to the edge at
+  higher zoom). Where the crop is larger than the world on an axis (e.g. the portrait 9:16 crop is
+  taller than a landscape map at minimum zoom) it centres that axis — unavoidable at min zoom;
+  zooming in fills it. Implemented by factoring the world paint out of
   `render()` into `paintWorld(W,H,shake)` and running it a second time with the module `ctx` + the
   `viewScale/viewOffX/viewOffY` camera globals swapped to the off-screen canvas for one synchronous
   pass, then restored — so cars/fx/gates re-rasterise crisply at the recording scale while the track
