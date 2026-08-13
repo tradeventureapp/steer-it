@@ -3694,7 +3694,7 @@ function drawAuthoredBillboardsAbove(ctx: CanvasRenderingContext2D, px: number) 
 
 export const authoredCircuitMap: MapDefinition = {
   id: 'circuit2',
-  name: 'Circuit II',
+  name: 'Circuit II (Rallycross)',
   gameModes: ['free', 'race', 'xp'],
   // start-only gate ⇒ circuit (laps); the editor shows the LAPS panel, like the ovals.
   trackType: 'circuit',
