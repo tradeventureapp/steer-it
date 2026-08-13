@@ -289,9 +289,14 @@ not trusted). `EV` events: phone→desktop `join|color|name|leave|control`; desk
   path (for testing without a phone/Supabase).
 - **Screen-recording mode (DEV-ONLY)** — a capture tool for the dev to make vertical 9:16 social
   clips. Gated by `isDev()` (DEV_EMAILS); for every non-dev host the keys do nothing and nothing
-  appears. **`R`** toggles capture, **`+`/`-`** change the follow zoom live (default frames the host
-  car's length at ~⅓ of the 1920 px frame height ⇒ recZoom ≈ 19). It renders a SECOND, OFF-SCREEN
-  1080×1920 view that follows the host car (`primaryCar`) and records it via
+  appears. **`R`** toggles capture. **Zoom is measured in integer STEPS above a DEFAULT floor**:
+  the **default (step 0) = MINIMUM zoom** — the off-screen view maps the world at the SAME scale as
+  the live on-screen view (`recZoom = the on-screen viewScale`), so it is just the 9:16 crop around
+  the host car with **NO magnification** (most track visible, background sharpest, no bitmap
+  upscaling). **`+`** zooms in one step (×1.15 = +15%/step, ceiling 24 steps); **`-`** steps back out
+  but is **clamped at the default** (never wider than the 9:16 crop). Each take starts at step 0. A
+  small dev-only **`ZOOM +N`** indicator sits next to the REC chip (+0 at the floor). It renders a
+  SECOND, OFF-SCREEN 1080×1920 view that follows the host car (`primaryCar`) and records it via
   `recCanvas.captureStream(60)` + `MediaRecorder` (video-only, no audio track — music is added in
   the editor later; ~16 Mbps VP9/VP8 webm); pressing `R` again stops and auto-downloads a
   timestamped `steerit-YYYYMMDD-HHMMSS.webm`. Implemented by factoring the world paint out of
@@ -301,7 +306,7 @@ not trusted). `EV` events: phone→desktop `join|color|name|leave|control`; desk
   BITMAP softens with zoom (its 7.5 px/m ceiling; sharper than crop-upscale, which would blur the
   car too). **⚠️ This does NOT change the on-screen shared view: the reverted follow-cam rule (§3 —
   whole track always visible, constant car size, no follow/zoom/scale) stays intact.** The only
-  on-screen change while recording is a small "REC ●" + timer HTML chip (top-right). Physics
+  on-screen change while recording is a small "REC ● · ZOOM +N" HTML chip (top-right). Physics
   untouched (only desktop.ts render/recording code; Blitz golden 0.0e+0 byte-identical).
 
 **Front-end / UI**

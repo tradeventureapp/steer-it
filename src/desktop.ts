@@ -4245,25 +4245,21 @@ function paintWorld(W: number, H: number, shake: { x: number; y: number }) {
 const REC_W = 1080, REC_H = 1920;          // 9:16 vertical
 const REC_FPS = 60;                        // matches the game loop
 const REC_BITRATE = 16_000_000;            // ~16 Mbps — high quality for social
-const REC_ZOOM_MIN = 4, REC_ZOOM_MAX = 44; // logical-px → rec-px bounds
-const REC_ZOOM_STEP = 1.12;                // ×/÷ per +/- press
+// ZOOM is measured in integer STEPS ABOVE THE DEFAULT (the floor). The default (step 0) maps
+// the world at the SAME scale as the on-screen view — i.e. the recording is just the 9:16 crop
+// of the live view, NO magnification (background stays sharp, most track visible). Each '+'
+// multiplies the scale by REC_ZOOM_STEP (one step = +15% zoom); '-' steps back down, clamped
+// at 0 so it can never go wider than the default 9:16 crop.
+const REC_ZOOM_STEP = 1.15;                // per-step zoom-in factor (×1.15 = +15%)
+const REC_ZOOM_MAX_STEPS = 24;             // ceiling so it can't zoom in forever
 let recCanvas: HTMLCanvasElement | null = null;
 let recCtx: CanvasRenderingContext2D | null = null;
 let recActive = false;
-let recZoom = 0;                           // 0 ⇒ seed the default on first start
+let recZoomSteps = 0;                       // 0 = default (on-screen scale); each '+' adds one
 let mediaRecorder: MediaRecorder | null = null;
 let recChunks: BlobPart[] = [];
 let recStartMs = 0;
 let recOverlayEl: HTMLDivElement | null = null;
-
-// Default follow zoom: frame the host car's LENGTH at ~1/3 of the 1920 px frame height.
-// With a ~4.4 m car at 7.5 px/m that is ≈ 640 / 33 ≈ 19 (logical-px → rec-px).
-function defaultRecZoom(): number {
-  const lenM = primaryCar()?.spec.dims?.lengthM ?? 4.44;
-  const carLogicalPx = lenM * CONFIG.pxPerMeter;
-  const z = (REC_H / 3) / Math.max(1, carLogicalPx);
-  return Math.max(REC_ZOOM_MIN, Math.min(REC_ZOOM_MAX, z));
-}
 
 function ensureRecCanvas(): boolean {
   if (recCanvas && recCtx) return true;
@@ -4286,11 +4282,13 @@ function captureRecFrame(): void {
   ctx = recCtx;
   ctx.setTransform(1, 0, 0, 1, 0, 0);   // 1080×1920 backing = output, no dpr
 
-  // Follow camera: centre the host car (fallback: world centre). viewScale here maps
-  // LOGICAL px → REC px; the car draws in logical px, so this frames + zooms it.
+  // Follow camera: centre the host car (fallback: world centre). The BASE scale is the live
+  // ON-SCREEN scale (savedScale) — so at step 0 the world maps at exactly the on-screen scale
+  // and the recording is just the 9:16 crop (no magnification). '+' steps multiply from there.
   const lead = primaryCar();
   const cxPx = (lead ? lead.state.x : logicalPxW / CONFIG.pxPerMeter / 2) * CONFIG.pxPerMeter;
   const cyPx = (lead ? lead.state.y : logicalPxH / CONFIG.pxPerMeter / 2) * CONFIG.pxPerMeter;
+  const recZoom = savedScale * Math.pow(REC_ZOOM_STEP, recZoomSteps);
   viewScale = recZoom;
   viewOffX = REC_W / 2 - cxPx * recZoom;
   viewOffY = REC_H / 2 - cyPx * recZoom;
@@ -4315,7 +4313,7 @@ function startRecording(): void {
   if (typeof MediaRecorder === 'undefined' || !recCanvas.captureStream) {
     console.warn('[rec] MediaRecorder/captureStream unavailable'); return;
   }
-  if (recZoom <= 0) recZoom = defaultRecZoom();
+  recZoomSteps = 0;   // every take starts at the default (minimum) zoom = the 9:16 crop
 
   // VIDEO-ONLY stream (no audio track — music is added later in the editor).
   const stream = recCanvas.captureStream(REC_FPS);
@@ -4333,7 +4331,7 @@ function startRecording(): void {
   recActive = true;
   recStartMs = performance.now();
   showRecOverlay();
-  console.info(`[rec] recording ${REC_W}×${REC_H}@${REC_FPS} ${mime} zoom ${recZoom.toFixed(1)}`);
+  console.info(`[rec] recording ${REC_W}×${REC_H}@${REC_FPS} ${mime} zoom +${recZoomSteps} (default = on-screen scale)`);
 }
 
 function stopRecording(): void {
@@ -4357,10 +4355,10 @@ function downloadRecording(mime: string): void {
   console.info(`[rec] saved ${name} (${(blob.size / 1e6).toFixed(1)} MB)`);
 }
 
+// '+' → one step in (up to the ceiling); '-' → one step out, CLAMPED at 0 (the default
+// floor — never wider than the 9:16 crop of the on-screen view).
 function adjustRecZoom(dir: 1 | -1): void {
-  if (recZoom <= 0) recZoom = defaultRecZoom();
-  recZoom = Math.max(REC_ZOOM_MIN, Math.min(REC_ZOOM_MAX,
-    dir > 0 ? recZoom * REC_ZOOM_STEP : recZoom / REC_ZOOM_STEP));
+  recZoomSteps = Math.max(0, Math.min(REC_ZOOM_MAX_STEPS, recZoomSteps + dir));
 }
 
 // The ONE on-screen change while recording: a small REC chip (HTML, top-right).
@@ -4383,9 +4381,12 @@ function updateRecOverlay(): void {
   if (!recOverlayEl) return;
   const t = Math.max(0, (performance.now() - recStartMs) / 1000);
   const blink = Math.floor(t * 2) % 2 === 0;   // ~1 Hz pulse on the dot
+  // ZOOM +N = steps above the default (minimum) zoom; +0 at the floor.
   recOverlayEl.innerHTML =
     `<span style="color:#ff3b3b;opacity:${blink ? 1 : 0.25}">●</span>`
-    + `<span>REC ${two(Math.floor(t / 60))}:${two(Math.floor(t % 60))}</span>`;
+    + `<span>REC ${two(Math.floor(t / 60))}:${two(Math.floor(t % 60))}</span>`
+    + `<span style="opacity:0.55">·</span>`
+    + `<span style="color:#ffd27a">ZOOM +${recZoomSteps}</span>`;
 }
 
 // The single gameplay HUD reflects the PRIMARY car (lowest slot). With no car
