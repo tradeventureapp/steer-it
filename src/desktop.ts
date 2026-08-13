@@ -511,7 +511,10 @@ function mapGameModes(id: string | null): readonly string[] {
 // leaderboards) is PREMIUM. The entitlement is server truth (auth.isPremium, read
 // from an RLS-protected Supabase row); the checks below gate the UI, and the
 // leaderboard write is enforced server-side so a hacked client gains nothing online.
-const FREE_MAP_IDS = ['desktop', 'asphalt'];
+// ⚠️ TEMPORARY PROMO: 'circuit2' (Circuit II) is FREE for a while to show off the new
+// authored track — free users get it in FREE RIDE with the arcade car (RACE/XP + the SIM
+// car stay premium). Remove 'circuit2' here to put it back to premium-only when the promo ends.
+const FREE_MAP_IDS = ['desktop', 'asphalt', 'circuit2'];
 // DEV-ONLY maps — WIP tracks hidden from the map-select for every normal user. Both the
 // Rallycross and 'circuit2' (Circuit II, the boss's authored track) are now PUBLIC premium
 // maps (visible to all, premium-locked like the other non-free maps), so this list is empty.
@@ -958,6 +961,19 @@ function lockBadge(): HTMLSpanElement {
   b.textContent = '🔒';
   return b;
 }
+function promoBadge(text: string): HTMLSpanElement {
+  const b = document.createElement('span');
+  b.className = 'map-promo';   // NOT 'promo-badge' — that's the premium interstitial's class
+  b.textContent = text;
+  return b;
+}
+// The "NEW · FREE FOR NOW" promo badge is tied to the free-promo list: it shows only while
+// the map is being given away for free, so pulling it from FREE_MAP_IDS drops the badge too.
+function promoBadgeFor(id: string): HTMLSpanElement | null {
+  return id === 'circuit2' && FREE_MAP_IDS.includes('circuit2')
+    ? promoBadge('NEW · FREE FOR NOW')
+    : null;
+}
 function buildMapTiles() {
   if (!mapTilesEl) return;
   mapTilesEl.innerHTML = '';
@@ -1083,6 +1099,8 @@ function buildMapTiles() {
     tile.appendChild(thumb);
     tile.appendChild(label);
     if (isMapLocked(def.id)) { tile.classList.add('is-locked'); tile.appendChild(lockBadge()); }
+    const promo = promoBadgeFor(def.id);
+    if (promo) tile.appendChild(promo);
     tile.addEventListener('click', () => {
       if (isMapLocked(def.id)) openUpsell('map', def.id); else selectMap(def.id);
     });
