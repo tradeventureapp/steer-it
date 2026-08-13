@@ -271,15 +271,18 @@ not trusted). `EV` events: phone→desktop `join|color|name|leave|control`; desk
   ZPĚT button + Ctrl+Z, snapshot history (cap 100) pushed before EVERY mutation (drag,
   add/delete point, stroke fit, band gesture = one step, dirt/finish/kerb marking, import,
   new track); a no-move click on a point is dropped so it never eats a step.
-- **Circuit II ('circuit2', dev-gated)** — the boss's first authored track, LIVE as a playable
-  map: asphalt ribbon on grass + his marked DIRT arc (i0 205→664), full race wiring (start
-  gate + forward derived from the path tangent, far-point arming, 2-column standing grid that
-  FOLLOWS THE RIBBON — a straight-line grid put P8 on grass when the finish sat near a corner,
-  laps, XP) all derived from his exported sketch. ⚠️ The finish derives from the LOWEST drawn
-  point — his `[1740,719]` sits ~7 u below the long straight (~710–715), so the line sits at
-  the straight's right end; levelling the bottom points would centre it. `flatFinishOf` /
-  `lapFarPointOf` extracted from the circuit's inline derivations (fingerprint-proven identical,
-  incl. startLine + spawns: `738f2808`). Awaiting boss sign-off → then de-gate (public premium).
+- **Circuit II ('circuit2') — LIVE, PUBLIC PREMIUM** (de-gated; `DEV_MAP_IDS` is now empty).
+  The boss's first authored track, a playable premium map like the circuit/rallycross: asphalt
+  ribbon on grass + his marked DIRT arc (i0 205→664), full race wiring (start gate + forward
+  derived from the path tangent, far-point arming, 2-column standing grid that FOLLOWS THE RIBBON
+  — a straight-line grid put P8 on grass when the finish sat near a corner, laps, XP) all derived
+  from his exported sketch, PLUS a PAINTED starting grid (`drawAuthoredGrid`: 8 boxes = 2 lanes ×
+  4 deep, drawn at the `authoredGridPose` poses oriented to the local racing direction, circuit
+  half-frame look, track-paint under the cars). ⚠️ The finish derives from the LOWEST drawn point
+  — his `[1740,719]` sits ~7 u below the long straight (~710–715), so the line sits at the
+  straight's right end; levelling the bottom points would centre it (left as-is, boss's call).
+  `flatFinishOf` / `lapFarPointOf` extracted from the circuit's inline derivations (fingerprint-
+  proven identical, incl. startLine + spawns: `738f2808`).
 - **Cars** — Blitz RS (vector), Stee-Rex (SVG sprite, 2 skins, arcade tune), Fury 200 EVO (SVG
   sprite, dev-only SIM, real AWD physics). Tyre smoke, colour-tinted skids, saturating tyre marks.
 - **Keyboard driving** — arrow keys + Space drive a local slot-0 car through the identical physics

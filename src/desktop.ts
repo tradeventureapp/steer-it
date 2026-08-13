@@ -512,10 +512,10 @@ function mapGameModes(id: string | null): readonly string[] {
 // from an RLS-protected Supabase row); the checks below gate the UI, and the
 // leaderboard write is enforced server-side so a hacked client gains nothing online.
 const FREE_MAP_IDS = ['desktop', 'asphalt'];
-// DEV-ONLY maps — WIP tracks hidden from the map-select for every normal user. Rallycross is now a
-// PUBLIC premium map (visible to all, premium-locked like the other non-free maps), so it's no
-// longer here. 'circuit2' = the boss's authored track (track-editor.html) awaiting his sign-off.
-const DEV_MAP_IDS: string[] = ['circuit2'];
+// DEV-ONLY maps — WIP tracks hidden from the map-select for every normal user. Both the
+// Rallycross and 'circuit2' (Circuit II, the boss's authored track) are now PUBLIC premium
+// maps (visible to all, premium-locked like the other non-free maps), so this list is empty.
+const DEV_MAP_IDS: string[] = [];
 const FREE_MODE_KEYS = ['free'];
 const isPremium = () => getAuthState().isPremium;
 // Entitlement still resolving for a logged-in host (a session appeared but the

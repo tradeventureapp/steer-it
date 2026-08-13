@@ -3304,6 +3304,33 @@ function authoredGridPose(slot: number): { x: number; y: number; heading: number
   return { x: p[0] + nx * lane, y: p[1] + ny * lane, heading };
 }
 
+// PAINTED STARTING GRID — 8 boxes (2 columns × 4 rows) drawn AT the authored spawn poses,
+// each oriented to the local racing direction so the grid rides the ribbon (the finish can
+// sit on a corner). A half-frame per box — closed bar in FRONT of the nose, two arms running
+// back alongside the car — same look/paint (white-line colour, alpha, weight) as the
+// circuit's grid, and it reuses the circuit's wheelbase-derived box metres so one car fits a
+// box. Painted in drawBackground → under the cars + skids, like the circuit's grid.
+const AUTHORED_GRID_SLOTS = 8;   // 2-wide × 4 deep — matches PLAYER_CAP and the 2-column spawn
+function drawAuthoredGrid(ctx: CanvasRenderingContext2D, pxPerM: number): void {
+  ctx.save();
+  ctx.strokeStyle = `rgba(${WHITE_LINE_RGB},${WHITE_LINE_ALPHA})`;
+  ctx.lineWidth = Math.max(1, WHITE_LINE_W_M * pxPerM);
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  const hl = GRID_BOX_L / 2, hw = GRID_BOX_W / 2, arm = GRID_BOX_ARM;
+  for (let i = 0; i < AUTHORED_GRID_SLOTS; i++) {
+    const g = authoredGridPose(i);
+    const ch = Math.cos(g.heading), sh = Math.sin(g.heading);
+    // local (lx = along racing dir, +hl = in front of the nose; ly = lateral) → world → px
+    const pt = (lx: number, ly: number): [number, number] =>
+      [(g.x + lx * ch - ly * sh) * pxPerM, (g.y + lx * sh + ly * ch) * pxPerM];
+    const a = pt(hl - arm, -hw), b = pt(hl, -hw), c = pt(hl, hw), d = pt(hl - arm, hw);
+    ctx.beginPath();
+    ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.lineTo(c[0], c[1]); ctx.lineTo(d[0], d[1]);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
 // 2-tone surface mask (grass 0 / ribbon 1) — same bake + threshold approach as the
 // circuit's, minus the kerb tone (there are no kerbs to classify).
 let _authoredMask: Uint8Array | null | undefined;
@@ -3621,6 +3648,9 @@ function drawAuthoredSurface(ctx: CanvasRenderingContext2D, wPx: number, hPx: nu
   ctx.lineTo((fin.x + qx * AUTHORED_TRACK_W / 2) * pxPerM, (fin.y + qy * AUTHORED_TRACK_W / 2) * pxPerM);
   ctx.stroke();
   ctx.restore();
+
+  // 5. STARTING GRID — 8 painted boxes behind the line, riding the ribbon.
+  drawAuthoredGrid(ctx, pxPerM);
 }
 
 // ---- AUTHORED BILLBOARDS — same machinery as the circuit's ------------------------
