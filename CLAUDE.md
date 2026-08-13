@@ -501,7 +501,11 @@ The XSS/takeover half of Finding 1 is **FIXED + pushed** (`0eb7300`, see §8). T
   desktop.ts) and **in the footer row** (`.ig-foot`, beside Contact). Instagram ONLY — no TikTok/X.
 - **TikTok:** currently dead / throttled (0 views — likely new-account + outbound-links penalty).
 - **Reddit:** r/playmygame posted (4 upvotes, ~2 visits).
-- **Deferred:** itch.io + Product Hunt — until there's more content (the rallycross car + a track).
+- **Product Hunt:** LAUNCHED **11 Aug 2026** — underwhelming (~3 visits). The launch badge that sat
+  under the hero CTA has been removed from the site. Treat PH as spent, not pending.
+- **itch.io:** RULED OUT — not viable for this game. Not "deferred until more content" but a
+  decision; don't re-open it by default. (The 630×500 cover art made for it is still sitting in
+  the untracked local `itch-cover/`, never committed.)
 - **The missing killer content = a gameplay video with a real party** (several people, one screen,
   phones as wheels). That reel is the growth unlock (§5).
 - In-game **billboards / ad holders** exist as future direct-sold ad surfaces; a real ad network
