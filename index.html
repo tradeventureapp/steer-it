@@ -125,15 +125,18 @@
           </div>
           <div class="menu-foot">Host on a laptop, desktop <span class="dot">·</span> or tablet</div>
         </div>
-        <!-- PRODUCT HUNT launch badge. Sits BELOW the CTA card (the footer is five
-             sections down — nobody would see it there on launch day), and outside the
-             card so it reads as a secondary mark rather than a second button.
-             The 250×54 box is reserved in CSS so a slow or blocked PH image cannot
-             shift the hero, and desktop.ts hides the whole block if the image fails —
-             a broken-image icon under the CTA would look like a bug. -->
-        <div class="ph-badge" id="ph-badge">
-          <a href="https://www.producthunt.com/products/steer-it?embed=true&amp;utm_source=badge-featured&amp;utm_medium=badge&amp;utm_campaign=badge-steer-it" target="_blank" rel="noopener noreferrer"><img alt="Steer It - Your phone is the controller — no app, just a QR code | Product Hunt" width="250" height="54" loading="lazy" src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1218009&amp;theme=dark&amp;t=1786365181108"></a>
-        </div>
+        <!-- INSTAGRAM — a quiet secondary mark below the CTA card (where the Product Hunt
+             launch badge used to sit), outside the card so it never reads as a second
+             button. Inline SVG on purpose: no icon dependency, no external request, so
+             it cannot fail to load or shift the hero the way the remote badge could. -->
+        <a class="ig-link" href="https://www.instagram.com/steerit.app" target="_blank" rel="noopener noreferrer">
+          <svg class="ig-glyph" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+            <rect x="2.75" y="2.75" width="18.5" height="18.5" rx="5.25" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <circle cx="12" cy="12" r="4.25" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <circle cx="17.4" cy="6.6" r="1.25" fill="currentColor"/>
+          </svg>
+          <span>Follow us</span>
+        </a>
         <a class="scroll-cue" href="#how" aria-label="How it works">HOW IT WORKS <span aria-hidden="true">▾</span></a>
       </div>
 
@@ -383,11 +386,21 @@
 
       <!-- SITE FOOTER — legal links + contact. Ends the scrolling landing. -->
       <footer class="site-foot">
-        <nav class="site-foot-links" aria-label="Legal">
+        <nav class="site-foot-links" aria-label="Legal and social">
           <a href="/terms">Terms of Service</a>
           <a href="/privacy">Privacy Policy</a>
           <a href="/refund">Refund Policy</a>
           <a href="mailto:steeritapp@gmail.com">Contact</a>
+          <!-- Instagram — same inline glyph as the one under the hero CTA, sized to the
+               row's 14px text so it sits on the link line rather than towering over it. -->
+          <a class="ig-foot" href="https://www.instagram.com/steerit.app" target="_blank" rel="noopener noreferrer">
+            <svg class="ig-glyph" viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false">
+              <rect x="2.75" y="2.75" width="18.5" height="18.5" rx="5.25" fill="none" stroke="currentColor" stroke-width="1.8"/>
+              <circle cx="12" cy="12" r="4.25" fill="none" stroke="currentColor" stroke-width="1.8"/>
+              <circle cx="17.4" cy="6.6" r="1.25" fill="currentColor"/>
+            </svg>
+            <span>Instagram</span>
+          </a>
         </nav>
         <div class="site-foot-copy">© 2026 Steer It · Jakub Dyk (IČO&nbsp;02167484) · Zhořelecká 414/19, Liberec, Czech Republic</div>
       </footer>

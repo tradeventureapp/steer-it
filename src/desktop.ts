@@ -2199,24 +2199,6 @@ onAuthChange((s) => {
   nickPromptDone = true;
   openAuthModal('nickname');
 });
-// PRODUCT HUNT badge: hide the whole block if the image never arrives (PH down, an ad
-// blocker, offline). Reserving the box stops layout shift, but leaving an empty frame
-// with a broken-image icon under the CTA looks like a bug — better no badge than that.
-// Wired here rather than as an inline onerror so it survives adding a real script-src CSP.
-{
-  const phBadge = document.getElementById('ph-badge');
-  const phImg = phBadge?.querySelector('img');
-  if (phBadge && phImg) {
-    // Mark FAILED rather than removing the block: the CSS then hides the broken image
-    // but keeps the reserved 250×54, so a blocked badge shifts nothing.
-    const hide = () => { phBadge.classList.add('is-failed'); };
-    phImg.addEventListener('error', hide);
-    // It may have already failed before this module ran — `error` won't fire again,
-    // so check the settled state too (complete + zero intrinsic width = failed).
-    if (phImg.complete && phImg.naturalWidth === 0) hide();
-  }
-}
-
 // Manual entitlement check for the host to verify premium is recognised:
 // run `steerCheckEntitlement()` in the browser console → logs what the client
 // actually read from `profiles` and refreshes the FREE/PREMIUM chip.

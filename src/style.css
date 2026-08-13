@@ -214,25 +214,32 @@ body.desktop #game { display: block; width: 100vw; height: 100vh; }
   position: relative; min-height: 100svh;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
 }
-/* PRODUCT HUNT badge — a secondary mark under the hero CTA, never a second button.
-   The box is sized EXPLICITLY (250×54, the badge's own dimensions) so the space is
-   reserved before the image arrives: a slow, blocked or ad-blocked PH request then
-   causes ZERO layout shift instead of jolting the hero as it loads. */
-.ph-badge {
-  width: 250px; height: 54px;
-  margin: 16px auto 0;
-  opacity: 0.85;                       /* subdued so it doesn't compete with TRY FREE */
-  transition: opacity .15s ease;
+/* INSTAGRAM under the hero CTA — a secondary mark, never a second button, so it takes
+   the quiet footer-link language (dim text → gold on hover) rather than any CTA fill.
+   The vertical padding gives the small glyph a 44px-tall touch target on a phone
+   without adding visible bulk under the card. */
+.ig-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 14px auto 0;
+  padding: 13px 14px;              /* 13 + 18px glyph + 13 = a 44px touch target */
+  color: var(--text-dim);
+  text-decoration: none;
+  font-size: 14px;
+  letter-spacing: 0.02em;
+  transition: color 0.15s;
 }
-.ph-badge:hover { opacity: 1; }
-/* FAILED (PH down / blocked / offline — set by desktop.ts): drop the broken image but
-   KEEP the reserved box. Collapsing it instead would re-centre the hero column and jog
-   the CTA ~35px — a visible jump for every ad-blocker user, which is exactly the shift
-   the reservation exists to prevent. An empty 250×54 gap is invisible; a jump is not. */
-.ph-badge.is-failed img { display: none; }
-.ph-badge a { display: block; width: 250px; height: 54px; }
-.ph-badge img { display: block; width: 250px; height: 54px; border: 0; }
-@media (prefers-reduced-motion: reduce) { .ph-badge { transition: none; } }
+.ig-link:hover { color: var(--gold); }
+/* The glyph is stroked in currentColor, so both links' hover states come for free. */
+.ig-glyph { display: block; flex: none; }
+/* Footer variant: sits inside the .site-foot-links row and inherits its colour + hover
+   from `.site-foot-links a`, so only the icon/label alignment needs stating here. */
+.ig-foot {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
 
 /* A quiet nudge to scroll for the concept below the fold. */
 .scroll-cue {

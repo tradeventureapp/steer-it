@@ -494,7 +494,11 @@ The XSS/takeover half of Finding 1 is **FIXED + pushed** (`0eb7300`, see §8). T
 
 ## 10. GROWTH / MARKETING state (context, not code)
 
-- **Instagram:** @dyk_the_viking (personal, verified-eligible via MMA) + @steerit.
+- **Instagram:** @dyk_the_viking (personal, verified-eligible via MMA) + **@steerit.app** — the
+  ONE social account linked from the site. Two links, both to `instagram.com/steerit.app`, both an
+  inline SVG glyph (no icon dependency, no external request): **under the hero CTA** (`.ig-link`,
+  "Follow us" — it replaced the Product Hunt launch badge, which is gone from index.html/style.css/
+  desktop.ts) and **in the footer row** (`.ig-foot`, beside Contact). Instagram ONLY — no TikTok/X.
 - **TikTok:** currently dead / throttled (0 views — likely new-account + outbound-links penalty).
 - **Reddit:** r/playmygame posted (4 upvotes, ~2 visits).
 - **Deferred:** itch.io + Product Hunt — until there's more content (the rallycross car + a track).
