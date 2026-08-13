@@ -287,6 +287,22 @@ not trusted). `EV` events: phone→desktop `join|color|name|leave|control`; desk
   sprite, dev-only SIM, real AWD physics). Tyre smoke, colour-tinted skids, saturating tyre marks.
 - **Keyboard driving** — arrow keys + Space drive a local slot-0 car through the identical physics
   path (for testing without a phone/Supabase).
+- **Screen-recording mode (DEV-ONLY)** — a capture tool for the dev to make vertical 9:16 social
+  clips. Gated by `isDev()` (DEV_EMAILS); for every non-dev host the keys do nothing and nothing
+  appears. **`R`** toggles capture, **`+`/`-`** change the follow zoom live (default frames the host
+  car's length at ~⅓ of the 1920 px frame height ⇒ recZoom ≈ 19). It renders a SECOND, OFF-SCREEN
+  1080×1920 view that follows the host car (`primaryCar`) and records it via
+  `recCanvas.captureStream(60)` + `MediaRecorder` (video-only, no audio track — music is added in
+  the editor later; ~16 Mbps VP9/VP8 webm); pressing `R` again stops and auto-downloads a
+  timestamped `steerit-YYYYMMDD-HHMMSS.webm`. Implemented by factoring the world paint out of
+  `render()` into `paintWorld(W,H,shake)` and running it a second time with the module `ctx` + the
+  `viewScale/viewOffX/viewOffY` camera globals swapped to the off-screen canvas for one synchronous
+  pass, then restored — so cars/fx/gates re-rasterise crisply at the recording scale while the track
+  BITMAP softens with zoom (its 7.5 px/m ceiling; sharper than crop-upscale, which would blur the
+  car too). **⚠️ This does NOT change the on-screen shared view: the reverted follow-cam rule (§3 —
+  whole track always visible, constant car size, no follow/zoom/scale) stays intact.** The only
+  on-screen change while recording is a small "REC ●" + timer HTML chip (top-right). Physics
+  untouched (only desktop.ts render/recording code; Blitz golden 0.0e+0 byte-identical).
 
 **Front-end / UI**
 - Synthwave design-token system (whole UI). Hero logo image asset. Neon phone UI. Main menu →

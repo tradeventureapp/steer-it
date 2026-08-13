@@ -418,6 +418,18 @@ window.addEventListener('keydown', (e) => {
     refreshFreeze();
     updateEditorStatus();
   }
+
+  // DEV-ONLY screen recorder (see the RECORDER section). For a non-dev host these keys
+  // do nothing and nothing appears. R = toggle 9:16 follow-cam capture; +/- = follow zoom.
+  if (isDev()) {
+    if (e.key === 'r' || e.key === 'R') { toggleRecording(); return; }
+    if (recActive && (e.key === '+' || e.key === '=' || e.key === 'Add')) {
+      e.preventDefault(); adjustRecZoom(1); return;
+    }
+    if (recActive && (e.key === '-' || e.key === '_' || e.key === 'Subtract')) {
+      e.preventDefault(); adjustRecZoom(-1); return;
+    }
+  }
 });
 
 // ---------- Keyboard driving (LOCAL TESTING — no phone / no Supabase needed) -----
@@ -2282,7 +2294,12 @@ readyBtn?.addEventListener('click', startRaceFromWarmup);
 //   wallpaper (static offscreen) → skid marks (persistent offscreen)
 //   → overlay: icons + taskbar (static offscreen) → clock → car.
 const canvas = document.getElementById('game') as HTMLCanvasElement;
-const ctx = canvas.getContext('2d')!;
+// `ctx` is the MAIN on-screen context. It is a `let` (not `const`) for ONE reason: the
+// dev-only screen recorder (see the RECORDER section) temporarily retargets every draw
+// helper at an off-screen 1080×1920 canvas by swapping this binding for the duration of a
+// single capture pass, then restores it synchronously in the same tick. Normal gameplay
+// never sees anything but the main context. Do NOT reassign `ctx` anywhere else.
+let ctx = canvas.getContext('2d')!;
 const skidCanvas = document.createElement('canvas');
 const skidCtx = skidCanvas.getContext('2d')!;
 // TYRE-MARK MODE — one active system at a time.
@@ -4174,13 +4191,27 @@ function render() {
   if (currentMap.followCam) updateCamera();
   ensureMarkLayers();   // sizes the saturation layers on first render of each map ('race' mode)
 
+  paintWorld(W, H, fx.shakeOffset());
+  updateHud();
+
+  // DEV-ONLY: after the on-screen frame, draw the SAME scene a second time into the
+  // off-screen 1080×1920 capture canvas (follow-cam of the host car). Purely additive —
+  // never touches the on-screen view. captureRecFrame() no-ops when not recording.
+  captureRecFrame();
+}
+
+// The world paint, factored out of render() so the dev recorder can run it a SECOND time
+// against a different context + camera (see captureRecFrame). It reads the current module
+// `ctx` and the `viewScale`/`viewOffX`/`viewOffY` globals — the on-screen call passes the
+// live values; the recorder swaps them for one pass. Behaviour of the on-screen pass is
+// unchanged (same order, same ops).
+function paintWorld(W: number, H: number, shake: { x: number; y: number }) {
   // Fill the whole viewport first so the letterbox/pillarbox margins of a fixed-
   // world map are clean. The desktop world fully overdraws this.
   ctx.fillStyle = '#05030d';
   ctx.fillRect(0, 0, W, H);
 
   // Screen shake wraps every world layer (HUD is HTML, unaffected).
-  const shake = fx.shakeOffset();
   ctx.save();
   ctx.translate(shake.x, shake.y);
 
@@ -4213,7 +4244,166 @@ function render() {
   ctx.restore();
 
   ctx.restore();
-  updateHud();
+}
+
+// ============================================================================
+//  DEV-ONLY SCREEN RECORDER — vertical 9:16 social clips that FOLLOW the host car
+// ============================================================================
+// A capture tool for the dev ONLY (isDev). It renders a SECOND, off-screen view of
+// the exact same scene through a follow-camera and records it to a .webm — it does
+// NOT change anything players see. The on-screen game keeps the shared-screen rule
+// (whole track visible, constant car size, no follow, no zoom) BYTE-FOR-BYTE: the
+// on-screen render() path is untouched; this pass runs after it, retargets the module
+// `ctx` + the view globals at an off-screen 1080×1920 canvas for ONE synchronous pass,
+// then restores them. Physics/game/camera/multiplayer are all untouched.
+//
+// 'R' toggles recording (dev only). '+'/'-' change the follow zoom live. The only
+// on-screen change while recording is a small "REC ●" + timer chip (an HTML overlay,
+// so the capture canvas itself stays clean).
+const REC_W = 1080, REC_H = 1920;          // 9:16 vertical
+const REC_FPS = 60;                        // matches the game loop
+const REC_BITRATE = 16_000_000;            // ~16 Mbps — high quality for social
+const REC_ZOOM_MIN = 4, REC_ZOOM_MAX = 44; // logical-px → rec-px bounds
+const REC_ZOOM_STEP = 1.12;                // ×/÷ per +/- press
+let recCanvas: HTMLCanvasElement | null = null;
+let recCtx: CanvasRenderingContext2D | null = null;
+let recActive = false;
+let recZoom = 0;                           // 0 ⇒ seed the default on first start
+let mediaRecorder: MediaRecorder | null = null;
+let recChunks: BlobPart[] = [];
+let recStartMs = 0;
+let recOverlayEl: HTMLDivElement | null = null;
+
+// Default follow zoom: frame the host car's LENGTH at ~1/3 of the 1920 px frame height.
+// With a ~4.4 m car at 7.5 px/m that is ≈ 640 / 33 ≈ 19 (logical-px → rec-px).
+function defaultRecZoom(): number {
+  const lenM = primaryCar()?.spec.dims?.lengthM ?? 4.44;
+  const carLogicalPx = lenM * CONFIG.pxPerMeter;
+  const z = (REC_H / 3) / Math.max(1, carLogicalPx);
+  return Math.max(REC_ZOOM_MIN, Math.min(REC_ZOOM_MAX, z));
+}
+
+function ensureRecCanvas(): boolean {
+  if (recCanvas && recCtx) return true;
+  recCanvas = document.createElement('canvas');   // OFF-SCREEN — never added to the DOM
+  recCanvas.width = REC_W; recCanvas.height = REC_H;
+  recCtx = recCanvas.getContext('2d');
+  return !!recCtx;
+}
+
+// One capture pass: swap the module ctx + camera at the off-screen canvas, paint the
+// SAME scene through a follow-cam of the host car, then restore synchronously. Runs
+// only while recording; a no-op otherwise. Never affects the on-screen frame.
+function captureRecFrame(): void {
+  if (!recActive || !recCanvas || !recCtx) return;
+
+  // Save the on-screen context + camera.
+  const savedCtx = ctx, savedScale = viewScale, savedOffX = viewOffX, savedOffY = viewOffY;
+
+  // Retarget every draw helper (they all read the module `ctx`) at the capture canvas.
+  ctx = recCtx;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);   // 1080×1920 backing = output, no dpr
+
+  // Follow camera: centre the host car (fallback: world centre). viewScale here maps
+  // LOGICAL px → REC px; the car draws in logical px, so this frames + zooms it.
+  const lead = primaryCar();
+  const cxPx = (lead ? lead.state.x : logicalPxW / CONFIG.pxPerMeter / 2) * CONFIG.pxPerMeter;
+  const cyPx = (lead ? lead.state.y : logicalPxH / CONFIG.pxPerMeter / 2) * CONFIG.pxPerMeter;
+  viewScale = recZoom;
+  viewOffX = REC_W / 2 - cxPx * recZoom;
+  viewOffY = REC_H / 2 - cyPx * recZoom;
+
+  paintWorld(REC_W, REC_H, { x: 0, y: 0 });   // no screen-shake in the clip
+
+  // Restore the on-screen context + camera for the next frame / any later reader.
+  ctx = savedCtx; viewScale = savedScale; viewOffX = savedOffX; viewOffY = savedOffY;
+
+  updateRecOverlay();
+}
+
+function two(n: number): string { return String(n).padStart(2, '0'); }
+
+function toggleRecording(): void {
+  if (recActive) stopRecording(); else startRecording();
+}
+
+function startRecording(): void {
+  if (recActive) return;
+  if (!ensureRecCanvas() || !recCanvas) { console.warn('[rec] no canvas'); return; }
+  if (typeof MediaRecorder === 'undefined' || !recCanvas.captureStream) {
+    console.warn('[rec] MediaRecorder/captureStream unavailable'); return;
+  }
+  if (recZoom <= 0) recZoom = defaultRecZoom();
+
+  // VIDEO-ONLY stream (no audio track — music is added later in the editor).
+  const stream = recCanvas.captureStream(REC_FPS);
+  const mime = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm']
+    .find((m) => MediaRecorder.isTypeSupported(m)) || 'video/webm';
+  try {
+    mediaRecorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: REC_BITRATE });
+  } catch (err) {
+    console.warn('[rec] MediaRecorder init failed', err); mediaRecorder = null; return;
+  }
+  recChunks = [];
+  mediaRecorder.ondataavailable = (e) => { if (e.data && e.data.size) recChunks.push(e.data); };
+  mediaRecorder.onstop = () => downloadRecording(mime);
+  mediaRecorder.start();   // captureStream pulls a frame per canvas paint (each captureRecFrame)
+  recActive = true;
+  recStartMs = performance.now();
+  showRecOverlay();
+  console.info(`[rec] recording ${REC_W}×${REC_H}@${REC_FPS} ${mime} zoom ${recZoom.toFixed(1)}`);
+}
+
+function stopRecording(): void {
+  if (!recActive) return;
+  recActive = false;
+  hideRecOverlay();
+  try { mediaRecorder?.stop(); } catch { /* already stopped */ }
+}
+
+function downloadRecording(mime: string): void {
+  const blob = new Blob(recChunks, { type: mime.split(';')[0] });
+  recChunks = [];
+  const d = new Date();
+  const name = `steerit-${d.getFullYear()}${two(d.getMonth() + 1)}${two(d.getDate())}`
+    + `-${two(d.getHours())}${two(d.getMinutes())}${two(d.getSeconds())}.webm`;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+  console.info(`[rec] saved ${name} (${(blob.size / 1e6).toFixed(1)} MB)`);
+}
+
+function adjustRecZoom(dir: 1 | -1): void {
+  if (recZoom <= 0) recZoom = defaultRecZoom();
+  recZoom = Math.max(REC_ZOOM_MIN, Math.min(REC_ZOOM_MAX,
+    dir > 0 ? recZoom * REC_ZOOM_STEP : recZoom / REC_ZOOM_STEP));
+}
+
+// The ONE on-screen change while recording: a small REC chip (HTML, top-right).
+function showRecOverlay(): void {
+  if (!recOverlayEl) {
+    recOverlayEl = document.createElement('div');
+    recOverlayEl.style.cssText =
+      'position:fixed;top:14px;right:14px;z-index:9999;pointer-events:none;'
+      + 'font-family:system-ui,sans-serif;font-weight:700;font-size:14px;color:#fff;'
+      + 'background:rgba(8,4,18,0.72);border:1px solid rgba(255,255,255,0.18);'
+      + 'border-radius:9px;padding:6px 10px;display:flex;align-items:center;gap:8px;'
+      + 'box-shadow:0 2px 10px rgba(0,0,0,0.5);letter-spacing:0.04em;';
+    document.body.appendChild(recOverlayEl);
+  }
+  recOverlayEl.style.display = 'flex';
+  updateRecOverlay();
+}
+function hideRecOverlay(): void { if (recOverlayEl) recOverlayEl.style.display = 'none'; }
+function updateRecOverlay(): void {
+  if (!recOverlayEl) return;
+  const t = Math.max(0, (performance.now() - recStartMs) / 1000);
+  const blink = Math.floor(t * 2) % 2 === 0;   // ~1 Hz pulse on the dot
+  recOverlayEl.innerHTML =
+    `<span style="color:#ff3b3b;opacity:${blink ? 1 : 0.25}">●</span>`
+    + `<span>REC ${two(Math.floor(t / 60))}:${two(Math.floor(t % 60))}</span>`;
 }
 
 // The single gameplay HUD reflects the PRIMARY car (lowest slot). With no car
