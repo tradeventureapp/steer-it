@@ -279,3 +279,145 @@ grant  execute on function public.check_nickname(text)        to anon, authentic
 --    where id = (select id from auth.users where email = 'someone@example.com');
 -- Revoke:
 --   update public.profiles set is_premium = false where id = '<uuid>';
+
+-- =============================================================================
+--  LEADERBOARD — Phase 2 step 1 (Time Attack now; XP-ready by design). Idempotent.
+--
+--  ONE table holds BOTH modes: `mode` = 'timeattack' (lap ms, LOWER is better) now,
+--  'xp' (score, HIGHER is better) later — no schema change to add XP, only wiring.
+--  There is exactly ONE best row per (user, mode, track, car, surface): a better
+--  result UPSERTS over the previous, so the board shows each player once.
+--
+--  The whole anti-cheat is the SECURITY DEFINER submit_score() RPC below — the ONLY
+--  write path. The client roles get PUBLIC READ but NO insert/update/delete, so a
+--  hacked client cannot write a row directly (RLS + revoked grants), and every
+--  accepted write has passed auth + a sanity floor + a per-user rate limit.
+--
+--  ⚠️ `surface` is NOT NULL DEFAULT '' (not nullable): the upsert key is a UNIQUE
+--  constraint over (user, mode, track, car, surface), and Postgres treats NULLs as
+--  DISTINCT — a nullable surface would let two "same key" rows coexist and break the
+--  one-best-per-key guarantee. '' means "none / already encoded in track_id" (today
+--  the oval's asphalt vs dirt are SEPARATE track_ids, so surface stays '' for now).
+-- =============================================================================
+create table if not exists public.leaderboard (
+  id         bigint generated always as identity primary key,
+  user_id    uuid not null references auth.users(id) on delete cascade,
+  nickname   text,                                  -- denormalised for display; written SERVER-side (never trusted from the client)
+  mode       text not null,                         -- 'timeattack' | 'xp'
+  track_id   text not null,
+  car_key    text not null,
+  surface    text not null default '',              -- '' = none / encoded in track_id
+  value      bigint not null check (value >= 0),    -- timeattack: lap ms (lower=better). xp: score (higher=better).
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (user_id, mode, track_id, car_key, surface)   -- ONE best row per key = the upsert target
+);
+
+alter table public.leaderboard enable row level security;
+
+-- PUBLIC READ: anyone (even logged out) may browse the board.
+drop policy if exists "leaderboard: public read" on public.leaderboard;
+create policy "leaderboard: public read" on public.leaderboard for select using (true);
+-- NOTE: there is deliberately NO insert/update/delete policy — the only write path is
+-- submit_score() (SECURITY DEFINER, runs as owner). The revokes at the bottom make that real.
+
+-- "top N for (mode, track, car, surface)" ordered by value — the hot query for both views.
+create index if not exists leaderboard_board_idx
+  on public.leaderboard (mode, track_id, car_key, surface, value);
+-- "this user's entries" (own-best / own-rank lookups).
+create index if not exists leaderboard_user_idx on public.leaderboard (user_id);
+
+-- ---- Rate-limit audit log: one row per ACCEPTED submit attempt (post-auth) --------
+-- The leaderboard is upsert (best-only) so it keeps no history to rate-limit on; this
+-- lightweight log does. No client access at all (RLS on, zero policies = deny), and
+-- submit_score() (SECURITY DEFINER) owns every read/write/prune of it.
+create table if not exists public.leaderboard_submits (
+  user_id    uuid not null references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+alter table public.leaderboard_submits enable row level security;
+create index if not exists leaderboard_submits_idx on public.leaderboard_submits (user_id, created_at);
+
+-- ---- Per-(mode,track,car) sanity-floor OVERRIDE -----------------------------------
+-- Tighten a floor by INSERTING a row here — no function redeploy. Empty by default, so
+-- only the global floor in submit_score() applies until you seed real per-track values,
+-- e.g.:  insert into public.leaderboard_limits values ('timeattack','circuit2','blitz', 18000);
+create table if not exists public.leaderboard_limits (
+  mode      text not null,
+  track_id  text not null,
+  car_key   text not null,
+  min_value bigint not null,
+  primary key (mode, track_id, car_key)
+);
+
+-- ---- THE anti-cheat gate: the SECURITY DEFINER submit RPC -------------------------
+-- Enforces, in order: (1) auth — reject anon; (2) input validity — known mode, non-empty
+-- track/car, finite value in (0, CEIL]; (3) rate limit — ≤ RATE_MAX accepted attempts per
+-- user per minute; (4) sanity floor — timeattack value must be ≥ the per-(track,car)
+-- override or the global TA floor; then a MODE-AWARE best-only UPSERT (TA keeps the MIN,
+-- XP will keep the MAX). The stored nickname is read from profiles (server truth), never
+-- taken from the client. Returns { ok, updated?, reason? }.
+--   RATE_MAX  = 10 / user / minute (submits fire only on a new personal best → generous).
+--   TA_MIN_MS = 3000 ms — deliberately LOW so no legit lap is ever rejected on day one
+--               (nothing on these tracks laps under 3 s); tighten per track via the table.
+--   CEIL_MS   = 3,600,000 ms (1 h) — reject garbage-huge values.
+create or replace function public.submit_score(
+  p_mode text, p_track_id text, p_car_key text, p_surface text, p_value bigint
+) returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  uid  uuid   := auth.uid();
+  surf text   := coalesce(p_surface, '');
+  floor_ms bigint;
+  cur      bigint;
+  nick     text;
+  recent   int;
+  RATE_MAX  constant int    := 10;
+  TA_MIN_MS constant bigint := 3000;
+  CEIL_MS   constant bigint := 3600000;
+begin
+  -- (1) AUTH
+  if uid is null then return jsonb_build_object('ok', false, 'reason', 'auth'); end if;
+  -- (2) INPUT VALIDITY
+  if p_mode not in ('timeattack','xp')
+     or p_track_id is null or p_track_id = ''
+     or p_car_key  is null or p_car_key  = ''
+     or p_value is null or p_value <= 0 or p_value > CEIL_MS
+    then return jsonb_build_object('ok', false, 'reason', 'invalid'); end if;
+
+  -- (3) RATE LIMIT (checked before recording; this attempt is then logged)
+  select count(*) into recent from public.leaderboard_submits
+   where user_id = uid and created_at > now() - interval '1 minute';
+  if recent >= RATE_MAX then return jsonb_build_object('ok', false, 'reason', 'rate'); end if;
+  insert into public.leaderboard_submits (user_id) values (uid);
+  delete from public.leaderboard_submits where created_at < now() - interval '10 minutes';  -- cheap prune
+
+  -- (4) SANITY FLOOR (Time Attack: a lap can't be faster than X)
+  if p_mode = 'timeattack' then
+    select min_value into floor_ms from public.leaderboard_limits
+      where mode = p_mode and track_id = p_track_id and car_key = p_car_key;
+    floor_ms := coalesce(floor_ms, TA_MIN_MS);
+    if p_value < floor_ms then return jsonb_build_object('ok', false, 'reason', 'floor'); end if;
+  end if;
+
+  -- nickname = SERVER truth (never client-supplied)
+  select nickname into nick from public.profiles where id = uid;
+
+  -- BEST-ONLY UPSERT (mode-aware direction)
+  select value into cur from public.leaderboard
+    where user_id = uid and mode = p_mode and track_id = p_track_id and car_key = p_car_key and surface = surf;
+  if cur is not null and
+     ((p_mode = 'timeattack' and p_value >= cur) or (p_mode = 'xp' and p_value <= cur))
+    then return jsonb_build_object('ok', true, 'updated', false, 'reason', 'not_better'); end if;
+
+  insert into public.leaderboard (user_id, nickname, mode, track_id, car_key, surface, value)
+    values (uid, nick, p_mode, p_track_id, p_car_key, surf, p_value)
+  on conflict (user_id, mode, track_id, car_key, surface)
+    do update set value = excluded.value, nickname = excluded.nickname, updated_at = now();
+  return jsonb_build_object('ok', true, 'updated', true);
+end; $$;
+
+-- GRANTS: writes ONLY via the RPC, and only for a signed-in user. Reads are the public-read
+-- table SELECT (still granted). anon can read the board but cannot submit.
+revoke insert, update, delete on public.leaderboard from anon, authenticated;
+revoke all on function public.submit_score(text, text, text, text, bigint) from public;
+grant  execute on function public.submit_score(text, text, text, text, bigint) to authenticated;

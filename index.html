@@ -442,15 +442,36 @@
       <!-- OPTIONS lives in its own overlay (#options-modal) so the MAIN MENU and
            the PAUSE menu open the SAME panel — see below. -->
 
-      <!-- LEADERBOARDS (placeholder) -->
+      <!-- LEADERBOARDS — the full, browsable board (Time Attack). Track + car pickers
+           (the menu isn't tied to a current selection); paginated list; own row
+           highlighted. Signed-out users can browse but see a "sign in to submit" note.
+           Populated by desktop.ts (renderLeaderboardMenu / lb.ts). -->
       <div class="gm-view" data-view="leaderboards" hidden>
-        <div class="menu-card gm-card">
+        <div class="menu-card gm-card lb-card">
           <div class="menu-title">LEADERBOARDS</div>
-          <div class="gm-soon">
-            <span class="gm-soon-badge">COMING SOON</span>
-            <p>Global lap times &amp; XP rankings are on the way. Keep drifting —
-               your best runs will count when it goes live.</p>
+          <div class="lb-sub">TIME ATTACK · fastest laps</div>
+
+          <div class="lb-pickers">
+            <label class="lb-pick">
+              <span class="lb-pick-label">TRACK</span>
+              <select id="lb-track" class="lb-select"></select>
+            </label>
+            <label class="lb-pick">
+              <span class="lb-pick-label">CAR</span>
+              <select id="lb-car" class="lb-select"></select>
+            </label>
           </div>
+
+          <div class="lb-signin" id="lb-signin" hidden>Sign in to submit your times.</div>
+
+          <div class="lb-list" id="lb-list" aria-live="polite"></div>
+
+          <div class="lb-pager" id="lb-pager" hidden>
+            <button type="button" class="lb-page-btn" id="lb-prev">◄ Prev</button>
+            <span class="lb-page-info" id="lb-page-info">—</span>
+            <button type="button" class="lb-page-btn" id="lb-next">Next ►</button>
+          </div>
+
           <button type="button" class="menu-btn ghost" id="gm-lb-back">◄ BACK</button>
         </div>
       </div>
@@ -533,6 +554,19 @@
       <div class="pay-loading-card">
         <span class="pay-spinner" aria-hidden="true"></span>
         <span class="pay-loading-text">Redirecting to payment…</span>
+      </div>
+    </div>
+
+    <!-- TIME ATTACK quick-view leaderboard — compact top-10 + YOUR best, for exactly the
+         (map, car) picked in the selection screen. No pagination (the full board lives in
+         the menu). Opened by #cms-lb-open; populated by desktop.ts (openLeaderboardQuick). -->
+    <div id="lb-quick" class="modal-overlay" hidden>
+      <div class="menu-card gm-card lb-card">
+        <button type="button" class="auth-x" id="lb-quick-close" aria-label="Close">×</button>
+        <div class="menu-title">LEADERBOARD</div>
+        <div class="lb-sub" id="lb-quick-sub">TIME ATTACK</div>
+        <div class="lb-signin" id="lb-quick-signin" hidden>Sign in to submit your times.</div>
+        <div class="lb-list lb-list-compact" id="lb-quick-list" aria-live="polite"></div>
       </div>
     </div>
 
@@ -658,6 +692,11 @@
                 <span class="cms-xpbest-label">PERSONAL BEST</span>
                 <span class="cms-xpbest-value" id="xp-best-value">—</span>
               </div>
+              <!-- TIME ATTACK: quick-view leaderboard entry for the SELECTED map+car.
+                   Opens the compact top-10 + own overlay (#lb-quick). -->
+              <button type="button" class="cms-lb-open" id="cms-lb-open" hidden>
+                🏁 VIEW LEADERBOARD
+              </button>
             </div>
           </section>
         </div>
