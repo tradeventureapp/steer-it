@@ -453,7 +453,14 @@ not trusted). `EV` events: phone→desktop `join|color|name|leave|control`; desk
   LOG IN). TA/XP mode rows show a gold **FREE** badge (`freeBadge`, replaces the lock badge for
   non-premium) instead of the lock. Leaderboard keys by `car_key`, so free Stee-Rex (`steerex`) and
   premium SIM (`blitz`/`fury`) are SEPARATE boards — no mixing. The leaderboard table/RPC/zone
-  validation are untouched (free runs submit through the same auth-only gate).
+  validation are untouched (free runs submit through the same auth-only gate). The landing
+  **FREE VS PREMIUM** table reflects this: the FREE column tags the temporary items with quiet
+  qualifier pills — **`limited`** (temporarily free: Rallycross map) and **`signed limited`**
+  (temporarily free + needs sign-in: XP, Time Attack, and the now-`✓` Leaderboard) — a subtle
+  outlined `.pr-tag` (opposite weight to the loud `.pr-badge` "more coming"). The tags exist so
+  the table stays HONEST when `FREE_TA_XP_ENABLED` is flipped off (nothing there claims permanent
+  free access). PREMIUM column also refreshed: Cars **3** (Stee-Rex/Blitz/Fury), Game Modes
+  `+ Race, + Time Attack, + XP` (always, no sign-in/limit). Price + BEST VALUE unchanged.
 - **Premium promo interstitial** (free/anon only): bold non-flashing, X after ~5 s, 3-min global cap,
   after Start / on Pause / on game-end; CTA → checkout or signup→checkout. Upsell banners show NO
   price (overflow fix); price shows on the landing pricing + game-menu.

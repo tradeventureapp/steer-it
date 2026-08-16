@@ -1215,6 +1215,17 @@ body.desktop #game { display: block; width: 100vw; height: 100vh; }
   background: var(--grad-accent);
   box-shadow: 0 0 12px rgba(255, 74, 158, 0.5), inset 0 0 0 1px rgba(255, 255, 255, 0.2);
 }
+/* "limited" / "signed limited" — a QUIET qualifier (temporarily-free / needs-sign-in), the
+   opposite weight of .pr-badge: no gradient, no glow, muted outline so it reads as a caveat,
+   not a feature. Marks the FREE_TA_XP + Rallycross experiment so the table stays honest when
+   the flag is flipped off. */
+.pr-tag {
+  flex: 0 0 auto; font-family: var(--font-display); font-weight: 700;
+  font-size: 8px; letter-spacing: 0.8px; text-transform: uppercase;
+  color: var(--text-muted); padding: 2px 7px; border-radius: 999px; white-space: nowrap;
+  background: rgba(178, 162, 208, 0.08); border: 1px solid var(--border-dim);
+}
+.pr-card-prem .pr-tag { color: rgba(255, 255, 255, 0.6); }
 
 /* pricing — attached under the PREMIUM rows */
 .pr-price { margin-top: 12px; padding-top: 15px; border-top: 1px solid rgba(255, 138, 61, 0.28); text-align: center; }
