@@ -121,6 +121,7 @@ const taBestEl      = document.getElementById('ta-best')       as HTMLElement | 
 const taLastRowEl   = document.getElementById('ta-last-row')   as HTMLElement | null;
 const taLastEl      = document.getElementById('ta-last')       as HTMLElement | null;
 const taRecordEl    = document.getElementById('ta-record')     as HTMLElement | null;
+const taInvalidEl   = document.getElementById('ta-invalid')    as HTMLElement | null;
 const xpHudEl       = document.getElementById('xp-hud')        as HTMLElement | null;
 const xpScoreEl     = document.getElementById('xp-score')      as HTMLDivElement | null;
 const xpMultEl      = document.getElementById('xp-mult')       as HTMLDivElement | null;
@@ -4222,8 +4223,12 @@ function frame(now: number) {
       // a render-rate feed would make lap times frame-rate dependent.
       if (isTimeAttack() && taRun && lead) {
         const s = lead.state;
+        // Off-track invalidation feeds the SAME per-wheel count XP does — wheelsOffTrack()
+        // (each wheel vs the map's onTrackAt geometry) — and the run applies XP's own
+        // > offTrackWheels threshold. An invalid lap's done.isBest is already false, so the
+        // record save below is gated on validity for free.
         const done = taRun.update(s.x + Math.cos(s.heading) * CAR_NOSE_M,
-          s.y + Math.sin(s.heading) * CAR_NOSE_M, gameNow, s.vx, s.vy);
+          s.y + Math.sin(s.heading) * CAR_NOSE_M, gameNow, s.vx, s.vy, wheelsOffTrack(lead));
         if (done) {
           if (done.isBest) { writeTaBest(taBestKeyActive, done.ms); taRecordUntil = gameNow + TA_RECORD_MS; }
           taLastUntil = gameNow + TA_LAST_MS;
@@ -4735,6 +4740,12 @@ function updateTimeAttackHud(now: number) {
   if (taLastRowEl) taLastRowEl.hidden = !showLast;
   if (showLast && taLastEl) taLastEl.textContent = formatLapTime(h.lastMs!);
   if (taRecordEl) taRecordEl.hidden = !(h.lastWasBest && now < taRecordUntil);
+  // INVALID lap: the moment the car goes >2 wheels off, turn the live lap clock red and
+  // show the INVALID label, so the player knows immediately why no record will be set.
+  // A crossing resets the lap to valid, so this clears itself when the next lap begins.
+  const invalid = h.running && !h.currentValid;
+  taHudEl.classList.toggle('lap-invalid', invalid);
+  if (taInvalidEl) taInvalidEl.hidden = !invalid;
 }
 
 function updateRaceHud(h: RaceHud) {

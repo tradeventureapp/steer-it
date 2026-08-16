@@ -844,6 +844,10 @@
       <div class="ta-row ta-row-cur">
         <span class="ta-label">LAP</span><span id="ta-current">--.---</span>
       </div>
+      <!-- Shown the moment the current lap goes >2 wheels off-track (same rule XP ends on):
+           the lap won't set a record. Cleared when the next start/finish crossing begins a
+           clean lap. The live LAP time also turns red (see #ta-hud.lap-invalid). -->
+      <div id="ta-invalid" hidden>INVALID · OFF TRACK</div>
       <div class="ta-row">
         <span class="ta-label">BEST</span><span id="ta-best">--</span>
       </div>

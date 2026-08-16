@@ -107,7 +107,9 @@ palette picked on the phone (§13).
   from the map's own `startLine()`, so the line-plane sweep, the FORWARD-only test and the
   ARMED far-point full-lap rule are literally Race mode's. What it adds is the ROLLING part
   (Race stops at its lap limit and reports one total; Time Attack times every lap back to
-  back). DOM/storage-free like `xp.ts` — the best lap is passed in and handed back out.
+  back), plus OFF-TRACK LAP INVALIDATION that reuses XP's detection (`wheelsOffTrack` count +
+  `XP_CONFIG.offTrackWheels` threshold — an invalid lap never records). DOM/storage-free like
+  `xp.ts` — the best lap is passed in and handed back out.
 - `vehicles.ts` — vehicle IDENTITY + specs: `VehicleSpec` (`overrides`, `branch`, `arcade`, **`phys4`**,
   `dims`, `sprite`, `fxScale`), `ROAD_SPEC` (Blitz), `STEEREX_SILVER/BLACK`, `FURY_SPEC` + dims +
   colour palettes. Pure data — NO real make/model names anywhere.
@@ -231,7 +233,17 @@ not trusted). `EV` events: phone→desktop `join|color|name|leave|control`; desk
   just keeps driving and each lap is timed continuously — no manual reset. Validity is `race.ts`'s
   own, not a copy: line-plane sweep + FORWARD-only + ARMED far point, so wiggling on the line or
   reversing over it logs nothing. Fed the car's NOSE on the fixed physics step, exactly as RACE is
-  ⇒ lap times are frame-rate independent (measured identical at 30/120/240 Hz). Best lap is LOCAL
+  ⇒ lap times are frame-rate independent (measured identical at 30/120/240 Hz). **OFF-TRACK
+  INVALIDATION mirrors XP:** the run is fed the SAME per-wheel count XP is (`wheelsOffTrack()` —
+  each wheel vs the map's `onTrackAt` geometry) and applies XP's OWN threshold
+  (`> XP_CONFIG.offTrackWheels`, i.e. >2 = 3+ wheels off); going that far off DURING a lap marks
+  the lap INVALID. An invalid lap still finishes and still records its crossing (the next lap
+  starts correctly) but can NEVER set the record, however fast; the flag is STICKY within a lap
+  and resets to VALID at each start/finish crossing (a fresh lap is clean). The HUD shows it live —
+  the lap clock turns red + an "INVALID · OFF TRACK" label — so the player sees why no record was
+  set. (Where XP ENDS the run on the same condition, Time Attack only invalidates the lap; `xp.ts`
+  is pure so `time-attack.ts` importing `XP_CONFIG` is a safe read, and a future change to the
+  threshold or to `wheelsOffTrack` hits both modes.) Best lap is LOCAL
   ONLY — `localStorage` `steerit.ta.best.<carKey>.<mapId>`, keyed by CAR + TRACK, mirroring the XP
   best (`xpBestKeyFor`): the Fury and the arcade Stee-Rex keep SEPARATE bests on the same line, so
   a slower car is still worth driving and a future leaderboard stays per-car meaningful. The oval's

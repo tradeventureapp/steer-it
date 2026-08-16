@@ -1796,6 +1796,15 @@ body.desktop #ta-hud {
 }
 .ta-row-cur .ta-label { font-size: 11px; }
 #ta-best { color: var(--gold); text-shadow: var(--glow-gold); }
+/* INVALID lap: the live clock goes red and the reason label appears. Kept as bold
+   as the record flash but static (no blink) — it's a persistent state, not an event. */
+#ta-hud.lap-invalid .ta-row-cur { color: var(--danger); text-shadow: 0 0 14px rgba(255, 90, 90, 0.5); }
+#ta-hud.lap-invalid .ta-row-cur .ta-label { color: var(--danger); opacity: 0.85; }
+#ta-invalid {
+  font-family: var(--font-display);
+  font-weight: 800; font-size: 12px; letter-spacing: 2px;
+  color: var(--danger); text-shadow: 0 0 10px rgba(255, 90, 90, 0.6);
+}
 #ta-record {
   margin-top: 4px;
   font-family: var(--font-display);

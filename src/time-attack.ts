@@ -19,6 +19,15 @@
 //      timed — that crossing IS the start line),
 //    • every later valid crossing ends the current lap and starts the next.
 //
+//  OFF-TRACK INVALIDATION (mirrors XP mode). The caller feeds the SAME per-wheel
+//  count XP does — desktop's `wheelsOffTrack()` (each wheel tested by the map's
+//  `onTrackAt` track geometry) — and the SAME threshold, `XP_CONFIG.offTrackWheels`
+//  (>2 = 3+ wheels off). Going that far off DURING a lap marks the lap INVALID: an
+//  invalid lap still finishes and still times/records its crossing (so the next lap
+//  starts correctly), but it can never set the record, however fast. The flag is
+//  STICKY within a lap and resets to VALID at each crossing — a fresh lap is clean.
+//  Where XP ENDS the run on the same condition, Time Attack only invalidates the lap.
+//
 //  Pure: no DOM, no storage, no transport — so it's unit-testable like race.ts /
 //  xp.ts. The personal best is passed IN and handed back OUT; persisting it
 //  (localStorage) is the caller's job, exactly as xp.ts leaves the XP best to
@@ -26,6 +35,7 @@
 // =============================================================================
 
 import { RaceState, RACE_CONFIG, type RaceElement } from './race';
+import { XP_CONFIG } from './xp';   // off-track threshold — the SAME one XP invalidates on
 
 // The RaceState lap ceiling. RaceState finishes at its lap limit (it is built for
 // races, which end), so Time Attack runs it at the maximum race.ts allows and
@@ -37,13 +47,15 @@ const ROLL_LAPS = 99;
 export interface CompletedLap {
   ms: number;        // the lap's time
   lapNumber: number; // 1-based, counting completed laps this session
-  isBest: boolean;   // beat the personal best that was in force when it finished
+  isBest: boolean;   // beat the personal best — ONLY ever true for a VALID lap
+  valid: boolean;    // was the lap clean (never > threshold wheels off-track)?
 }
 
 /** Everything the on-screen readout needs (no internal state leaks). */
 export interface TimeAttackHud {
   running: boolean;        // the clock is live (the first crossing has happened)
   currentMs: number;       // the lap in progress (0 before the first crossing)
+  currentValid: boolean;   // is the lap in progress still clean? (false = went off-track)
   lastMs: number | null;   // the most recently completed lap (null = none yet)
   lastWasBest: boolean;    // ...and whether it set a new record
   bestMs: number | null;   // personal best this session (seeded by the caller)
@@ -61,6 +73,9 @@ export class TimeAttackRun {
   private lastMs: number | null = null;
   private lastWasBest = false;
   private bestMs: number | null;
+  // The lap in progress is VALID until the car goes > threshold wheels off-track; then it
+  // latches invalid (sticky) until the next crossing resets it. Only a valid lap can record.
+  private lapValid = true;
   // Previous-step readings, so a change is what fires (RaceState reports state, not events).
   private prevLap = 0;
   private prevFinished = false;
@@ -78,10 +93,11 @@ export class TimeAttackRun {
 
   /**
    * Feed the car's point (world metres, the NOSE — same point Race mode feeds),
-   * the game clock, and its velocity, every physics step. Returns the lap that
-   * just completed on this step, or null.
+   * the game clock, its velocity, and how many wheels are off-track THIS step (0..4,
+   * from desktop's `wheelsOffTrack()` — the SAME count XP is fed), every physics step.
+   * Returns the lap that just completed on this step, or null.
    */
-  update(x: number, y: number, now: number, vx: number, vy: number): CompletedLap | null {
+  update(x: number, y: number, now: number, vx: number, vy: number, wheelsOff: number): CompletedLap | null {
     this.rs.update(x, y, now, vx, vy);
     const h = this.rs.hud(now);
 
@@ -92,9 +108,16 @@ export class TimeAttackRun {
       this.running = true;
       this.lapStartMs = now - h.elapsedMs;
       this.prevLap = h.lap;
+      this.lapValid = true;   // the timed lap begins clean (off-track before the line is moot)
       return null;   // the start crossing ends no lap — timing BEGINS here
     }
     if (!this.running) return null;
+
+    // OFF-TRACK ⇒ the lap is INVALID. Same detection + threshold as XP mode: the caller
+    // passes wheelsOffTrack()'s count and > XP_CONFIG.offTrackWheels (>2 = 3+ wheels off)
+    // trips it — where updateXpRun ENDS the run, here it only latches the lap invalid
+    // (sticky: it never clears mid-lap, only the next crossing resets it below).
+    if (wheelsOff > XP_CONFIG.offTrackWheels) this.lapValid = false;
 
     // A lap completed if the lap counter advanced, OR if RaceState hit its ceiling and
     // finished (which completes a lap WITHOUT advancing the counter — see tryCompleteLap).
@@ -107,10 +130,13 @@ export class TimeAttackRun {
     const ms = now - this.lapStartMs;
     this.lapStartMs = now;
     this.lapsDone += 1;
-    const isBest = this.bestMs === null || ms < this.bestMs;
+    const valid = this.lapValid;
+    // An INVALID lap can NEVER set the record, however fast — the isBest test is gated on it.
+    const isBest = valid && (this.bestMs === null || ms < this.bestMs);
     if (isBest) this.bestMs = ms;
     this.lastMs = ms;
     this.lastWasBest = isBest;
+    this.lapValid = true;   // the next lap starts on a clean slate
 
     if (hitCeiling) {
       // Ceiling reached: hand RaceState a clean slate so timing continues. The next
@@ -121,13 +147,14 @@ export class TimeAttackRun {
       this.prevLap = 0;
       this.prevFinished = false;
     }
-    return { ms, lapNumber: this.lapsDone, isBest };
+    return { ms, lapNumber: this.lapsDone, isBest, valid };
   }
 
   hud(now: number): TimeAttackHud {
     return {
       running: this.running,
       currentMs: this.running ? Math.max(0, now - this.lapStartMs) : 0,
+      currentValid: this.lapValid,
       lastMs: this.lastMs,
       lastWasBest: this.lastWasBest,
       bestMs: this.bestMs,
