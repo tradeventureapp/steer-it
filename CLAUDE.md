@@ -232,10 +232,16 @@ not trusted). `EV` events: phone→desktop `join|color|name|leave|control`; desk
   own, not a copy: line-plane sweep + FORWARD-only + ARMED far point, so wiggling on the line or
   reversing over it logs nothing. Fed the car's NOSE on the fixed physics step, exactly as RACE is
   ⇒ lap times are frame-rate independent (measured identical at 30/120/240 Hz). Best lap is LOCAL
-  ONLY — `localStorage` `steerit.ta.best.<mapId>`, keyed by TRACK (⚠️ so all cars share one record
-  per track; the XP best is the per-car+map precedent if that's ever wanted). Shown in-game as a
-  top-left HUD (live lap clock, BEST, the just-finished LAST lap, a "NEW BEST!" flash) and on the
-  **track-select tiles** (per-track record; `--` when unset, hidden on maps that can't host it).
+  ONLY — `localStorage` `steerit.ta.best.<carKey>.<mapId>`, keyed by CAR + TRACK, mirroring the XP
+  best (`xpBestKeyFor`): the Fury and the arcade Stee-Rex keep SEPARATE bests on the same line, so
+  a slower car is still worth driving and a future leaderboard stays per-car meaningful. The oval's
+  asphalt/dirt are DISTINCT map ids (`asphalt`/`flat`), so car+mapId also separates surface for
+  free — no extra key part. (Old track-only keys `steerit.ta.best.<mapId>` are left unread; Phase-1
+  local data isn't precious, nothing migrates.) Shown in-game as a top-left HUD (live lap clock,
+  BEST, the just-finished LAST lap, a "NEW BEST!" flash) — the BEST/records are the CURRENT car +
+  track (+ surface) — and on the **track-select tiles**, where each tile shows the SELECTED car's
+  record for that track (`--` when unset / no car chosen, hidden on maps that can't host it;
+  `selectCar` repaints the tiles so switching car re-shows that car's records).
   Premium-gated like RACE/XP (`FREE_MODE_KEYS`), and it builds NO race elements ⇒ `isRaceLive()`
   is false ⇒ no countdown, no standing start, no race HUD. RESTART is the existing pause-menu
   button — **no new hotkey** (`R` stays the dev recorder's). **Phase 1 has NO DB / leaderboard /

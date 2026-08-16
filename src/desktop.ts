@@ -889,7 +889,10 @@ function highlightMapTiles() {
       const show = showBest && mapGameModes(id).includes('timeattack');
       e.best.hidden = !show;
       if (show) {
-        const ms = taBestFor(id);
+        // The record is the SELECTED car's on this track (keyed car+map, like the XP best).
+        // No car chosen yet ⇒ nothing to show; refreshSelectionUi re-runs this on car select,
+        // so picking a different car re-paints every tile with that car's records.
+        const ms = selectedCarKey ? taBestFor(selectedCarKey, id) : null;
         e.best.textContent = ms !== null ? formatLapTime(ms) : '--';
         e.best.classList.toggle('is-empty', ms === null);
       }
@@ -1308,7 +1311,8 @@ function selectCar(key: string) {
   if (carTilesEl) for (const el of Array.from(carTilesEl.children))
     el.classList.toggle('is-selected', (el as HTMLElement).dataset.carKey === key);
   updateStartEnabled();
-  refreshXpBest();   // the XP personal-best readout is per car+map → update on a car change
+  refreshXpBest();       // the XP personal-best readout is per car+map → update on a car change
+  highlightMapTiles();   // ...and so are the Time Attack per-track records on the tiles
 }
 function buildCarTiles() {
   if (!carTilesEl) return;
@@ -3102,12 +3106,14 @@ let taRecordUntil = 0;           // game-clock ms: show the NEW BEST! flash unti
 let taLastUntil = 0;             // ...and the just-finished LAST lap until then
 const isTimeAttack = () => isCircuitMap() && circuitMode === 'timeattack';
 
-// The best lap is keyed by TRACK ONLY — `steerit.ta.best.<mapId>` — so one record per
-// track, as a track record reads. ⚠️ That means every car shares it: a lap in the AWD
-// Fury and one in the arcade Stee-Rex land in the same slot, so the record is really
-// "my fastest lap here in anything". If per-car records are wanted, this key (and the
-// track-select lookup) is where the car goes — the XP best already does exactly that.
-function taBestKeyFor(mapId: string): string { return `steerit.ta.best.${mapId}`; }
+// The best lap is keyed by CAR + TRACK — `steerit.ta.best.<carKey>.<mapId>` — mirroring the
+// XP best (xpBestKeyFor). One record per car per track: the AWD Fury and the arcade Stee-Rex
+// keep SEPARATE bests on the same line, so a slower car is still worth driving and a future
+// leaderboard stays per-car meaningful. The oval's asphalt/dirt surfaces are already DISTINCT
+// map ids ('asphalt' / 'flat'), so car+mapId also separates surface for free — no extra key
+// part needed. (Old track-only keys `steerit.ta.best.<mapId>` are simply left unread; Phase-1
+// local data isn't precious, so nothing migrates — new keys start fresh.)
+function taBestKeyFor(carKey: string, mapId: string): string { return `steerit.ta.best.${carKey}.${mapId}`; }
 function readTaBest(key: string): number | null {
   try {
     const v = Number(localStorage.getItem(key));
@@ -3117,8 +3123,11 @@ function readTaBest(key: string): number | null {
 function writeTaBest(key: string, ms: number): void {
   try { localStorage.setItem(key, String(Math.round(ms))); } catch { /* ignore */ }
 }
-// The stored best for a given map — for the track-select tiles (no run needed).
-function taBestFor(mapId: string): number | null { return readTaBest(taBestKeyFor(mapId)); }
+// The stored best for a given car+map — for the track-select tiles (no run needed). A tile
+// shows the SELECTED car's record; with no car chosen yet there is nothing to show ('--').
+function taBestFor(carKey: string, mapId: string): number | null {
+  return readTaBest(taBestKeyFor(carKey, mapId));
+}
 
 // (Re)start a Time Attack session: fresh rolling timer seeded with the stored best,
 // solo car respawned at the grid, clean sheet. Called on entering the mode and on the
@@ -3126,7 +3135,10 @@ function taBestFor(mapId: string): number | null { return readTaBest(taBestKeyFo
 function startTimeAttack() {
   const el = currentMap.startLine?.(world);
   if (!el) { taRun = null; return; }   // no start/finish line ⇒ the mode cannot run here
-  taBestKeyActive = taBestKeyFor(currentMap.id);
+  // Snapshot the car+map key for THIS run so the seed here and the save at the end use the
+  // exact same key (the driven car = xpCarKey(), the loaded map = currentMap.id) — same
+  // pattern as startXpRun. xpCarKey is a hoisted function declaration, safe to call here.
+  taBestKeyActive = taBestKeyFor(xpCarKey(), currentMap.id);
   taRun = new TimeAttackRun(el, readTaBest(taBestKeyActive));
   taRecordUntil = 0;
   taLastUntil = 0;
