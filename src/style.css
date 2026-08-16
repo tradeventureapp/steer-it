@@ -1586,10 +1586,20 @@ body.desktop #game { display: block; width: 100vw; height: 100vh; }
 @media (prefers-reduced-motion: reduce) { .cms-mode-panel { animation: none; } }
 .mode-opt {
   appearance: none; -webkit-appearance: none; cursor: pointer; text-align: left;
+  position: relative;   /* anchor for the corner badge (lock / FREE) */
   font-family: var(--font-display);
   display: flex; flex-direction: column; gap: 4px; padding: 12px 16px; border-radius: 12px;
   background: var(--glass-soft); border: 1.5px solid var(--border-dim);
   transition: transform 100ms, box-shadow 160ms, border-color 160ms, opacity 160ms;
+}
+/* "FREE" pill on the TA/XP mode rows during the FREE_TA_XP experiment — positive (gold), unlike
+   the lock badge; corner-anchored like the lock badge it replaces. */
+.mode-free-badge {
+  position: absolute; top: 8px; right: 8px; z-index: 3;
+  font-family: var(--font-display); font-weight: 800; letter-spacing: 0.04em;
+  font-size: 9px; line-height: 1; padding: 4px 7px; border-radius: 7px;
+  color: var(--ink); background: linear-gradient(180deg, #ffe35a 0%, #ffc24a 100%);
+  box-shadow: 0 0 12px rgba(255, 194, 74, 0.5); white-space: nowrap;
 }
 .mode-opt:hover { border-color: rgba(255, 45, 149, 0.7); box-shadow: 0 0 18px rgba(255, 45, 149, 0.3); }
 .mode-opt-head { display: flex; align-items: baseline; gap: 12px; }

@@ -562,6 +562,16 @@ const FREE_MAP_IDS = ['desktop', 'asphalt', 'circuit2'];
 // maps (visible to all, premium-locked like the other non-free maps), so this list is empty.
 const DEV_MAP_IDS: string[] = [];
 const FREE_MODE_KEYS = ['free'];
+// ⚠️ TEMPORARY EXPERIMENT (data-gathering): open TIME ATTACK + XP to signed-in NON-premium users,
+// so free players' Stee-Rex runs seed the leaderboards. Flip to `false` to revert to the original
+// premium-gating of TA/XP with NO other change (the mechanism stays intact). Scoped deliberately
+// narrow — it ONLY relaxes the MODE gate (isModeLocked); the SIM-car section (Blitz+Fury, via
+// isSimLocked) and premium/locked TRACKS (via isMapLocked) are checked INDEPENDENTLY and stay
+// gated, so a free user gets TA/XP with the ARCADE car (Stee-Rex) on FREE tracks only, and must
+// be SIGNED IN (to appear on the board; a signed-out user still hits the sign-in prompt). RACE
+// is untouched. Mirrors the PREMIUM_PROMO_ENABLED kill-switch pattern.
+const FREE_TA_XP_ENABLED = true;
+const FREE_TA_XP_MODES = ['timeattack', 'xp'];
 const isPremium = () => getAuthState().isPremium;
 // Entitlement still resolving for a logged-in host (a session appeared but the
 // profile read hasn't returned and there was no cache to seed from). While true the
@@ -573,7 +583,16 @@ const isMapLocked  = (id: string)  =>
   DEV_MAP_IDS.includes(id) ? false : (!isPremium() && !FREE_MAP_IDS.includes(id));
 // Hide dev-only WIP maps from the map-select for everyone but the dev host.
 const mapVisible = (id: string) => !DEV_MAP_IDS.includes(id) || isDev();
-const isModeLocked = (key: string) => !isPremium() && !FREE_MODE_KEYS.includes(key);
+// True if TA/XP are free for the CURRENT viewer via the experiment (signed-in, non-premium).
+// Used for the gate AND the "FREE" badge / sign-in framing. Flag off ⇒ always false ⇒ reverts.
+const isFreeExperimentMode = (key: string) =>
+  FREE_TA_XP_ENABLED && !isPremium() && FREE_TA_XP_MODES.includes(key);
+const isModeLocked = (key: string) => {
+  if (isPremium() || FREE_MODE_KEYS.includes(key)) return false;   // premium, or an always-free mode
+  // EXPERIMENT: TA/XP free for a SIGNED-IN non-premium user (signed-out stays locked → sign-in prompt).
+  if (isFreeExperimentMode(key) && !!getAuthState().user) return false;
+  return true;
+};
 // SIM (Blitz RS) is PREMIUM; ARCADE (Stee-Rex) is free for everyone. Same
 // server-truth is_premium gate as the maps/modes above (as advertised in the
 // Free-vs-Premium table). Enforced at mode selection AND at launch (below).
@@ -953,9 +972,12 @@ function buildModeOptions() {
       `<span class="mode-opt-head"><span class="mode-opt-name">${m.name}</span>` +
       `<span class="mode-opt-tag">${m.players}</span></span>` +
       `<span class="mode-opt-desc">${m.desc}</span>`;
-    if (isModeLocked(m.key)) { opt.classList.add('is-locked'); opt.appendChild(lockBadge()); }
+    // FREE badge for a now-free TA/XP mode (experiment); else the premium lock badge.
+    if (isFreeExperimentMode(m.key)) { opt.appendChild(freeBadge()); }
+    else if (isModeLocked(m.key)) { opt.classList.add('is-locked'); opt.appendChild(lockBadge()); }
     opt.addEventListener('click', () => {
-      if (isModeLocked(m.key)) { openUpsell('mode', m.key); return; }   // locked mode → pitch premium
+      // Still gated for a signed-OUT user on a now-free mode → openUpsell routes them to sign-in.
+      if (isModeLocked(m.key)) { openUpsell('mode', m.key); return; }
       selectGameMode(m.key);
     });
     modePanelEl.appendChild(opt);
@@ -1270,6 +1292,14 @@ function promoBadge(text: string): HTMLSpanElement {
   const b = document.createElement('span');
   b.className = 'map-promo';   // NOT 'promo-badge' — that's the premium interstitial's class
   b.textContent = text;
+  return b;
+}
+// "FREE" pill on the TA/XP mode rows during the FREE_TA_XP experiment (positive framing —
+// replaces the lock badge for non-premium users; a signed-out click still routes to sign-in).
+function freeBadge(): HTMLSpanElement {
+  const b = document.createElement('span');
+  b.className = 'mode-free-badge';
+  b.textContent = 'FREE';
   return b;
 }
 // Circuit II's "NEW" badge. A PREMIUM host already owns everything, so for them it's just
@@ -2036,12 +2066,18 @@ function openUpsell(kind: 'map' | 'mode' | 'generic', id?: string) {
   let what = 'the full game';
   if (kind === 'map' && id) what = getMap(id)?.name ? `the ${getMap(id)!.name}` : 'this map';
   else if (kind === 'mode' && id) what = `${GAME_MODES.find((m) => m.key === id)?.name ?? 'this mode'}`;
-  if (titleEl) titleEl.textContent = `Unlock ${what}`;
 
   const s = getAuthState();
-  if (leadEl) leadEl.textContent = s.user
-    ? "You're signed in — unlock everything below with a one-time purchase:"
-    : "That's a premium track. Here's everything premium adds:";
+  // FREE TA/XP experiment: a signed-OUT user blocked on a now-free mode just needs to sign in —
+  // frame it positively (not as a premium pitch). Their primary/secondary are already the
+  // CREATE ACCOUNT / LOG IN buttons (the `!s.user` branch below).
+  const freeModeSignIn = kind === 'mode' && !!id && isFreeExperimentMode(id) && !s.user;
+  if (titleEl) titleEl.textContent = freeModeSignIn ? `Play ${what} — free` : `Unlock ${what}`;
+  if (leadEl) leadEl.textContent = freeModeSignIn
+    ? 'Time Attack & XP are free to play — sign in to drive and compete on the leaderboard.'
+    : s.user
+      ? "You're signed in — unlock everything below with a one-time purchase:"
+      : "That's a premium track. Here's everything premium adds:";
   if (primary && secondary) {
     if (!s.user) {
       primary.textContent = 'CREATE ACCOUNT'; primary.dataset.act = 'signup';

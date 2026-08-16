@@ -443,6 +443,17 @@ not trusted). `EV` events: phone→desktop `join|color|name|leave|control`; desk
   consent modal. Managed Payments (MoR / EU VAT). See §6.
 - **Free vs premium split enforced** (server-truth `is_premium`, defense-in-depth): SIM car + extra
   maps/modes + editor are premium; arcade + basic play are free.
+- **⚠️ TEMPORARY EXPERIMENT — TA + XP free for signed-in users** (`FREE_TA_XP_ENABLED = true` in
+  desktop.ts, data-gathering; flip to `false` to revert with NO other change). Opens ONLY the MODE
+  gate (`isModeLocked`) for `timeattack`/`xp` to a **signed-in NON-premium** user; the SIM-car
+  section (Blitz+Fury, via `isSimLocked`) and premium/locked TRACKS (via `isMapLocked`) are checked
+  INDEPENDENTLY and stay gated — so a free user gets TA/XP with the ARCADE car (Stee-Rex) on FREE
+  tracks only. RACE stays premium. SIGNED-IN required (to appear on the board); a signed-out user
+  still hits the sign-in prompt (the upsell reframes to "Play … free — sign in", CREATE ACCOUNT /
+  LOG IN). TA/XP mode rows show a gold **FREE** badge (`freeBadge`, replaces the lock badge for
+  non-premium) instead of the lock. Leaderboard keys by `car_key`, so free Stee-Rex (`steerex`) and
+  premium SIM (`blitz`/`fury`) are SEPARATE boards — no mixing. The leaderboard table/RPC/zone
+  validation are untouched (free runs submit through the same auth-only gate).
 - **Premium promo interstitial** (free/anon only): bold non-flashing, X after ~5 s, 3-min global cap,
   after Start / on Pause / on game-end; CTA → checkout or signup→checkout. Upsell banners show NO
   price (overflow fix); price shows on the landing pricing + game-menu.
