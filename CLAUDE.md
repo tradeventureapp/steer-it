@@ -110,12 +110,13 @@ palette picked on the phone (§13).
   back), plus OFF-TRACK LAP INVALIDATION that reuses XP's detection (`wheelsOffTrack` count +
   `XP_CONFIG.offTrackWheels` threshold — an invalid lap never records). DOM/storage-free like
   `xp.ts` — the best lap is passed in and handed back out.
-- `leaderboard.ts` — LEADERBOARD client data layer (Phase 2 step 1, Time Attack): `submitScore`
+- `leaderboard.ts` — LEADERBOARD client data layer (Phase 2, Time Attack + XP): `submitScore`
   (→ the SECURITY DEFINER `submit_score` RPC, the only write path), `fetchBoard` (paginated menu
   board), `fetchTopAndOwn` (compact top-10 + caller's own row/rank). Thin Supabase wrapper (like
   `auth.ts`); reads are public, writes are RPC-only; every call swallows errors so a network hiccup
-  never breaks gameplay. `mode` shared TA+XP by design ('xp' higher-is-better). DB schema + RPC live
-  in `supabase/schema.sql`; the two views are rendered in `desktop.ts`.
+  never breaks gameplay. `mode`-parameterised: TA ('timeattack', lower better, asc) and XP ('xp',
+  higher better, desc) share the same queries. DB schema + RPC live in `supabase/schema.sql`; the two
+  views (menu mode-toggle + selection quick-view) are rendered in `desktop.ts`.
 - `vehicles.ts` — vehicle IDENTITY + specs: `VehicleSpec` (`overrides`, `branch`, `arcade`, **`phys4`**,
   `dims`, `sprite`, `fxScale`), `ROAD_SPEC` (Blitz), `STEEREX_SILVER/BLACK`, `FURY_SPEC` + dims +
   colour palettes. Pure data — NO real make/model names anywhere.
@@ -264,39 +265,47 @@ not trusted). `EV` events: phone→desktop `join|color|name|leave|control`; desk
   is false ⇒ no countdown, no standing start, no race HUD. RESTART is the existing pause-menu
   button — **no new hotkey** (`R` stays the dev recorder's). The `localStorage` best is still the
   live-HUD reference; the ONLINE board (below) is now wired on top of it.
-- **TIME ATTACK LEADERBOARD (Phase 2 step 1) — LIVE.** An online board on top of the local best.
-  ONE Supabase table `public.leaderboard` designed to hold BOTH modes (`mode` = `'timeattack'`
-  now, `'xp'` later — no schema change to add XP, just wiring): `(id, user_id→auth.users, nickname
-  [denormalised for display, written server-side], mode, track_id, car_key, surface, value bigint,
-  created_at, updated_at)`. `value` = lap ms for TA (lower better); XP later is score (higher
-  better) — direction is parameterised. ⚠️ `surface NOT NULL DEFAULT ''` (not nullable — a nullable
-  column breaks the upsert unique key since Postgres treats NULLs as distinct); `''` = none, and
-  the ovals' asphalt/dirt are already SEPARATE track_ids so surface stays `''` today. **ONE best
-  row per `(user, mode, track, car, surface)`** (unique key = the upsert target), so the board
-  shows each player once. **RLS: public read** (signed-out can browse); **NO client insert/update/
-  delete** — the ONLY write path is the **SECURITY DEFINER `submit_score()` RPC** (the real
-  anti-cheat gate), which enforces, in order: (1) **auth** — reject anon (`auth.uid()`; NOT premium,
-  though TA is premium-gated to play so submitters are premium in practice); (2) **input validity**
-  — known mode, non-empty track/car, `0 < value ≤ 3,600,000 ms`; (3) **rate limit** — ≤ **10
-  accepted submits / user / minute** (via a `leaderboard_submits` audit log the RPC prunes);
-  (4) **sanity floor** — TA `value ≥` the per-`(track,car)` override in `leaderboard_limits` (empty
-  by default → tighten by inserting a row, no redeploy) **else the global `TA_MIN_MS = 3000`**
-  (deliberately LOW so no legit lap is rejected day one); then a **mode-aware best-only UPSERT**
-  (TA keeps the MIN). Nickname is read from `profiles` server-side (never client-supplied). The
-  client data layer is `src/leaderboard.ts` (`submitScore` / `fetchBoard` [paginated] /
-  `fetchTopAndOwn`); every call swallows errors so a network hiccup never breaks gameplay. **Two
-  views over that one query:** (A) the **MENU board** (game-menu `LEADERBOARDS`) — full + browsable,
-  TRACK + CAR pickers (the menu isn't tied to a selection), **paginated 25/page** (Prev/Next +
-  count), own row highlighted gold; (B) the **selection QUICK-VIEW** — a "VIEW LEADERBOARD" button
-  (shown when Time Attack + car + map are picked) opens a compact **top-10 + your own row/rank**
-  (own shown even if outside the top), no pagination. Both: signed-out can VIEW (public read) and
-  see a "sign in to submit" note. **SUBMIT** fires ONLY on a new LOCAL personal best
-  (`done.isBest`, already `valid && faster` — invalid/off-track laps never submit), signed-in only,
-  fire-and-forget. Migration lives in `supabase/schema.sql` (idempotent, run in the SQL editor);
-  **rows written server-side by the RPC, keyed `(currentMap.id, xpCarKey(), '')`.** **Phase-2
-  step-1 scope: NO CHECKPOINTS** (relies on the shipped finish-line + forward + far-point + off-
-  track invalidation); ordered-checkpoint anti-cheat + split times are a later step. The old unused
-  `scores` table is left in place (superseded by `leaderboard`).
+- **LEADERBOARD (Phase 2) — LIVE for TIME ATTACK + XP.** An online board on top of each mode's
+  local best. ONE Supabase table `public.leaderboard` holds BOTH modes (`mode` = `'timeattack'` |
+  `'xp'`): `(id, user_id→auth.users, nickname [denormalised for display, written server-side], mode,
+  track_id, car_key, surface, value bigint, created_at, updated_at)`. `value` = lap ms for TA (LOWER
+  better, sorted ASC, shown `m:ss.mmm`) or run score for XP (HIGHER better, sorted DESC, shown as a
+  comma number) — direction + format are parameterised by `mode`. ⚠️ `surface NOT NULL DEFAULT ''`
+  (not nullable — a nullable column breaks the upsert unique key since Postgres treats NULLs as
+  distinct); `''` = none, and the ovals' asphalt/dirt are already SEPARATE track_ids so surface
+  stays `''`. **ONE best row per `(user, mode, track, car, surface)`** (unique key = the upsert
+  target), so the board shows each player once per mode. **RLS: public read** (signed-out can browse;
+  ⚠️ needs `grant select on public.leaderboard to anon, authenticated` — now IN schema.sql, was a
+  live hotfix); **NO client insert/update/delete** — the ONLY write path is the **SECURITY DEFINER
+  `submit_score()` RPC** (the real anti-cheat gate), which enforces, in order: (1) **auth** — reject
+  anon (`auth.uid()`; NOT premium, though TA/XP are premium-gated to play so submitters are premium
+  in practice); (2) **input validity** — known mode, non-empty track/car, `0 < value ≤ ABS_MAX 1e12`
+  (overflow guard); (3) **rate limit** — ≤ **10 accepted submits / user / minute** (via a
+  `leaderboard_submits` audit log the RPC prunes); (4) **mode plausibility** — TA `value ≥ floor`
+  (`TA_MIN_MS = 3000`, deliberately LOW) **and** `≤ TA_CEIL_MS 3,600,000 ms` (1 h); XP `value ≤
+  ceiling` (`XP_MAX = 10,000,000`, deliberately HIGH so no legit run is rejected day one — max XP
+  rate ~664/s ⇒ a huge run is well under 1M), each with an optional per-`(track,car)` override in
+  `leaderboard_limits` (⚠️ that table's `min_value` is read PER MODE: FLOOR for TA, CEILING for XP —
+  same column, two roles; empty by default → tighten by inserting a row, no redeploy); then a
+  **mode-aware best-only UPSERT** (TA keeps the MIN, XP keeps the MAX). Nickname is read from
+  `profiles` server-side (never client-supplied). The client data layer is `src/leaderboard.ts`
+  (`submitScore` / `fetchBoard` [paginated] / `fetchTopAndOwn`), already mode-parameterised; every
+  call swallows errors so a network hiccup never breaks gameplay. **Two views over that one query:**
+  (A) the **MENU board** (game-menu `LEADERBOARDS`) — a **TIME ATTACK / XP mode toggle** + TRACK +
+  CAR pickers (the menu isn't tied to a selection; the track list is mode-scoped), **paginated
+  25/page** (Prev/Next + count), own row highlighted gold; (B) the **selection QUICK-VIEW** — a
+  "VIEW LEADERBOARD" button (shown when Time Attack OR XP + car + map are picked) opens a compact
+  **top-10 + your own row/rank** (own shown even if outside the top), no pagination. Both: signed-out
+  can VIEW (public read) and see a "sign in to submit" note. **SUBMIT** (`submitLeaderboardBest`)
+  fires ONLY on a new LOCAL personal best — TA at `done.isBest` (already `valid && faster`, so
+  invalid/off-track laps never submit); XP at `handleXpEnd`'s `isRecord` (the banked run score beat
+  the stored best; a run's score is legit by construction — off-track/crash/slow just END the run) —
+  signed-in only, fire-and-forget, keyed `(mode, currentMap.id, xpCarKey(), '')`. Migration lives in
+  `supabase/schema.sql` (idempotent, run in the SQL editor). **Phase-2 scope: NO CHECKPOINTS**
+  (relies on the shipped finish-line + forward + far-point + off-track invalidation); ordered-
+  checkpoint anti-cheat + split times are a later step, and a **total-lifetime-XP** board (vs today's
+  best-single-run XP) is a separate future step. The old unused `scores` table is left in place
+  (superseded by `leaderboard`).
 - **Track editor (E)** — per map type; on OPEN maps a place-elements editor, on CIRCUIT maps a
   laps/XP panel. **Locked to the Desktop map + PREMIUM only** (free users get the upsell).
 - **Track AUTHORING tool (dev)** — `track-editor.html` (see §2): draw a new circuit layout
@@ -479,15 +488,16 @@ The XSS/takeover half of Finding 1 is **FIXED + pushed** (`0eb7300`, see §8). T
    + a lookup in turn.js (~1-2 days) — the same registry option (D) in 3a would need. Also open: the
    limiters are **per warm instance**, so the true global ceiling is higher; a real distributed
    limiter needs Upstash / Vercel KV (~3-5 h, new infra). See the Cloudflare cap caveat in §8.
-3c. **Leaderboard SECURITY DEFINER submit RPC — DONE for TIME ATTACK (Phase 2 step 1).**
+3c. **Leaderboard SECURITY DEFINER submit RPC — DONE for TIME ATTACK + XP (Phase 2).**
    `public.submit_score()` (in `supabase/schema.sql`) is the server-side write gate: auth + input
-   validity + rate limit (10/user/min) + sanity floor (`TA_MIN_MS 3000`, per-`(track,car)` override
-   table) + best-only upsert; public read, RPC-only write. Wired for Time Attack (`src/leaderboard.ts`
-   + the menu/quick-view UI). **STILL OPEN:** (a) it's client-authoritative in the sense that a
-   hacked client can still submit a *plausible* (floor-passing) time — the real hardening is
+   validity + rate limit (10/user/min) + mode plausibility (TA floor `TA_MIN_MS 3000` + 1 h ceiling;
+   XP ceiling `XP_MAX 10,000,000`; per-`(track,car)` override table) + mode-aware best-only upsert
+   (TA MIN / XP MAX); public read, RPC-only write. Wired for BOTH modes (`src/leaderboard.ts` + the
+   menu mode-toggle / quick-view UI). **STILL OPEN:** (a) it's client-authoritative in the sense that
+   a hacked client can still submit a *plausible* (bound-passing) value — the real hardening is
    **ordered checkpoints + per-checkpoint split validation** (deferred; see the Phase-2 investigation),
-   and (b) the rate limit lives in a table but is not a per-map/day cap yet. XP is UNWIRED (the table
-   is designed for it; `mode='xp'` just needs the same submit + views). Race results stay LOCAL.
+   (b) the rate limit lives in a table but is not a per-map/day cap yet, and (c) the XP board is
+   best-single-run; a **total-lifetime-XP** board is a separate future step. Race results stay LOCAL.
 
 ### Content / cars
 4. **Fury 200 EVO finish** — redo the rough sprite; the physics is real but awaits the phone
@@ -571,10 +581,12 @@ The XSS/takeover half of Finding 1 is **FIXED + pushed** (`0eb7300`, see §8). T
 - **SMTP:** live via **Resend** (support@ / steeritapp@gmail.com).
 - **Realtime:** message usage **~12% of the 2M** plan.
 - **TODO:** the two OPEN whitehat findings in §5. The **leaderboard submit RPC is now LIVE for Time
-  Attack** (`public.submit_score`, SECURITY DEFINER: auth + sanity floor + rate-limit + best-only
-  upsert, public read / RPC-only write — §4). Remaining leaderboard hardening: ordered-checkpoint +
-  split-time validation (deferred), a per-map/day cap, and wiring XP. **⚠️ Run `supabase/schema.sql`
-  in the SQL editor after deploy** — it's idempotent and creates the `leaderboard` table + RPC.
+  Attack AND XP** (`public.submit_score`, SECURITY DEFINER: auth + mode plausibility [TA floor+1h /
+  XP ceiling] + rate-limit + mode-aware best-only upsert, public read / RPC-only write — §4).
+  Remaining leaderboard hardening: ordered-checkpoint + split-time validation (deferred), a
+  per-map/day cap, and a total-lifetime-XP board. **⚠️ Re-run `supabase/schema.sql` in the SQL editor
+  after this deploy** — it's idempotent; it updates `submit_score` (XP ceiling branch) and adds the
+  `grant select on public.leaderboard` that was previously a live hotfix.
   ⚠️ Cloudflare docs expose **no per-key hard usage/spend cap** for Realtime TURN (only per-allocation
   rate limits: >5 new IP/s, 5-10 kpps, 50-100 Mbps; $0.05/real-time GB standalone). So the old
   "set a TURN usage cap" TODO is **not achievable as a hard cap** — use billing alerts + monitoring,

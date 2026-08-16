@@ -352,36 +352,43 @@ create table if not exists public.leaderboard_limits (
 
 -- ---- THE anti-cheat gate: the SECURITY DEFINER submit RPC -------------------------
 -- Enforces, in order: (1) auth — reject anon; (2) input validity — known mode, non-empty
--- track/car, finite value in (0, CEIL]; (3) rate limit — ≤ RATE_MAX accepted attempts per
--- user per minute; (4) sanity floor — timeattack value must be ≥ the per-(track,car)
--- override or the global TA floor; then a MODE-AWARE best-only UPSERT (TA keeps the MIN,
--- XP will keep the MAX). The stored nickname is read from profiles (server truth), never
--- taken from the client. Returns { ok, updated?, reason? }.
+-- track/car, positive & within an absolute sanity bound; (3) rate limit — ≤ RATE_MAX
+-- accepted attempts per user per minute; (4) mode plausibility — TA: value ≥ the floor and
+-- ≤ a 1 h upper bound; XP: value ≤ the ceiling — each with an optional per-(track,car)
+-- override in leaderboard_limits; then a MODE-AWARE best-only UPSERT (TA keeps the MIN, XP
+-- keeps the MAX). The stored nickname is read from profiles (server truth), never taken from
+-- the client. Returns { ok, updated?, reason? }.
 --   RATE_MAX  = 10 / user / minute (submits fire only on a new personal best → generous).
 --   TA_MIN_MS = 3000 ms — deliberately LOW so no legit lap is ever rejected on day one
 --               (nothing on these tracks laps under 3 s); tighten per track via the table.
---   CEIL_MS   = 3,600,000 ms (1 h) — reject garbage-huge values.
+--   TA_CEIL_MS= 3,600,000 ms (1 h) — a lap can't take longer; reject garbage-huge times.
+--   XP_MAX    = 10,000,000 — deliberately HIGH so no legit run is rejected day one (max XP
+--               rate ~664/s ⇒ a huge legit run is well under 1M); catches hacked billions.
+--   ⚠️ leaderboard_limits.min_value is interpreted PER MODE: for 'timeattack' it is the FLOOR
+--      (reject below it); for 'xp' it is the CEILING (reject above it). Same column, two roles.
 create or replace function public.submit_score(
   p_mode text, p_track_id text, p_car_key text, p_surface text, p_value bigint
 ) returns jsonb language plpgsql security definer set search_path = public as $$
 declare
   uid  uuid   := auth.uid();
   surf text   := coalesce(p_surface, '');
-  floor_ms bigint;
-  cur      bigint;
-  nick     text;
-  recent   int;
-  RATE_MAX  constant int    := 10;
-  TA_MIN_MS constant bigint := 3000;
-  CEIL_MS   constant bigint := 3600000;
+  lim  bigint;
+  cur  bigint;
+  nick text;
+  recent int;
+  RATE_MAX   constant int    := 10;
+  TA_MIN_MS  constant bigint := 3000;
+  TA_CEIL_MS constant bigint := 3600000;
+  XP_MAX     constant bigint := 10000000;
+  ABS_MAX    constant bigint := 1000000000000;   -- 1e12 — overflow/garbage guard (both modes)
 begin
   -- (1) AUTH
   if uid is null then return jsonb_build_object('ok', false, 'reason', 'auth'); end if;
-  -- (2) INPUT VALIDITY
+  -- (2) INPUT VALIDITY (basic sanity, mode-agnostic)
   if p_mode not in ('timeattack','xp')
      or p_track_id is null or p_track_id = ''
      or p_car_key  is null or p_car_key  = ''
-     or p_value is null or p_value <= 0 or p_value > CEIL_MS
+     or p_value is null or p_value <= 0 or p_value > ABS_MAX
     then return jsonb_build_object('ok', false, 'reason', 'invalid'); end if;
 
   -- (3) RATE LIMIT (checked before recording; this attempt is then logged)
@@ -391,18 +398,23 @@ begin
   insert into public.leaderboard_submits (user_id) values (uid);
   delete from public.leaderboard_submits where created_at < now() - interval '10 minutes';  -- cheap prune
 
-  -- (4) SANITY FLOOR (Time Attack: a lap can't be faster than X)
+  -- (4) MODE PLAUSIBILITY — per-(track,car) override else the global bound.
+  select min_value into lim from public.leaderboard_limits
+    where mode = p_mode and track_id = p_track_id and car_key = p_car_key;
   if p_mode = 'timeattack' then
-    select min_value into floor_ms from public.leaderboard_limits
-      where mode = p_mode and track_id = p_track_id and car_key = p_car_key;
-    floor_ms := coalesce(floor_ms, TA_MIN_MS);
-    if p_value < floor_ms then return jsonb_build_object('ok', false, 'reason', 'floor'); end if;
+    -- FLOOR: a lap can't be faster than this (and can't be longer than 1 h).
+    if p_value < coalesce(lim, TA_MIN_MS) or p_value > TA_CEIL_MS
+      then return jsonb_build_object('ok', false, 'reason', 'floor'); end if;
+  else  -- 'xp'
+    -- CEILING: a run can't earn more than this.
+    if p_value > coalesce(lim, XP_MAX)
+      then return jsonb_build_object('ok', false, 'reason', 'ceiling'); end if;
   end if;
 
   -- nickname = SERVER truth (never client-supplied)
   select nickname into nick from public.profiles where id = uid;
 
-  -- BEST-ONLY UPSERT (mode-aware direction)
+  -- BEST-ONLY UPSERT (mode-aware direction: TA keeps the MIN, XP keeps the MAX)
   select value into cur from public.leaderboard
     where user_id = uid and mode = p_mode and track_id = p_track_id and car_key = p_car_key and surface = surf;
   if cur is not null and
@@ -416,8 +428,10 @@ begin
   return jsonb_build_object('ok', true, 'updated', true);
 end; $$;
 
--- GRANTS: writes ONLY via the RPC, and only for a signed-in user. Reads are the public-read
--- table SELECT (still granted). anon can read the board but cannot submit.
+-- GRANTS: reads are PUBLIC (anon + authenticated may SELECT the board — this grant is REQUIRED;
+-- without it a fresh project 403s on every board read). Writes go ONLY through the RPC, and only
+-- for a signed-in user.
+grant  select on public.leaderboard to anon, authenticated;
 revoke insert, update, delete on public.leaderboard from anon, authenticated;
 revoke all on function public.submit_score(text, text, text, text, bigint) from public;
 grant  execute on function public.submit_score(text, text, text, text, bigint) to authenticated;

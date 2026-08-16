@@ -867,6 +867,18 @@ body.desktop #game { display: block; width: 100vw; height: 100vh; }
   font-family: var(--font-body); font-weight: 800; font-size: 11px; letter-spacing: 2px;
   color: var(--gold); text-shadow: var(--glow-gold); margin-top: -4px;
 }
+/* MODE tabs (TIME ATTACK / XP) — a 2-segment toggle at the top of the menu board. */
+.lb-mode { display: flex; gap: 6px; width: 100%; }
+.lb-tab {
+  flex: 1; font-family: var(--font-body); font-weight: 800; font-size: 12px; letter-spacing: 1.5px;
+  color: var(--text-dim); background: var(--glass); border: 1px solid var(--border-dim);
+  border-radius: 9px; padding: 9px 10px; cursor: pointer; transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.lb-tab:hover { color: var(--text); }
+.lb-tab.is-active {
+  color: var(--ink); background: var(--grad-accent); border-color: transparent;
+  box-shadow: 0 0 14px rgba(255, 74, 158, 0.4);
+}
 /* The card centres its children (.menu-card align-items:center), so every leaderboard
    block must claim full width or the grid rows collapse (the 1fr name column → 0). */
 .lb-pickers, .lb-signin, .lb-list, .lb-pager { width: 100%; }

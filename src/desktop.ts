@@ -171,6 +171,7 @@ const raceLapsOptsEl = document.getElementById('race-laps-opts')  as HTMLElement
 const xpBestPanelEl  = document.getElementById('xp-best')         as HTMLElement | null;
 const xpBestValueEl  = document.getElementById('xp-best-value')   as HTMLElement | null;
 // LEADERBOARD — menu board (full/paginated) + selection quick-view (compact).
+const lbSubEl      = document.getElementById('lb-sub')        as HTMLElement | null;
 const lbTrackSel   = document.getElementById('lb-track')      as HTMLSelectElement | null;
 const lbCarSel     = document.getElementById('lb-car')        as HTMLSelectElement | null;
 const lbListEl     = document.getElementById('lb-list')       as HTMLElement | null;
@@ -1023,36 +1024,45 @@ function refreshSelectionUi() {
 }
 
 // =============================================================================
-//  LEADERBOARD (Phase 2 step 1 — Time Attack). Two views over ONE data layer
-//  (leaderboard.ts): the MENU board (full, paginated, own-picker) and the
-//  SELECTION quick-view (compact top-10 + own, for the current map+car). Writes
-//  go through the SECURITY DEFINER submit_score RPC; reads are public. Signed-out
-//  users can browse but see a "sign in to submit" note.
+//  LEADERBOARD (Phase 2 — Time Attack + XP). Two views over ONE data layer
+//  (leaderboard.ts): the MENU board (full, paginated, mode/track/car pickers) and
+//  the SELECTION quick-view (compact top-10 + own, for the current map+car+mode).
+//  Writes go through the SECURITY DEFINER submit_score RPC; reads are public.
+//  Signed-out users can browse but see a "sign in to submit" note.
+//
+//  MODE is the axis that flips everything: 'timeattack' (lap ms, sorted ASCENDING,
+//  shown as m:ss.mmm) vs 'xp' (score, sorted DESCENDING, shown as a comma number).
+//  leaderboard.ts already parameterises sort direction by mode; here we only pick
+//  the mode and format the value accordingly.
 // =============================================================================
-const LB_MODE = 'timeattack' as const;
+type LbMode = 'timeattack' | 'xp';
 const LB_TOP_N = 10;                       // quick-view size
 const LB_CAR_DISPLAY: Record<string, string> = {
   blitz: 'Blitz RS', fury: 'Fury 200 EVO', steerex: 'Stee-Rex',
 };
-const LB_CAR_KEYS = ['blitz', 'fury', 'steerex'] as const;   // cars that can run Time Attack
-// Track ids that host Time Attack (from the registry — stays correct as maps change).
-// mapVisible() keeps a dev-only WIP map out of the public picker (matches the map-select);
-// it's a no-op today (DEV_MAP_IDS is empty) but future-proofs the leaderboard.
-function taTrackIds(): string[] {
+const LB_CAR_KEYS = ['blitz', 'fury', 'steerex'] as const;   // cars that can run TA / XP
+const LB_MODE_LABEL: Record<LbMode, string> = { timeattack: 'TIME ATTACK', xp: 'XP MODE' };
+// Track ids that host `mode` (from the registry — stays correct as maps change).
+// mapVisible() keeps a dev-only WIP map out of the public picker (matches the map-select).
+function lbTrackIds(mode: LbMode): string[] {
   return listMaps().map((m) => m.id)
-    .filter((id) => mapGameModes(id).includes(LB_MODE) && mapVisible(id));
+    .filter((id) => mapGameModes(id).includes(mode) && mapVisible(id));
 }
 function trackName(id: string): string { return getMap(id)?.name ?? id; }
-// The board key for a (track, car); surface stays '' (the ovals' asphalt/dirt are
+// The board key for a (mode, track, car); surface stays '' (the ovals' asphalt/dirt are
 // SEPARATE track ids, so track_id already encodes surface — see leaderboard.ts).
-function boardKey(trackId: string, carKey: string): BoardKey {
-  return { mode: LB_MODE, trackId, carKey, surface: '' };
+function boardKey(mode: LbMode, trackId: string, carKey: string): BoardKey {
+  return { mode, trackId, carKey, surface: '' };
+}
+// Format a stored value for display, per mode: TA = lap time, XP = score.
+function lbFormatValue(mode: LbMode, value: number): string {
+  return mode === 'xp' ? formatXp(value) : formatLapTime(value);
 }
 
 // Build ONE leaderboard row as DOM nodes (textContent for the name — never innerHTML
 // with a user value, per the "escape at the sink" rule, even though nicknames are
 // DB-validated to [A-Za-z0-9_-]).
-function lbRowEl(r: LbRow, myId: string | null): HTMLElement {
+function lbRowEl(r: LbRow, myId: string | null, mode: LbMode): HTMLElement {
   const row = document.createElement('div');
   row.className = 'lb-row' + (myId && r.userId === myId ? ' is-me' : '');
   const rank = document.createElement('span');
@@ -1061,10 +1071,10 @@ function lbRowEl(r: LbRow, myId: string | null): HTMLElement {
   const name = document.createElement('span');
   name.className = 'lb-row-name';
   name.textContent = r.nickname || 'Player';
-  const time = document.createElement('span');
-  time.className = 'lb-row-time';
-  time.textContent = formatLapTime(r.value);
-  row.append(rank, name, time);
+  const val = document.createElement('span');
+  val.className = 'lb-row-time';
+  val.textContent = lbFormatValue(mode, r.value);
+  row.append(rank, name, val);
   return row;
 }
 function lbMsgEl(text: string): HTMLElement {
@@ -1077,13 +1087,24 @@ function lbMsgEl(text: string): HTMLElement {
 // ---- MENU board (full, paginated) ----
 let lbMenuTrack = '';
 let lbMenuCar = '';
+let lbMenuMode: LbMode = 'timeattack';
 let lbMenuPage = 0;
 let lbMenuReqId = 0;   // guards against a stale fetch painting over a newer one
 
-// Fill the track + car <select>s once (idempotent — rebuilt each open in case maps changed).
+// Reflect the active mode tab (#lb-mode buttons) + the sub-label.
+function syncLbModeTabs() {
+  for (const b of Array.from(document.querySelectorAll('#lb-mode .lb-tab')) as HTMLElement[]) {
+    b.classList.toggle('is-active', b.dataset.mode === lbMenuMode);
+  }
+  if (lbSubEl) lbSubEl.textContent = lbMenuMode === 'xp'
+    ? 'XP MODE · highest scores' : 'TIME ATTACK · fastest laps';
+}
+
+// Fill the track + car <select>s (rebuilt each open + on mode change — the TRACK list is
+// mode-specific, since a map may host one mode and not the other).
 function buildLeaderboardPickers() {
   if (lbTrackSel) {
-    const tracks = taTrackIds();
+    const tracks = lbTrackIds(lbMenuMode);
     lbTrackSel.innerHTML = '';
     for (const id of tracks) {
       const o = document.createElement('option');
@@ -1105,8 +1126,9 @@ function buildLeaderboardPickers() {
   }
 }
 
-// Open/refresh the menu board: build pickers, then load page 0 of the current key.
+// Open/refresh the menu board: sync the mode tabs, build pickers, load page 0.
 function openLeaderboardMenu() {
+  syncLbModeTabs();
   buildLeaderboardPickers();
   lbMenuPage = 0;
   const signedIn = !!getAuthState().user;
@@ -1116,8 +1138,9 @@ function openLeaderboardMenu() {
 
 async function renderLeaderboardMenu() {
   if (!lbListEl) return;
+  const mode = lbMenuMode;
   const myId = getAuthState().user?.id ?? null;
-  const key = boardKey(lbMenuTrack, lbMenuCar);
+  const key = boardKey(mode, lbMenuTrack, lbMenuCar);
   const reqId = ++lbMenuReqId;
   lbListEl.replaceChildren(lbMsgEl('Loading…'));
   if (lbPagerEl) lbPagerEl.hidden = true;
@@ -1125,10 +1148,14 @@ async function renderLeaderboardMenu() {
   const board = await fetchBoard(key, lbMenuPage);
   if (reqId !== lbMenuReqId) return;   // a newer request superseded this one
   if (!board) { lbListEl.replaceChildren(lbMsgEl('Could not load the leaderboard.')); return; }
-  if (board.total === 0) { lbListEl.replaceChildren(lbMsgEl('No times yet — be the first.')); return; }
+  if (board.total === 0) {
+    lbListEl.replaceChildren(lbMsgEl(mode === 'xp'
+      ? 'No scores yet — be the first.' : 'No times yet — be the first.'));
+    return;
+  }
 
   const frag = document.createDocumentFragment();
-  for (const r of board.rows) frag.appendChild(lbRowEl(r, myId));
+  for (const r of board.rows) frag.appendChild(lbRowEl(r, myId, mode));
   lbListEl.replaceChildren(frag);
 
   const pages = Math.max(1, Math.ceil(board.total / LB_PAGE_SIZE));
@@ -1138,22 +1165,41 @@ async function renderLeaderboardMenu() {
   if (lbNextBtn) lbNextBtn.disabled = lbMenuPage >= pages - 1;
 }
 
+// Mode tabs (TIME ATTACK / XP) — switching re-scopes the track picker + reloads.
+for (const b of Array.from(document.querySelectorAll('#lb-mode .lb-tab')) as HTMLElement[]) {
+  b.addEventListener('click', () => {
+    const m = b.dataset.mode as LbMode;
+    if (m === lbMenuMode) return;
+    lbMenuMode = m; lbMenuPage = 0;
+    syncLbModeTabs();
+    buildLeaderboardPickers();   // the track list is mode-specific
+    void renderLeaderboardMenu();
+  });
+}
 lbTrackSel?.addEventListener('change', () => { lbMenuTrack = lbTrackSel.value; lbMenuPage = 0; void renderLeaderboardMenu(); });
 lbCarSel?.addEventListener('change', () => { lbMenuCar = lbCarSel.value; lbMenuPage = 0; void renderLeaderboardMenu(); });
 lbPrevBtn?.addEventListener('click', () => { if (lbMenuPage > 0) { lbMenuPage--; void renderLeaderboardMenu(); } });
 lbNextBtn?.addEventListener('click', () => { lbMenuPage++; void renderLeaderboardMenu(); });
 
 // ---- SELECTION quick-view (compact top-10 + own) ----
-// The "VIEW LEADERBOARD" button shows only for Time Attack with a car + map picked.
+// The current selection's leaderboard mode: 'timeattack' or 'xp' map straight through; any
+// other game mode (free/race) has no board → null (the button hides).
+function selectionLbMode(): LbMode | null {
+  return selectedGameMode === 'timeattack' ? 'timeattack'
+    : selectedGameMode === 'xp' ? 'xp' : null;
+}
+// The "VIEW LEADERBOARD" button shows for Time Attack OR XP with a car + map picked.
 function refreshTaLbButton() {
   if (!cmsLbOpenBtn) return;
-  cmsLbOpenBtn.hidden = !(selectedGameMode === 'timeattack' && !!selectedCarKey && !!selectedMapId);
+  cmsLbOpenBtn.hidden = !(selectionLbMode() && !!selectedCarKey && !!selectedMapId);
 }
 let lbQuickReqId = 0;
 async function openLeaderboardQuick() {
-  if (!selectedMapId || !selectedCarKey || !lbQuickEl) return;
+  const mode = selectionLbMode();
+  if (!mode || !selectedMapId || !selectedCarKey || !lbQuickEl) return;
   const trackId = selectedMapId, carKey = selectedCarKey;
-  if (lbQuickSubEl) lbQuickSubEl.textContent = `TIME ATTACK · ${trackName(trackId)} · ${LB_CAR_DISPLAY[carKey] ?? carKey}`;
+  if (lbQuickSubEl) lbQuickSubEl.textContent =
+    `${LB_MODE_LABEL[mode]} · ${trackName(trackId)} · ${LB_CAR_DISPLAY[carKey] ?? carKey}`;
   const signedIn = !!getAuthState().user;
   if (lbQuickSigninEl) lbQuickSigninEl.hidden = signedIn;
   lbQuickEl.hidden = false;
@@ -1162,19 +1208,23 @@ async function openLeaderboardQuick() {
   const reqId = ++lbQuickReqId;
   lbQuickListEl.replaceChildren(lbMsgEl('Loading…'));
 
-  const view = await fetchTopAndOwn(boardKey(trackId, carKey), LB_TOP_N, myId);
+  const view = await fetchTopAndOwn(boardKey(mode, trackId, carKey), LB_TOP_N, myId);
   if (reqId !== lbQuickReqId) return;
   if (!view) { lbQuickListEl.replaceChildren(lbMsgEl('Could not load the leaderboard.')); return; }
-  if (view.top.length === 0) { lbQuickListEl.replaceChildren(lbMsgEl('No times yet — be the first.')); return; }
+  if (view.top.length === 0) {
+    lbQuickListEl.replaceChildren(lbMsgEl(mode === 'xp'
+      ? 'No scores yet — be the first.' : 'No times yet — be the first.'));
+    return;
+  }
 
   const frag = document.createDocumentFragment();
-  for (const r of view.top) frag.appendChild(lbRowEl(r, myId));
+  for (const r of view.top) frag.appendChild(lbRowEl(r, myId, mode));
   // Show the caller's own row below, with a gap, only if it's OUTSIDE the shown top.
   if (view.own && !view.top.some((r) => r.userId === view.own!.userId)) {
     const gap = document.createElement('div');
     gap.className = 'lb-gap'; gap.textContent = '⋯';
     frag.appendChild(gap);
-    frag.appendChild(lbRowEl(view.own, myId));
+    frag.appendChild(lbRowEl(view.own, myId, mode));
   }
   lbQuickListEl.replaceChildren(frag);
 }
@@ -1184,14 +1234,16 @@ lbQuickCloseBtn?.addEventListener('click', closeLeaderboardQuick);
 lbQuickEl?.addEventListener('click', (e) => { if (e.target === lbQuickEl) closeLeaderboardQuick(); });
 
 // ---- SUBMIT (on a new local personal best only, signed-in only) ----
-// Fire-and-forget: a network/RPC failure is logged, never surfaced into gameplay. The
-// key mirrors the local best (xpCarKey + currentMap.id); surface '' (encoded in track id).
-function submitTimeAttackBest(ms: number) {
+// Fire-and-forget: a network/RPC failure is logged, never surfaced into gameplay. The key
+// mirrors the local best (xpCarKey + currentMap.id); surface '' (encoded in track id). Shared
+// by Time Attack (lap ms) and XP (run score) — the RPC's mode branch enforces the right bound
+// (TA floor / XP ceiling) and direction (TA keeps MIN / XP keeps MAX).
+function submitLeaderboardBest(mode: LbMode, value: number) {
   if (!getAuthState().user) return;   // signed-out: local best only, no submit
-  const key = boardKey(currentMap.id, xpCarKey());
-  void submitScore(key, ms).then((res) => {
-    if (!res.ok) console.info('[lb] submit rejected: %s', res.reason);
-    else if (res.updated) console.info('[lb] new online best submitted (%s ms)', Math.round(ms));
+  const key = boardKey(mode, currentMap.id, xpCarKey());
+  void submitScore(key, value).then((res) => {
+    if (!res.ok) console.info('[lb] %s submit rejected: %s', mode, res.reason);
+    else if (res.updated) console.info('[lb] new online %s best submitted (%s)', mode, Math.round(value));
   }).catch((e) => console.info('[lb] submit failed:', e));
 }
 
@@ -3462,7 +3514,10 @@ function handleXpEnd() {
   xpEndHandled = true;
   const score = Math.floor(xpRun.xp);
   const isRecord = score > xpBest;
-  if (isRecord) { xpBest = score; writeXpBest(xpBestKeyActive, score); }
+  if (isRecord) {
+    xpBest = score; writeXpBest(xpBestKeyActive, score);
+    submitLeaderboardBest('xp', score);   // online board: new PB run, signed-in only, fire-and-forget
+  }
   if (xpEndRecordEl) xpEndRecordEl.hidden = !isRecord;
   if (xpEndLabelEl) {
     xpEndLabelEl.textContent = xpRun.endReason === 'crash' ? 'CRASHED'
@@ -4427,7 +4482,7 @@ function frame(now: number) {
           if (done.isBest) {
             writeTaBest(taBestKeyActive, done.ms);
             taRecordUntil = gameNow + TA_RECORD_MS;
-            submitTimeAttackBest(done.ms);   // online board: new PB, signed-in only, fire-and-forget
+            submitLeaderboardBest('timeattack', done.ms);   // online board: new PB, signed-in only, fire-and-forget
           }
           taLastUntil = gameNow + TA_LAST_MS;
         }

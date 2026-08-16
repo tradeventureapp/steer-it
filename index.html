@@ -449,7 +449,13 @@
       <div class="gm-view" data-view="leaderboards" hidden>
         <div class="menu-card gm-card lb-card">
           <div class="menu-title">LEADERBOARDS</div>
-          <div class="lb-sub">TIME ATTACK · fastest laps</div>
+          <!-- MODE tabs — TIME ATTACK (fastest laps) vs XP (highest scores). Switching
+               re-scopes the track picker + flips the sort/format (desktop.ts). -->
+          <div class="lb-mode" id="lb-mode" role="tablist" aria-label="Leaderboard mode">
+            <button type="button" class="lb-tab is-active" data-mode="timeattack">TIME ATTACK</button>
+            <button type="button" class="lb-tab" data-mode="xp">XP</button>
+          </div>
+          <div class="lb-sub" id="lb-sub">TIME ATTACK · fastest laps</div>
 
           <div class="lb-pickers">
             <label class="lb-pick">
