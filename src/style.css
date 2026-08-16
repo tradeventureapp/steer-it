@@ -1203,6 +1203,11 @@ body.desktop #game { display: block; width: 100vw; height: 100vh; }
   display: inline-flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap;
 }
 .pr-val.pr-muted { color: var(--text-muted); font-weight: 500; }
+/* Two-line value: always-free items on top, the temporary (tagged) group on its own dimmer
+   line below — so permanent vs temporary reads at a glance and each tag appears ONCE per group. */
+.pr-val-stack { flex-direction: column; align-items: flex-end; gap: 3px; }
+.pr-line { display: inline-flex; align-items: center; gap: 7px; text-align: right; }
+.pr-line-temp { color: var(--text-muted); font-weight: 500; font-size: 13.5px; }
 .pr-no { color: rgba(178, 162, 208, 0.5); font-size: 20px; font-weight: 700; }
 .pr-yes { color: var(--ok); font-weight: 700; }
 .pr-card-prem .pr-val { color: #fff; }
