@@ -836,6 +836,22 @@
       <button type="button" class="menu-btn primary" id="btn-ready">READY — START RACE ▸</button>
       <div class="ready-hint">Everyone can warm up · press when the grid is set</div>
     </div>
+    <!-- TIME ATTACK HUD (circuit + Time Attack only): the live lap clock, the stored
+         per-track best beside it, and the just-finished lap with a NEW BEST! flash.
+         Top-left corner — the live standings that normally sit there belong to RACE,
+         which can't be running at the same time. -->
+    <aside id="ta-hud" hidden>
+      <div class="ta-row ta-row-cur">
+        <span class="ta-label">LAP</span><span id="ta-current">--.---</span>
+      </div>
+      <div class="ta-row">
+        <span class="ta-label">BEST</span><span id="ta-best">--</span>
+      </div>
+      <div class="ta-row" id="ta-last-row" hidden>
+        <span class="ta-label">LAST</span><span id="ta-last">--</span>
+      </div>
+      <div id="ta-record" hidden>NEW BEST!</div>
+    </aside>
     <!-- XP MODE HUD (circuit + XP mode only): big score top-centre + drift
          multiplier. Blinks red under the slow-speed warning. -->
     <div id="xp-hud" hidden>

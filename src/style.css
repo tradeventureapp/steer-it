@@ -1769,6 +1769,52 @@ body.desktop #race-hud {
 #race-cp:empty { display: none; }
 #race-lap { color: var(--orange); text-shadow: 0 0 8px rgba(255, 138, 61, 0.7); }
 
+/* ---- TIME ATTACK HUD: rolling lap clock, top-left corner. ----
+   Same readable BODY font + tabular numerals as the race timer, so the two modes
+   read as one family; the current lap is the big number, BEST/LAST are the quiet
+   reference rows under it. */
+body.desktop #ta-hud {
+  position: fixed; top: 16px; left: 18px;
+  z-index: 11; pointer-events: none;
+  font-family: var(--font-body);
+  display: flex; flex-direction: column; gap: 3px;
+}
+.ta-row {
+  display: flex; align-items: baseline; gap: 9px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 800; font-size: 15px; letter-spacing: 1.5px;
+  color: var(--text-dim);
+}
+.ta-label {
+  font-size: 10px; letter-spacing: 2px; color: var(--text-muted);
+  min-width: 34px;   /* LAP / BEST / LAST share a column so the times line up */
+}
+.ta-row-cur {
+  font-weight: 900; font-size: 30px; letter-spacing: 2px;
+  color: var(--text); line-height: 1.05;
+  text-shadow: var(--glow-subtle), 0 0 22px rgba(255, 138, 61, 0.3);
+}
+.ta-row-cur .ta-label { font-size: 11px; }
+#ta-best { color: var(--gold); text-shadow: var(--glow-gold); }
+#ta-record {
+  margin-top: 4px;
+  font-family: var(--font-display);
+  font-weight: 800; font-size: 14px; letter-spacing: 3px;
+  color: var(--ok); text-shadow: 0 0 10px rgba(93, 255, 176, 0.75);
+  animation: taRecord 0.42s steps(1) infinite;
+}
+@keyframes taRecord { 50% { opacity: 0.25; } }
+@media (prefers-reduced-motion: reduce) { #ta-record { animation: none; } }
+
+/* Per-track best lap on a map tile (Time Attack only; hidden in every other mode). */
+.map-best {
+  font-family: var(--font-body);
+  font-variant-numeric: tabular-nums;
+  font-weight: 800; font-size: 11px; letter-spacing: 1.5px;
+  color: var(--gold); text-shadow: var(--glow-gold);
+}
+.map-best.is-empty { color: var(--text-muted); text-shadow: none; }
+
 /* Finish banner — big gradient wordmark, centred. */
 body.desktop #race-finish {
   position: fixed; top: 38%; left: 50%; transform: translate(-50%, -50%);

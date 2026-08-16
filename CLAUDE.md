@@ -102,6 +102,12 @@ palette picked on the phone (§13).
 - `xp.ts` — XP MODE (pure): endless solo score run, drift multiplier. Only READS speed/slip.
   **Off-track = TRACK GEOMETRY, never surface material** (`maps.onTrackAt` → `wheelsOffTrack`
   in desktop.ts) — see the rule in §3.
+- `time-attack.ts` — TIME ATTACK (pure): `TimeAttackRun` + `formatLapTime`. Rolling solo lap
+  timing. It does NOT re-implement crossing detection — it OWNS a `race.ts` `RaceState` built
+  from the map's own `startLine()`, so the line-plane sweep, the FORWARD-only test and the
+  ARMED far-point full-lap rule are literally Race mode's. What it adds is the ROLLING part
+  (Race stops at its lap limit and reports one total; Time Attack times every lap back to
+  back). DOM/storage-free like `xp.ts` — the best lap is passed in and handed back out.
 - `vehicles.ts` — vehicle IDENTITY + specs: `VehicleSpec` (`overrides`, `branch`, `arcade`, **`phys4`**,
   `dims`, `sprite`, `fxScale`), `ROAD_SPEC` (Blitz), `STEEREX_SILVER/BLACK`, `FURY_SPEC` + dims +
   colour palettes. Pure data — NO real make/model names anywhere.
@@ -218,6 +224,23 @@ not trusted). `EV` events: phone→desktop `join|color|name|leave|control`; desk
   resolver: host = account nickname (locked, drives the keyboard/local car), guests = phone name or
   "Player N". (Host-via-phone recognition deliberately NOT built.)
 - **XP MODE** — endless solo score run (drift multiplier), best in localStorage per map.
+- **TIME ATTACK (Phase 1)** — SOLO rolling lap timing on every map that has a start/finish line
+  (both ovals, Circuit, Circuit II; the Desktop free-roam surface is excluded — no line). The
+  FIRST forward crossing STARTS the clock (spawn→line is not timed — that crossing IS the start
+  line); every later valid crossing ends the lap and immediately starts the next, so the player
+  just keeps driving and each lap is timed continuously — no manual reset. Validity is `race.ts`'s
+  own, not a copy: line-plane sweep + FORWARD-only + ARMED far point, so wiggling on the line or
+  reversing over it logs nothing. Fed the car's NOSE on the fixed physics step, exactly as RACE is
+  ⇒ lap times are frame-rate independent (measured identical at 30/120/240 Hz). Best lap is LOCAL
+  ONLY — `localStorage` `steerit.ta.best.<mapId>`, keyed by TRACK (⚠️ so all cars share one record
+  per track; the XP best is the per-car+map precedent if that's ever wanted). Shown in-game as a
+  top-left HUD (live lap clock, BEST, the just-finished LAST lap, a "NEW BEST!" flash) and on the
+  **track-select tiles** (per-track record; `--` when unset, hidden on maps that can't host it).
+  Premium-gated like RACE/XP (`FREE_MODE_KEYS`), and it builds NO race elements ⇒ `isRaceLive()`
+  is false ⇒ no countdown, no standing start, no race HUD. RESTART is the existing pause-menu
+  button — **no new hotkey** (`R` stays the dev recorder's). **Phase 1 has NO DB / leaderboard /
+  network / account requirement**; the online board is a later phase and needs the SECURITY
+  DEFINER submit RPC (§5 3c) — today's times are client-side personal records, not rankings.
 - **Track editor (E)** — per map type; on OPEN maps a place-elements editor, on CIRCUIT maps a
   laps/XP panel. **Locked to the Desktop map + PREMIUM only** (free users get the upsell).
 - **Track AUTHORING tool (dev)** — `track-editor.html` (see §2): draw a new circuit layout

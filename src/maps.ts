@@ -761,7 +761,9 @@ function makeStadiumMap(opts: {
     id: opts.id,
     name: opts.name,
     trackType: 'circuit',   // bounded oval → laps-only editor; built-in start line
-    gameModes: ['free', 'race', 'xp'],   // FREE RIDE + RACE (laps) + XP MODE (solo score run)
+    // Every mode a start/finish line supports: TIME ATTACK needs one, so it is listed
+    // wherever RACE is (the desktop map, which has no line, stays FREE RIDE only).
+    gameModes: ['free', 'race', 'timeattack', 'xp'],
 
     surfaceGroup: opts.surfaceGroup,
 
@@ -2675,7 +2677,7 @@ export const circuitMap: MapDefinition = {
   // Rallycross member (dirt section) is dev-only, so for a normal user the group has a single
   // visible member and renders as a plain "Circuit" tile.
   surfaceGroup: { key: 'circuit', title: 'Circuit', option: 'Asphalt', order: 0, isDefault: true },
-  gameModes: ['free', 'race', 'xp'],   // FREE RIDE + RACE (laps) + XP MODE (solo score run)
+  gameModes: ['free', 'race', 'timeattack', 'xp'],   // TIME ATTACK rides the same start/finish line
   // CIRCUIT: the built-in start/finish below is start AND finish, so the editor shows the
   // LAPS panel (0 = free-roam, N = an N-lap race) instead of the place-elements palette —
   // exactly like the ovals.
@@ -3695,7 +3697,7 @@ function drawAuthoredBillboardsAbove(ctx: CanvasRenderingContext2D, px: number) 
 export const authoredCircuitMap: MapDefinition = {
   id: 'circuit2',
   name: 'Circuit II (Rallycross)',
-  gameModes: ['free', 'race', 'xp'],
+  gameModes: ['free', 'race', 'timeattack', 'xp'],
   // start-only gate ⇒ circuit (laps); the editor shows the LAPS panel, like the ovals.
   trackType: 'circuit',
   smokeColor: [248, 248, 251],    // white rubber smoke (asphalt)

@@ -48,6 +48,7 @@ import {
   XP_CONFIG, makeXpRun, updateXpRun, formatXp,
   type XpRunState,
 } from './xp';
+import { TimeAttackRun, formatLapTime } from './time-attack';
 import { inject } from '@vercel/analytics';
 import {
   initAuth, onAuthChange, getAuthState, signIn, signUp, signOut,
@@ -114,6 +115,12 @@ const resultsRestEl   = document.getElementById('results-rest')     as HTMLEleme
 const countdownEl   = document.getElementById('countdown')     as HTMLElement | null;
 const countdownNEl  = document.getElementById('countdown-n')   as HTMLElement | null;
 const finishTimeoutEl = document.getElementById('finish-timeout') as HTMLElement | null;
+const taHudEl       = document.getElementById('ta-hud')        as HTMLElement | null;
+const taCurrentEl   = document.getElementById('ta-current')    as HTMLElement | null;
+const taBestEl      = document.getElementById('ta-best')       as HTMLElement | null;
+const taLastRowEl   = document.getElementById('ta-last-row')   as HTMLElement | null;
+const taLastEl      = document.getElementById('ta-last')       as HTMLElement | null;
+const taRecordEl    = document.getElementById('ta-record')     as HTMLElement | null;
 const xpHudEl       = document.getElementById('xp-hud')        as HTMLElement | null;
 const xpScoreEl     = document.getElementById('xp-score')      as HTMLDivElement | null;
 const xpMultEl      = document.getElementById('xp-mult')       as HTMLDivElement | null;
@@ -504,6 +511,7 @@ interface GameMode {
 const GAME_MODES: GameMode[] = [
   { key: 'free', name: 'FREE RIDE', desc: 'Just drive. No rules, no timer.', players: 'SOLO/MULTI' },
   { key: 'race', name: 'RACE', desc: 'Race your friends — or set your own best time.', players: 'SOLO/MULTI' },
+  { key: 'timeattack', name: 'TIME ATTACK', desc: 'Solo. Lap after lap — hunt your best time.', players: 'SOLO' },
   { key: 'xp', name: 'XP MODE', desc: "Solo. Chain drifts, don't crash, beat your best.", players: 'SOLO' },
 ];
 const DEFAULT_GAME_MODE = 'free';   // FREE RIDE — every map supports it; the resting default
@@ -777,6 +785,8 @@ function launchSelected() {
 function applySelectedGameMode() {
   if (selectedGameMode === 'xp') {
     setCircuitMode('xp');
+  } else if (selectedGameMode === 'timeattack') {
+    setCircuitMode('timeattack');   // rolling laps start on the first crossing — no countdown
   } else if (selectedGameMode === 'race') {
     enterRaceWarmup(selectedRaceLaps);   // free driving + READY (no countdown yet), the menu's lap count
   }
@@ -856,17 +866,42 @@ function renderMapPreview(c: CanvasRenderingContext2D, def: MapDefinition, RW: n
 // The map tiles register here so the selection highlight can be toggled across
 // all of them (a group tile's effective id changes with its surface switcher, so
 // each entry reports its CURRENT id via getId()).
-type MapTileEntry = { el: HTMLElement; getId: () => string };
+type MapTileEntry = { el: HTMLElement; getId: () => string; best?: HTMLElement };
 let mapTileEntries: MapTileEntry[] = [];
 // Highlight the selected map, and DIM (filter) any map that doesn't support the
 // selected game mode — the mode→map half of the two-way filter. FREE RIDE is in
 // every map's list, so the resting default dims nothing.
+//
+// Also paints the TIME ATTACK per-track record onto each tile, so browsing tracks in
+// that mode shows what there is to beat. Read fresh from localStorage on every refresh
+// (rather than cached at build time) so a lap set this session shows the moment the
+// player returns to the picker. Hidden in every other mode.
 function highlightMapTiles() {
+  const showBest = selectedGameMode === 'timeattack';
   for (const e of mapTileEntries) {
     const id = e.getId();
     e.el.classList.toggle('is-selected', id === selectedMapId);
     e.el.classList.toggle('is-filtered', !mapGameModes(id).includes(selectedGameMode));
+    if (e.best) {
+      // Only on maps that can actually HOST Time Attack. The Desktop has no start/finish
+      // line, so it can never hold a time — a "--" there would read as "not set yet"
+      // rather than "impossible here".
+      const show = showBest && mapGameModes(id).includes('timeattack');
+      e.best.hidden = !show;
+      if (show) {
+        const ms = taBestFor(id);
+        e.best.textContent = ms !== null ? formatLapTime(ms) : '--';
+        e.best.classList.toggle('is-empty', ms === null);
+      }
+    }
   }
+}
+// The per-tile "best lap" chip (built for every tile; only shown in Time Attack).
+function bestTimeChip(): HTMLSpanElement {
+  const s = document.createElement('span');
+  s.className = 'map-best';
+  s.hidden = true;
+  return s;
 }
 // Pick a map (does NOT launch — START does). If it can't host the currently-chosen
 // game mode (e.g. Desktop supports only FREE RIDE), the MAP wins and the mode falls
@@ -1069,6 +1104,7 @@ function buildMapTiles() {
           refreshActive();
           renderSelected();
           if (wasSelected) selectMap(member.id);
+          else highlightMapTiles();   // surface changed ⇒ so did this tile's Time Attack record
         });
         segs.push(seg);
         sw.appendChild(seg);
@@ -1092,11 +1128,13 @@ function buildMapTiles() {
         if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); chooseGroup(); }
       });
 
+      const grpBest = bestTimeChip();
       tile.appendChild(thumb);
       tile.appendChild(label);
       tile.appendChild(sw);
+      tile.appendChild(grpBest);
       mapTilesEl.appendChild(tile);
-      mapTileEntries.push({ el: tile, getId: () => selectedSurfaceId(grp.key) });
+      mapTileEntries.push({ el: tile, getId: () => selectedSurfaceId(grp.key), best: grpBest });
       continue;
     }
 
@@ -1115,8 +1153,10 @@ function buildMapTiles() {
     label.className = 'map-name';
     label.textContent = def.name;
 
+    const best = bestTimeChip();
     tile.appendChild(thumb);
     tile.appendChild(label);
+    tile.appendChild(best);
     if (isMapLocked(def.id)) { tile.classList.add('is-locked'); tile.appendChild(lockBadge()); }
     const promo = promoBadgeFor(def.id);
     if (promo) tile.appendChild(promo);
@@ -1124,7 +1164,7 @@ function buildMapTiles() {
       if (isMapLocked(def.id)) openUpsell('map', def.id); else selectMap(def.id);
     });
     mapTilesEl.appendChild(tile);
-    mapTileEntries.push({ el: tile, getId: () => def.id });
+    mapTileEntries.push({ el: tile, getId: () => def.id, best });
   }
   highlightMapTiles();
 }
@@ -2233,6 +2273,9 @@ function resumeGame() {
 function restartRace() {
   // XP mode: RESTART = a fresh score run (respawn + zero XP), not a lap reset.
   if (isXpMode()) { startXpRun(); userPaused = false; refreshFreeze(); return; }
+  // TIME ATTACK: RESTART = a fresh rolling session (respawn + clock back to not-started).
+  // The stored personal best SURVIVES — it's a record, not run state.
+  if (isTimeAttack()) { startTimeAttack(); userPaused = false; refreshFreeze(); return; }
   skidCtx.clearRect(0, 0, logicalPxW, logicalPxH);
   clearMarkLayers();
   for (const car of cars.values()) {
@@ -3036,13 +3079,68 @@ function openRaceResults(now: number) {
 // ---------- XP MODE (circuit maps) — a third mode beside LAPS ----------
 // SOLO + LOCAL: the run READS the primary car's speed/slip (never writes physics)
 // and banks a score; the best is persisted in localStorage per map. Rules: xp.ts.
-type CircuitMode = 'laps' | 'xp';
+type CircuitMode = 'laps' | 'xp' | 'timeattack';
 let circuitMode: CircuitMode = 'laps';
 let xpRun: XpRunState = makeXpRun();
 let xpEndHandled = false;            // bank/record exactly once per ended run
 let xpBest = 0;                      // stored best for the ACTIVE car+map (refreshed on start)
 let xpBestKeyActive = '';           // the localStorage key for the run in progress (snapshotted)
 const isXpMode = () => isCircuitMap() && circuitMode === 'xp';
+
+// ---------- TIME ATTACK (circuit maps) — SOLO rolling lap timing ----------
+// Phase 1 is LOCAL ONLY: no Supabase, no network, no leaderboard, no account needed to
+// play it. The best lap is a localStorage number and nothing leaves the device. (The
+// online leaderboard is a later phase and will need the SECURITY DEFINER submit RPC —
+// scores are client-side here, so they are personal records, not rankings.)
+//
+// The timing RULES live in time-attack.ts (pure), which drives a race.ts RaceState built
+// from the map's own startLine() — so forward-only + armed-full-lap validity is Race
+// mode's, not a second implementation of it.
+let taRun: TimeAttackRun | null = null;
+let taBestKeyActive = '';        // the localStorage key for the run in progress (snapshotted)
+let taRecordUntil = 0;           // game-clock ms: show the NEW BEST! flash until then
+let taLastUntil = 0;             // ...and the just-finished LAST lap until then
+const isTimeAttack = () => isCircuitMap() && circuitMode === 'timeattack';
+
+// The best lap is keyed by TRACK ONLY — `steerit.ta.best.<mapId>` — so one record per
+// track, as a track record reads. ⚠️ That means every car shares it: a lap in the AWD
+// Fury and one in the arcade Stee-Rex land in the same slot, so the record is really
+// "my fastest lap here in anything". If per-car records are wanted, this key (and the
+// track-select lookup) is where the car goes — the XP best already does exactly that.
+function taBestKeyFor(mapId: string): string { return `steerit.ta.best.${mapId}`; }
+function readTaBest(key: string): number | null {
+  try {
+    const v = Number(localStorage.getItem(key));
+    return Number.isFinite(v) && v > 0 ? v : null;
+  } catch { return null; }
+}
+function writeTaBest(key: string, ms: number): void {
+  try { localStorage.setItem(key, String(Math.round(ms))); } catch { /* ignore */ }
+}
+// The stored best for a given map — for the track-select tiles (no run needed).
+function taBestFor(mapId: string): number | null { return readTaBest(taBestKeyFor(mapId)); }
+
+// (Re)start a Time Attack session: fresh rolling timer seeded with the stored best,
+// solo car respawned at the grid, clean sheet. Called on entering the mode and on the
+// pause menu's RESTART (no new hotkey — 'R' belongs to the dev recorder).
+function startTimeAttack() {
+  const el = currentMap.startLine?.(world);
+  if (!el) { taRun = null; return; }   // no start/finish line ⇒ the mode cannot run here
+  taBestKeyActive = taBestKeyFor(currentMap.id);
+  taRun = new TimeAttackRun(el, readTaBest(taBestKeyActive));
+  taRecordUntil = 0;
+  taLastUntil = 0;
+  for (const [slot, car] of cars) {
+    const pose = currentMap.spawn(slot, world);
+    car.state = makeCar(pose.x, pose.y, pose.heading);
+    car.target = { steer: 0, throttle: 0, brake: 0, handbrake: false };
+    car.current = { steer: 0, throttle: 0, brake: 0, handbrake: false };
+    invalidateSkidTrails(car);
+    car.lastInputAt = performance.now();
+  }
+  skidCtx.clearRect(0, 0, logicalPxW, logicalPxH);
+  clearMarkLayers();
+}
 
 // =============================================================================
 //  FREE RIDE session timing — the funnel's blind spot.
@@ -3068,7 +3166,8 @@ const FR_MOVING_MPS = 2;     // ~7 km/h — actually driving, not a nudge off th
 const freeRide = new FreeRideSession();   // the timing RULES live in session.ts (pure, tested)
 
 const inFreeRide = () =>
-  !menuOpen && !editorMode && !raceWarmup && selectedGameMode === 'free' && !isRaceLive() && !isXpMode();
+  !menuOpen && !editorMode && !raceWarmup && selectedGameMode === 'free'
+  && !isRaceLive() && !isXpMode() && !isTimeAttack();
 const anyCarMoving = () => {
   for (const c of cars.values()) if (c.state.speed > FR_MOVING_MPS) return true;
   return false;
@@ -3438,10 +3537,14 @@ function setCircuitMode(mode: CircuitMode) {
   circuitMode = mode;
   document.body.classList.toggle('circuit-xp', mode === 'xp');
   syncModeButtons();
-  rebuildRace();          // XP ⇒ no race elements (no lap timer)
+  // XP and TIME ATTACK both build NO race elements ⇒ isRaceLive() is false ⇒ no race HUD,
+  // no standing start, no countdown. Time Attack runs its own rolling clock instead.
+  rebuildRace();
   updateEditorStatus();
+  if (mode !== 'timeattack') { taRun = null; if (taHudEl) taHudEl.hidden = true; }
   if (mode === 'xp') startXpRun();
   else if (xpEndEl) xpEndEl.hidden = true;
+  if (mode === 'timeattack') startTimeAttack();
 }
 for (const b of Array.from(document.querySelectorAll('#editor-mode .emode')) as HTMLElement[]) {
   b.addEventListener('click', () => setCircuitMode(b.dataset.mode as CircuitMode));
@@ -4101,6 +4204,20 @@ function frame(now: number) {
         }
       }
 
+      // TIME ATTACK is SOLO: only the primary (host) car is timed, and on the SAME nose
+      // point + the same game clock as the race feed above, so a lap here and a lap in
+      // RACE are measured identically. Fed inside the fixed-step loop for that reason —
+      // a render-rate feed would make lap times frame-rate dependent.
+      if (isTimeAttack() && taRun && lead) {
+        const s = lead.state;
+        const done = taRun.update(s.x + Math.cos(s.heading) * CAR_NOSE_M,
+          s.y + Math.sin(s.heading) * CAR_NOSE_M, gameNow, s.vx, s.vy);
+        if (done) {
+          if (done.isBest) { writeTaBest(taBestKeyActive, done.ms); taRecordUntil = gameNow + TA_RECORD_MS; }
+          taLastUntil = gameNow + TA_LAST_MS;
+        }
+      }
+
       accumulator -= FIXED_DT;
       steps++;
     }
@@ -4141,6 +4258,7 @@ function frame(now: number) {
   updateLiveStandings(gameNow);
   updateCountdown(gameNow);
   updateFinishTimeout(gameNow);
+  updateTimeAttackHud(gameNow);
   updateXpHud();
   requestAnimationFrame(frame);
 }
@@ -4585,9 +4703,31 @@ function drawCheckpoint(sx: number, sy: number, rPx: number, index: number, done
 }
 
 // ---------- Race HUD (functional readout; independent of the D/Q debug toggles) ----------
+// TIME ATTACK HUD: the live lap clock, the personal best beside it, and — for a few
+// seconds after each crossing — the lap that just finished, flagged when it's a record.
+// Corner placement (top-left); the live standings that normally sit there only exist in
+// RACE, which can't be running at the same time (isRaceLive() is false in this mode).
+const TA_RECORD_MS = 2600;   // how long "NEW BEST!" flashes after a record lap
+const TA_LAST_MS = 5000;     // ...and how long the just-finished lap stays up
+function updateTimeAttackHud(now: number) {
+  if (!taHudEl) return;
+  const playing = isTimeAttack() && !!taRun && !editorMode && !menuOpen;
+  taHudEl.hidden = !playing;
+  if (!playing || !taRun) return;
+  const h = taRun.hud(now);
+  // Before the first crossing the clock is genuinely not running — say so rather than
+  // showing a fake 0.000, so it's clear the line ahead is what starts the timing.
+  if (taCurrentEl) taCurrentEl.textContent = h.running ? formatLapTime(h.currentMs) : '--.---';
+  if (taBestEl) taBestEl.textContent = h.bestMs !== null ? formatLapTime(h.bestMs) : '--';
+  const showLast = h.lastMs !== null && now < taLastUntil;
+  if (taLastRowEl) taLastRowEl.hidden = !showLast;
+  if (showLast && taLastEl) taLastEl.textContent = formatLapTime(h.lastMs!);
+  if (taRecordEl) taRecordEl.hidden = !(h.lastWasBest && now < taRecordUntil);
+}
+
 function updateRaceHud(h: RaceHud) {
   if (!raceHudEl) return;
-  if (editorMode || isXpMode()) {  // editor/XP mode: lap+timer HUD hidden
+  if (editorMode || isXpMode() || isTimeAttack()) {  // editor/XP/Time Attack: lap+timer HUD hidden
     raceHudEl.hidden = true;
     if (raceFinishEl) raceFinishEl.hidden = true;
     return;
@@ -5010,6 +5150,8 @@ function switchMap(id: string): boolean {
   editorLaps = currentMap.trackType === 'circuit' ? 0 : RACE_CONFIG.laps;
   // Every map starts in LAPS mode; the host opts into XP mode via the editor.
   circuitMode = 'laps';
+  taRun = null;                 // a fresh map drops any Time Attack session (its best is stored)
+  if (taHudEl) taHudEl.hidden = true;
   raceWarmup = false;   // a fresh map is free-roam until a RACE launch arms the warm-up
   updateReadyButton();
   document.body.classList.remove('circuit-xp');
