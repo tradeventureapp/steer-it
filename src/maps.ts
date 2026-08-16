@@ -113,6 +113,13 @@ export interface MapDefinition {
   // (acts as start AND finish in circuit mode). Open maps omit it.
   startLine?(world: MapWorld): RaceElement;
 
+  // LEADERBOARD ZONES (anti-cheat / proof-of-play; see zones.ts). The track's CENTRELINE as
+  // a WORLD-space, arc-length-even, CLOSED polyline, ANCHORED so index 0 = the finish and
+  // INCREASING index = the racing direction. zones.ts splits it into 6 equal arc-length
+  // buckets. Present on every racing map (both ovals, Circuit, Circuit II, Rallycross);
+  // absent on the desktop (no leaderboard). Geometry only — never affects render/physics.
+  zonePath?(world: MapWorld): [number, number][];
+
   // Optional tire-smoke/dust tint [r,g,b] for this surface. Omitted ⇒ the
   // default whitish rubber smoke (the desktop). The dirt oval, say, kicks up
   // brown dust. Only the COLOUR changes — emission/cap/growth/fade are shared.
@@ -810,6 +817,8 @@ function makeStadiumMap(opts: {
         farRadius: g.bandW,
       };
     },
+    // Leaderboard zones: the band-midline loop (finish-anchored at (cx, cy+mid), +x forward).
+    zonePath(world) { return ovalZonePath((world as FlatWorld).geom); },
 
     createWorld(widthM, heightM) {
       const g = computeStadium(widthM, heightM);
@@ -1094,6 +1103,63 @@ function lapFarPointOf(path: Pt[], finish: { x: number; y: number }): { x: numbe
   return { x: best.p[0], y: best.p[1] };
 }
 const CIRCUIT_FAR = lapFarPointOf(CIRCUIT_PATH, CIRCUIT_FINISH);
+
+// =============================================================================
+//  LEADERBOARD ZONE CENTRELINES (see MapDefinition.zonePath / zones.ts). Build a
+//  WORLD-space centreline that is arc-length-even, closed, anchored so index 0 = the
+//  finish, and oriented so INCREASING index = the racing direction. Pure geometry from
+//  data the maps already own — nothing here touches render/physics. Built lazily +
+//  cached (called once per Time Attack / XP run, never per frame).
+// =============================================================================
+// Circuit-family: rotate the (already arc-length-even) sketch path to the finish, map to
+// world, and flip if the index order runs against the racing direction (forwardRad).
+function buildCentrelineZonePath(
+  sketchPath: Pt[], toWorld: (sx: number, sy: number) => { x: number; y: number },
+  finishSketch: { x: number; y: number }, forwardRad: number,
+): [number, number][] {
+  const world: [number, number][] = sketchPath.map((p) => {
+    const w = toWorld(p[0], p[1]); return [w.x, w.y];
+  });
+  const N = world.length;
+  const fw = toWorld(finishSketch.x, finishSketch.y);
+  let fi = 0, fd = Infinity;
+  for (let i = 0; i < N; i++) {
+    const dx = world[i][0] - fw.x, dy = world[i][1] - fw.y;
+    const d = dx * dx + dy * dy;
+    if (d < fd) { fd = d; fi = i; }
+  }
+  // Does the tangent at the finish (increasing index) point along the racing direction?
+  const nxt = world[(fi + 1) % N], prv = world[(fi - 1 + N) % N];
+  const forward = (nxt[0] - prv[0]) * Math.cos(forwardRad) + (nxt[1] - prv[1]) * Math.sin(forwardRad) >= 0;
+  const ordered: [number, number][] = [];
+  for (let k = 0; k < N; k++) ordered.push(world[forward ? (fi + k) % N : (fi - k + N) % N]);
+  return ordered;
+}
+// Stadium band-midline as a world-space closed loop, arc-length-even, STARTING at the finish
+// (cx, cy+mid) and going +x (the racing direction). Sampled densely then evenly resampled.
+function ovalZonePath(g: StadiumGeom, samples = 240): [number, number][] {
+  const mid = (g.IYh + g.OYh) / 2;
+  const raw: Pt[] = [];
+  const STEP = 1.5, DA = 3 * Math.PI / 180;
+  for (let x = g.cx; x < g.cx + g.sx; x += STEP) raw.push([x, g.cy + mid]);                 // bottom: finish → right
+  for (let a = Math.PI / 2; a > -Math.PI / 2; a -= DA)                                       // right corner (through 0)
+    raw.push([g.cx + g.sx + mid * Math.cos(a), g.cy + mid * Math.sin(a)]);
+  for (let x = g.cx + g.sx; x > g.cx - g.sx; x -= STEP) raw.push([x, g.cy - mid]);           // top: right → left
+  for (let a = -Math.PI / 2; a > -3 * Math.PI / 2; a -= DA)                                  // left corner (through π)
+    raw.push([g.cx - g.sx + mid * Math.cos(a), g.cy + mid * Math.sin(a)]);
+  for (let x = g.cx - g.sx; x < g.cx; x += STEP) raw.push([x, g.cy + mid]);                  // bottom: left → finish
+  return resampleClosed(raw, samples);
+}
+let _circuitZonePath: [number, number][] | null = null;
+function circuitZonePath(): [number, number][] {
+  if (!_circuitZonePath) _circuitZonePath = buildCentrelineZonePath(CIRCUIT_PATH, circuitToWorld, CIRCUIT_FINISH, Math.PI);
+  return _circuitZonePath;
+}
+let _authoredZonePath: [number, number][] | null = null;
+function authoredZonePath(): [number, number][] {
+  if (!_authoredZonePath) _authoredZonePath = buildCentrelineZonePath(AUTHORED_PATH, authoredToWorld, AUTHORED_FINISH, AUTHORED_FORWARD);
+  return _authoredZonePath;
+}
 
 // ---- Apex KERBS — red/white striped curbs on the INSIDE edge of the corners -----
 // Real circuits line the apex (inside) of corners with red/white striped kerbs. We
@@ -2734,6 +2800,8 @@ export const circuitMap: MapDefinition = {
       farRadius: CIRCUIT_TRACK_W,
     };
   },
+  // Leaderboard zones: the smooth CIRCUIT_PATH ribbon centreline (finish-anchored, forward).
+  zonePath() { return circuitZonePath(); },
 
   // Grid spawn on the flat finish straight (the nearest-to-bottom, levelled run), facing
   // −x: the circuit runs CLOCKWISE, so the bottom straight is driven right→left.
@@ -3738,6 +3806,8 @@ export const authoredCircuitMap: MapDefinition = {
       farRadius: AUTHORED_TRACK_W,
     };
   },
+  // Leaderboard zones: the authored ribbon centreline (finish-anchored, forward).
+  zonePath() { return authoredZonePath(); },
 
   // Standing start behind the line — the grid follows the ribbon (authoredGridPose),
   // so every box sits on asphalt whatever the layout does behind the line.

@@ -93,11 +93,20 @@ export class TimeAttackRun {
 
   /**
    * Feed the car's point (world metres, the NOSE — same point Race mode feeds),
-   * the game clock, its velocity, and how many wheels are off-track THIS step (0..4,
-   * from desktop's `wheelsOffTrack()` — the SAME count XP is fed), every physics step.
-   * Returns the lap that just completed on this step, or null.
+   * the game clock, its velocity, how many wheels are off-track THIS step (0..4, from
+   * desktop's `wheelsOffTrack()` — the SAME count XP is fed), and — at a lap-completion
+   * instant — whether all 6 leaderboard ZONES were passed in order this lap (`zonesValid`,
+   * from the ZoneTracker; defaults true so tests / zone-less maps behave as before). Every
+   * physics step. Returns the lap that just completed on this step, or null.
+   *
+   * ONE validity rule: a lap can set the record ONLY if it stayed on track AND passed every
+   * zone in order — so an off-track OR a shortcut lap sets neither the local best nor the
+   * online board (they submit off the same `isBest`).
    */
-  update(x: number, y: number, now: number, vx: number, vy: number, wheelsOff: number): CompletedLap | null {
+  update(
+    x: number, y: number, now: number, vx: number, vy: number,
+    wheelsOff: number, zonesValid = true,
+  ): CompletedLap | null {
     this.rs.update(x, y, now, vx, vy);
     const h = this.rs.hud(now);
 
@@ -130,7 +139,9 @@ export class TimeAttackRun {
     const ms = now - this.lapStartMs;
     this.lapStartMs = now;
     this.lapsDone += 1;
-    const valid = this.lapValid;
+    // VALID = on track the whole lap (off-track flag) AND all 6 zones in order (zonesValid).
+    // Either failing makes the lap ineligible for the record.
+    const valid = this.lapValid && zonesValid;
     // An INVALID lap can NEVER set the record, however fast — the isBest test is gated on it.
     const isBest = valid && (this.bestMs === null || ms < this.bestMs);
     if (isBest) this.bestMs = ms;

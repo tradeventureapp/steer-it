@@ -355,9 +355,11 @@ create table if not exists public.leaderboard_limits (
 -- track/car, positive & within an absolute sanity bound; (3) rate limit — ≤ RATE_MAX
 -- accepted attempts per user per minute; (4) mode plausibility — TA: value ≥ the floor and
 -- ≤ a 1 h upper bound; XP: value ≤ the ceiling — each with an optional per-(track,car)
--- override in leaderboard_limits; then a MODE-AWARE best-only UPSERT (TA keeps the MIN, XP
--- keeps the MAX). The stored nickname is read from profiles (server truth), never taken from
--- the client. Returns { ok, updated?, reason? }.
+-- override in leaderboard_limits; (5) STRUCTURAL zone / proof-of-play on p_proof — TA: all 6
+-- zone splits present + monotonic; XP: the zone/lap data is internally consistent (no score
+-- without play, a completed loop passes all 6 zones, contiguous traversal). Then a MODE-AWARE
+-- best-only UPSERT (TA keeps the MIN, XP keeps the MAX). The stored nickname is read from
+-- profiles (server truth), never taken from the client. Returns { ok, updated?, reason? }.
 --   RATE_MAX  = 10 / user / minute (submits fire only on a new personal best → generous).
 --   TA_MIN_MS = 3000 ms — deliberately LOW so no legit lap is ever rejected on day one
 --               (nothing on these tracks laps under 3 s); tighten per track via the table.
@@ -366,8 +368,16 @@ create table if not exists public.leaderboard_limits (
 --               rate ~664/s ⇒ a huge legit run is well under 1M); catches hacked billions.
 --   ⚠️ leaderboard_limits.min_value is interpreted PER MODE: for 'timeattack' it is the FLOOR
 --      (reject below it); for 'xp' it is the CEILING (reject above it). Same column, two roles.
+--   ZONES: STRUCTURAL only for now (NO per-segment speed floors) — the TA splits are stored in
+--      the payload so per-segment MINIMUM-TIME checks can be added later (a leaderboard_limits-
+--      style table keyed by (track,car,segment)) with ZERO client change; left OFF today.
+--   ⚠️ p_proof default '{}' + the DROP below keep ONE function (not a dangling 5-arg overload),
+--      so an old cached 5-arg client still resolves (empty proof ⇒ its TA submit fails the zone
+--      check until it reloads — fire-and-forget, no gameplay impact).
+drop function if exists public.submit_score(text, text, text, text, bigint);
 create or replace function public.submit_score(
-  p_mode text, p_track_id text, p_car_key text, p_surface text, p_value bigint
+  p_mode text, p_track_id text, p_car_key text, p_surface text, p_value bigint,
+  p_proof jsonb default '{}'::jsonb
 ) returns jsonb language plpgsql security definer set search_path = public as $$
 declare
   uid  uuid   := auth.uid();
@@ -376,6 +386,7 @@ declare
   cur  bigint;
   nick text;
   recent int;
+  zt jsonb; zi bigint; zprev bigint; i int; zc int; laps int; ordok boolean;
   RATE_MAX   constant int    := 10;
   TA_MIN_MS  constant bigint := 3000;
   TA_CEIL_MS constant bigint := 3600000;
@@ -411,6 +422,28 @@ begin
       then return jsonb_build_object('ok', false, 'reason', 'ceiling'); end if;
   end if;
 
+  -- (5) STRUCTURAL ZONE / PROOF-OF-PLAY (no speed checks yet — proves the drive happened).
+  if p_mode = 'timeattack' then
+    -- TA: exactly 6 split ms, all present, monotonic non-decreasing (all zones, in order).
+    zt := p_proof->'z';
+    if zt is null or jsonb_typeof(zt) <> 'array' or jsonb_array_length(zt) <> 6
+      then return jsonb_build_object('ok', false, 'reason', 'zones'); end if;
+    zprev := -1;
+    for i in 0..5 loop
+      zi := (zt->>i)::bigint;
+      if zi is null or zi < zprev then return jsonb_build_object('ok', false, 'reason', 'zones'); end if;
+      zprev := zi;
+    end loop;
+  else  -- 'xp' proof-of-play: partial runs OK; only contradictory / no-play data is rejected.
+    zc    := coalesce((p_proof->>'zc')::int, -1);
+    laps  := coalesce((p_proof->>'laps')::int, -1);
+    ordok := coalesce((p_proof->>'ord')::boolean, false);
+    if zc < 0 or laps < 0            then return jsonb_build_object('ok', false, 'reason', 'proof'); end if;
+    if p_value > 0 and zc = 0        then return jsonb_build_object('ok', false, 'reason', 'noproof'); end if;      -- a score with no play
+    if laps > 0 and zc < 6           then return jsonb_build_object('ok', false, 'reason', 'inconsistent'); end if; -- a loop passes all zones
+    if not ordok                     then return jsonb_build_object('ok', false, 'reason', 'order'); end if;        -- teleport / fabricated feed
+  end if;
+
   -- nickname = SERVER truth (never client-supplied)
   select nickname into nick from public.profiles where id = uid;
 
@@ -433,5 +466,5 @@ end; $$;
 -- for a signed-in user.
 grant  select on public.leaderboard to anon, authenticated;
 revoke insert, update, delete on public.leaderboard from anon, authenticated;
-revoke all on function public.submit_score(text, text, text, text, bigint) from public;
-grant  execute on function public.submit_score(text, text, text, text, bigint) to authenticated;
+revoke all on function public.submit_score(text, text, text, text, bigint, jsonb) from public;
+grant  execute on function public.submit_score(text, text, text, text, bigint, jsonb) to authenticated;

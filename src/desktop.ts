@@ -49,6 +49,7 @@ import {
   type XpRunState,
 } from './xp';
 import { TimeAttackRun, formatLapTime } from './time-attack';
+import { ZoneTracker, xpProofValid } from './zones';
 import {
   submitScore, fetchBoard, fetchTopAndOwn, LB_PAGE_SIZE,
   type BoardKey, type LbRow,
@@ -1238,13 +1239,21 @@ lbQuickEl?.addEventListener('click', (e) => { if (e.target === lbQuickEl) closeL
 // mirrors the local best (xpCarKey + currentMap.id); surface '' (encoded in track id). Shared
 // by Time Attack (lap ms) and XP (run score) — the RPC's mode branch enforces the right bound
 // (TA floor / XP ceiling) and direction (TA keeps MIN / XP keeps MAX).
-function submitLeaderboardBest(mode: LbMode, value: number) {
+function submitLeaderboardBest(mode: LbMode, value: number, proof: unknown) {
   if (!getAuthState().user) return;   // signed-out: local best only, no submit
   const key = boardKey(mode, currentMap.id, xpCarKey());
-  void submitScore(key, value).then((res) => {
+  void submitScore(key, value, proof).then((res) => {
     if (!res.ok) console.info('[lb] %s submit rejected: %s', mode, res.reason);
     else if (res.updated) console.info('[lb] new online %s best submitted (%s)', mode, Math.round(value));
   }).catch((e) => console.info('[lb] submit failed:', e));
+}
+// The ZONE tracker for the active TA / XP run (leaderboard anti-cheat / proof-of-play; see
+// zones.ts). Null when the current map has no centreline (never for a TA/XP map). Created in
+// startTimeAttack / startXpRun; fed the car nose on the fixed step alongside the mode's own feed.
+let zoneTracker: ZoneTracker | null = null;
+function makeZoneTracker(): ZoneTracker | null {
+  const path = currentMap.zonePath?.(world);
+  return path && path.length >= 6 ? new ZoneTracker(path) : null;
 }
 
 // Build the map-select tiles from the registry (so new maps appear here
@@ -3387,6 +3396,7 @@ function startTimeAttack() {
   // pattern as startXpRun. xpCarKey is a hoisted function declaration, safe to call here.
   taBestKeyActive = taBestKeyFor(xpCarKey(), currentMap.id);
   taRun = new TimeAttackRun(el, readTaBest(taBestKeyActive));
+  zoneTracker = makeZoneTracker();   // leaderboard zone splits for this run (null on a zone-less map)
   taRecordUntil = 0;
   taLastUntil = 0;
   for (const [slot, car] of cars) {
@@ -3496,6 +3506,7 @@ function startXpRun() {
   // same key (the driven car = xpCarKey(), the loaded map = currentMap.id).
   xpBestKeyActive = xpBestKeyFor(xpCarKey(), currentMap.id);
   xpBest = readXpBest(xpBestKeyActive);
+  zoneTracker = makeZoneTracker();   // proof-of-play for this run (null on a zone-less map)
   for (const [slot, car] of cars) {
     const pose = currentMap.spawn(slot, world);
     car.state = makeCar(pose.x, pose.y, pose.heading);
@@ -3513,10 +3524,16 @@ function startXpRun() {
 function handleXpEnd() {
   xpEndHandled = true;
   const score = Math.floor(xpRun.xp);
-  const isRecord = score > xpBest;
+  // ONE validity rule (matches TA): a run records locally AND submits only if its proof-of-play
+  // is internally consistent — a legit run (drove zones contiguously) always is; a fabricated /
+  // teleport run isn't. No tracker (a zone-less map, which no XP map is) ⇒ nothing to prove ⇒
+  // valid locally. The SAME proof goes to the RPC, which re-checks it server-side.
+  const proof = zoneTracker ? zoneTracker.xpProof() : null;
+  const valid = proof ? xpProofValid(proof, score) : true;
+  const isRecord = valid && score > xpBest;
   if (isRecord) {
     xpBest = score; writeXpBest(xpBestKeyActive, score);
-    submitLeaderboardBest('xp', score);   // online board: new PB run, signed-in only, fire-and-forget
+    submitLeaderboardBest('xp', score, proof ?? {});   // online board: new PB run, signed-in only, fire-and-forget
   }
   if (xpEndRecordEl) xpEndRecordEl.hidden = !isRecord;
   if (xpEndLabelEl) {
@@ -4472,19 +4489,28 @@ function frame(now: number) {
       // a render-rate feed would make lap times frame-rate dependent.
       if (isTimeAttack() && taRun && lead) {
         const s = lead.state;
-        // Off-track invalidation feeds the SAME per-wheel count XP does — wheelsOffTrack()
-        // (each wheel vs the map's onTrackAt geometry) — and the run applies XP's own
-        // > offTrackWheels threshold. An invalid lap's done.isBest is already false, so the
-        // record save below is gated on validity for free.
-        const done = taRun.update(s.x + Math.cos(s.heading) * CAR_NOSE_M,
-          s.y + Math.sin(s.heading) * CAR_NOSE_M, gameNow, s.vx, s.vy, wheelsOffTrack(lead));
+        const nx = s.x + Math.cos(s.heading) * CAR_NOSE_M, ny = s.y + Math.sin(s.heading) * CAR_NOSE_M;
+        const wasRunning = taRun.hud(gameNow).running;
+        // ZONE validity + splits read the accumulation from PRIOR steps (by a completion instant
+        // the whole lap's zones 0..5 are already recorded); capture BEFORE any reset below.
+        const zonesValid = zoneTracker ? zoneTracker.lapComplete() : true;
+        const splits = zoneTracker ? zoneTracker.lapSplits() : null;
+        // Off-track feeds the SAME per-wheel count XP does; done.isBest is gated on BOTH off-track
+        // AND zone validity, so an off-track OR a shortcut lap saves + submits nothing.
+        const done = taRun.update(nx, ny, gameNow, s.vx, s.vy, wheelsOffTrack(lead), zonesValid);
+        if (zoneTracker) zoneTracker.update(nx, ny, gameNow);   // record THIS step
+        // Align the zone lap with TA's timed lap: reset it when the clock first starts (first
+        // crossing) so pre-race driving doesn't count, and after each completed lap.
+        if (zoneTracker && !wasRunning && taRun.hud(gameNow).running) zoneTracker.resetLap(gameNow);
         if (done) {
           if (done.isBest) {
             writeTaBest(taBestKeyActive, done.ms);
             taRecordUntil = gameNow + TA_RECORD_MS;
-            submitLeaderboardBest('timeattack', done.ms);   // online board: new PB, signed-in only, fire-and-forget
+            // Proof = the completed lap's 6 zone splits (present + ordered, since isBest ⇒ zonesValid).
+            submitLeaderboardBest('timeattack', done.ms, { z: splits ?? [] });
           }
           taLastUntil = gameNow + TA_LAST_MS;
+          if (zoneTracker) zoneTracker.resetLap(gameNow);   // next lap starts fresh
         }
       }
 
@@ -4510,6 +4536,12 @@ function frame(now: number) {
       // Off-track is decided by TRACK GEOMETRY (is the wheel outside the drivable ribbon?),
       // never by which material it is standing on — see maps.onTrackAt. >2 wheels off ends
       // the run. Maps without ribbon geometry report 0 and lean on their crash-end.
+      // ZONES (proof-of-play): feed the SAME nose point the run reads, accumulating distinct
+      // zones visited + loops + contiguity for the submit — never gates the run itself.
+      if (zoneTracker) {
+        const s = lead.state;
+        zoneTracker.update(s.x + Math.cos(s.heading) * CAR_NOSE_M, s.y + Math.sin(s.heading) * CAR_NOSE_M, gameNow);
+      }
       updateXpRun(xpRun, realDt, lead.state.speed, lead.state.rearSlip, xpCrash, wheelsOffTrack(lead));
       if (xpRun.ended && !xpEndHandled) handleXpEnd();
     }
@@ -5427,6 +5459,7 @@ function switchMap(id: string): boolean {
   // Every map starts in LAPS mode; the host opts into XP mode via the editor.
   circuitMode = 'laps';
   taRun = null;                 // a fresh map drops any Time Attack session (its best is stored)
+  zoneTracker = null;           // ...and its zone tracker (recreated by startTimeAttack / startXpRun)
   if (taHudEl) taHudEl.hidden = true;
   raceWarmup = false;   // a fresh map is free-roam until a RACE launch arms the warm-up
   updateReadyButton();

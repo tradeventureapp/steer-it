@@ -59,12 +59,17 @@ function ascending(mode: LbMode): boolean { return mode !== 'xp'; }
 
 const SEL = 'user_id, nickname, value';
 
-/** Submit a result via the anti-cheat RPC. Only call for a genuine new PERSONAL BEST. */
-export async function submitScore(k: BoardKey, value: number): Promise<SubmitResult> {
+/**
+ * Submit a result via the anti-cheat RPC. Only call for a genuine new PERSONAL BEST.
+ * `proof` is the zone/split proof-of-play (see zones.ts): TA sends `{z:[6 split ms]}`, XP sends
+ * `{zc,laps,ord}`. The RPC validates its STRUCTURE (all TA zones present + monotonic; XP data
+ * internally consistent) on top of the auth + floor/ceiling + rate-limit gates.
+ */
+export async function submitScore(k: BoardKey, value: number, proof: unknown = {}): Promise<SubmitResult> {
   try {
     const { data, error } = await supabase.rpc('submit_score', {
       p_mode: k.mode, p_track_id: k.trackId, p_car_key: k.carKey,
-      p_surface: k.surface, p_value: Math.round(value),
+      p_surface: k.surface, p_value: Math.round(value), p_proof: proof,
     });
     if (error) return { ok: false, updated: false, reason: 'error' };
     const r = (data ?? {}) as { ok?: boolean; updated?: boolean; reason?: string | null };

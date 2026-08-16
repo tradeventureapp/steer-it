@@ -110,6 +110,14 @@ palette picked on the phone (§13).
   back), plus OFF-TRACK LAP INVALIDATION that reuses XP's detection (`wheelsOffTrack` count +
   `XP_CONFIG.offTrackWheels` threshold — an invalid lap never records). DOM/storage-free like
   `xp.ts` — the best lap is passed in and handed back out.
+- `zones.ts` — LEADERBOARD ZONES (pure): `ZoneTracker` + `xpProofValid`. Splits a track's
+  CENTRELINE (the map's `zonePath` — arc-length-even, finish-anchored, forward-oriented) into 6
+  EQUAL arc-length buckets; "which zone" = nearest-centreline point, so a zone is the FULL RIBBON
+  width by construction (generous — legit driving never misses one; only a real shortcut does).
+  TA: `lapComplete()` / `lapSplits()` (all 6 in order this lap → the submit proof). XP: `xpProof()`
+  = {distinct zones, loops, contiguity} proof-of-play. Fed the car nose on the fixed step (both
+  modes) in desktop.ts; DOM/physics-free. Structural only — no per-segment speed floors yet (the
+  TA splits are stored so those can be added server-side later with no client change).
 - `leaderboard.ts` — LEADERBOARD client data layer (Phase 2, Time Attack + XP): `submitScore`
   (→ the SECURITY DEFINER `submit_score` RPC, the only write path), `fetchBoard` (paginated menu
   board), `fetchTopAndOwn` (compact top-10 + caller's own row/rank). Thin Supabase wrapper (like
@@ -297,15 +305,30 @@ not trusted). `EV` events: phone→desktop `join|color|name|leave|control`; desk
   "VIEW LEADERBOARD" button (shown when Time Attack OR XP + car + map are picked) opens a compact
   **top-10 + your own row/rank** (own shown even if outside the top), no pagination. Both: signed-out
   can VIEW (public read) and see a "sign in to submit" note. **SUBMIT** (`submitLeaderboardBest`)
-  fires ONLY on a new LOCAL personal best — TA at `done.isBest` (already `valid && faster`, so
-  invalid/off-track laps never submit); XP at `handleXpEnd`'s `isRecord` (the banked run score beat
-  the stored best; a run's score is legit by construction — off-track/crash/slow just END the run) —
-  signed-in only, fire-and-forget, keyed `(mode, currentMap.id, xpCarKey(), '')`. Migration lives in
-  `supabase/schema.sql` (idempotent, run in the SQL editor). **Phase-2 scope: NO CHECKPOINTS**
-  (relies on the shipped finish-line + forward + far-point + off-track invalidation); ordered-
-  checkpoint anti-cheat + split times are a later step, and a **total-lifetime-XP** board (vs today's
-  best-single-run XP) is a separate future step. The old unused `scores` table is left in place
-  (superseded by `leaderboard`).
+  fires ONLY on a new LOCAL personal best — TA at `done.isBest`; XP at `handleXpEnd`'s `isRecord` —
+  signed-in only, fire-and-forget, keyed `(mode, currentMap.id, xpCarKey(), '')`, and now carrying
+  **ZONE proof** (below). Migration lives in `supabase/schema.sql` (idempotent, run in the SQL
+  editor). A **total-lifetime-XP** board (vs today's best-single-run XP) is a separate future step.
+  The old unused `scores` table is left in place (superseded by `leaderboard`).
+- **CHECKPOINT-ZONE anti-cheat (Phase 2, both modes) — LIVE.** Each racing track's CENTRELINE (the
+  map's `zonePath(world)` — the ribbon/oval midline, arc-length-even, anchored at the finish,
+  oriented forward) is split by `zones.ts` into **6 EQUAL arc-length ZONES**, full ribbon width
+  (which-zone = nearest-centreline point). It's ONE validity rule for local best AND leaderboard:
+  **TA** — a lap sets the record + submits ONLY if all 6 zones were entered IN ORDER (this feeds
+  `TimeAttackRun.update`'s new `zonesValid` param alongside the off-track flag; the submit carries
+  `{z:[6 split ms]}`). **XP** — a survival run needn't finish, so zones are PROOF-OF-PLAY, not a
+  gate: the submit carries `{zc:distinct-zones, laps:loops, ord:contiguous}` and the run records +
+  submits only if that's internally consistent (`xpProofValid`). Combined with off-track (>2 wheels
+  off) it catches shortcuts whether they cut across grass OR reverse on the ribbon. The
+  `submit_score` RPC gained a **`p_proof jsonb`** param + a **STRUCTURAL** check (TA: 6 present +
+  monotonic; XP: no-play/contradiction/teleport rejected) — the 5-arg function is DROPPED and
+  replaced by a 6-arg with `p_proof default '{}'` so an old cached client still resolves (its submit
+  fails the zone check until it reloads — fire-and-forget, no gameplay impact). ⚠️ **STRUCTURAL
+  ONLY — no per-segment speed floors yet**: the TA splits are stored so a future per-`(track,car,
+  segment)` MINIMUM-TIME check (a `leaderboard_limits`-style table) drops in server-side with ZERO
+  client change. `race.ts`'s dormant checkpoint machinery is UNTOUCHED (XP builds no RaceState, so
+  zones are a standalone module serving both modes; full-width arc-length bands also avoid the
+  false-invalidation a proximity circle risks on a sweeping corner).
 - **Track editor (E)** — per map type; on OPEN maps a place-elements editor, on CIRCUIT maps a
   laps/XP panel. **Locked to the Desktop map + PREMIUM only** (free users get the upsell).
 - **Track AUTHORING tool (dev)** — `track-editor.html` (see §2): draw a new circuit layout
@@ -488,16 +511,19 @@ The XSS/takeover half of Finding 1 is **FIXED + pushed** (`0eb7300`, see §8). T
    + a lookup in turn.js (~1-2 days) — the same registry option (D) in 3a would need. Also open: the
    limiters are **per warm instance**, so the true global ceiling is higher; a real distributed
    limiter needs Upstash / Vercel KV (~3-5 h, new infra). See the Cloudflare cap caveat in §8.
-3c. **Leaderboard SECURITY DEFINER submit RPC — DONE for TIME ATTACK + XP (Phase 2).**
+3c. **Leaderboard SECURITY DEFINER submit RPC + CHECKPOINT-ZONE anti-cheat — DONE for TA + XP.**
    `public.submit_score()` (in `supabase/schema.sql`) is the server-side write gate: auth + input
    validity + rate limit (10/user/min) + mode plausibility (TA floor `TA_MIN_MS 3000` + 1 h ceiling;
-   XP ceiling `XP_MAX 10,000,000`; per-`(track,car)` override table) + mode-aware best-only upsert
-   (TA MIN / XP MAX); public read, RPC-only write. Wired for BOTH modes (`src/leaderboard.ts` + the
-   menu mode-toggle / quick-view UI). **STILL OPEN:** (a) it's client-authoritative in the sense that
-   a hacked client can still submit a *plausible* (bound-passing) value — the real hardening is
-   **ordered checkpoints + per-checkpoint split validation** (deferred; see the Phase-2 investigation),
-   (b) the rate limit lives in a table but is not a per-map/day cap yet, and (c) the XP board is
-   best-single-run; a **total-lifetime-XP** board is a separate future step. Race results stay LOCAL.
+   XP ceiling `XP_MAX 10,000,000`; per-`(track,car)` override table) + **STRUCTURAL zone proof**
+   (`p_proof jsonb`: TA 6 splits present + monotonic; XP no-play/contradiction/teleport rejected) +
+   mode-aware best-only upsert (TA MIN / XP MAX); public read, RPC-only write. Zones = 6 full-width
+   arc-length bands off each track's centreline (`zones.ts` + `maps.zonePath`), passed in order for
+   TA / proof-of-play for XP, combined with the off-track (>2 wheels) gate. **STILL OPEN:** (a) still
+   client-authoritative in that a hacked client could fabricate *plausible* zone splits — the real
+   next hardening is **per-segment split-TIME (speed) floors** server-side (the splits are already
+   captured + sent; add a `leaderboard_limits`-style `(track,car,segment)` floor, zero client
+   change), (b) the rate limit is not a per-map/day cap yet, and (c) the XP board is best-single-run;
+   a **total-lifetime-XP** board is a separate future step. Race results stay LOCAL.
 
 ### Content / cars
 4. **Fury 200 EVO finish** — redo the rough sprite; the physics is real but awaits the phone
@@ -583,10 +609,13 @@ The XSS/takeover half of Finding 1 is **FIXED + pushed** (`0eb7300`, see §8). T
 - **TODO:** the two OPEN whitehat findings in §5. The **leaderboard submit RPC is now LIVE for Time
   Attack AND XP** (`public.submit_score`, SECURITY DEFINER: auth + mode plausibility [TA floor+1h /
   XP ceiling] + rate-limit + mode-aware best-only upsert, public read / RPC-only write — §4).
-  Remaining leaderboard hardening: ordered-checkpoint + split-time validation (deferred), a
+  Remaining leaderboard hardening: per-segment split-TIME (speed) floors (the zone splits are
+  captured + sent; the server floor check is the designed-in future step), a
   per-map/day cap, and a total-lifetime-XP board. **⚠️ Re-run `supabase/schema.sql` in the SQL editor
-  after this deploy** — it's idempotent; it updates `submit_score` (XP ceiling branch) and adds the
-  `grant select on public.leaderboard` that was previously a live hotfix.
+  after this deploy** — it's idempotent; it **DROPs the 5-arg `submit_score` and creates a 6-arg one
+  with `p_proof jsonb`** (the zone/proof structural check) and keeps the `grant select on
+  public.leaderboard`. Until it runs, the new client's submits fail gracefully (fire-and-forget) —
+  push first, run the SQL immediately to keep the gap short.
   ⚠️ Cloudflare docs expose **no per-key hard usage/spend cap** for Realtime TURN (only per-allocation
   rate limits: >5 new IP/s, 5-10 kpps, 50-100 Mbps; $0.05/real-time GB standalone). So the old
   "set a TURN usage cap" TODO is **not achievable as a hard cap** — use billing alerts + monitoring,
