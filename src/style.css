@@ -712,6 +712,56 @@ body.desktop #game { display: block; width: 100vw; height: 100vh; }
 }
 .gm-premium-owned span { font-size: 13px; }
 
+/* REVIEW-FOR-PREMIUM button (game-menu) — a quiet gold outline, secondary to the loud GET
+   PREMIUM CTA above it. Signed-in non-premium only (gated in renderGameMenuAccount). */
+.gm-review-cta {
+  appearance: none; cursor: pointer;
+  font-family: var(--font-body); font-weight: 700; font-size: 13px; letter-spacing: 0.3px;
+  color: var(--gold); padding: 10px 16px; border-radius: 12px;
+  border: 1px solid rgba(255, 194, 74, 0.4); background: rgba(255, 194, 74, 0.06);
+  transition: border-color 0.15s, background 0.15s;
+}
+.gm-review-cta:hover { border-color: var(--gold); background: rgba(255, 194, 74, 0.12); }
+.gm-review-cta[hidden] { display: none; }
+
+/* ---- REVIEW MODAL ---- */
+.review-card { min-width: 340px; max-width: 420px; text-align: center; gap: 12px; }
+#review-modal .review-card { width: min(420px, 92vw); }
+.review-lead {
+  font-family: var(--font-body); font-size: 13px; line-height: 1.5; color: var(--text-dim);
+  margin: -2px 0 2px; text-wrap: balance;
+}
+.review-lead b { color: var(--gold); }
+.review-form { display: flex; flex-direction: column; gap: 12px; width: 100%; }
+/* Star picker — 1..5; filled up to the hovered/selected star (JS sets .on / data-hover). */
+.review-stars { display: flex; justify-content: center; gap: 6px; }
+.review-star {
+  appearance: none; background: none; border: none; cursor: pointer;
+  font-size: 30px; line-height: 1; padding: 2px 4px;
+  color: rgba(178, 162, 208, 0.35); transition: color 0.1s, transform 0.1s;
+}
+.review-star:hover { transform: scale(1.12); }
+.review-star.on { color: var(--gold); text-shadow: var(--glow-gold); }
+.review-text {
+  font-family: var(--font-body); font-size: 14px; color: #fff; resize: vertical; min-height: 84px;
+  padding: 11px 13px; border-radius: 10px; width: 100%;
+  background: rgba(8, 4, 18, 0.6); border: 1.5px solid var(--border-dim);
+}
+.review-text:focus { outline: none; border-color: rgba(255, 45, 149, 0.7); box-shadow: 0 0 12px rgba(255, 45, 149, 0.3); }
+.review-text::placeholder { color: rgba(197, 182, 230, 0.55); }
+.review-consent { justify-content: flex-start; }
+.review-msg {
+  font-family: var(--font-body); font-size: 12.5px; line-height: 1.4;
+  color: var(--danger); text-align: left;
+}
+.review-msg.ok { color: var(--ok); }
+.review-done { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 8px 0 4px; }
+.review-done-icon {
+  width: 46px; height: 46px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  font-size: 24px; font-weight: 800; color: var(--ink); background: var(--gold); box-shadow: var(--glow-gold);
+}
+.review-done-text { font-family: var(--font-body); font-size: 14px; color: var(--text); margin: 0; text-wrap: balance; }
+
 /* OPTIONS → account: the upgrade button for a free host (sunset fill). */
 .gm-opt-upgrade {
   appearance: none; -webkit-appearance: none; cursor: pointer;

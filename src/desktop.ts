@@ -50,6 +50,7 @@ import {
 } from './xp';
 import { TimeAttackRun, formatLapTime } from './time-attack';
 import { ZoneTracker, xpProofValid } from './zones';
+import { submitReview, fetchMyReview } from './reviews';
 import {
   submitScore, fetchBoard, fetchTopAndOwn, LB_PAGE_SIZE,
   type BoardKey, type LbRow,
@@ -1733,6 +1734,98 @@ document.getElementById('opt-back')?.addEventListener('click', closeOptions);
 optionsModalEl?.addEventListener('click', (e) => { if (e.target === optionsModalEl) closeOptions(); });
 document.getElementById('gm-leaderboards')?.addEventListener('click', () => { setGameMenuView('leaderboards'); openLeaderboardMenu(); });
 document.getElementById('gm-lb-back')?.addEventListener('click', () => setGameMenuView('home'));
+
+// =============================================================================
+//  REVIEW FOR PREMIUM — a signed-in non-premium user leaves an honest review (any rating)
+//  which, after MANUAL approval (admin_approve_review), grants premium via granted_premium.
+//  Submitting NEVER grants — it lands as 'pending'. Legally clean: no rating threshold, and
+//  the publish-consent checkbox is separate + does NOT affect the reward.
+// =============================================================================
+const reviewModalEl = document.getElementById('review-modal');
+let reviewRating = 0;
+let reviewBusy = false;
+function paintReviewStars(): void {
+  for (const b of Array.from(document.querySelectorAll('#review-stars .review-star')) as HTMLElement[]) {
+    b.classList.toggle('on', Number(b.dataset.val) <= reviewRating);
+  }
+}
+function setReviewMsg(text: string, ok = false): void {
+  const m = document.getElementById('review-msg');
+  if (!m) return;
+  m.textContent = text; m.hidden = !text; m.classList.toggle('ok', ok);
+}
+function showReviewDone(status: 'pending' | 'approved'): void {
+  const form = document.getElementById('review-form-view');
+  const done = document.getElementById('review-done-view');
+  const txt = document.getElementById('review-done-text');
+  if (form) form.hidden = true;
+  if (done) done.hidden = false;
+  if (txt) txt.textContent = status === 'approved'
+    ? 'Your review was approved — premium unlocked. Thank you!'
+    : 'Thanks — your review is in and awaiting approval. Premium unlocks once approved.';
+}
+async function openReviewModal(): Promise<void> {
+  if (!reviewModalEl) return;
+  // Reset the form to a clean state.
+  reviewRating = 0; reviewBusy = false; paintReviewStars();
+  const ta = document.getElementById('review-text') as HTMLTextAreaElement | null;
+  const consent = document.getElementById('review-consent') as HTMLInputElement | null;
+  if (ta) ta.value = '';
+  if (consent) consent.checked = false;
+  setReviewMsg('');
+  const form = document.getElementById('review-form-view');
+  const done = document.getElementById('review-done-view');
+  if (form) form.hidden = false;
+  if (done) done.hidden = true;
+  const submit = document.getElementById('review-submit') as HTMLButtonElement | null;
+  if (submit) submit.disabled = false;
+  reviewModalEl.hidden = false;
+  // If they already have a review (pending/approved), show that state instead of the form.
+  const uid = getAuthState().user?.id;
+  if (uid) {
+    const mine = await fetchMyReview(uid);
+    if (mine && (mine.status === 'pending' || mine.status === 'approved') && !reviewModalEl.hidden) {
+      showReviewDone(mine.status);
+    }
+  }
+}
+function closeReviewModal(): void { if (reviewModalEl) reviewModalEl.hidden = true; }
+// Map an RPC reason to a clear message.
+function reviewReasonMsg(reason: string | null): string {
+  return reason === 'rating' ? 'Please pick a star rating first.'
+    : reason === 'text' ? 'Please write at least 10 characters.'
+    : reason === 'exists' ? "You've already submitted a review — thank you!"
+    : reason === 'rate' ? 'Too many attempts — please try again later.'
+    : reason === 'auth' ? 'Please sign in first.'
+    : 'Could not submit your review. Please try again.';
+}
+for (const b of Array.from(document.querySelectorAll('#review-stars .review-star')) as HTMLElement[]) {
+  b.addEventListener('click', () => { reviewRating = Number(b.dataset.val) || 0; paintReviewStars(); setReviewMsg(''); });
+}
+document.getElementById('gm-review')?.addEventListener('click', () => { void openReviewModal(); });
+document.getElementById('review-close')?.addEventListener('click', closeReviewModal);
+document.getElementById('review-done-close')?.addEventListener('click', closeReviewModal);
+reviewModalEl?.addEventListener('click', (e) => { if (e.target === reviewModalEl) closeReviewModal(); });
+document.getElementById('review-submit')?.addEventListener('click', () => {
+  if (reviewBusy) return;
+  const ta = document.getElementById('review-text') as HTMLTextAreaElement | null;
+  const consent = document.getElementById('review-consent') as HTMLInputElement | null;
+  const body = (ta?.value || '').trim();
+  // Client-side pre-checks for a clean message (the RPC re-validates authoritatively).
+  if (reviewRating < 1) { setReviewMsg(reviewReasonMsg('rating')); return; }
+  if (body.length < 10) { setReviewMsg(reviewReasonMsg('text')); return; }
+  reviewBusy = true;
+  const submit = document.getElementById('review-submit') as HTMLButtonElement | null;
+  if (submit) submit.disabled = true;
+  setReviewMsg('Submitting…', true);
+  void submitReview(reviewRating, body, !!consent?.checked).then((r) => {
+    reviewBusy = false;
+    if (submit) submit.disabled = false;
+    if (r.ok) { showReviewDone('pending'); return; }
+    if (r.reason === 'exists') { showReviewDone('pending'); return; }   // already have one → show the state
+    setReviewMsg(reviewReasonMsg(r.reason));
+  });
+});
 document.getElementById('gm-music')?.addEventListener('click', toggleMusic);
 document.getElementById('gm-logout')?.addEventListener('click', () => { closeOptions(); void signOut(); });
 document.getElementById('btn-cms-back')?.addEventListener('click', openModeSelect);
@@ -2037,6 +2130,11 @@ function renderGameMenuAccount(s: AuthState) {
   if (cta) cta.hidden = !free;
   if (owned) owned.hidden = pending || !s.isPremium;
   if (optUp) optUp.hidden = !free;
+  // Review-for-premium: same gate as GET PREMIUM (signed-in non-premium, plan resolved). A
+  // granted user is `s.isPremium` (effective = paid OR granted), so once approved they stop
+  // seeing it.
+  const review = document.getElementById('gm-review');
+  if (review) review.hidden = !free;
 }
 
 // ---- Background music (host only) — a shuffled synthwave playlist that plays in

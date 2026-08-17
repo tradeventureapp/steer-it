@@ -96,7 +96,7 @@ async function refreshEntitlement(user: AuthUser): Promise<boolean> {
     // missing row) INSTEAD of `.single()`'s spurious PGRST116 error. We check error
     // explicitly (the old code dropped it → silent FREE).
     const { data, error, status } = await supabase
-      .from('profiles').select('is_premium, nickname, last_nickname_change').eq('id', user.id).maybeSingle();
+      .from('profiles').select('is_premium, granted_premium, nickname, last_nickname_change').eq('id', user.id).maybeSingle();
     // Confirm we're querying with the AUTHENTICATED session (RLS auth.uid()), not anon.
     const { data: authData } = await supabase.auth.getUser();
     const authedId = authData.user?.id ?? null;
@@ -111,12 +111,15 @@ async function refreshEntitlement(user: AuthUser): Promise<boolean> {
         'a service-role SELECT in the dashboard would still see it. Defaulting to FREE.',
         user.id, authedId);
     } else {
-      premium = data.is_premium === true;
+      // EFFECTIVE premium = PAID (is_premium, Stripe) OR GRANTED (granted_premium, review/comp).
+      // Kept as one OR here so every gate that reads getAuthState().isPremium inherits it, and so
+      // a granted user is immune to any Stripe is_premium reset (Stripe never touches granted).
+      premium = data.is_premium === true || data.granted_premium === true;
       nickname = (data.nickname as string | null) ?? null;
       nicknameChangedAt = (data.last_nickname_change as string | null) ?? null;
     }
-    console.info('[auth] entitlement = %s  (is_premium=%o, nick=%o, row=%o, authed=%s, email=%s)',
-      premium ? 'PREMIUM' : 'FREE', data?.is_premium, nickname, !!data, authedId === user.id, user.email);
+    console.info('[auth] entitlement = %s  (is_premium=%o, granted=%o, nick=%o, row=%o, authed=%s, email=%s)',
+      premium ? 'PREMIUM' : 'FREE', data?.is_premium, data?.granted_premium, nickname, !!data, authedId === user.id, user.email);
   } catch (e) {
     console.error('[auth] profiles read threw:', e);
   }

@@ -132,9 +132,13 @@ palette picked on the phone (§13).
   centred on the rotation pivot, mipmap downscale). Fury recolours from ONE base + `Fury-mask.png`
   (§13) — Stee-Rex is vector per-skin, Blitz uses an arithmetic body test.
 - `auth.ts` — HOST auth + entitlement (Supabase Auth): sign-up/in, email verify, password reset,
-  `is_premium` (server truth, RLS), nickname (RPC-validated + 30-day cooldown), device cap (5),
-  marketing consent (`setMarketingConsent` RPC + `signUp`'s opt-in metadata param).
-  Phones NEVER import it — joining stays account-free.
+  **effective premium = `is_premium` (Stripe-paid) OR `granted_premium` (review/comp)** — the ONE
+  place that OR is read; every gate inherits it (server truth, RLS), nickname (RPC-validated +
+  30-day cooldown), device cap (5), marketing consent (`setMarketingConsent` RPC + `signUp`'s
+  opt-in metadata param). Phones NEVER import it — joining stays account-free.
+- `reviews.ts` — REVIEWS client data layer ("leave a review → get premium free"): `submitReview`
+  (→ the SECURITY DEFINER `submit_review` RPC, the only write path) + `fetchMyReview` (own row →
+  show pending/approved state). Thin Supabase wrapper; errors swallowed.
 - `email.ts` / `nickname.ts` — email normalise + disposable block; nickname format/cooldown helpers.
 - `api/` (serverless, plain JS): `_lib.js` (env + Stripe client + `PRICE_ID`), `create-checkout-session.js`,
   `stripe-webhook.js` (grants premium), `verify-session.js` (ownership-checked fallback),
@@ -453,8 +457,27 @@ not trusted). `EV` events: phone→desktop `join|color|name|leave|control`; desk
   marketing_opt_in`. Migration in `supabase/schema.sql` (idempotent). ⚠️ NOT tied to the separate
   review-for-premium idea. A later "email preferences" UI will add a distinct `marketing_opt_out_at`
   (keep both records) rather than overwriting `marketing_opt_in_at`.
+- **Review for free premium** — a signed-in NON-premium user leaves an HONEST review (1–5 stars,
+  text ≥10 chars) which, after **MANUAL approval**, grants premium. **Legally clean**: premium is
+  for LEAVING a review — **ANY rating qualifies, never a positive one** (no rating threshold in the
+  grant); copy says "share your honest feedback — any rating qualifies". A **separate default-
+  unchecked publish-consent** checkbox governs ONLY a future website showcase and does **NOT** gate
+  the reward (consent stays freely given). **NO auto-grant**: `submit_review` sets `status='pending'`;
+  premium is granted ONLY by the manual `admin_approve_review(id)` (owner/service-role, run in the
+  SQL editor — never client-callable). **⚠️ GRANTED PREMIUM IS A SEPARATE FLAG** — `profiles
+  .granted_premium` (+ `granted_premium_at`), NOT `is_premium`. Effective premium (auth.ts) =
+  `is_premium OR granted_premium`; Stripe/billing ONLY ever touch `is_premium`, so a granted/comped
+  user can NEVER be wiped by any present/future Stripe revoke/refund/reconcile logic and is never
+  counted as a paying customer (paid = `where is_premium`; comped = `where granted_premium`). Table
+  `public.reviews` (id, user_id, nickname [server-side], rating, body, publish_consent, consent_at,
+  status, created_at, reviewed_at), RLS: own-read + PUBLIC read of approved+consented only (for the
+  showcase), RPC-only write. Button `#gm-review` (game-menu, gated to signed-in non-premium via the
+  existing `free` flag), modal `#review-modal` (`reviews.ts` client). One active (pending/approved)
+  review per user + ≤5 submits/hour. Migration + admin workflow SQL in `supabase/schema.sql`
+  (idempotent) — incl. the one-time `johny.frajer` migration onto `granted_premium`.
 - **Stripe LIVE end-to-end** — hosted checkout, webhook grants premium, verify-session fallback,
-  consent modal. Managed Payments (MoR / EU VAT). See §6.
+  consent modal. Managed Payments (MoR / EU VAT). See §6. ⚠️ Stripe/webhook/`setPremium`/verify
+  ONLY ever set `is_premium = true` (no revoke path exists) — and NEVER touch `granted_premium`.
 - **Free vs premium split enforced** (server-truth `is_premium`, defense-in-depth): SIM car + extra
   maps/modes + editor are premium; arcade + basic play are free.
 - **⚠️ TEMPORARY EXPERIMENT — TA + XP free for signed-in users** (`FREE_TA_XP_ENABLED = true` in

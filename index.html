@@ -442,6 +442,11 @@
         </button>
         <div class="gm-premium-owned" id="gm-premium-owned" hidden><span aria-hidden="true">★</span> PREMIUM</div>
 
+        <!-- REVIEW-FOR-PREMIUM — signed-in NON-premium only (same 'free' gate as GET PREMIUM,
+             set in renderGameMenuAccount). Leaving an honest review (any rating) earns premium
+             after manual approval. -->
+        <button type="button" class="gm-review-cta" id="gm-review" hidden>★ Leave a review → get premium free</button>
+
         <div class="menu-foot">Host on a laptop, desktop <span class="dot">·</span> or tablet</div>
       </div>
 
@@ -883,6 +888,43 @@
         <div class="upsell-actions">
           <button type="button" class="menu-btn primary" id="upsell-primary">CREATE ACCOUNT</button>
           <button type="button" class="menu-btn ghost" id="upsell-secondary">LOG IN</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- REVIEW-FOR-PREMIUM modal. Legally clean: premium is for LEAVING a review (ANY rating
+         qualifies — never a positive one), and the publish-consent checkbox is SEPARATE and does
+         NOT gate the reward. No auto-grant — submitting sets status='pending'; premium is granted
+         only by manual approval (admin_approve_review). Opened from #gm-review; wired in desktop.ts. -->
+    <div id="review-modal" class="modal-overlay" hidden>
+      <div class="menu-card gm-card review-card">
+        <button type="button" class="auth-x" id="review-close" aria-label="Close">×</button>
+        <div class="menu-title">LEAVE A REVIEW</div>
+        <p class="review-lead">Share your <b>honest</b> feedback — <b>any rating qualifies</b>. Approved reviews unlock premium, free.</p>
+
+        <div class="review-form" id="review-form-view">
+          <div class="review-stars" id="review-stars" role="radiogroup" aria-label="Rating">
+            <button type="button" class="review-star" data-val="1" aria-label="1 star">★</button>
+            <button type="button" class="review-star" data-val="2" aria-label="2 stars">★</button>
+            <button type="button" class="review-star" data-val="3" aria-label="3 stars">★</button>
+            <button type="button" class="review-star" data-val="4" aria-label="4 stars">★</button>
+            <button type="button" class="review-star" data-val="5" aria-label="5 stars">★</button>
+          </div>
+          <textarea id="review-text" class="review-text" rows="4" maxlength="2000"
+            placeholder="What did you think? (at least 10 characters)"></textarea>
+          <label class="optin-row review-consent">
+            <input type="checkbox" id="review-consent" />
+            <span class="optin-text">I agree Steer It may publish my review and nickname<span class="optin-note">Optional — you get premium either way.</span></span>
+          </label>
+          <div id="review-msg" class="review-msg" hidden></div>
+          <button type="button" class="menu-btn primary" id="review-submit">Submit review</button>
+        </div>
+
+        <!-- Shown instead of the form once the user has a pending / approved review. -->
+        <div class="review-done" id="review-done-view" hidden>
+          <div class="review-done-icon" aria-hidden="true">✓</div>
+          <p class="review-done-text" id="review-done-text">Thanks — your review is in.</p>
+          <button type="button" class="menu-btn ghost" id="review-done-close">Close</button>
         </div>
       </div>
     </div>

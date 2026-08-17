@@ -503,3 +503,120 @@ grant  select on public.leaderboard to anon, authenticated;
 revoke insert, update, delete on public.leaderboard from anon, authenticated;
 revoke all on function public.submit_score(text, text, text, text, bigint, jsonb) from public;
 grant  execute on function public.submit_score(text, text, text, text, bigint, jsonb) to authenticated;
+
+-- =============================================================================
+--  REVIEWS + GRANTED PREMIUM — "leave a review → get premium free" (manual approval).
+--  Idempotent. Legally clean: premium is for LEAVING a review (ANY rating qualifies),
+--  never for a positive one; publish consent is SEPARATE and does NOT gate the reward.
+--
+--  ⚠️ GRANTED PREMIUM IS A SEPARATE FLAG FROM is_premium (the Stripe-paid flag). The app's
+--  effective premium = is_premium OR granted_premium (read in auth.ts refreshEntitlement).
+--  Stripe / billing ONLY ever touch is_premium; nothing here (and nothing Stripe-side) writes
+--  granted_premium except admin_approve_review. So a review-granted (or comped) user can NEVER
+--  be wiped by any present OR future Stripe revoke/refund/reconcile logic, and is never counted
+--  as a paying customer (paid = `where is_premium`; comped = `where granted_premium`).
+-- =============================================================================
+alter table public.profiles add column if not exists granted_premium boolean not null default false;
+alter table public.profiles add column if not exists granted_premium_at timestamptz;
+
+create table if not exists public.reviews (
+  id              bigint generated always as identity primary key,
+  user_id         uuid not null references auth.users(id) on delete cascade,
+  nickname        text,                                   -- denormalised for display; written SERVER-side
+  rating          int  not null check (rating between 1 and 5),
+  body            text not null,                          -- the review text ('body', not the type-name 'text')
+  publish_consent boolean not null default false,
+  consent_at      timestamptz,                            -- set ONLY when publish_consent = true (GDPR: when consent was given)
+  status          text not null default 'pending' check (status in ('pending','approved','rejected')),
+  created_at      timestamptz not null default now(),
+  reviewed_at     timestamptz
+);
+-- ONE pending-or-approved review per user (a REJECTED one may be resubmitted). The unique index
+-- is the race-proof backstop; submit_review() also checks it for a clean message.
+create unique index if not exists reviews_one_active_per_user
+  on public.reviews (user_id) where status in ('pending','approved');
+
+alter table public.reviews enable row level security;
+-- READS: your OWN reviews (any status, so the UI can show pending/approved) OR the PUBLIC subset
+-- (approved AND consented — for a future website showcase). Pending / rejected / non-consented
+-- rows are visible to no one but their owner. RLS policies OR together (permissive).
+drop policy if exists "reviews: read own" on public.reviews;
+create policy "reviews: read own" on public.reviews for select using (auth.uid() = user_id);
+drop policy if exists "reviews: public approved+consented" on public.reviews;
+create policy "reviews: public approved+consented" on public.reviews
+  for select using (status = 'approved' and publish_consent = true);
+-- No client insert/update/delete (revoked below) — submit_review() is the only write path.
+
+-- ---- SUBMIT (user-callable, SECURITY DEFINER) ----
+-- Enforces: auth; rating 1..5; body 10..2000 chars; ONE active (pending/approved) review per
+-- user; a light rate cap (<=5 submissions/hour) against rejected-resubmit spam. Nickname is read
+-- from profiles (server truth). Sets status='pending' — NEVER grants premium (that is manual).
+-- consent_at is stamped ONLY when publish_consent is true; consent does NOT affect the reward.
+create or replace function public.submit_review(p_rating int, p_body text, p_consent boolean)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare uid uuid := auth.uid(); nick text; recent int; b text := btrim(coalesce(p_body, ''));
+begin
+  if uid is null then return jsonb_build_object('ok', false, 'reason', 'auth'); end if;
+  if p_rating is null or p_rating < 1 or p_rating > 5 then return jsonb_build_object('ok', false, 'reason', 'rating'); end if;
+  if length(b) < 10 or length(b) > 2000 then return jsonb_build_object('ok', false, 'reason', 'text'); end if;
+  if exists (select 1 from public.reviews where user_id = uid and status in ('pending','approved'))
+    then return jsonb_build_object('ok', false, 'reason', 'exists'); end if;
+  select count(*) into recent from public.reviews where user_id = uid and created_at > now() - interval '1 hour';
+  if recent >= 5 then return jsonb_build_object('ok', false, 'reason', 'rate'); end if;
+  select nickname into nick from public.profiles where id = uid;
+  insert into public.reviews (user_id, nickname, rating, body, publish_consent, consent_at)
+    values (uid, nick, p_rating, b, coalesce(p_consent, false),
+            case when coalesce(p_consent, false) then now() else null end);
+  return jsonb_build_object('ok', true);
+end; $$;
+
+-- ---- ADMIN approve / reject (NOT user-callable — service role / SQL editor only) ----
+-- APPROVE = the ONLY thing that grants premium, and it sets the SEPARATE granted_premium flag
+-- (never is_premium). Gated on status='pending' so re-running is a no-op. REJECT just marks it.
+create or replace function public.admin_approve_review(p_id bigint)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare uid uuid;
+begin
+  update public.reviews set status = 'approved', reviewed_at = now()
+    where id = p_id and status = 'pending' returning user_id into uid;
+  if uid is null then return jsonb_build_object('ok', false, 'reason', 'not_pending'); end if;
+  update public.profiles set granted_premium = true, granted_premium_at = now() where id = uid;
+  return jsonb_build_object('ok', true, 'user', uid);
+end; $$;
+
+create or replace function public.admin_reject_review(p_id bigint)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare n int;
+begin
+  update public.reviews set status = 'rejected', reviewed_at = now()
+    where id = p_id and status = 'pending';
+  get diagnostics n = row_count;
+  return jsonb_build_object('ok', n > 0);
+end; $$;
+
+-- GRANTS: reads via the RLS SELECT policies (own + public-approved-consented); writes ONLY via
+-- submit_review (authenticated). The admin functions are granted to NO client role — only the
+-- owner / service role (the SQL editor) can approve/reject.
+grant  select on public.reviews to anon, authenticated;
+revoke insert, update, delete on public.reviews from anon, authenticated;
+revoke all on function public.submit_review(int, text, boolean)   from public;
+grant  execute on function public.submit_review(int, text, boolean) to authenticated;
+revoke all on function public.admin_approve_review(bigint) from public, anon, authenticated;
+revoke all on function public.admin_reject_review(bigint)  from public, anon, authenticated;
+
+-- ---- ADMIN WORKFLOW (run manually in the SQL editor) ----
+--   select id, nickname, rating, body, publish_consent, created_at
+--     from public.reviews where status = 'pending' order by created_at;
+--   select public.admin_approve_review(123);   -- approves + grants premium (granted_premium)
+--   select public.admin_reject_review(124);    -- rejects, no grant
+--   -- website showcase candidates:
+--   select nickname, rating, body from public.reviews where status = 'approved' and publish_consent;
+--
+-- ---- MIGRATE johny.frajer (and any comped user) onto granted_premium ----
+-- Move his comped grant off the Stripe-shared is_premium onto granted_premium, so all comped
+-- users are on the one mechanism (immune to any future Stripe is_premium reset). Run once with
+-- his REAL email:
+--   update public.profiles set granted_premium = true, granted_premium_at = now(), is_premium = false
+--    where id = (select id from auth.users where email = 'johny.frajer@example.com');
+-- (Effective premium = is_premium OR granted_premium, so clearing is_premium here does NOT
+--  remove his access — it just reclassifies him from "paid" to "comped".)
