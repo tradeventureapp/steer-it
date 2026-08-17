@@ -1801,21 +1801,13 @@ body.desktop #game { display: block; width: 100vw; height: 100vh; }
   transform: translateX(-8px);
   transition: opacity 140ms, transform 140ms, visibility 140ms;
 }
-/* ONE preview at a time: the SELECTED car's by default (persistent + selection-based, so it
-   survives clicking a map — not the fragile focus), the HOVERED car's while hovering, or the
-   keyboard-FOCUSED car's. */
-.car-card.is-selected .car-detail,
-.car-card:hover .car-detail,
-.car-card:focus-within .car-detail { opacity: 1; visibility: visible; transform: translateX(0); }
-/* REPLACE, never stack: while a car is hovered (or keyboard-focused), hide every OTHER preview —
-   including the selected one — so exactly one shows. Priority hover > focus > selected. Both rules
-   exclude `:hover`, so the hovered card is never hidden (no both-hidden). `:has()` scopes it to
-   when a car is actually hovered/focused, so between-card gaps revert to the selected preview.
-   (No `:has()` support ⇒ the rule no-ops and it falls back to today's behaviour — never worse.) */
-.cms-panel-cars:has(.car-card:hover) .car-card:not(:hover) .car-detail,
-.cms-panel-cars:has(.car-card:focus-within) .car-card:not(:focus-within):not(:hover) .car-detail {
-  opacity: 0; visibility: hidden; transform: translateX(-8px);
-}
+/* HOVER-ONLY preview: it shows ONLY while the mouse is over a car card, and disappears on
+   mouse-out — including for the SELECTED car (which keeps just its highlight via
+   .map-tile.is-selected, never a persistent preview). NOT tied to selection or focus: a clicked
+   card stays focused, so :focus-within / .is-selected would have kept it up after mouse-out.
+   Only one card can be :hover at a time, so exactly one preview ever shows — no stacking, no
+   replace rule needed. Still renders above the maps (see .cms-panel-cars z-index). */
+.car-card:hover .car-detail { opacity: 1; visibility: visible; transform: translateX(0); }
 .car-image {
   display: block; line-height: 0; margin: 0 auto 12px; border-radius: 10px; overflow: hidden;
   background: radial-gradient(120% 90% at 50% 40%, #241633, #0a0616);

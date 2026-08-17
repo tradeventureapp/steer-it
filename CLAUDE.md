@@ -440,14 +440,15 @@ not trusted). `EV` events: phone→desktop `join|color|name|leave|control`; desk
 - Synthwave design-token system (whole UI). Hero logo image asset. Neon phone UI. Main menu →
   mode select (ARCADE / SIM) → CAR & MAP select (data-driven tiles with rendered previews + spec
   flyouts) → START (fullscreen). Pause menu (resume/restart/exit). Clean surface + styled QR panel.
-  ⚠️ CAR PREVIEW flyout (`.car-detail`, CSS-only): renders ABOVE the map tiles — the cars column
-  (`.cms-panel-cars`) is `position:relative; z-index:5` (above the later maps panel) with
-  `overflow:visible` so the flyout escapes on top. ONE preview at a time (never stacked): the
-  SELECTED car's by default (`.car-card.is-selected .car-detail`, persistent — survives clicking a
-  map, unlike the old fragile focus), REPLACED by the HOVERED (or keyboard-focused) car's while
-  hovering, reverting to the selected on mouse-out. The replace is a `:has(.car-card:hover)
-  .car-card:not(:hover)` hide rule (both branches exclude `:hover`, so the hovered card is never
-  hidden; degrades to today's behaviour if `:has()` is unsupported).
+  ⚠️ CAR PREVIEW flyout (`.car-detail`, CSS-only): **HOVER-ONLY** — the ONLY show rule is
+  `.car-card:hover .car-detail`, so the preview/info panel appears only while the mouse is over a
+  car card and vanishes on mouse-out, INCLUDING for the selected car (no persistent preview; not
+  tied to `.is-selected` or `:focus-within` — a clicked card stays focused, which would otherwise
+  keep it up). The SELECTED car still shows its highlight (`.map-tile.is-selected`), just no
+  preview. Only one card can be `:hover`, so exactly one preview ever shows (no stacking, no
+  replace rule needed). Still renders ABOVE the map tiles — the cars column (`.cms-panel-cars`) is
+  `position:relative; z-index:5` (above the later maps panel) with `overflow:visible` so the flyout
+  escapes on top.
 
 **Accounts & Payments (LIVE)**
 - **Accounts** — Supabase Auth (email+password, verification, reset), nicknames (RPC-validated,
