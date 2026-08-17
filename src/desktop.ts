@@ -1333,12 +1333,17 @@ function buildMapTiles() {
     return { cvs, c };
   };
 
-  // Circuit II sits FIRST in the picker (the freshest track, shown off up front). Stable
-  // sort keeps every other map in its registration order. Purely visual — the default
-  // selection stays null until a click, so this doesn't change what's pre-selected.
-  const ordered = [...listMaps()].sort(
-    (a, b) => (b.id === 'circuit2' ? 1 : 0) - (a.id === 'circuit2' ? 1 : 0),
-  );
+  // Ordering (purely visual — the default selection stays null until a click): the Circuit
+  // group (its asphalt tile, the free headline track) sits FIRST, then Circuit II (the freshest
+  // authored track); every other map keeps its registration order (stable sort). The circuit
+  // group tile is built at whichever group member is hit first — both members rank 0, so the
+  // group lands first regardless of which surface leads.
+  const mapRank = (id: string): number => {
+    if (getMap(id)?.surfaceGroup?.key === 'circuit') return 0;   // Circuit (asphalt) leads
+    if (id === 'circuit2') return 1;                             // Circuit II next
+    return 2;                                                    // rest: registration order
+  };
+  const ordered = [...listMaps()].sort((a, b) => mapRank(a.id) - mapRank(b.id));
   for (const { id } of ordered) {
     if (!mapVisible(id)) continue;   // dev-only WIP maps (Rallycross) are hidden from normal users
     const def = getMap(id);

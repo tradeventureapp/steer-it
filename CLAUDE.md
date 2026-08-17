@@ -541,12 +541,18 @@ not trusted). `EV` events: phone→desktop `join|color|name|leave|control`; desk
   premium SIM (`blitz`/`fury`) are SEPARATE boards — no mixing. The leaderboard table/RPC/zone
   validation are untouched (free runs submit through the same auth-only gate). The landing
   **FREE VS PREMIUM** table reflects this: the FREE column tags the temporary items with quiet
-  qualifier pills — **`limited`** (temporarily free: Rallycross map) and **`signed limited`**
-  (temporarily free + needs sign-in: XP, Time Attack, and the now-`✓` Leaderboard) — a subtle
-  outlined `.pr-tag` (opposite weight to the loud `.pr-badge` "more coming"). The tags exist so
-  the table stays HONEST when `FREE_TA_XP_ENABLED` is flipped off (nothing there claims permanent
-  free access). PREMIUM column also refreshed: Cars **3** (Stee-Rex/Blitz/Fury), Game Modes
-  `+ Race, + Time Attack, + XP` (always, no sign-in/limit). Price + BEST VALUE unchanged.
+  qualifier pills — **`limited`** (temporarily free: **Circuit II**, the promo map) and
+  **`signed limited`** (temporarily free + needs sign-in: XP, Time Attack, and the now-`✓`
+  Leaderboard) — a subtle outlined `.pr-tag` (opposite weight to the loud `.pr-badge` "more
+  coming"). The tags exist so the table stays HONEST when `FREE_TA_XP_ENABLED` is flipped off /
+  the Circuit II promo ends (nothing there claims permanent free access). FREE **maps**
+  (permanent) lead with **Circuit**, then Desktop, Stadium Oval; PREMIUM **maps** are ONLY the
+  genuinely-premium ones — **Flat-track** (Oval dirt) + **Rallycross** (Circuit dirt) — so no map
+  is claimed by both columns (Circuit is free-only, its dirt variant is premium-only). PREMIUM
+  column also: Cars **3** (Stee-Rex/Blitz/Fury), Game Modes `+ Race, + Time Attack, + XP` (always,
+  no sign-in/limit). Price + BEST VALUE unchanged. In the IN-GAME map picker the **Circuit group
+  tile sits FIRST** (then Circuit II, Desktop, Stadium Oval), display-order only — the gate
+  (`FREE_MAP_IDS`) is untouched.
 - **Premium promo interstitial** (free/anon only): bold non-flashing, X after ~5 s, 3-min global cap,
   after Start / on Pause / on game-end; CTA → checkout or signup→checkout. Upsell banners show NO
   price (overflow fix); price shows on the landing pricing + game-menu.
