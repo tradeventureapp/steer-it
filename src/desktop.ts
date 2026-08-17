@@ -549,15 +549,17 @@ function mapGameModes(id: string | null): readonly string[] {
 }
 
 // ---- FREE vs PREMIUM gating (host-account entitlement) -----------------------
-// FREE needs no account: Desktop + Asphalt Oval, FREE RIDE only, unlimited
-// players. Everything else (Circuit, Flat-track dirt oval, RACE, XP MODE, global
+// FREE needs no account: Desktop + Asphalt Oval + Circuit (asphalt), FREE RIDE only, unlimited
+// players. Everything else (Flat-track dirt oval, Rallycross dirt, RACE, XP MODE, global
 // leaderboards) is PREMIUM. The entitlement is server truth (auth.isPremium, read
 // from an RLS-protected Supabase row); the checks below gate the UI, and the
 // leaderboard write is enforced server-side so a hacked client gains nothing online.
-// ⚠️ TEMPORARY PROMO: 'circuit2' (Circuit II) is FREE for a while to show off the new
-// authored track — free users get it in FREE RIDE with the arcade car (RACE/XP + the SIM
-// car stay premium). Remove 'circuit2' here to put it back to premium-only when the promo ends.
-const FREE_MAP_IDS = ['desktop', 'asphalt', 'circuit2'];
+// ⚠️ TA/XP on a FREE map still need SIGN-IN (isModeLocked requires a user for those modes), so a
+// free map opens FREE RIDE to signed-out users — never TA/XP. 'circuit' (the asphalt Circuit) is a
+// PERMANENT free-for-Free-Ride map; its 'rallycross' dirt variant stays PREMIUM (not in this list).
+// ⚠️ TEMPORARY PROMO: 'circuit2' (Circuit II) is FREE for a while to show off the new authored
+// track — remove 'circuit2' here to put it back to premium-only when the promo ends.
+const FREE_MAP_IDS = ['desktop', 'asphalt', 'circuit', 'circuit2'];
 // DEV-ONLY maps — WIP tracks hidden from the map-select for every normal user. Both the
 // Rallycross and 'circuit2' (Circuit II, the boss's authored track) are now PUBLIC premium
 // maps (visible to all, premium-locked like the other non-free maps), so this list is empty.

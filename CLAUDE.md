@@ -488,7 +488,12 @@ not trusted). `EV` events: phone→desktop `join|color|name|leave|control`; desk
   consent modal. Managed Payments (MoR / EU VAT). See §6. ⚠️ Stripe/webhook/`setPremium`/verify
   ONLY ever set `is_premium = true` (no revoke path exists) — and NEVER touch `granted_premium`.
 - **Free vs premium split enforced** (server-truth `is_premium`, defense-in-depth): SIM car + extra
-  maps/modes + editor are premium; arcade + basic play are free.
+  maps/modes + editor are premium; arcade + basic play are free. Free maps (`FREE_MAP_IDS` in
+  desktop.ts) = `desktop`, `asphalt` (Asphalt Oval), **`circuit` (the asphalt Circuit — PERMANENTLY
+  free for FREE RIDE, incl. signed-OUT users; its `rallycross` dirt variant stays PREMIUM)**, and
+  `circuit2` (temporary promo). ⚠️ A free MAP opens FREE RIDE to signed-out users only — TA/XP on it
+  still need SIGN-IN (the mode gate `isModeLocked` requires a user for those modes, independent of
+  the map gate). Landing FREE-vs-PREMIUM table MAPS free line lists Desktop, Stadium Oval, Circuit.
 - **⚠️ TEMPORARY EXPERIMENT — TA + XP free for signed-in users** (`FREE_TA_XP_ENABLED = true` in
   desktop.ts, data-gathering; flip to `false` to revert with NO other change). Opens ONLY the MODE
   gate (`isModeLocked`) for `timeattack`/`xp` to a **signed-in NON-premium** user; the SIM-car
