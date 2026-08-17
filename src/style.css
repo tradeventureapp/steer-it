@@ -2033,6 +2033,23 @@ body.desktop #ta-hud {
 @keyframes taRecord { 50% { opacity: 0.25; } }
 @media (prefers-reduced-motion: reduce) { #ta-record { animation: none; } }
 
+/* GHOST controls — small clickable toggle + source picker under the Time Attack HUD.
+   The HUD itself is pointer-events:none (click-through); this block re-enables clicks. */
+.ta-ghost { margin-top: 9px; pointer-events: auto; display: flex; flex-direction: column; gap: 5px; align-items: flex-start; }
+.ta-ghost-btn, .ta-ghost-src-btn {
+  font-family: var(--font-display); font-weight: 800; letter-spacing: 1.5px;
+  color: var(--text-muted); background: rgba(20, 16, 30, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.16); border-radius: 6px; cursor: pointer;
+  transition: color 0.12s, border-color 0.12s, background 0.12s;
+}
+.ta-ghost-btn { font-size: 11px; letter-spacing: 2px; padding: 5px 11px; }
+.ta-ghost-btn:hover { color: var(--text-dim); border-color: rgba(255, 255, 255, 0.32); }
+.ta-ghost-btn.on { color: var(--ok); border-color: rgba(93, 255, 176, 0.55); text-shadow: 0 0 9px rgba(93, 255, 176, 0.5); }
+.ta-ghost-src { display: flex; gap: 5px; }
+.ta-ghost-src-btn { font-size: 10px; padding: 3px 9px; }
+.ta-ghost-src-btn:hover { color: var(--text-dim); border-color: rgba(255, 255, 255, 0.32); }
+.ta-ghost-src-btn.sel { color: var(--gold); border-color: rgba(255, 200, 92, 0.6); text-shadow: var(--glow-gold); }
+
 /* Per-track best lap on a map tile (Time Attack only; hidden in every other mode). */
 .map-best {
   font-family: var(--font-body);

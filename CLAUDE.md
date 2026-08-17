@@ -110,6 +110,15 @@ palette picked on the phone (§13).
   back), plus OFF-TRACK LAP INVALIDATION that reuses XP's detection (`wheelsOffTrack` count +
   `XP_CONFIG.offTrackWheels` threshold — an invalid lap never records). DOM/storage-free like
   `xp.ts` — the best lap is passed in and handed back out.
+- `ghost.ts` — GHOST (pure): the Time Attack self-ghost recorder + smooth playback (Phase 1).
+  `GhostRecorder` (a per-lap buffer, ONE pose pushed per FIXED PHYSICS STEP → frame-rate
+  independent like the lap timer; `freeze(decim, round)` → a uniformly-spaced `GhostRec`
+  `{dt, xs, ys, hs}`), `sampleGhost(rec, cursorMs)` (the SMOOTHNESS: O(1) indexed lookup +
+  LINEAR interpolation of position and SHORTEST-ARC interpolation of heading between the
+  fixed-step samples, so the ghost glides at any render rate and never snaps; sample-0 before
+  the start, null past the end), `decimFor` (PB decimation to ~30 Hz), and `serializeGhost` /
+  `parseGhost` (validated compact localStorage form). DOM/canvas/storage-free — desktop.ts owns
+  the state/UI/storage wiring, exactly as it does for `time-attack.ts`.
 - `zones.ts` — LEADERBOARD ZONES (pure): `ZoneTracker` + `xpProofValid`. Splits a track's
   CENTRELINE (the map's `zonePath` — arc-length-even, finish-anchored, forward-oriented) into 6
   EQUAL arc-length buckets; "which zone" = nearest-centreline point, so a zone is the FULL RIBBON
@@ -278,6 +287,32 @@ not trusted). `EV` events: phone→desktop `join|color|name|leave|control`; desk
   is false ⇒ no countdown, no standing start, no race HUD. RESTART is the existing pause-menu
   button — **no new hotkey** (`R` stays the dev recorder's). The `localStorage` best is still the
   live-HUD reference; the ONLINE board (below) is now wired on top of it.
+- **GHOST (Phase 1) — LIVE, Time Attack own-ghost, LOCAL + SOLO.** A translucent replay of one of
+  YOUR OWN clean laps, driven from the lap-start crossing in sync with your current lap so you can
+  see where you're ahead/behind. **Toggle ON/OFF** + a **selectable SOURCE** (small clickable
+  controls under the TA HUD; `#ta-ghost`, `pointer-events:auto` inside the click-through HUD;
+  the toggle + source persist in `localStorage` `steerit.ta.ghost.on`/`.src`): **PERSONAL BEST**
+  (all-time best lap for this car+track, persisted) or **BEST-IN-SESSION** (fastest clean lap since
+  the tab opened, in-memory, resets on close). If the chosen source has no clean lap yet, the ghost
+  simply doesn't draw — you drive alone. **Recording** (`ghost.ts` `GhostRecorder`): the car CENTRE
+  pose is sampled on the **FIXED PHYSICS STEP** (frame-rate independent, same basis as the lap timer),
+  ONE push per step, reset at each start/finish crossing, fed inside the TA fixed-step block right
+  beside the timer/zone feed. A lap is frozen into a ghost ONLY if **VALID** (`done.valid` — on-track
+  + zones in order, the SAME validity as the record/leaderboard): best-in-session takes any faster
+  valid lap (full 60 Hz, in memory), the personal best takes a new record (`done.isBest`, decimated to
+  ~30 Hz + rounded, saved to `localStorage` `steerit.ta.ghost.<car>.<map>`). **Playback** (MAXIMALLY
+  SMOOTH — `sampleGhost`): the cursor is the CONTINUOUS render-frame lap clock (`taRun.hud().currentMs`,
+  stashed as `ghostRenderNow` before `render()`), and the pose is O(1)-indexed + **INTERPOLATED** —
+  linear position, shortest-arc heading — between the fixed-step samples, so it glides at any framerate
+  and never steps/snaps; hidden once the cursor passes the ghost's lap end, parked at the start line
+  before the lap begins. Drawn in `drawGhost()` (paintWorld, UNDER the real cars) as the LEAD car's
+  own sprite/livery at reduced `globalAlpha` (0.4) using a throwaway `{...lead, state}` — **visual
+  only, no collision, no physics, the real car + recorded time are never touched**. **Storage:** one
+  PB ghost per car+track; decimation `max(2, ceil(n/1800))` caps a PB at ~1800 samples (~25 s lap ≈
+  750 samples ≈ ~14 KB JSON, measured), positions rounded to 1 cm / heading 1e-4 rad. Pure logic
+  headless-tested (20/20: linear/shortest-arc interp, 240 Hz smoothness, decimation, serialize/parse
+  validation, size). Physics untouched (Blitz golden intact — the ghost path is render/record only).
+  **Dev-ghost + leaderboard ghosts are later phases** (no DB in Phase 1).
 - **LEADERBOARD (Phase 2) — LIVE for TIME ATTACK + XP.** An online board on top of each mode's
   local best. ONE Supabase table `public.leaderboard` holds BOTH modes (`mode` = `'timeattack'` |
   `'xp'`): `(id, user_id→auth.users, nickname [denormalised for display, written server-side], mode,

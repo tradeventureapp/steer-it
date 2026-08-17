@@ -48,8 +48,9 @@ import {
   XP_CONFIG, makeXpRun, updateXpRun, formatXp,
   type XpRunState,
 } from './xp';
-import { TimeAttackRun, formatLapTime } from './time-attack';
+import { TimeAttackRun, formatLapTime, type CompletedLap } from './time-attack';
 import { ZoneTracker, xpProofValid } from './zones';
+import { GhostRecorder, sampleGhost, decimFor, serializeGhost, parseGhost, type GhostRec } from './ghost';
 import { submitReview, fetchMyReview } from './reviews';
 import {
   submitScore, fetchBoard, fetchTopAndOwn, LB_PAGE_SIZE,
@@ -128,6 +129,8 @@ const taLastRowEl   = document.getElementById('ta-last-row')   as HTMLElement | 
 const taLastEl      = document.getElementById('ta-last')       as HTMLElement | null;
 const taRecordEl    = document.getElementById('ta-record')     as HTMLElement | null;
 const taInvalidEl   = document.getElementById('ta-invalid')    as HTMLElement | null;
+const taGhostToggle = document.getElementById('ta-ghost-toggle') as HTMLButtonElement | null;
+const taGhostSrcEl  = document.getElementById('ta-ghost-src')    as HTMLElement | null;
 const xpHudEl       = document.getElementById('xp-hud')        as HTMLElement | null;
 const xpScoreEl     = document.getElementById('xp-score')      as HTMLDivElement | null;
 const xpMultEl      = document.getElementById('xp-mult')       as HTMLDivElement | null;
@@ -3532,6 +3535,102 @@ function taBestFor(carKey: string, mapId: string): number | null {
   return readTaBest(taBestKeyFor(carKey, mapId));
 }
 
+// ---------------------------------------------------------------------------
+//  GHOST (Time Attack, Phase 1) — your own translucent lap replay.
+//
+//  Two selectable sources: PERSONAL BEST (all-time, persisted per car+track in
+//  localStorage) and BEST-IN-SESSION (fastest clean lap since the tab opened,
+//  in-memory only). Recorded on the FIXED PHYSICS STEP from VALID laps only (same
+//  validity as the record/leaderboard: on-track + zones in order), replayed with
+//  interpolation for smoothness (see ghost.ts). Visual only — no collision, no
+//  effect on the player's car or the recorded time. Local + solo; dev-ghost and
+//  leaderboard ghosts are later phases.
+// ---------------------------------------------------------------------------
+type GhostSource = 'pb' | 'session';
+let ghostEnabled = false;
+let ghostSource: GhostSource = 'pb';
+const ghostRecorder = new GhostRecorder();          // live per-lap buffer (one push per fixed step)
+let ghostBufActive = false;                         // is the buffer accumulating a timed lap right now?
+let ghostKeyActive = '';                            // car+map key for the run in progress (session map key)
+let ghostPbActive: GhostRec | null = null;          // cached PB ghost for the active run (avoids per-frame parse)
+const ghostSession = new Map<string, { ms: number; rec: GhostRec }>();  // best-in-session, in memory
+const GHOST_MAX_PB = 1800;                          // persisted-ghost sample cap (decimated to fit; ~30 Hz)
+const GHOST_ALPHA = 0.4;                            // translucency of the drawn ghost car
+let ghostRenderNow = 0;                             // gameNow stashed for the render pass (drawGhost)
+
+function ghostPbKey(carKey: string, mapId: string): string { return `steerit.ta.ghost.${carKey}.${mapId}`; }
+function readGhostPb(key: string): GhostRec | null {
+  try { return parseGhost(localStorage.getItem(key)); } catch { return null; }
+}
+function writeGhostPb(key: string, rec: GhostRec): void {
+  try { localStorage.setItem(key, serializeGhost(rec)); } catch { /* quota/blocked — ghost just won't persist */ }
+}
+
+// Reset the ghost recording state for a fresh Time Attack run. Session bests are NOT
+// cleared (they're keyed per car+map and persist for the whole session); the PB ghost is
+// (re)loaded for this car+map. Called from startTimeAttack alongside the timer seed.
+function ghostBeginRun(carKey: string, mapId: string): void {
+  ghostKeyActive = `${carKey}.${mapId}`;
+  ghostPbActive = readGhostPb(ghostPbKey(carKey, mapId));
+  ghostRecorder.reset();
+  ghostBufActive = false;
+}
+
+// The Recording to replay right now, per the chosen source (null ⇒ nothing to show yet).
+function currentGhostRec(): GhostRec | null {
+  if (ghostSource === 'session') return ghostSession.get(ghostKeyActive)?.rec ?? null;
+  return ghostPbActive;
+}
+
+// A lap just completed — turn the recorded buffer into ghost(s), but ONLY for a clean lap.
+// Best-in-session takes any faster valid lap (full-res, in memory); the personal best takes
+// a new record (done.isBest ⇒ valid + faster than the stored PB), decimated + rounded + saved.
+function ghostFreezeLap(done: CompletedLap): void {
+  if (!done.valid || ghostRecorder.length < 4) return;
+  const cur = ghostSession.get(ghostKeyActive);
+  if (!cur || done.ms < cur.ms) {
+    const rec = ghostRecorder.freeze(1, false);      // full fixed-step fidelity, in memory
+    if (rec) ghostSession.set(ghostKeyActive, { ms: done.ms, rec });
+  }
+  if (done.isBest) {
+    const rec = ghostRecorder.freeze(decimFor(ghostRecorder.length, GHOST_MAX_PB), true);
+    if (rec) { writeGhostPb(ghostPbKey(xpCarKey(), currentMap.id), rec); ghostPbActive = rec; }
+  }
+}
+
+// ---- Ghost toggle + source picker (small controls under the Time Attack HUD) ----
+function updateGhostUi(): void {
+  if (taGhostToggle) {
+    taGhostToggle.textContent = ghostEnabled ? 'GHOST ON' : 'GHOST OFF';
+    taGhostToggle.classList.toggle('on', ghostEnabled);
+  }
+  if (taGhostSrcEl) {
+    taGhostSrcEl.hidden = !ghostEnabled;
+    for (const b of Array.from(taGhostSrcEl.querySelectorAll<HTMLButtonElement>('[data-src]'))) {
+      b.classList.toggle('sel', b.dataset.src === ghostSource);
+    }
+  }
+}
+try {
+  ghostEnabled = localStorage.getItem('steerit.ta.ghost.on') === '1';
+  ghostSource = localStorage.getItem('steerit.ta.ghost.src') === 'session' ? 'session' : 'pb';
+} catch { /* storage blocked — defaults (off, pb) are fine */ }
+taGhostToggle?.addEventListener('click', () => {
+  ghostEnabled = !ghostEnabled;
+  try { localStorage.setItem('steerit.ta.ghost.on', ghostEnabled ? '1' : '0'); } catch { /* ignore */ }
+  updateGhostUi();
+  taGhostToggle.blur();   // don't keep focus (Space/Enter would re-toggle instead of driving)
+});
+taGhostSrcEl?.addEventListener('click', (e) => {
+  const b = (e.target as HTMLElement | null)?.closest<HTMLButtonElement>('[data-src]');
+  if (!b) return;
+  ghostSource = b.dataset.src === 'session' ? 'session' : 'pb';
+  try { localStorage.setItem('steerit.ta.ghost.src', ghostSource); } catch { /* ignore */ }
+  updateGhostUi();
+  b.blur();
+});
+updateGhostUi();
+
 // (Re)start a Time Attack session: fresh rolling timer seeded with the stored best,
 // solo car respawned at the grid, clean sheet. Called on entering the mode and on the
 // pause menu's RESTART (no new hotkey — 'R' belongs to the dev recorder).
@@ -3543,6 +3642,7 @@ function startTimeAttack() {
   // pattern as startXpRun. xpCarKey is a hoisted function declaration, safe to call here.
   taBestKeyActive = taBestKeyFor(xpCarKey(), currentMap.id);
   taRun = new TimeAttackRun(el, readTaBest(taBestKeyActive));
+  ghostBeginRun(xpCarKey(), currentMap.id);   // fresh ghost buffer + load this car+map's PB ghost
   zoneTracker = makeZoneTracker();   // leaderboard zone splits for this run (null on a zone-less map)
   taRecordUntil = 0;
   taLastUntil = 0;
@@ -4697,9 +4797,17 @@ function frame(now: number) {
         // AND zone validity, so an off-track OR a shortcut lap saves + submits nothing.
         const done = taRun.update(nx, ny, gameNow, s.vx, s.vy, wheelsOffTrack(lead), zonesValid);
         if (zoneTracker) zoneTracker.update(nx, ny, gameNow);   // record THIS step
+        const nowRunning = taRun.hud(gameNow).running;
         // Align the zone lap with TA's timed lap: reset it when the clock first starts (first
         // crossing) so pre-race driving doesn't count, and after each completed lap.
-        if (zoneTracker && !wasRunning && taRun.hud(gameNow).running) zoneTracker.resetLap(gameNow);
+        if (zoneTracker && !wasRunning && nowRunning) zoneTracker.resetLap(gameNow);
+        // GHOST: record the car CENTRE pose once per fixed step while a lap is timed. On a
+        // completion the buffer IS the completed lap — freeze it (valid laps only), then start
+        // the next lap's buffer; on the first crossing, start recording. Purely additive: no
+        // effect on the timer, zones, off-track, or the car.
+        if (done) { ghostFreezeLap(done); ghostRecorder.reset(); ghostBufActive = nowRunning; }
+        else if (!wasRunning && nowRunning) { ghostRecorder.reset(); ghostBufActive = true; }
+        if (ghostBufActive && nowRunning) ghostRecorder.push(s.x, s.y, s.heading);
         if (done) {
           if (done.isBest) {
             writeTaBest(taBestKeyActive, done.ms);
@@ -4753,6 +4861,7 @@ function frame(now: number) {
   }
 
   // Render ALWAYS (paused frame still draws the frozen car + overlay on top).
+  ghostRenderNow = gameNow;   // the lap-clock time the ghost replay reads this frame (smooth cursor)
   render();
   updateRaceHud(raceManager.hud(primaryCar()?.slot ?? -1, gameNow));
   updateLiveStandings(gameNow);
@@ -4838,6 +4947,7 @@ function paintWorld(W: number, H: number, shake: { x: number; y: number }) {
   ctx.scale(viewScale, viewScale);
   currentMap.drawForeground?.(ctx, world, CONFIG.pxPerMeter);
   drawRaceElements();
+  drawGhost();   // translucent self-ghost UNDER the real cars (Time Attack only; visual, no collision)
   for (const car of cars.values()) drawCar(car);  // paint every connected car
   currentMap.drawAboveCars?.(ctx, world, CONFIG.pxPerMeter);  // tall props occlude cars under them
   fx.draw(ctx, CONFIG.pxPerMeter);
@@ -5378,6 +5488,28 @@ function drawBlitz(car: Car) {
   ctx.imageSmoothingEnabled = prevSmooth; ctx.imageSmoothingQuality = prevQ;
 }
 
+// GHOST playback — a translucent replay of the chosen recorded lap (Time Attack only).
+// Read the smooth lap-clock cursor stashed this frame, interpolate the pose from the
+// fixed-step samples (ghost.ts), and draw the LEAD car's own sprite/livery at that pose
+// under reduced alpha. It shares the lead car's spec (so it's clearly "you") but its own
+// throwaway state — the real car is never touched, and the ghost has no physics/collision.
+function drawGhost(): void {
+  if (!ghostEnabled || !isTimeAttack() || !taRun || editorMode || menuOpen) return;
+  const lead = primaryCar();
+  if (!lead) return;
+  const rec = currentGhostRec();
+  if (!rec) return;   // chosen source has no lap yet ⇒ drive alone
+  const h = taRun.hud(ghostRenderNow);
+  const pose = sampleGhost(rec, h.running ? h.currentMs : 0);
+  if (!pose) return;   // before the recording starts is handled inside; past its end ⇒ hidden
+  const ghostState: CarState = { ...lead.state, x: pose.x, y: pose.y, heading: pose.heading, steerAngle: 0 };
+  const ghostCar: Car = { ...lead, state: ghostState };
+  ctx.save();
+  ctx.globalAlpha = GHOST_ALPHA;   // drawCar (vector + all sprites) inherits alpha → translucent
+  drawCar(ghostCar);
+  ctx.restore();
+}
+
 function drawCar(car: Car) {
   const s = car.state;
   // Stee-Rex is a pre-rendered SVG sprite (VISUAL ONLY) — blit it instead of the
@@ -5658,6 +5790,8 @@ function switchMap(id: string): boolean {
   circuitMode = 'laps';
   taRun = null;                 // a fresh map drops any Time Attack session (its best is stored)
   zoneTracker = null;           // ...and its zone tracker (recreated by startTimeAttack / startXpRun)
+  ghostRecorder.reset();        // drop any half-recorded lap (session ghosts persist, keyed per car+map)
+  ghostBufActive = false;
   if (taHudEl) taHudEl.hidden = true;
   raceWarmup = false;   // a fresh map is free-roam until a RACE launch arms the warm-up
   updateReadyButton();
