@@ -297,6 +297,42 @@ body.desktop #game { display: block; width: 100vw; height: 100vh; }
   -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);
 }
 .modal-overlay[hidden] { display: none; }
+
+/* ONE-TIME REGISTRATION PROMPT — a NON-BLOCKING bottom-anchored card: the container is
+   pointer-events:none so the game keeps running + drivable underneath; only the card itself
+   is interactive. Bottom placement keeps the track visible so it never feels like a wall. */
+#reg-prompt {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 150;
+  display: flex; justify-content: center;
+  padding: 0 16px calc(20px + env(safe-area-inset-bottom, 0px));
+  pointer-events: none;
+}
+#reg-prompt[hidden] { display: none; }
+.reg-prompt-card {
+  pointer-events: auto; position: relative;
+  width: min(420px, 100%); text-align: center;
+  gap: 10px; padding: 22px 26px 18px;
+}
+.reg-prompt-title {
+  font-family: var(--font-display); font-weight: 800; font-size: 20px; letter-spacing: 1px;
+  color: var(--text);
+}
+.reg-prompt-body {
+  font-family: var(--font-body); font-size: 13.5px; line-height: 1.5;
+  color: var(--text-dim); margin: 0; text-wrap: balance;
+}
+.reg-prompt-body b { color: var(--gold); }
+.reg-prompt-actions { display: flex; gap: 10px; width: 100%; }
+.reg-prompt-actions .menu-btn { flex: 1; margin: 0; }
+.reg-prompt-later {
+  appearance: none; background: none; border: none; cursor: pointer;
+  font-family: var(--font-body); font-size: 12px; letter-spacing: 0.5px;
+  color: var(--text-muted); padding: 4px; margin-top: 2px;
+}
+.reg-prompt-later:hover { color: var(--text-dim); }
+@media (max-width: 460px) {
+  .reg-prompt-actions { flex-direction: column; }
+}
 .host-note {
   max-width: 400px; text-align: center;
   padding: 20px 22px; border-radius: 16px;

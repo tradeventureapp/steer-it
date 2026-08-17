@@ -3501,10 +3501,61 @@ function emitFreeRide(sig: 'start' | 'end' | null, now: number) {
   }
 }
 
+// =============================================================================
+//  ONE-TIME REGISTRATION PROMPT — convert a SIGNED-OUT Free Ride player into a sign-up
+//  (which unlocks the now-free Time Attack + XP + leaderboard). Shown ONCE ever
+//  (localStorage), only when signed out, after ~75s of ACTIVE (visible + driving) free-ride
+//  play. Non-blocking + dismissible; the buttons reuse the normal auth flow. Free Ride has no
+//  "finish", so a time trigger is the right shape (the analytics session's honest rules —
+//  visible-only, real driving — reused here, but this accumulator PAUSES on hide rather than
+//  ending, so it survives tab switches and totals genuine play across them).
+// =============================================================================
+const REG_PROMPT_SEEN_KEY = 'steerit.regprompt.seen';
+const REG_PROMPT_MS = 75000;   // ~75 s of active free-ride driving
+let regPromptActiveMs = 0;
+const regPromptEl = document.getElementById('reg-prompt');
+function regPromptSeen(): boolean {
+  try { return localStorage.getItem(REG_PROMPT_SEEN_KEY) === '1'; } catch { return false; }
+}
+function markRegPromptSeen(): void {
+  try { localStorage.setItem(REG_PROMPT_SEEN_KEY, '1'); } catch { /* storage off — worst case it shows once more */ }
+}
+// Don't STACK on another popup/menu — if anything is open, wait for a later tick.
+function regPromptBlocked(): boolean {
+  if (menuOpen || userPaused) return true;
+  for (const id of ['auth-modal', 'upsell-modal', 'options-modal', 'buy-consent', 'pay-loading',
+    'lb-quick', 'host-too-small', 'premium-promo']) {
+    const el = document.getElementById(id);
+    if (el && !el.hidden) return true;
+  }
+  return false;
+}
+function closeRegPrompt(): void { if (regPromptEl) regPromptEl.hidden = true; }
+function maybeShowRegPrompt(): void {
+  if (regPromptSeen() || getAuthState().user) return;   // once ever; signed-in never sees it
+  if (!regPromptEl || !regPromptEl.hidden) return;       // already open
+  if (regPromptBlocked()) return;                        // stacked → retry a later tick (not marked seen)
+  markRegPromptSeen();                                   // showing OR dismissing both count as "seen"
+  regPromptEl.hidden = false;
+}
+document.getElementById('reg-prompt-x')?.addEventListener('click', closeRegPrompt);
+document.getElementById('reg-prompt-later')?.addEventListener('click', closeRegPrompt);
+document.getElementById('reg-prompt-signup')?.addEventListener('click', () => { closeRegPrompt(); authMode = 'signup'; openAuthModal('form'); });
+document.getElementById('reg-prompt-login')?.addEventListener('click', () => { closeRegPrompt(); authMode = 'login'; openAuthModal('form'); });
+
 // Sampled on a timer, NOT from the physics step or a render frame.
 window.setInterval(() => {
-  if (freeRide.isEnded()) return;
   const now = Date.now();
+  // Registration prompt: runs INDEPENDENTLY of the analytics session (which ends on hide), so
+  // it totals active driving across tab switches. Gated to signed-out + visible + actually
+  // driving in free ride → pauses on hide / menu / idle, exactly as required.
+  if (!regPromptSeen() && !getAuthState().user && document.visibilityState === 'visible'
+      && inFreeRide() && anyCarMoving()) {
+    regPromptActiveMs += FR_SAMPLE_MS;
+    if (regPromptActiveMs >= REG_PROMPT_MS) maybeShowRegPrompt();
+  }
+
+  if (freeRide.isEnded()) return;
   if (!freeRide.isStarted()) {
     if (inFreeRide() && anyCarMoving()) emitFreeRide(freeRide.begin(now), now);
     return;

@@ -478,6 +478,18 @@ not trusted). `EV` events: phone→desktop `join|color|name|leave|control`; desk
 - **Premium promo interstitial** (free/anon only): bold non-flashing, X after ~5 s, 3-min global cap,
   after Start / on Pause / on game-end; CTA → checkout or signup→checkout. Upsell banners show NO
   price (overflow fix); price shows on the landing pricing + game-menu.
+- **One-time registration prompt** (`#reg-prompt`, signed-out only): after **~75 s of ACTIVE
+  Free Ride play** (accumulated on the existing 500 ms free-ride sampler — counts only
+  visible-tab + actually-driving time, PAUSES on hide/menu/idle; independent of the analytics
+  session so it survives tab switches), a **non-blocking** bottom-anchored card invites them to
+  sign in for the now-free TA/XP + leaderboard. "Enjoying it? Sign in **free** to unlock Time
+  Attack, XP & the global leaderboard." Create account / Sign in reuse the normal auth flow
+  (`authMode` + `openAuthModal('form')`); X / "Maybe later" dismiss. **Once ever** — a
+  `localStorage` flag (`steerit.regprompt.seen`) is set the moment it shows, so dismiss OR
+  reload never re-shows it. **Signed-in users NEVER see it** (the accumulator gates on
+  `!getAuthState().user`), and it **won't stack** on any open modal/menu/pause. Non-blocking:
+  the container is `pointer-events:none` so the game keeps running + drivable underneath — no
+  pause, no stolen control. Free Ride has no "finish", so a time trigger is the right shape.
 - **OPTIONS** — nickname + Log Out gate on LOGIN state (not premium); anonymous users see neither.
 
 **Infra / discoverability**

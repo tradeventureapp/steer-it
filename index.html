@@ -635,6 +635,24 @@
       </div>
     </div>
 
+    <!-- ONE-TIME REGISTRATION PROMPT — shown ONCE ever (localStorage) to a SIGNED-OUT user
+         after ~75s of ACTIVE Free Ride play, to convert them into a sign-up (which unlocks the
+         now-free Time Attack + XP + leaderboard). NON-BLOCKING: bottom-anchored card, the game
+         keeps running + drivable underneath (the container is pointer-events:none). Dismissible
+         (X / Maybe later); the buttons reuse the normal auth flow. Signed-in users never see it. -->
+    <div id="reg-prompt" hidden>
+      <div class="menu-card reg-prompt-card">
+        <button type="button" class="auth-x" id="reg-prompt-x" aria-label="Close">×</button>
+        <div class="reg-prompt-title">Enjoying it?</div>
+        <p class="reg-prompt-body">Sign in <b>free</b> to unlock Time Attack, XP &amp; the global leaderboard.</p>
+        <div class="reg-prompt-actions">
+          <button type="button" class="menu-btn primary" id="reg-prompt-signup">Create account</button>
+          <button type="button" class="menu-btn sub" id="reg-prompt-login">Sign in</button>
+        </div>
+        <button type="button" class="reg-prompt-later" id="reg-prompt-later">Maybe later</button>
+      </div>
+    </div>
+
     <!-- POPUP: appears only when the user tries to PLAY on a host screen too small to
          play on (now: START RACE; later: free-play-from-page / post-login "start"). A
          dismissible overlay, NOT a passive menu state — shown by desktop.ts on the play
