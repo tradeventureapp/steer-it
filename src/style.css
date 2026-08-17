@@ -1603,7 +1603,9 @@ body.desktop #game { display: block; width: 100vw; height: 100vh; }
   overflow: hidden;                  /* clip the scrolling body to the rounded frame */
 }
 .cms-panel-modes { flex: 1.15; }
-.cms-panel-cars  { flex: 0.85; overflow: visible; }   /* 1–2 cars: no scroll; let the hover flyout escape */
+/* z-index (+ position) lifts the WHOLE cars column above the later map panel, so its escaping
+   preview flyout paints ON TOP of the map tiles instead of being covered by them. */
+.cms-panel-cars  { flex: 0.85; overflow: visible; position: relative; z-index: 5; }   /* 1–2 cars: no scroll; let the hover flyout escape, above the maps */
 .cms-panel-maps  { flex: 1.75; }     /* the map grid needs the most width */
 .cms-panel-head {
   flex: 0 0 auto; padding: 11px 10px;
@@ -1799,8 +1801,21 @@ body.desktop #game { display: block; width: 100vw; height: 100vh; }
   transform: translateX(-8px);
   transition: opacity 140ms, transform 140ms, visibility 140ms;
 }
+/* ONE preview at a time: the SELECTED car's by default (persistent + selection-based, so it
+   survives clicking a map — not the fragile focus), the HOVERED car's while hovering, or the
+   keyboard-FOCUSED car's. */
+.car-card.is-selected .car-detail,
 .car-card:hover .car-detail,
 .car-card:focus-within .car-detail { opacity: 1; visibility: visible; transform: translateX(0); }
+/* REPLACE, never stack: while a car is hovered (or keyboard-focused), hide every OTHER preview —
+   including the selected one — so exactly one shows. Priority hover > focus > selected. Both rules
+   exclude `:hover`, so the hovered card is never hidden (no both-hidden). `:has()` scopes it to
+   when a car is actually hovered/focused, so between-card gaps revert to the selected preview.
+   (No `:has()` support ⇒ the rule no-ops and it falls back to today's behaviour — never worse.) */
+.cms-panel-cars:has(.car-card:hover) .car-card:not(:hover) .car-detail,
+.cms-panel-cars:has(.car-card:focus-within) .car-card:not(:focus-within):not(:hover) .car-detail {
+  opacity: 0; visibility: hidden; transform: translateX(-8px);
+}
 .car-image {
   display: block; line-height: 0; margin: 0 auto 12px; border-radius: 10px; overflow: hidden;
   background: radial-gradient(120% 90% at 50% 40%, #241633, #0a0616);

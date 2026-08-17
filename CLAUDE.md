@@ -440,6 +440,14 @@ not trusted). `EV` events: phone→desktop `join|color|name|leave|control`; desk
 - Synthwave design-token system (whole UI). Hero logo image asset. Neon phone UI. Main menu →
   mode select (ARCADE / SIM) → CAR & MAP select (data-driven tiles with rendered previews + spec
   flyouts) → START (fullscreen). Pause menu (resume/restart/exit). Clean surface + styled QR panel.
+  ⚠️ CAR PREVIEW flyout (`.car-detail`, CSS-only): renders ABOVE the map tiles — the cars column
+  (`.cms-panel-cars`) is `position:relative; z-index:5` (above the later maps panel) with
+  `overflow:visible` so the flyout escapes on top. ONE preview at a time (never stacked): the
+  SELECTED car's by default (`.car-card.is-selected .car-detail`, persistent — survives clicking a
+  map, unlike the old fragile focus), REPLACED by the HOVERED (or keyboard-focused) car's while
+  hovering, reverting to the selected on mouse-out. The replace is a `:has(.car-card:hover)
+  .car-card:not(:hover)` hide rule (both branches exclude `:hover`, so the hovered card is never
+  hidden; degrades to today's behaviour if `:has()` is unsupported).
 
 **Accounts & Payments (LIVE)**
 - **Accounts** — Supabase Auth (email+password, verification, reset), nicknames (RPC-validated,
