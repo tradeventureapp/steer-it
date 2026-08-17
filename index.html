@@ -766,6 +766,11 @@
             <input id="auth-password" type="password" placeholder="Password" autocomplete="current-password" required minlength="6" />
             <!-- SIGN UP only — shown + required in signup mode (see applyAuthMode). -->
             <input id="auth-password2" type="password" placeholder="Confirm password" autocomplete="new-password" minlength="6" hidden />
+            <!-- SIGN UP only — GDPR marketing opt-in, UNCHECKED by default, optional, no reward. -->
+            <label class="optin-row" id="signup-optin-row" hidden>
+              <input type="checkbox" id="signup-optin" />
+              <span class="optin-text">Send me updates about new tracks, cars and features<span class="optin-note">Unsubscribe anytime.</span></span>
+            </label>
             <button type="submit" class="menu-btn primary" id="auth-submit">LOG IN</button>
           </form>
           <div class="auth-links">
@@ -802,6 +807,11 @@
           <form id="oauth-nick-form">
             <input id="oauth-nick-input" type="text" placeholder="Nickname (3–20: A–Z, 0–9, _ -)" autocomplete="off" maxlength="20" required />
             <div id="oauth-nick-hint" class="nick-hint" hidden></div>
+            <!-- GDPR marketing opt-in — UNCHECKED by default, optional, tied to no reward. -->
+            <label class="optin-row">
+              <input type="checkbox" id="oauth-optin" />
+              <span class="optin-text">Send me updates about new tracks, cars and features<span class="optin-note">Unsubscribe anytime.</span></span>
+            </label>
             <button type="submit" class="menu-btn primary" id="oauth-nick-save">SAVE NICKNAME</button>
           </form>
         </section>

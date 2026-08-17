@@ -58,7 +58,7 @@ import { inject } from '@vercel/analytics';
 import {
   initAuth, onAuthChange, getAuthState, signIn, signUp, signOut,
   sendPasswordReset, updatePassword, checkEntitlement, getAccessToken,
-  checkNickname, changeNickname, hasSessionHint, signInWithGoogle, type AuthState,
+  checkNickname, changeNickname, setMarketingConsent, hasSessionHint, signInWithGoogle, type AuthState,
 } from './auth';
 import { nicknameFormatError, nicknameCooldownDaysLeft } from './nickname';
 
@@ -1794,6 +1794,11 @@ function applyAuthMode() {
   const nickHint = document.getElementById('nick-hint');
   if (nick) { nick.hidden = login; nick.required = !login; if (login) nick.value = ''; }
   if (nickHint) { nickHint.hidden = login; if (login) { nickHint.textContent = ''; nickHint.className = 'nick-hint'; } }
+  // Marketing opt-in row is SIGN UP only — hidden + cleared on log in (never carries a stale tick).
+  const optinRow = document.getElementById('signup-optin-row');
+  const optin = document.getElementById('signup-optin') as HTMLInputElement | null;
+  if (optinRow) optinRow.hidden = login;
+  if (optin && login) optin.checked = false;
 }
 
 // Live nickname validator shared by the SIGN UP field and the account CHANGE
@@ -2388,6 +2393,10 @@ document.getElementById('oauth-nick-form')?.addEventListener('submit', (e) => {
       if (hint) hint.textContent = r.reason === 'taken' ? 'That nickname was just taken — try another.' : 'Could not save that nickname.';
       return;
     }
+    // Record the marketing opt-in (GDPR): true only if ticked, else "no consent". Fire-and-forget —
+    // it must never block finishing the prompt. Not ticking blocks nothing.
+    const optin = document.getElementById('oauth-optin') as HTMLInputElement | null;
+    void setMarketingConsent(!!optin?.checked);
     if (hint) hint.hidden = true;
     openAuthModal('account');
   })();
@@ -2421,9 +2430,11 @@ document.getElementById('auth-form')?.addEventListener('submit', (e) => {
     // Authoritative availability + profanity check (DB) right before creating the
     // account, so the common "taken/profane" cases give a clean message; the signup
     // trigger is the final race guard.
+    const optinEl = document.getElementById('signup-optin') as HTMLInputElement | null;
+    const marketingOptIn = !!optinEl?.checked;   // GDPR: unticked by default, optional
     void checkNickname(nick).then((cr) => {
       if (!cr.ok || !cr.available) { done(nickReasonMsg(cr.reason)); nickInput()?.focus(); return; }
-      void signUp(email, pw, nick).then((r) => {
+      void signUp(email, pw, nick, marketingOptIn).then((r) => {
         if (r.alreadyRegistered) {
           // The normalized email already has an account → switch to LOG IN (keeps
           // their email typed) with a clear message, buy-intent preserved.

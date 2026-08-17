@@ -161,22 +161,57 @@ begin
   return null;
 end; $$;
 
--- Recreate the signup trigger so it also claims the nickname (from the signup
--- metadata). nickname_reason + the CHECK + the unique index all apply on INSERT,
--- so a profane/invalid/taken nickname makes the whole signup fail (rolls back the
--- auth user) — the client pre-checks, so this is the race/abuse backstop.
+-- MARKETING EMAIL CONSENT (GDPR opt-in) — captured on the post-signup nickname prompt.
+-- UNCHECKED by default; the *_at timestamp records WHEN consent was given (GDPR requires it),
+-- null when not consented. Optional + not tied to any reward. Written ONLY server-side (the
+-- signup trigger for the email/password path, set_marketing_consent() for the OAuth path) —
+-- the client can't write profiles directly (no update grant). Consented users are queryable
+-- for a future (lawful) send: `select email, nickname from public.profiles where marketing_opt_in`.
+-- (A later "email preferences" UI will add a separate marketing_opt_out_at rather than
+-- overwriting marketing_opt_in_at, so both consent + withdrawal records are kept.)
+alter table public.profiles add column if not exists marketing_opt_in boolean not null default false;
+alter table public.profiles add column if not exists marketing_opt_in_at timestamptz;
+
+-- Recreate the signup trigger so it also claims the nickname AND the marketing opt-in (both
+-- from the signup metadata). nickname_reason + the CHECK + the unique index all apply on INSERT,
+-- so a profane/invalid/taken nickname makes the whole signup fail (rolls back the auth user) —
+-- the client pre-checks, so this is the race/abuse backstop. The opt-in defaults false when the
+-- metadata omits it (log-in, or a signup that didn't tick the box).
 create or replace function public.handle_new_user()
 returns trigger language plpgsql security definer set search_path = public as $$
-declare nick text := nullif(new.raw_user_meta_data->>'nickname', '');
+declare
+  nick  text    := nullif(new.raw_user_meta_data->>'nickname', '');
+  optin boolean := coalesce((new.raw_user_meta_data->>'marketing_opt_in')::boolean, false);
 begin
   if nick is not null and public.nickname_reason(nick) is not null then
     raise exception 'invalid nickname';
   end if;
-  insert into public.profiles (id, email, nickname, last_nickname_change)
-    values (new.id, new.email, nick, case when nick is not null then now() else null end)
+  insert into public.profiles (id, email, nickname, last_nickname_change, marketing_opt_in, marketing_opt_in_at)
+    values (new.id, new.email, nick,
+            case when nick is not null then now() else null end,
+            optin,
+            case when optin then now() else null end)
     on conflict (id) do nothing;
   return new;
 end; $$;
+
+-- OAuth path: a signed-in user records their marketing consent from the nickname prompt.
+-- SECURITY DEFINER because the client cannot write profiles directly (RLS + revoked grants).
+-- The *_at timestamp is set ONLY when opting in (null otherwise), so we hold a GDPR record of
+-- WHEN consent was given. Idempotent; reflects the checkbox state at submit.
+create or replace function public.set_marketing_consent(p_opt_in boolean)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare uid uuid := auth.uid();
+begin
+  if uid is null then return jsonb_build_object('ok', false, 'reason', 'auth'); end if;
+  update public.profiles
+     set marketing_opt_in = coalesce(p_opt_in, false),
+         marketing_opt_in_at = case when coalesce(p_opt_in, false) then now() else null end
+   where id = uid;
+  return jsonb_build_object('ok', true);
+end; $$;
+revoke all on function public.set_marketing_consent(boolean) from public;
+grant  execute on function public.set_marketing_consent(boolean) to authenticated;
 
 -- Live availability + validity check for the UI (callable logged-out, for signup).
 -- Returns { ok, reason, available }; reason ∈ format|profane|taken|null.

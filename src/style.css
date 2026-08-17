@@ -390,6 +390,22 @@ body.desktop #game { display: block; width: 100vw; height: 100vh; }
 .auth-sec input:focus { outline: none; border-color: rgba(255, 45, 149, 0.7); box-shadow: 0 0 12px rgba(255, 45, 149, 0.3); }
 .auth-sec input::placeholder { color: rgba(197, 182, 230, 0.55); }
 .auth-sec .menu-btn { width: 100%; margin-top: 2px; }
+/* GDPR marketing opt-in row — a small NATIVE checkbox + quiet label under the nickname
+   field. Resets the full-width `.auth-sec input` block styling on the checkbox so it
+   renders as a real checkbox, not a field. Low-key, left-aligned. */
+.optin-row {
+  display: flex; align-items: flex-start; gap: 9px; cursor: pointer;
+  text-align: left; margin: 4px 0 2px;
+}
+.auth-sec .optin-row input[type="checkbox"] {
+  flex: 0 0 auto; width: 17px; height: 17px; min-width: 17px; margin: 1px 0 0; padding: 0;
+  appearance: auto; -webkit-appearance: auto; accent-color: var(--pink);
+  border-radius: 4px; box-shadow: none; cursor: pointer;
+}
+.optin-text {
+  font-family: var(--font-body); font-size: 12.5px; line-height: 1.45; color: var(--text-dim);
+}
+.optin-note { display: block; font-size: 11px; color: var(--text-muted); margin-top: 1px; }
 /* CONTINUE WITH GOOGLE — Google requires their official mark and standard wording, but
    not their white/grey chrome, which would sit on this sunset card like a sticker. So:
    our dark glass surface + sunset focus/hover, with the logo kept on the WHITE tile

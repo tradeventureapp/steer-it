@@ -132,7 +132,8 @@ palette picked on the phone (§13).
   centred on the rotation pivot, mipmap downscale). Fury recolours from ONE base + `Fury-mask.png`
   (§13) — Stee-Rex is vector per-skin, Blitz uses an arithmetic body test.
 - `auth.ts` — HOST auth + entitlement (Supabase Auth): sign-up/in, email verify, password reset,
-  `is_premium` (server truth, RLS), nickname (RPC-validated + 30-day cooldown), device cap (5).
+  `is_premium` (server truth, RLS), nickname (RPC-validated + 30-day cooldown), device cap (5),
+  marketing consent (`setMarketingConsent` RPC + `signUp`'s opt-in metadata param).
   Phones NEVER import it — joining stays account-free.
 - `email.ts` / `nickname.ts` — email normalise + disposable block; nickname format/cooldown helpers.
 - `api/` (serverless, plain JS): `_lib.js` (env + Stripe client + `PRICE_ID`), `create-checkout-session.js`,
@@ -439,6 +440,19 @@ not trusted). `EV` events: phone→desktop `join|color|name|leave|control`; desk
 **Accounts & Payments (LIVE)**
 - **Accounts** — Supabase Auth (email+password, verification, reset), nicknames (RPC-validated,
   30-day cooldown), 5-device cap, server-truth `is_premium`. See `auth.ts`.
+- **Marketing email opt-in (GDPR)** — a checkbox on the post-signup **nickname prompt** ("Send me
+  updates about new tracks, cars and features" + "Unsubscribe anytime."), **UNCHECKED by default**,
+  optional (blocks nothing), **tied to NO reward** (freely given). Reaches ALL new registrations
+  because it's on BOTH nickname entry points: the OAuth prompt (`#oauth-optin` → `setMarketingConsent`
+  RPC after the nickname saves) AND the sign-up form (`#signup-optin`, signup-mode only via
+  `applyAuthMode` → `signUp`'s `marketing_opt_in` metadata → the `handle_new_user` trigger). Stored
+  on `profiles`: `marketing_opt_in boolean default false` + `marketing_opt_in_at timestamptz` (set to
+  `now()` ONLY when opting in — the GDPR "when consent was given" record; null otherwise). Written
+  SERVER-SIDE only (SECURITY DEFINER trigger/RPC — the client can't write profiles). Consented users
+  are queryable for a future (lawful) send: `select email, nickname from profiles where
+  marketing_opt_in`. Migration in `supabase/schema.sql` (idempotent). ⚠️ NOT tied to the separate
+  review-for-premium idea. A later "email preferences" UI will add a distinct `marketing_opt_out_at`
+  (keep both records) rather than overwriting `marketing_opt_in_at`.
 - **Stripe LIVE end-to-end** — hosted checkout, webhook grants premium, verify-session fallback,
   consent modal. Managed Payments (MoR / EU VAT). See §6.
 - **Free vs premium split enforced** (server-truth `is_premium`, defense-in-depth): SIM car + extra

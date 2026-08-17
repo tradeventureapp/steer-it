@@ -185,6 +185,17 @@ export async function changeNickname(nick: string): Promise<NickChange> {
   } catch { return { ok: false, reason: 'error' }; }
 }
 
+// ---- Marketing email consent (GDPR opt-in) -----------------------------------
+// Records the caller's marketing opt-in from the OAuth nickname prompt (the
+// email/password path writes it via the signup trigger instead — see signUp). Goes
+// through the SECURITY DEFINER set_marketing_consent() RPC because the client can't
+// write profiles directly. Fire-and-forget: a failure is swallowed so it never blocks
+// setting the nickname / continuing. `optIn=false` records "no consent" (timestamp null).
+export async function setMarketingConsent(optIn: boolean): Promise<void> {
+  try { await supabase.rpc('set_marketing_consent', { p_opt_in: !!optIn }); }
+  catch { /* best-effort; never blocks the prompt */ }
+}
+
 // The current session's access token (Supabase JWT) — sent as a Bearer to our own
 // serverless endpoints (Stripe checkout / verify) so they can authenticate the
 // host server-side. null if logged out.
@@ -258,7 +269,7 @@ function msg(e: unknown): string {
 // make an invalid/taken/profane nickname fail the whole signup. The caller
 // pre-checks with checkNickname() for clean messages, so a trigger failure here is
 // the rare race/abuse case → we map it to "nickname taken".
-export async function signUp(email: string, password: string, nickname: string):
+export async function signUp(email: string, password: string, nickname: string, marketingOptIn = false):
 Promise<{ error?: string; needsVerification?: boolean; alreadyRegistered?: boolean; nicknameTaken?: boolean }> {
   // Reject clearly-disposable domains up front. The NORMALISED form is still what we
   // test (so `foo+throwaway@mailinator.com` is caught), but it is NOT what we store.
@@ -273,9 +284,12 @@ Promise<{ error?: string; needsVerification?: boolean; alreadyRegistered?: boole
   // per-account), so correctness of linking wins.
   const stored = (email || '').trim().toLowerCase();
 
+  // `marketing_opt_in` rides in the signup metadata alongside the nickname; the
+  // handle_new_user trigger writes it (+ its consent timestamp) into the profile at
+  // creation — the same server-side path the nickname uses. Defaults false (unticked).
   const { data, error } = await supabase.auth.signUp({
     email: stored, password,
-    options: { emailRedirectTo: redirectTo(), data: { nickname: nickname.trim() } },
+    options: { emailRedirectTo: redirectTo(), data: { nickname: nickname.trim(), marketing_opt_in: !!marketingOptIn } },
   });
   if (error) {
     // If "Confirm email" is OFF, Supabase surfaces an explicit duplicate error.
