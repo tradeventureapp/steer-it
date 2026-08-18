@@ -2985,6 +2985,31 @@ body.phone {
     0 2px 8px rgba(0, 0, 0, 0.5);               /* drop-shadow collapses   */
 }
 
+/* RECENTER — opt-in steering rescue. Top-CENTRE of the (force-landscape) stage, so it's in
+   the empty band above the wheel and clear of the side pedals + the bottom E-BRAKE. Small +
+   understated: it's a fix for a mis-mapped device, not a primary control, so a player won't
+   tap it by accident. Turns gold with "CENTERED ✓" for a beat on tap (phone.ts flashRecenter). */
+#recenter {
+  position: absolute;
+  top: 10px; left: 50%; transform: translateX(-50%);
+  z-index: 3;
+  padding: 7px 15px; border-radius: 999px;
+  font-family: var(--font-display);
+  font-weight: 800; font-size: 12px; letter-spacing: 2px;
+  color: rgba(255, 233, 199, 0.9);
+  background: rgba(18, 11, 28, 0.6);
+  border: 1.5px solid rgba(255, 194, 74, 0.45);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+#recenter[hidden] { display: none; }
+#recenter:active { background: rgba(255, 194, 74, 0.16); transform: translateX(-50%) scale(0.97); }
+#recenter.ok {
+  color: #1a0f24; background: var(--gold, #ffc24a);
+  border-color: var(--gold, #ffc24a); text-shadow: none;
+}
+
 /* "TAP TO STEER" — the pre-game tap (enables motion + calibrates neutral).
    Restyled to big glowing logo-gradient text; the full area stays tappable. */
 #unlock {

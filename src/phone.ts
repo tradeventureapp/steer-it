@@ -12,6 +12,7 @@ import {
 } from './lobby';
 import { inject } from '@vercel/analytics';
 import { trackOnce } from './analytics';
+import { readingToQuat, relativeTwistDeg, type Quat } from './orientation';
 
 // Vercel Web Analytics — framework-agnostic vanilla init (NOT the React
 // <Analytics/> component). Injects the tracking script for the phone controller
@@ -123,6 +124,7 @@ const pedalsEl    = document.getElementById('pedals')         as HTMLDivElement;
 const brakeBtn    = document.getElementById('pedal-brake')    as HTMLButtonElement;
 const throttleBtn = document.getElementById('pedal-throttle') as HTMLButtonElement;
 const handbrakeBtn = document.getElementById('handbrake')     as HTMLButtonElement;
+const recenterBtn = document.getElementById('recenter')       as HTMLButtonElement | null;
 const errorEl     = document.getElementById('error')          as HTMLDivElement;
 const debugEl     = document.getElementById('debug')          as HTMLDivElement | null;
 const lobbySlotEl   = document.getElementById('lobby-slot')   as HTMLDivElement | null;
@@ -143,10 +145,33 @@ let errorMsg = '';
 let permState: 'unknown' | 'granted' | 'denied' | 'not-required' = 'unknown';
 
 // Raw sensor readings (device frame).
+let lastAlpha = 0;
 let lastBeta = 0;
 let lastGamma = 0;
 let lastAx = 0, lastAy = 0, lastAz = 0;
 let hasMotionReading = false;
+// A deviceorientation reading has arrived (beta/gamma present ⇒ enough for the RECENTER
+// quaternion path; alpha may be absent on a device with no magnetometer — treated as 0).
+let hasOrientationReading = false;
+
+// ===================================================================================
+//  RECENTER — an OPT-IN, per-session steering rescue (default path is UNTOUCHED).
+//
+//  Steering is the gravity-based pitch-invariant roll for EVERYONE by default (see
+//  steeringRollDeg). A player whose device's default frame guess is wrong (offset zero
+//  AND/OR a swapped/flipped axis — the Android device-frame mismatch) can tap RECENTER:
+//  we capture the current orientation as a REFERENCE quaternion and, from then on THIS
+//  SESSION, steer becomes the relative TWIST about the wheel axis from that reference
+//  (orientation.ts). That fixes both failure modes at once and is device-agnostic (the
+//  reference defines "straight"). Nothing is persisted — a new session starts on the
+//  default path again, so a stale calibration can never silently affect a later session.
+// ===================================================================================
+let refQuat: Quat | null = null;      // reference orientation captured at the RECENTER tap
+let useQuatSteering = false;          // has THIS session opted in? (false ⇒ default path)
+// A body-frame +Z (wheel) roll yields a +twist (headless-proven), matching the gravity
+// path's convention, so STEER_SIGN downstream applies identically. One-constant flip if a
+// real device ever reads mirrored on the quaternion path (mirrors STEER_SIGN's purpose).
+const QUAT_STEER_SIGN = +1;
 
 // Smoothed (ax, ay) for the rotation classifier — driven from a low-pass
 // of the raw motion so steering wobble doesn't flip the visual frame.
@@ -516,6 +541,7 @@ function renderUI() {
   unlockBtn.hidden = true;
   pedalsEl.hidden  = true;
   errorEl.hidden   = true;
+  if (recenterBtn) recenterBtn.hidden = true;
 
   // The slot label + colour picker live on the TAP TO STEER screen only.
   const showLobby = stage === 'before-unlock';
@@ -530,6 +556,7 @@ function renderUI() {
     unlockBtn.hidden = false;
   } else {
     pedalsEl.hidden = false;
+    if (recenterBtn) recenterBtn.hidden = false;   // shown on the driving screen only
   }
 
   updateDebug();
@@ -649,7 +676,52 @@ function cssExtraRad(): number {
 //  Returns POSITIVE for a RIGHT roll on both platforms; STEER_SIGN (+1) is the single
 //  global left/right flip.
 // ----------------------------------------------------------------------
+// The screen's rotation, for the RECENTER quaternion path (correct for all four angles +
+// natural-landscape devices). screen.orientation.angle where available, else the legacy
+// window.orientation, else 0. NOT used by the default gravity path.
+function screenAngleDeg(): number {
+  const so = (screen as Screen & { orientation?: { angle?: number } }).orientation;
+  if (so && typeof so.angle === 'number') return so.angle;
+  const wo = (window as Window & { orientation?: number }).orientation;
+  return typeof wo === 'number' ? (((wo % 360) + 360) % 360) : 0;
+}
+// The current orientation as a screen-normalised quaternion (RECENTER path only).
+function currentQuatReading(): Quat {
+  return readingToQuat(lastAlpha, lastBeta, lastGamma, screenAngleDeg());
+}
+
+// RECENTER tap: capture the current orientation as the reference and switch THIS session to
+// the relative-twist steering path. Re-tapping re-captures (grip changed / got it wrong). If
+// no deviceorientation reading is available (locked-down browser / no permission), we DON'T
+// switch — steering stays on the working gravity path and the button reports it.
+function recenter(): void {
+  if (!hasOrientationReading) { flashRecenter('NOT AVAILABLE', false); return; }
+  refQuat = currentQuatReading();
+  useQuatSteering = true;
+  flashRecenter('CENTERED ✓', true);
+}
+let recenterFlashUntil = 0;
+function flashRecenter(text: string, okState: boolean): void {
+  if (!recenterBtn) return;
+  recenterBtn.textContent = text;
+  recenterBtn.classList.toggle('ok', okState);
+  recenterFlashUntil = performance.now() + 1100;
+  window.setTimeout(() => {
+    if (performance.now() >= recenterFlashUntil && recenterBtn) {
+      recenterBtn.textContent = 'RECENTER';
+      recenterBtn.classList.remove('ok');
+    }
+  }, 1150);
+}
+
 function steeringRollDeg(): number {
+  // OPT-IN RECENTER path — ONLY after the player has tapped RECENTER (useQuatSteering set +
+  // a reference captured + a live orientation reading). Every other player falls straight
+  // through to the UNCHANGED gravity path below, byte-for-byte as before.
+  if (useQuatSteering && refQuat && hasOrientationReading) {
+    return QUAT_STEER_SIGN * relativeTwistDeg(refQuat, currentQuatReading());
+  }
+  // ---- DEFAULT gravity path (UNCHANGED) ----
   if (!hasMotionReading) return 0;
   const g = Math.hypot(lastAx, lastAy, lastAz);
   if (g < 1) return 0;                                   // free-fall / no signal
@@ -691,7 +763,13 @@ function updateDebug() {
     `phys=${currentPhys}  viewport=${browserLandscape ? 'L' : 'P'}  rot=${cssRot}\n` +
     `ax=${lastAx.toFixed(1)} ay=${lastAy.toFixed(1)} az=${lastAz.toFixed(1)}  ` +
     `sm=(${smoothedAx.toFixed(1)},${smoothedAy.toFixed(1)})\n` +
-    `beta=${lastBeta.toFixed(0)} gamma=${lastGamma.toFixed(0)}\n` +
+    `a=${lastAlpha.toFixed(0)} beta=${lastBeta.toFixed(0)} gamma=${lastGamma.toFixed(0)} ` +
+    `scr=${screenAngleDeg()} ori=${hasOrientationReading ? 'y' : 'n'}\n` +
+    // RECENTER diagnostics (for improving the DEFAULT mapping later from real devices): the
+    // live orientation quaternion, whether a reference is captured, and the relative twist.
+    `q=${(() => { const q = hasOrientationReading ? currentQuatReading() : { w: 1, x: 0, y: 0, z: 0 }; return `${q.w.toFixed(2)},${q.x.toFixed(2)},${q.y.toFixed(2)},${q.z.toFixed(2)}`; })()}\n` +
+    `recenter=${useQuatSteering ? 'ON' : 'off'} ref=${refQuat ? `${refQuat.w.toFixed(2)},${refQuat.x.toFixed(2)},${refQuat.y.toFixed(2)},${refQuat.z.toFixed(2)}` : '-'} ` +
+    `twist=${refQuat && hasOrientationReading ? relativeTwistDeg(refQuat, currentQuatReading()).toFixed(1) : '-'}\n` +
     `roll=${roll.toFixed(1)}° steer=${steer.toFixed(2)} rng=${TILT_RANGE_DEG}°  ` +
     `t=${pedalValue('throttle').toFixed(2)} b=${pedalValue('brake').toFixed(2)} ` +
     `hb=${handbrakeOn() ? 'ON' : 'off'}`;
@@ -753,8 +831,12 @@ unlockBtn.addEventListener('click', async () => {
 // ----------------------------------------------------------------------
 function attachSensorListeners() {
   window.addEventListener('deviceorientation', (e) => {
+    if (e.alpha != null) lastAlpha = e.alpha;   // absent (no magnetometer) → stays 0; RECENTER copes
     if (e.beta  != null) lastBeta  = e.beta;
     if (e.gamma != null) lastGamma = e.gamma;
+    // beta/gamma are gravity-derived + present on essentially all devices → enough for the
+    // RECENTER quaternion path. (The DEFAULT steering path does not read these at all.)
+    if (e.beta != null || e.gamma != null) hasOrientationReading = true;
   });
   window.addEventListener('devicemotion', (e) => {
     const a = e.accelerationIncludingGravity;
@@ -805,6 +887,9 @@ function attachControlListeners() {
   bindAnalogPedal(throttleBtn, 'throttle');
   bindAnalogPedal(brakeBtn,    'brake');
   bindHandbrake(handbrakeBtn);
+  // RECENTER — opt-in steering rescue (see recenter()). Not a driving control, so a plain
+  // click; stopPropagation so it never leaks into the pedal/handbrake touch handling.
+  recenterBtn?.addEventListener('click', (e) => { e.stopPropagation(); recenter(); });
 
   // Zero everything the moment the page loses foreground — a backgrounded
   // tab will never see the finger lift.

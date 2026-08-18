@@ -50,6 +50,11 @@
       <button id="unlock" type="button">TAP TO STEER</button>
       <div id="lobby-colors" hidden></div>
 
+      <!-- RECENTER — opt-in steering rescue (top-centre, clear of the side pedals + the
+           bottom E-BRAKE). Visible while driving but deliberately understated: it's a fix
+           for a mis-mapped device, not a primary control. Wired in phone.ts (recenter()). -->
+      <button id="recenter" type="button" hidden aria-label="Recenter steering">RECENTER</button>
+
       <div id="pedals" hidden>
         <button id="pedal-brake" class="pedal" type="button" aria-label="Brake">
           <div class="pedal-fill"></div>

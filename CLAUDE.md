@@ -62,7 +62,24 @@ palette picked on the phone (§13).
   lobby wiring, QR, race standings/podium, and ALL the account / payments / menu / upsell UI.
 - `phone.ts` — controller: pitch-invariant ROLL gyro steering (`steeringRollDeg`, level-for-everyone,
   no per-user baseline), analog pedals, handbrake, lobby UI. Force-landscape is pure CSS
-  (`#phone-stage`). `TILT_RANGE_DEG 70`, deadzone 3°, expo 1.0, `STEER_SIGN -1`.
+  (`#phone-stage`). `TILT_RANGE_DEG 70`, deadzone 3°, expo 1.0, `STEER_SIGN -1`. The DEFAULT steering
+  reads `devicemotion` gravity (NOT deviceorientation) — this path is UNCHANGED. A **RECENTER**
+  button (`#recenter`, top-centre of the stage) is an **OPT-IN, per-session, in-memory** rescue for a
+  device whose default frame guess is wrong (offset zero AND/OR swapped/flipped axis — the Android
+  device-frame mismatch): tapping it captures a REFERENCE quaternion and switches THAT session to
+  relative-twist steering (`orientation.ts`) — steer = the twist about the wheel axis (screen normal,
+  device Z) from the reference, via swing-twist, `screen.orientation.angle`-corrected, continuous
+  through vertical (no gimbal lock). Re-tap re-captures ("CENTERED ✓"); no orientation available →
+  stays on the gravity path ("NOT AVAILABLE"). Fed into the SAME `steerFromTilt()` (deadzone/range/
+  expo/sign unchanged) so only the zero + axis differ, not the feel. **No auto-calibration by design;
+  nothing persisted** — a fresh session starts on the default path. Untapped output is byte-identical
+  to the old gravity formula (headless-proven, 20k fuzzed inputs). β/γ/α/quat/ref/twist added to the
+  3-finger debug strip for collecting real device data (to improve the DEFAULT mapping in a later phase).
+- `orientation.ts` — PURE quaternion + relative-twist math for the RECENTER rescue (DOM/sensor-free,
+  headless-tested like `zones.ts`): `eulerToQuat` (W3C ZXY → quaternion, half-angle so it's stable
+  through β=±90°), `applyScreenAngle` (screen-normal Z correction for the four angles + natural-
+  landscape), `twistAboutZDeg` / `relativeTwistDeg` (swing-twist about the wheel axis = pitch/yaw-
+  invariant steering roll), `quatMul`/`quatConj`/`rotZ`. phone.ts owns all sensor + UI wiring.
 - `world.ts` — the drawn desktop map (`layoutDesktop`, wallpaper/overlay, collision rects, icon drag).
 - `maps.ts` — MAP SYSTEM: `MapDefinition`, registry, and the maps — `desktopMap` (open),
   the STADIUM-oval twins `flatTrackMap` (dirt) + `asphaltTrackMap` (both from `makeStadiumMap`),
