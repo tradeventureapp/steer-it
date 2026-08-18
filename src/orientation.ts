@@ -24,6 +24,17 @@ export interface Quat { w: number; x: number; y: number; z: number; }
 
 const DEG = Math.PI / 180;
 
+// The sign that makes the RECENTER (quaternion) path steer the SAME DIRECTION as the working
+// default path. A physical wheel-roll gives relativeTwistDeg() one sign, but the default gravity
+// path reads that same roll with the OPPOSITE sign (iOS `comp = -ay`), so an unflipped twist
+// inverts the steering (confirmed on a real device: right tilt steered left). -1 lines the two
+// paths up. This is DEVICE-INDEPENDENT: the twist is a geometric rotation about the screen normal,
+// taken RELATIVE to the captured reference and corrected by screen.orientation.angle — it does NOT
+// depend on guessing the raw sensor frame (which is exactly what varies per Android model). So the
+// one flip is correct on every spec-conformant device, not just the reporter's. (See the headless
+// cross-check test: for a level reference, gravity path and quaternion×SIGN agree in sign.)
+export const QUAT_STEER_SIGN = -1;
+
 export function quatMul(a: Quat, b: Quat): Quat {
   return {
     w: a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z,

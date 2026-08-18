@@ -12,7 +12,7 @@ import {
 } from './lobby';
 import { inject } from '@vercel/analytics';
 import { trackOnce } from './analytics';
-import { readingToQuat, relativeTwistDeg, type Quat } from './orientation';
+import { readingToQuat, relativeTwistDeg, QUAT_STEER_SIGN, type Quat } from './orientation';
 
 // Vercel Web Analytics — framework-agnostic vanilla init (NOT the React
 // <Analytics/> component). Injects the tracking script for the phone controller
@@ -168,10 +168,8 @@ let hasOrientationReading = false;
 // ===================================================================================
 let refQuat: Quat | null = null;      // reference orientation captured at the RECENTER tap
 let useQuatSteering = false;          // has THIS session opted in? (false ⇒ default path)
-// A body-frame +Z (wheel) roll yields a +twist (headless-proven), matching the gravity
-// path's convention, so STEER_SIGN downstream applies identically. One-constant flip if a
-// real device ever reads mirrored on the quaternion path (mirrors STEER_SIGN's purpose).
-const QUAT_STEER_SIGN = +1;
+// QUAT_STEER_SIGN (imported) aligns the quaternion path's direction with the default gravity
+// path — device-independent, one flip everywhere. See orientation.ts for the derivation.
 
 // Smoothed (ax, ay) for the rotation classifier — driven from a low-pass
 // of the raw motion so steering wobble doesn't flip the visual frame.
