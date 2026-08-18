@@ -712,33 +712,61 @@ body.desktop #game { display: block; width: 100vw; height: 100vh; }
 }
 .gm-premium-owned span { font-size: 13px; }
 
-/* ---- REVIEW-FOR-PREMIUM — an ALWAYS-OPEN form panel (game-menu home), signed-in non-premium
-   only (gated in renderGameMenuAccount). It reuses the .menu-card / .gm-card synthwave chrome. ----
-   Layout: on a NARROW host the panel is a normal in-flow flex child of the home column, so it
-   STACKS with the menu (the sanctioned mobile fallback); on a WIDE host (≥1300px) it's absolutely
-   positioned in the empty space to the LEFT of the centred menu — taken OUT of the flex flow, so
-   the menu stays perfectly centred whether the panel is shown or hidden (no gap, no shift). */
-.gm-review-panel { width: 100%; display: flex; justify-content: center; }
+/* ---- REVIEW-FOR-PREMIUM — a COMPACT always-open form panel (game-menu home), signed-in
+   non-premium only (gated in renderGameMenuAccount). Reuses the .menu-card / .gm-card chrome but
+   SHRINKS the internals so the whole card is small (~290px). ----
+   Two layouts, neither ever overlapping the centred menu:
+   • WIDE (≥1240px): position:FIXED to the viewport (NOT absolute — .gm-view is position:relative
+     via `.menu-screen > *`, so an absolute child would anchor to the menu column and sit ON the
+     logo; fixed anchors to the viewport instead). Its RIGHT edge is pinned 24px LEFT of the hero
+     logo's left edge — the logo (min(520px,74vw)) is the widest menu element, so its left edge is
+     at 50% − 260px, giving a guaranteed 24px gap to the menu at every width; the width is clamped
+     to the available left gap so it can never run off-screen (no horizontal scroll). Out of flow
+     ⇒ the menu stays exactly centred.
+   • NARROW (<1240px): no room beside the menu, so the panel STACKS in the menu column (compact),
+     and the menu is made scroll-safe (`safe center` + overflow-x hidden) so nothing is clipped
+     and no horizontal scrollbar appears. */
+.gm-review-panel { display: flex; justify-content: center; width: 100%; margin-top: 2px; }
 .gm-review-panel[hidden] { display: none; }
-@media (min-width: 1300px) {
-  .gm-review-panel {
-    position: absolute; left: clamp(16px, 2vw, 44px);
-    top: 50%; transform: translateY(-50%);
-    width: auto; max-height: 88vh; overflow-y: auto;
-  }
-  /* Capped narrower than the modal was, so it clears the 520px centred hero logo. */
-  .gm-review-panel .review-card { min-width: 300px; max-width: 320px; }
+/* Compact card + internals (BOTH layouts) — much smaller than the default menu card. */
+.gm-review-panel .review-card {
+  min-width: 0; max-width: none; width: min(290px, 88vw);
+  padding: 15px 17px 14px; gap: 9px; text-align: center;
 }
-/* Narrow host: let the game menu scroll if the taller stacked layout exceeds the viewport
-   (small laptops / tablets), staying centred when it fits. margin:auto on the visible view is
-   the scroll-safe centring trick (avoids the align-items:center top-clip). No visible change for
-   users without the panel — it centres identically when content fits. */
-@media (max-width: 1299px) {
-  #game-menu.menu-screen { align-items: flex-start; overflow-y: auto; }
-  #game-menu.menu-screen > .gm-view:not([hidden]) { margin: auto; }
+.gm-review-panel .menu-title { font-size: 15px; letter-spacing: 1px; }
+.gm-review-panel .review-lead { font-size: 11px; line-height: 1.4; margin: 0; }
+.gm-review-panel .review-form { gap: 9px; }
+.gm-review-panel .review-stars { gap: 4px; }
+.gm-review-panel .review-star { font-size: 20px; padding: 1px 2px; }
+.gm-review-panel .review-text { min-height: 50px; font-size: 12px; padding: 7px 9px; }
+.gm-review-panel .review-consent .optin-text { font-size: 10.5px; line-height: 1.35; }
+.gm-review-panel .review-consent .optin-note { font-size: 10px; }
+.gm-review-panel #review-submit { padding: 8px 12px; font-size: 11.5px; }
+.gm-review-panel .review-msg { font-size: 11px; }
+.gm-review-panel .review-done { gap: 9px; padding: 4px 0 2px; }
+.gm-review-panel .review-done-icon { width: 38px; height: 38px; font-size: 20px; }
+.gm-review-panel .review-done-text { font-size: 12.5px; }
+
+/* WIDE: float in the empty LEFT gap, pinned to the menu's left edge (never overlaps, never off-screen). */
+@media (min-width: 1240px) {
+  .gm-review-panel {
+    position: fixed; left: auto;
+    right: calc(50% + 284px);                 /* 260 (half the 520 logo) + 24px clearance */
+    top: 50%; transform: translateY(-50%);
+    width: min(290px, calc(50vw - 300px));    /* never wider than the available left gap */
+    margin: 0; max-height: 86vh; overflow-y: auto;
+  }
+  .gm-review-panel .review-card { width: 100%; }
+}
+/* NARROW: the panel stacks in the column — keep the menu scroll-safe + kill any horizontal scroll.
+   `safe center` centres vertically but falls back to top-align when the taller layout overflows,
+   so the logo is never clipped. Only affects #game-menu at ≤1239px; identical for users without
+   the panel (short content still centres). */
+@media (max-width: 1239px) {
+  #game-menu.menu-screen { align-items: safe center; overflow-y: auto; overflow-x: hidden; }
 }
 
-.review-card { min-width: 340px; max-width: 420px; text-align: center; gap: 12px; }
+.review-card { text-align: center; gap: 12px; }
 .review-lead {
   font-family: var(--font-body); font-size: 13px; line-height: 1.5; color: var(--text-dim);
   margin: -2px 0 2px; text-wrap: balance;

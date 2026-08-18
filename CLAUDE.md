@@ -518,12 +518,15 @@ not trusted). `EV` events: phone→desktop `join|color|name|leave|control`; desk
   showcase), RPC-only write. The review form is an **ALWAYS-OPEN panel** `#review-panel` (game-menu
   home, `reviews.ts` client), gated to signed-in non-premium via the existing `free` flag
   (`renderReviewPanel(free)` in `renderGameMenuAccount` shows/hides it + loads the pending/approved
-  state via `fetchMyReview` on first show). **Layout:** on a WIDE host (≥1300px) the panel is
-  ABSOLUTELY positioned in the empty space to the LEFT of the centred menu — out of the flex flow,
-  so the menu stays perfectly centred, and `hidden`⇒`display:none` leaves NO gap for premium /
-  signed-out users; on a NARROW host (≤1299px) it STACKS in the menu column (the mobile fallback),
-  with `#game-menu` made scroll-safe (`align-items:flex-start; overflow-y:auto` + `margin:auto` on
-  the visible view) so the taller layout can't clip. (Replaced the old small `#gm-review` button +
+  state via `fetchMyReview` on first show). **Layout (COMPACT ~290px card):** on a WIDE host
+  (≥1240px) the panel is `position:FIXED` to the viewport in the empty space LEFT of the centred
+  menu, its RIGHT edge pinned `right: calc(50% + 284px)` = 24px left of the 520px logo's left edge,
+  width clamped `min(290px, calc(50vw − 300px))` so it can't run off-screen — ⚠️ it MUST be `fixed`,
+  not `absolute`: `.menu-screen > *` makes `.gm-view` `position:relative`, so an absolute child would
+  anchor to the ~520px menu column and sit ON the logo (the bug that shipped). Out of flow + `hidden`
+  ⇒ `display:none` ⇒ NO gap/shift for premium / signed-out users. On a NARROW host (≤1239px) it
+  STACKS compactly in the menu column, with `#game-menu` made scroll-safe (`align-items:safe center;
+  overflow-x:hidden`) so nothing clips and no horizontal scrollbar appears. (Replaced the old small `#gm-review` button +
   `#review-modal`, both removed; the form IDs — `review-stars`/`review-text`/`review-consent`/
   `review-submit`/`review-form-view`/`review-done-view` — are reused, so the star/submit wiring is
   unchanged.) One active (pending/approved) review per user + ≤5 submits/hour. Migration + admin

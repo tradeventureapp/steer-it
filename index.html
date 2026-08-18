@@ -442,13 +442,13 @@
         </button>
         <div class="gm-premium-owned" id="gm-premium-owned" hidden><span aria-hidden="true">★</span> PREMIUM</div>
 
-        <!-- REVIEW-FOR-PREMIUM — an ALWAYS-OPEN form panel for signed-in NON-premium hosts
+        <!-- REVIEW-FOR-PREMIUM — a COMPACT always-open form panel for signed-in NON-premium hosts
              (same 'free' gate as GET PREMIUM, set in renderGameMenuAccount). Leaving an honest
-             review (any rating) earns premium after manual approval. On a WIDE host it floats in
-             the empty space to the LEFT of the centred menu (absolutely positioned → the menu
-             stays centred, no gap when hidden); on a NARROW host it stacks in the menu column
-             (see style.css). Replaces the old small #gm-review button + #review-modal. Reuses the
-             review form IDs, so the star/submit wiring in desktop.ts is unchanged. -->
+             review (any rating) earns premium after manual approval. On a WIDE host (≥1240px) it's
+             position:FIXED in the empty space to the LEFT of the centred menu, its right edge pinned
+             24px left of the logo (→ never overlaps, and the menu stays centred); on a NARROW host it
+             stacks compactly in the menu column (see style.css). Replaces the old small #gm-review
+             button + #review-modal. Reuses the review form IDs, so desktop.ts wiring is unchanged. -->
         <aside class="gm-review-panel" id="review-panel" hidden aria-label="Leave a review to get premium free">
           <div class="menu-card gm-card review-card">
             <div class="menu-title">★ GET PREMIUM FREE</div>
