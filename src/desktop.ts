@@ -1751,9 +1751,9 @@ document.getElementById('gm-lb-back')?.addEventListener('click', () => setGameMe
 //  Submitting NEVER grants — it lands as 'pending'. Legally clean: no rating threshold, and
 //  the publish-consent checkbox is separate + does NOT affect the reward.
 // =============================================================================
-const reviewModalEl = document.getElementById('review-modal');
 let reviewRating = 0;
 let reviewBusy = false;
+let reviewPanelInit = false;   // fetch the existing-review state once per show (reset when hidden)
 function paintReviewStars(): void {
   for (const b of Array.from(document.querySelectorAll('#review-stars .review-star')) as HTMLElement[]) {
     b.classList.toggle('on', Number(b.dataset.val) <= reviewRating);
@@ -1774,9 +1774,20 @@ function showReviewDone(status: 'pending' | 'approved'): void {
     ? 'Your review was approved — premium unlocked. Thank you!'
     : 'Thanks — your review is in and awaiting approval. Premium unlocks once approved.';
 }
-async function openReviewModal(): Promise<void> {
-  if (!reviewModalEl) return;
-  // Reset the form to a clean state.
+// The review form is an ALWAYS-OPEN panel (#review-panel) in the game-menu home, shown ONLY to a
+// signed-in NON-premium host (the SAME `free` gate as GET PREMIUM). It floats left of the centred
+// menu on desktop / stacks on narrow (style.css). When it first becomes visible we reset the form
+// and, if the user already reviewed, swap to the pending/approved state — exactly what the old
+// modal did on open, minus the modal. `reviewPanelInit` gates the (async) fetch to once per show.
+// Called from renderGameMenuAccount(free).
+function renderReviewPanel(free: boolean): void {
+  const panel = document.getElementById('review-panel');
+  if (!panel) return;
+  panel.hidden = !free;
+  if (!free) { reviewPanelInit = false; return; }   // hidden ⇒ re-init next time it's shown
+  if (reviewPanelInit) return;                        // already set up for this show
+  reviewPanelInit = true;
+  // Reset to a clean form.
   reviewRating = 0; reviewBusy = false; paintReviewStars();
   const ta = document.getElementById('review-text') as HTMLTextAreaElement | null;
   const consent = document.getElementById('review-consent') as HTMLInputElement | null;
@@ -1789,17 +1800,16 @@ async function openReviewModal(): Promise<void> {
   if (done) done.hidden = true;
   const submit = document.getElementById('review-submit') as HTMLButtonElement | null;
   if (submit) submit.disabled = false;
-  reviewModalEl.hidden = false;
-  // If they already have a review (pending/approved), show that state instead of the form.
+  // Already have a review (pending/approved)? Show that state instead of the form — can't re-submit.
   const uid = getAuthState().user?.id;
   if (uid) {
-    const mine = await fetchMyReview(uid);
-    if (mine && (mine.status === 'pending' || mine.status === 'approved') && !reviewModalEl.hidden) {
-      showReviewDone(mine.status);
-    }
+    void fetchMyReview(uid).then((mine) => {
+      if (mine && (mine.status === 'pending' || mine.status === 'approved') && !panel.hidden) {
+        showReviewDone(mine.status);
+      }
+    });
   }
 }
-function closeReviewModal(): void { if (reviewModalEl) reviewModalEl.hidden = true; }
 // Map an RPC reason to a clear message.
 function reviewReasonMsg(reason: string | null): string {
   return reason === 'rating' ? 'Please pick a star rating first.'
@@ -1812,10 +1822,6 @@ function reviewReasonMsg(reason: string | null): string {
 for (const b of Array.from(document.querySelectorAll('#review-stars .review-star')) as HTMLElement[]) {
   b.addEventListener('click', () => { reviewRating = Number(b.dataset.val) || 0; paintReviewStars(); setReviewMsg(''); });
 }
-document.getElementById('gm-review')?.addEventListener('click', () => { void openReviewModal(); });
-document.getElementById('review-close')?.addEventListener('click', closeReviewModal);
-document.getElementById('review-done-close')?.addEventListener('click', closeReviewModal);
-reviewModalEl?.addEventListener('click', (e) => { if (e.target === reviewModalEl) closeReviewModal(); });
 document.getElementById('review-submit')?.addEventListener('click', () => {
   if (reviewBusy) return;
   const ta = document.getElementById('review-text') as HTMLTextAreaElement | null;
@@ -2142,9 +2148,9 @@ function renderGameMenuAccount(s: AuthState) {
   if (optUp) optUp.hidden = !free;
   // Review-for-premium: same gate as GET PREMIUM (signed-in non-premium, plan resolved). A
   // granted user is `s.isPremium` (effective = paid OR granted), so once approved they stop
-  // seeing it.
-  const review = document.getElementById('gm-review');
-  if (review) review.hidden = !free;
+  // seeing it. The form is an always-open left panel now (not a button) — renderReviewPanel
+  // shows/hides it and loads the existing-review state on first show.
+  renderReviewPanel(free);
 }
 
 // ---- Background music (host only) — a shuffled synthwave playlist that plays in

@@ -712,21 +712,33 @@ body.desktop #game { display: block; width: 100vw; height: 100vh; }
 }
 .gm-premium-owned span { font-size: 13px; }
 
-/* REVIEW-FOR-PREMIUM button (game-menu) — a quiet gold outline, secondary to the loud GET
-   PREMIUM CTA above it. Signed-in non-premium only (gated in renderGameMenuAccount). */
-.gm-review-cta {
-  appearance: none; cursor: pointer;
-  font-family: var(--font-body); font-weight: 700; font-size: 13px; letter-spacing: 0.3px;
-  color: var(--gold); padding: 10px 16px; border-radius: 12px;
-  border: 1px solid rgba(255, 194, 74, 0.4); background: rgba(255, 194, 74, 0.06);
-  transition: border-color 0.15s, background 0.15s;
+/* ---- REVIEW-FOR-PREMIUM — an ALWAYS-OPEN form panel (game-menu home), signed-in non-premium
+   only (gated in renderGameMenuAccount). It reuses the .menu-card / .gm-card synthwave chrome. ----
+   Layout: on a NARROW host the panel is a normal in-flow flex child of the home column, so it
+   STACKS with the menu (the sanctioned mobile fallback); on a WIDE host (≥1300px) it's absolutely
+   positioned in the empty space to the LEFT of the centred menu — taken OUT of the flex flow, so
+   the menu stays perfectly centred whether the panel is shown or hidden (no gap, no shift). */
+.gm-review-panel { width: 100%; display: flex; justify-content: center; }
+.gm-review-panel[hidden] { display: none; }
+@media (min-width: 1300px) {
+  .gm-review-panel {
+    position: absolute; left: clamp(16px, 2vw, 44px);
+    top: 50%; transform: translateY(-50%);
+    width: auto; max-height: 88vh; overflow-y: auto;
+  }
+  /* Capped narrower than the modal was, so it clears the 520px centred hero logo. */
+  .gm-review-panel .review-card { min-width: 300px; max-width: 320px; }
 }
-.gm-review-cta:hover { border-color: var(--gold); background: rgba(255, 194, 74, 0.12); }
-.gm-review-cta[hidden] { display: none; }
+/* Narrow host: let the game menu scroll if the taller stacked layout exceeds the viewport
+   (small laptops / tablets), staying centred when it fits. margin:auto on the visible view is
+   the scroll-safe centring trick (avoids the align-items:center top-clip). No visible change for
+   users without the panel — it centres identically when content fits. */
+@media (max-width: 1299px) {
+  #game-menu.menu-screen { align-items: flex-start; overflow-y: auto; }
+  #game-menu.menu-screen > .gm-view:not([hidden]) { margin: auto; }
+}
 
-/* ---- REVIEW MODAL ---- */
 .review-card { min-width: 340px; max-width: 420px; text-align: center; gap: 12px; }
-#review-modal .review-card { width: min(420px, 92vw); }
 .review-lead {
   font-family: var(--font-body); font-size: 13px; line-height: 1.5; color: var(--text-dim);
   margin: -2px 0 2px; text-wrap: balance;

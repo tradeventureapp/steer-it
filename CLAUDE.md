@@ -515,10 +515,20 @@ not trusted). `EV` events: phone→desktop `join|color|name|leave|control`; desk
   counted as a paying customer (paid = `where is_premium`; comped = `where granted_premium`). Table
   `public.reviews` (id, user_id, nickname [server-side], rating, body, publish_consent, consent_at,
   status, created_at, reviewed_at), RLS: own-read + PUBLIC read of approved+consented only (for the
-  showcase), RPC-only write. Button `#gm-review` (game-menu, gated to signed-in non-premium via the
-  existing `free` flag), modal `#review-modal` (`reviews.ts` client). One active (pending/approved)
-  review per user + ≤5 submits/hour. Migration + admin workflow SQL in `supabase/schema.sql`
-  (idempotent) — incl. the one-time `johny.frajer` migration onto `granted_premium`.
+  showcase), RPC-only write. The review form is an **ALWAYS-OPEN panel** `#review-panel` (game-menu
+  home, `reviews.ts` client), gated to signed-in non-premium via the existing `free` flag
+  (`renderReviewPanel(free)` in `renderGameMenuAccount` shows/hides it + loads the pending/approved
+  state via `fetchMyReview` on first show). **Layout:** on a WIDE host (≥1300px) the panel is
+  ABSOLUTELY positioned in the empty space to the LEFT of the centred menu — out of the flex flow,
+  so the menu stays perfectly centred, and `hidden`⇒`display:none` leaves NO gap for premium /
+  signed-out users; on a NARROW host (≤1299px) it STACKS in the menu column (the mobile fallback),
+  with `#game-menu` made scroll-safe (`align-items:flex-start; overflow-y:auto` + `margin:auto` on
+  the visible view) so the taller layout can't clip. (Replaced the old small `#gm-review` button +
+  `#review-modal`, both removed; the form IDs — `review-stars`/`review-text`/`review-consent`/
+  `review-submit`/`review-form-view`/`review-done-view` — are reused, so the star/submit wiring is
+  unchanged.) One active (pending/approved) review per user + ≤5 submits/hour. Migration + admin
+  workflow SQL in `supabase/schema.sql` (idempotent) — incl. the one-time `johny.frajer` migration
+  onto `granted_premium`.
 - **Stripe LIVE end-to-end** — hosted checkout, webhook grants premium, verify-session fallback,
   consent modal. Managed Payments (MoR / EU VAT). See §6. ⚠️ Stripe/webhook/`setPremium`/verify
   ONLY ever set `is_premium = true` (no revoke path exists) — and NEVER touch `granted_premium`.
