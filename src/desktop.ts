@@ -1042,6 +1042,27 @@ function refreshModePicker() {
     el.classList.toggle('is-filtered', !!selectedMapId && !mapModes.includes(key));
   }
 }
+// A mode's conditional controls render DIRECTLY UNDER its own entry in the mode list (not at the
+// bottom), so they visually belong to the mode they configure. We physically move each panel to
+// sit right after its owning button; hidden panels take no space, so the list reflows cleanly when
+// switching modes. Panels start life as siblings after #mode-panel (a graceful fallback if JS/this
+// never runs); the moves re-parent them into #mode-panel next to the button. Idempotent + safe to
+// re-run after buildModeOptions rebuilds the buttons (the panel nodes are moved, never recreated).
+function placeModePanels() {
+  const btnFor = (key: string) => modeOptEls.find((b) => b.dataset.mode === key) ?? null;
+  const raceBtn = btnFor('race'), taBtn = btnFor('timeattack'), xpBtn = btnFor('xp');
+  if (raceBtn && raceLapsEl) raceBtn.after(raceLapsEl);            // RACE → lap count
+  if (xpBtn && xpBestPanelEl) xpBtn.after(xpBestPanelEl);          // XP   → personal best
+  if (taBtn && ghostPanelEl) taBtn.after(ghostPanelEl);           // TA   → ghost selector
+  // VIEW LEADERBOARD is shared by TA + XP — park it under whichever board mode is selected. For TA
+  // it goes ABOVE the ghost panel (button → LEADERBOARD → GHOST, since each .after(taBtn) inserts
+  // immediately after the button); for XP it goes below the best readout; otherwise it hides + is
+  // parked under TA.
+  if (cmsLbOpenBtn) {
+    if (selectedGameMode === 'xp' && xpBestPanelEl) xpBestPanelEl.after(cmsLbOpenBtn);
+    else if (taBtn) taBtn.after(cmsLbOpenBtn);
+  }
+}
 // One call refreshes both halves of the two-way filter + the START button.
 function refreshSelectionUi() {
   highlightMapTiles();
@@ -1050,6 +1071,7 @@ function refreshSelectionUi() {
   refreshXpBest();
   refreshTaLbButton();
   refreshGhostPanel();
+  placeModePanels();
   updateStartEnabled();
 }
 
