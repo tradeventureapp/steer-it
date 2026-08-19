@@ -274,10 +274,10 @@ not trusted). `EV` events: phone→desktop `join|color|name|leave|control`; desk
   **no new physics, Blitz golden 0.0e+0 untouched** (only `maps.ts` map data + a `DEV_MAP_IDS` entry
   changed). Built like the oval barriers: 4 straight wall AABBs (one per side, centred on the interior
   edge) + 4 CORNER arcs (`inside:true`, radius `r − sq/2`); all four sides straight, the two SHORT ends
-  left FLAT so goals can land there later. Interior **144×96 m (3:2)** (whole arena scaled 0.8× ≈−20%
-  from the first pass), corner radius **32 m** (each short end keeps a **32 m** flat straight), wall
-  **3.5 m** (UNCHANGED — walls don't shrink with the arena, so they read a touch chunkier now); world
-  `ARENA_LOGICAL` **153.6×105.6 m** = the oval world 256×144 scaled **0.60× (long) / 0.73× (short)** —
+  left FLAT so goals can land there later. Interior **144×80 m (1.8:1)** — LENGTH (goal→goal) 144 m,
+  pitch WIDTH (side-to-side) narrowed 1/6 (96→80); corner radius **27 m** (scaled to the narrower width;
+  each short end keeps a **26 m** flat straight), wall **3.5 m** (UNCHANGED — walls don't shrink with the
+  arena); world `ARENA_LOGICAL` **153.6×89.6 m** (width follows the narrower pitch) —
   tuned for 1v1, crossable end-to-end in a
   few seconds. `trackType:'open'`, `gameModes:['free']` (FREE RIDE only — **no football mode yet**, the
   mode system is untouched); NO `onTrackAt`/`startLine`/`zonePath` (all optional — it's a closed space,

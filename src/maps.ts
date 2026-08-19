@@ -3840,16 +3840,16 @@ export const authoredCircuitMap: MapDefinition = {
 //  yet — FREE RIDE only. Tuned for 1v1: long axis ~25% shorter than the stadium
 //  oval, 3:2 aspect, crossable end-to-end in a few seconds.
 // =============================================================================
-const ARENA_INTERIOR_W = 144;   // long (horizontal) interior span, m — goal→goal crossing distance
-const ARENA_INTERIOR_H = 96;    // short (vertical) interior span, m — the pitch WIDTH. 144:96 = 3:2.
-                                //   Whole arena scaled 0.8× (≈−20%) from the original 180×120.
-const ARENA_CORNER_R   = 32;    // corner arc radius, m (0.8×40) — heavily rounded; < H/2 so each
-                                //   SHORT end keeps a 2·(48−32) = 32 m flat straight for a goal later
+const ARENA_INTERIOR_W = 144;   // long (horizontal) interior span, m — goal→goal LENGTH (UNCHANGED)
+const ARENA_INTERIOR_H = 80;    // short (vertical) interior span, m — the pitch WIDTH. Narrowed 1/6
+                                //   (96 → 80, ×0.833); length unchanged ⇒ 144:80 = 1.8:1.
+const ARENA_CORNER_R   = 27;    // corner arc radius, m (32→27, ×0.83 to match the narrower width) —
+                                //   < H/2, so each SHORT end keeps a 2·(40−27) = 26 m flat straight
 const ARENA_WALL       = 3.5;   // wall strip thickness, m — UNCHANGED (walls don't shrink with the arena)
-const ARENA_MARGIN     = 4.8;   // ground border drawn outside the walls, m (0.8×6)
+const ARENA_MARGIN     = 4.8;   // ground border drawn outside the walls, m
 const ARENA_LOGICAL = {
-  widthM:  ARENA_INTERIOR_W + 2 * ARENA_MARGIN,   // 153.6  (0.8× the original 192; oval world 256 → 0.60×)
-  heightM: ARENA_INTERIOR_H + 2 * ARENA_MARGIN,   // 105.6  (0.8× the original 132; oval world 144 → 0.73×)
+  widthM:  ARENA_INTERIOR_W + 2 * ARENA_MARGIN,   // 153.6  (LENGTH unchanged)
+  heightM: ARENA_INTERIOR_H + 2 * ARENA_MARGIN,   // 89.6   (world height follows the narrower width)
 };
 
 interface ArenaGeom { cx: number; cy: number; HX: number; HY: number; r: number; sq: number; }
