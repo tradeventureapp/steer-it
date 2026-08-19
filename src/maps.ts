@@ -3840,16 +3840,16 @@ export const authoredCircuitMap: MapDefinition = {
 //  yet — FREE RIDE only. Tuned for 1v1: long axis ~25% shorter than the stadium
 //  oval, 3:2 aspect, crossable end-to-end in a few seconds.
 // =============================================================================
-const ARENA_INTERIOR_W = 180;   // long (horizontal) interior span, m — the crossing distance (goal→goal)
-const ARENA_INTERIOR_H = 100;   // short (vertical) interior span, m — the pitch WIDTH; narrowed 1/6
-                                //   (120 → 100) for a tighter 1v1. Now 180:100 = 1.8:1
-const ARENA_CORNER_R   = 40;    // corner arc radius, m — heavily rounded; < H/2 so each SHORT
-                                //   end keeps a 2·(50−40) = 20 m flat straight for a goal later
-const ARENA_WALL       = 3.5;   // wall strip thickness, m (matches the oval's wall floor)
-const ARENA_MARGIN     = 6;     // ground border drawn outside the walls, m
+const ARENA_INTERIOR_W = 144;   // long (horizontal) interior span, m — goal→goal crossing distance
+const ARENA_INTERIOR_H = 96;    // short (vertical) interior span, m — the pitch WIDTH. 144:96 = 3:2.
+                                //   Whole arena scaled 0.8× (≈−20%) from the original 180×120.
+const ARENA_CORNER_R   = 32;    // corner arc radius, m (0.8×40) — heavily rounded; < H/2 so each
+                                //   SHORT end keeps a 2·(48−32) = 32 m flat straight for a goal later
+const ARENA_WALL       = 3.5;   // wall strip thickness, m — UNCHANGED (walls don't shrink with the arena)
+const ARENA_MARGIN     = 4.8;   // ground border drawn outside the walls, m (0.8×6)
 const ARENA_LOGICAL = {
-  widthM:  ARENA_INTERIOR_W + 2 * ARENA_MARGIN,   // 192  (oval world is 256 → 0.75×)
-  heightM: ARENA_INTERIOR_H + 2 * ARENA_MARGIN,   // 112  (oval world is 144 → 0.78×)
+  widthM:  ARENA_INTERIOR_W + 2 * ARENA_MARGIN,   // 153.6  (0.8× the original 192; oval world 256 → 0.60×)
+  heightM: ARENA_INTERIOR_H + 2 * ARENA_MARGIN,   // 105.6  (0.8× the original 132; oval world 144 → 0.73×)
 };
 
 interface ArenaGeom { cx: number; cy: number; HX: number; HY: number; r: number; sq: number; }
@@ -3922,7 +3922,9 @@ function drawArena(ctx: CanvasRenderingContext2D, wPx: number, hPx: number) {
   arenaRoundRectPath(ctx, g, s, 0); ctx.clip();
   ctx.strokeStyle = 'rgba(255,255,255,0.10)'; ctx.lineWidth = Math.max(1, 0.5 * s);
   ctx.beginPath(); ctx.moveTo(g.cx * s, (g.cy - g.HY) * s); ctx.lineTo(g.cx * s, (g.cy + g.HY) * s); ctx.stroke();
-  ctx.beginPath(); ctx.arc(g.cx * s, g.cy * s, 14 * s, 0, Math.PI * 2); ctx.stroke();
+  // centre circle as a FRACTION of the pitch width (0.23·HY ≈ the original 14 m at HY 60) so it
+  // scales with the arena and the markings' proportions stay identical at any size.
+  ctx.beginPath(); ctx.arc(g.cx * s, g.cy * s, g.HY * 0.23 * s, 0, Math.PI * 2); ctx.stroke();
   ctx.restore();
   // 3. wall strip — stroke the interior edge CENTRED (width sq) so its band-side face is exactly
   //    the collision boundary (arenaWalls/arenaArcs). Dark tyre-wall look.
