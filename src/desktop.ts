@@ -54,6 +54,7 @@ import { GhostRecorder, sampleGhost, decimFor, serializeGhost, parseGhost, type 
 import { submitReview, fetchMyReview } from './reviews';
 import {
   submitScore, fetchBoard, fetchTopAndOwn, LB_PAGE_SIZE,
+  submitGhost, fetchGhost, fetchGhostOwners,
   type BoardKey, type LbRow,
 } from './leaderboard';
 import { inject } from '@vercel/analytics';
@@ -129,8 +130,7 @@ const taLastRowEl   = document.getElementById('ta-last-row')   as HTMLElement | 
 const taLastEl      = document.getElementById('ta-last')       as HTMLElement | null;
 const taRecordEl    = document.getElementById('ta-record')     as HTMLElement | null;
 const taInvalidEl   = document.getElementById('ta-invalid')    as HTMLElement | null;
-const taGhostToggle = document.getElementById('ta-ghost-toggle') as HTMLButtonElement | null;
-const taGhostSrcEl  = document.getElementById('ta-ghost-src')    as HTMLElement | null;
+const taGhostWhoEl  = document.getElementById('ta-ghost-who')   as HTMLElement | null;
 const xpHudEl       = document.getElementById('xp-hud')        as HTMLElement | null;
 const xpScoreEl     = document.getElementById('xp-score')      as HTMLDivElement | null;
 const xpMultEl      = document.getElementById('xp-mult')       as HTMLDivElement | null;
@@ -1049,6 +1049,7 @@ function refreshSelectionUi() {
   refreshRaceLaps();
   refreshXpBest();
   refreshTaLbButton();
+  refreshGhostPanel();
   updateStartEnabled();
 }
 
@@ -3547,19 +3548,20 @@ function taBestFor(carKey: string, mapId: string): number | null {
 }
 
 // ---------------------------------------------------------------------------
-//  GHOST (Time Attack, Phase 1) — your own translucent lap replay.
+//  GHOST (Time Attack, Phase 2) — a translucent lap replay, selected in the MENU.
 //
-//  Two selectable sources: PERSONAL BEST (all-time, persisted per car+track in
-//  localStorage) and BEST-IN-SESSION (fastest clean lap since the tab opened,
-//  in-memory only). Recorded on the FIXED PHYSICS STEP from VALID laps only (same
-//  validity as the record/leaderboard: on-track + zones in order), replayed with
-//  interpolation for smoothness (see ghost.ts). Visual only — no collision, no
-//  effect on the player's car or the recorded time. Local + solo; dev-ghost and
-//  leaderboard ghosts are later phases.
+//  Sources (chosen in the mode panel — one source of truth, no in-game toggle): OFF, PERSONAL
+//  BEST (all-time, localStorage), BEST-IN-SESSION (fastest clean lap this tab, in-memory), or a
+//  TOP-PLAYERS ghost downloaded from the server. Recorded on the FIXED PHYSICS STEP from VALID
+//  laps only, replayed with interpolation (see ghost.ts). Visual only — no collision, no effect
+//  on the car or the recorded time. A new TOP-10 time auto-uploads its ghost (mandatory; see
+//  submitTaBestWithGhost + the submit_ghost RPC).
 // ---------------------------------------------------------------------------
-type GhostSource = 'pb' | 'session';
-let ghostEnabled = false;
-let ghostSource: GhostSource = 'pb';
+type GhostSource = 'off' | 'pb' | 'session' | 'player';
+let selectedGhostMode: GhostSource = 'off';         // menu-driven; off/pb/session persist, player is transient
+// The TOP-PLAYERS pick (transient): the downloaded ghost + whose it is + the `map.car` combo it
+// was chosen for (so a track/car change drops a stale pick — see refreshGhostPanel).
+let selectedPlayerGhost: { rec: GhostRec; nickname: string; key: string } | null = null;
 const ghostRecorder = new GhostRecorder();          // live per-lap buffer (one push per fixed step)
 let ghostBufActive = false;                         // is the buffer accumulating a timed lap right now?
 let ghostKeyActive = '';                            // car+map key for the run in progress (session map key)
@@ -3568,6 +3570,7 @@ const ghostSession = new Map<string, { ms: number; rec: GhostRec }>();  // best-
 const GHOST_MAX_PB = 1800;                          // persisted-ghost sample cap (decimated to fit; ~30 Hz)
 const GHOST_ALPHA = 0.4;                            // translucency of the drawn ghost car
 let ghostRenderNow = 0;                             // gameNow stashed for the render pass (drawGhost)
+try { const gm = localStorage.getItem('steerit.ta.ghost.mode'); selectedGhostMode = (gm === 'pb' || gm === 'session') ? gm : 'off'; } catch { /* default off */ }
 
 function ghostPbKey(carKey: string, mapId: string): string { return `steerit.ta.ghost.${carKey}.${mapId}`; }
 function readGhostPb(key: string): GhostRec | null {
@@ -3587,10 +3590,23 @@ function ghostBeginRun(carKey: string, mapId: string): void {
   ghostBufActive = false;
 }
 
-// The Recording to replay right now, per the chosen source (null ⇒ nothing to show yet).
+// The Recording to replay right now, per the menu-chosen source (null ⇒ nothing to show yet).
 function currentGhostRec(): GhostRec | null {
-  if (ghostSource === 'session') return ghostSession.get(ghostKeyActive)?.rec ?? null;
-  return ghostPbActive;
+  switch (selectedGhostMode) {
+    case 'pb':      return ghostPbActive;
+    case 'session': return ghostSession.get(ghostKeyActive)?.rec ?? null;
+    case 'player':  return selectedPlayerGhost?.rec ?? null;
+    default:        return null;   // 'off'
+  }
+}
+// Whose ghost is on track (for the unobtrusive in-run label). null when none is showing.
+function currentGhostNickname(): string | null {
+  switch (selectedGhostMode) {
+    case 'pb':      return 'YOU · personal best';
+    case 'session': return 'YOU · this session';
+    case 'player':  return selectedPlayerGhost ? (selectedPlayerGhost.nickname || 'Player') : null;
+    default:        return null;
+  }
 }
 
 // A lap just completed — turn the recorded buffer into ghost(s), but ONLY for a clean lap.
@@ -3609,38 +3625,139 @@ function ghostFreezeLap(done: CompletedLap): void {
   }
 }
 
-// ---- Ghost toggle + source picker (small controls under the Time Attack HUD) ----
-function updateGhostUi(): void {
-  if (taGhostToggle) {
-    taGhostToggle.textContent = ghostEnabled ? 'GHOST ON' : 'GHOST OFF';
-    taGhostToggle.classList.toggle('on', ghostEnabled);
+// ---- MENU ghost selection (in the MODE panel; the ONE source of truth — no in-game toggle) ----
+const ghostPanelEl      = document.getElementById('ghost-panel');
+const ghostOptsEl       = document.getElementById('ghost-opts');
+const ghostPickEl       = document.getElementById('ghost-pick');
+const ghostPickerEl     = document.getElementById('ghost-picker');
+const ghostPickerListEl = document.getElementById('ghost-picker-list');
+const ghostPickerSubEl  = document.getElementById('ghost-picker-sub');
+
+function ghostComboKey(): string { return `${selectedMapId ?? ''}.${selectedCarKey ?? ''}`; }
+
+// Show the GHOST source picker only for Time Attack with a car + map chosen; highlight the active
+// source; drop a stale TOP-PLAYERS pick if the combo changed. Called from refreshSelectionUi.
+function refreshGhostPanel(): void {
+  if (!ghostPanelEl) return;
+  const show = selectedGameMode === 'timeattack' && !!selectedCarKey && !!selectedMapId;
+  ghostPanelEl.hidden = !show;
+  if (selectedGhostMode === 'player' && (!selectedPlayerGhost || selectedPlayerGhost.key !== ghostComboKey())) {
+    selectedGhostMode = 'off'; selectedPlayerGhost = null;   // player ghost was for a different track/car
   }
-  if (taGhostSrcEl) {
-    taGhostSrcEl.hidden = !ghostEnabled;
-    for (const b of Array.from(taGhostSrcEl.querySelectorAll<HTMLButtonElement>('[data-src]'))) {
-      b.classList.toggle('sel', b.dataset.src === ghostSource);
-    }
+  if (!show) return;
+  if (ghostOptsEl) for (const b of Array.from(ghostOptsEl.querySelectorAll<HTMLButtonElement>('[data-g]'))) {
+    b.classList.toggle('sel', b.dataset.g === selectedGhostMode);
+  }
+  if (ghostPickEl) {
+    const showPick = selectedGhostMode === 'player' && !!selectedPlayerGhost;
+    ghostPickEl.hidden = !showPick;
+    if (showPick) ghostPickEl.textContent = `▸ ${selectedPlayerGhost!.nickname || 'Player'}`;
   }
 }
-try {
-  ghostEnabled = localStorage.getItem('steerit.ta.ghost.on') === '1';
-  ghostSource = localStorage.getItem('steerit.ta.ghost.src') === 'session' ? 'session' : 'pb';
-} catch { /* storage blocked — defaults (off, pb) are fine */ }
-taGhostToggle?.addEventListener('click', () => {
-  ghostEnabled = !ghostEnabled;
-  try { localStorage.setItem('steerit.ta.ghost.on', ghostEnabled ? '1' : '0'); } catch { /* ignore */ }
-  updateGhostUi();
-  taGhostToggle.blur();   // don't keep focus (Space/Enter would re-toggle instead of driving)
-});
-taGhostSrcEl?.addEventListener('click', (e) => {
-  const b = (e.target as HTMLElement | null)?.closest<HTMLButtonElement>('[data-src]');
+function setGhostMode(mode: GhostSource): void {
+  selectedGhostMode = mode;
+  if (mode !== 'player') selectedPlayerGhost = null;
+  if (mode === 'off' || mode === 'pb' || mode === 'session') {
+    try { localStorage.setItem('steerit.ta.ghost.mode', mode); } catch { /* ignore */ }
+  }
+  refreshGhostPanel();
+}
+ghostOptsEl?.addEventListener('click', (e) => {
+  const b = (e.target as HTMLElement | null)?.closest<HTMLButtonElement>('[data-g]');
   if (!b) return;
-  ghostSource = b.dataset.src === 'session' ? 'session' : 'pb';
-  try { localStorage.setItem('steerit.ta.ghost.src', ghostSource); } catch { /* ignore */ }
-  updateGhostUi();
+  const g = b.dataset.g as GhostSource;
+  if (g === 'player') { void openGhostPicker(); return; }   // TOP PLAYERS → the picker overlay
+  setGhostMode(g);
   b.blur();
 });
-updateGhostUi();
+
+// TOP PLAYERS picker — the top 10 for the current combo. Rows WITHOUT a stored ghost are greyed +
+// non-selectable (their time predates ghost recording); a valid row downloads + selects that ghost.
+let ghostPickReqId = 0;
+type PlayerGhost = { rec: GhostRec; nickname: string; key: string };
+async function openGhostPicker(): Promise<void> {
+  if (!selectedMapId || !selectedCarKey || !ghostPickerEl || !ghostPickerListEl) return;
+  const trackId = selectedMapId, carKey = selectedCarKey, comboKey = ghostComboKey();
+  const key = boardKey('timeattack', trackId, carKey);
+  if (ghostPickerSubEl) ghostPickerSubEl.textContent = `${trackName(trackId)} · ${LB_CAR_DISPLAY[carKey] ?? carKey}`;
+  ghostPickerEl.hidden = false;
+  ghostPickerListEl.replaceChildren(lbMsgEl('Loading…'));
+  const myId = getAuthState().user?.id ?? null;
+  const reqId = ++ghostPickReqId;
+  const [view, owners] = await Promise.all([fetchTopAndOwn(key, LB_TOP_N, myId), fetchGhostOwners(key)]);
+  if (reqId !== ghostPickReqId) return;
+  if (!view || view.top.length === 0) { ghostPickerListEl.replaceChildren(lbMsgEl('No times yet — be the first.')); return; }
+  const frag = document.createDocumentFragment();
+  for (const r of view.top) {
+    const row = lbRowEl(r, myId, 'timeattack');
+    if (owners.has(r.userId)) {
+      row.classList.add('lb-row-pick');
+      row.addEventListener('click', () => { void chooseGhost(key, r, comboKey); });
+    } else {
+      row.classList.add('lb-row-noghost');
+      row.title = 'No ghost recorded for this time';
+    }
+    frag.appendChild(row);
+  }
+  ghostPickerListEl.replaceChildren(frag);
+}
+async function chooseGhost(key: BoardKey, row: LbRow, comboKey: string): Promise<void> {
+  const got = await fetchGhost(key, row.userId);
+  const rec = got ? parseGhost(JSON.stringify(got.ghost)) : null;   // jsonb object → the ghost.ts parser
+  if (!rec) { closeGhostPicker(); return; }   // download/parse failed → leave selection unchanged
+  selectedPlayerGhost = { rec, nickname: (got!.nickname || row.nickname || 'Player'), key: comboKey } as PlayerGhost;
+  selectedGhostMode = 'player';
+  closeGhostPicker();
+  refreshGhostPanel();
+}
+function closeGhostPicker(): void { if (ghostPickerEl) ghostPickerEl.hidden = true; }
+document.getElementById('ghost-picker-close')?.addEventListener('click', closeGhostPicker);
+ghostPickerEl?.addEventListener('click', (e) => { if (e.target === ghostPickerEl) closeGhostPicker(); });
+
+// AUTO-UPLOAD: on a new TA personal best, submit the score THEN — only once that row exists — the
+// freshly-frozen PB ghost. Mandatory (no toggle) + fire-and-forget; the RPC stores it ONLY if the
+// time is genuinely top-10. Chaining ensures the leaderboard row is present before the ghost RPC
+// checks for it (no race). submit_score itself is untouched — this rides alongside it.
+function submitTaBestWithGhost(value: number, splits: number[] | null, rec: GhostRec | null): void {
+  if (!getAuthState().user) return;   // signed-out: local best only, no submit
+  const key = boardKey('timeattack', currentMap.id, xpCarKey());
+  void submitScore(key, value, { z: splits ?? [] }).then((res) => {
+    if (!res.ok) { console.info('[lb] timeattack submit rejected: %s', res.reason); return; }
+    if (res.updated) console.info('[lb] new online timeattack best submitted (%s)', Math.round(value));
+    if (!rec) return;
+    void submitGhost(key, value, JSON.parse(serializeGhost(rec))).then((g) => {
+      console.info(g.ok ? '[ghost] top-10 ghost uploaded' : `[ghost] upload skipped: ${g.reason}`);
+    }).catch((e) => console.info('[ghost] upload failed:', e));
+  }).catch((e) => console.info('[lb] submit failed:', e));
+}
+
+// DEV/console: upload an EXISTING local ghost for a time already on the leaderboard. It attaches to
+// your REAL entry (submit_ghost requires a matching leaderboard row + top-10), never a fake time.
+async function uploadLocalGhost(carKey: string, mapId: string): Promise<string> {
+  const rec = parseGhost(localStorage.getItem(ghostPbKey(carKey, mapId)));
+  if (!rec) return `${carKey}/${mapId}: no local ghost`;
+  const uid = getAuthState().user?.id;
+  if (!uid) return 'sign in first';
+  const key = boardKey('timeattack', mapId, carKey);
+  const view = await fetchTopAndOwn(key, LB_TOP_N, uid);
+  const own = view?.own ?? view?.top.find((r) => r.userId === uid) ?? null;
+  if (!own) return `${carKey}/${mapId}: no leaderboard entry to attach to`;
+  const res = await submitGhost(key, own.value, JSON.parse(serializeGhost(rec)));
+  return res.ok ? `${carKey}/${mapId}: uploaded (${own.value}ms)` : `${carKey}/${mapId}: ${res.reason}`;
+}
+(window as unknown as Record<string, unknown>).steerUploadLocalGhost = (carKey: string, mapId: string) =>
+  uploadLocalGhost(carKey, mapId).then((s) => { console.info('[ghost-import]', s); return s; });
+(window as unknown as Record<string, unknown>).steerUploadAllLocalGhosts = async () => {
+  const out: string[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    const mm = k && /^steerit\.ta\.ghost\.([^.]+)\.(.+)$/.exec(k);   // skips '.mode' / legacy '.on'/'.src'
+    if (mm) out.push(await uploadLocalGhost(mm[1], mm[2]));
+  }
+  out.forEach((s) => console.info('[ghost-import]', s));
+  return out.length ? out : ['no local ghosts found'];
+};
+console.info('[ghost] to publish an existing local PB ghost for a listed time: steerUploadLocalGhost("<car>","<map>") or steerUploadAllLocalGhosts()');
 
 // (Re)start a Time Attack session: fresh rolling timer seeded with the stored best,
 // solo car respawned at the grid, clean sheet. Called on entering the mode and on the
@@ -4824,7 +4941,9 @@ function frame(now: number) {
             writeTaBest(taBestKeyActive, done.ms);
             taRecordUntil = gameNow + TA_RECORD_MS;
             // Proof = the completed lap's 6 zone splits (present + ordered, since isBest ⇒ zonesValid).
-            submitLeaderboardBest('timeattack', done.ms, { z: splits ?? [] });
+            // Submits the score AND (chained, once the row exists) auto-uploads the just-frozen PB
+            // ghost — mandatory, stored only if the time is genuinely top-10 (submit_ghost RPC).
+            submitTaBestWithGhost(done.ms, splits, ghostPbActive);
           }
           taLastUntil = gameNow + TA_LAST_MS;
           if (zoneTracker) zoneTracker.resetLap(gameNow);   // next lap starts fresh
@@ -5350,6 +5469,12 @@ function updateTimeAttackHud(now: number) {
   const invalid = h.running && !h.currentValid;
   taHudEl.classList.toggle('lap-invalid', invalid);
   if (taInvalidEl) taInvalidEl.hidden = !invalid;
+  // Whose ghost is on track (unobtrusive) — shown only while a ghost is actually replaying.
+  if (taGhostWhoEl) {
+    const who = (selectedGhostMode !== 'off' && currentGhostRec()) ? currentGhostNickname() : null;
+    taGhostWhoEl.hidden = !who;
+    if (who) taGhostWhoEl.textContent = `👻 ${who}`;
+  }
 }
 
 function updateRaceHud(h: RaceHud) {
@@ -5505,7 +5630,7 @@ function drawBlitz(car: Car) {
 // under reduced alpha. It shares the lead car's spec (so it's clearly "you") but its own
 // throwaway state — the real car is never touched, and the ghost has no physics/collision.
 function drawGhost(): void {
-  if (!ghostEnabled || !isTimeAttack() || !taRun || editorMode || menuOpen) return;
+  if (selectedGhostMode === 'off' || !isTimeAttack() || !taRun || editorMode || menuOpen) return;
   const lead = primaryCar();
   if (!lead) return;
   const rec = currentGhostRec();

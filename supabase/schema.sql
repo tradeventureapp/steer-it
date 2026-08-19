@@ -505,6 +505,107 @@ revoke all on function public.submit_score(text, text, text, text, bigint, jsonb
 grant  execute on function public.submit_score(text, text, text, text, bigint, jsonb) to authenticated;
 
 -- =============================================================================
+--  GHOSTS (Ghost Phase 2) — a downloadable replay of each TOP-10 Time Attack lap.
+--  Idempotent. submit_score() above is DELIBERATELY UNTOUCHED — ghost upload rides
+--  ALONGSIDE it through its own RPC. Storage is HARD-CAPPED at the TOP 10 per
+--  (track,car,surface): the primary key keeps one ghost per user per combo, and
+--  submit_ghost() evicts every ghost whose owner is no longer in the top 10 on each
+--  write. Because a top-10 TIME always comes with a mandatory ghost upload, a player
+--  pushed out of the top 10 is evicted by the very submission that displaces them —
+--  so the board and the ghost library stay matched without touching submit_score().
+--  ⚠️ TA-only (ghosts are a Time Attack feature), so no `mode` column; surface '' as
+--  in the leaderboard (the ovals' asphalt/dirt are already separate track_ids).
+-- =============================================================================
+create table if not exists public.ghosts (
+  user_id    uuid not null references auth.users(id) on delete cascade,
+  track_id   text not null,
+  car_key    text not null,
+  surface    text not null default '',
+  value      bigint not null check (value >= 0),   -- the TA lap ms this ghost is for (== the leaderboard row)
+  nickname   text,                                  -- denormalised for display; written SERVER-side
+  ghost      jsonb not null,                        -- the serializeGhost() object {v,dt,x,y,h}
+  updated_at timestamptz not null default now(),
+  primary key (user_id, track_id, car_key, surface) -- ONE ghost per user per combo (mirrors the one leaderboard row)
+);
+alter table public.ghosts enable row level security;
+-- PUBLIC READ: anyone (even logged out) may download a top-10 ghost to race against.
+drop policy if exists "ghosts: public read" on public.ghosts;
+create policy "ghosts: public read" on public.ghosts for select using (true);
+-- No insert/update/delete policy — submit_ghost() (SECURITY DEFINER) is the only write path.
+create index if not exists ghosts_combo_idx on public.ghosts (track_id, car_key, surface);
+
+-- submit_ghost(): store the caller's ghost for a TA lap, but ONLY if that exact time is a genuine
+-- leaderboard entry of theirs AND currently ranks in the TOP 10 for the combo; then evict every
+-- ghost whose owner is no longer in the top 10 (the hard cap). Mirrors submit_score's gate style
+-- (auth + input/size + rate limit) but never touches it. Returns { ok, reason? }.
+--   GHOST_MAX_BYTES = 65536 — a top-10 lap ~14 KB; a hard ceiling on the payload.
+--   RATE_MAX        = 10 / user / minute (shares the leaderboard_submits log; a PB = score+ghost = 2).
+--   TOP_N           = 10 — the storage cap per (track,car,surface).
+create or replace function public.submit_ghost(
+  p_track_id text, p_car_key text, p_surface text, p_value bigint, p_ghost jsonb
+) returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  uid  uuid := auth.uid();
+  surf text := coalesce(p_surface, '');
+  nick text;
+  recent  int;
+  better  int;
+  has_row int;
+  GHOST_MAX_BYTES constant int := 65536;
+  RATE_MAX        constant int := 10;
+  TOP_N           constant int := 10;
+begin
+  -- (1) AUTH
+  if uid is null then return jsonb_build_object('ok', false, 'reason', 'auth'); end if;
+  -- (2) INPUT VALIDITY + SIZE CAP
+  if p_track_id is null or p_track_id = '' or p_car_key is null or p_car_key = ''
+     or p_value is null or p_value <= 0
+     or p_ghost is null or jsonb_typeof(p_ghost) <> 'object'
+     or octet_length(p_ghost::text) > GHOST_MAX_BYTES
+    then return jsonb_build_object('ok', false, 'reason', 'invalid'); end if;
+  -- (3) RATE LIMIT (shares the leaderboard_submits audit log with submit_score)
+  select count(*) into recent from public.leaderboard_submits
+   where user_id = uid and created_at > now() - interval '1 minute';
+  if recent >= RATE_MAX then return jsonb_build_object('ok', false, 'reason', 'rate'); end if;
+  insert into public.leaderboard_submits (user_id) values (uid);
+  delete from public.leaderboard_submits where created_at < now() - interval '10 minutes';  -- cheap prune
+  -- (4a) The time must be a REAL leaderboard entry OF THE CALLER (no fabricated ghosts; this is
+  --      also what lets an existing local ghost attach to an already-listed time on import).
+  select 1 into has_row from public.leaderboard
+    where user_id = uid and mode = 'timeattack' and track_id = p_track_id
+      and car_key = p_car_key and surface = surf and value = p_value;
+  if has_row is null then return jsonb_build_object('ok', false, 'reason', 'no_entry'); end if;
+  -- (4b) ...and it must currently rank in the TOP 10 (fewer than 10 strictly-better times exist).
+  select count(*) into better from public.leaderboard
+    where mode = 'timeattack' and track_id = p_track_id and car_key = p_car_key
+      and surface = surf and value < p_value;
+  if better >= TOP_N then return jsonb_build_object('ok', false, 'reason', 'not_top10'); end if;
+  -- (5) nickname = SERVER truth (never client-supplied)
+  select nickname into nick from public.profiles where id = uid;
+  -- (6) UPSERT the ghost (one per user per combo)
+  insert into public.ghosts (user_id, track_id, car_key, surface, value, nickname, ghost)
+    values (uid, p_track_id, p_car_key, surf, p_value, nick, p_ghost)
+  on conflict (user_id, track_id, car_key, surface)
+    do update set value = excluded.value, nickname = excluded.nickname,
+                  ghost = excluded.ghost, updated_at = now();
+  -- (7) EVICT every ghost whose owner is no longer in the top 10 for this combo (the hard cap).
+  delete from public.ghosts g
+    where g.track_id = p_track_id and g.car_key = p_car_key and g.surface = surf
+      and g.user_id not in (
+        select l.user_id from public.leaderboard l
+          where l.mode = 'timeattack' and l.track_id = p_track_id
+            and l.car_key = p_car_key and l.surface = surf
+          order by l.value asc, l.updated_at asc
+          limit TOP_N);
+  return jsonb_build_object('ok', true);
+end; $$;
+
+grant  select on public.ghosts to anon, authenticated;
+revoke insert, update, delete on public.ghosts from anon, authenticated;
+revoke all on function public.submit_ghost(text, text, text, bigint, jsonb) from public;
+grant  execute on function public.submit_ghost(text, text, text, bigint, jsonb) to authenticated;
+
+-- =============================================================================
 --  REVIEWS + GRANTED PREMIUM — "leave a review → get premium free" (manual approval).
 --  Idempotent. Legally clean: premium is for LEAVING a review (ANY rating qualifies),
 --  never for a positive one; publish consent is SEPARATE and does NOT gate the reward.

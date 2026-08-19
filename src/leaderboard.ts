@@ -77,6 +77,52 @@ export async function submitScore(k: BoardKey, value: number, proof: unknown = {
   } catch { return { ok: false, updated: false, reason: 'error' }; }
 }
 
+// ---------------------------------------------------------------------------
+//  GHOSTS (Phase 2) — a downloadable replay of each TOP-10 Time Attack lap. Writes go through
+//  the SECURITY DEFINER submit_ghost() RPC (auth + size + rate + top-10 check + eviction, all
+//  server-side; submit_score() is untouched); reads are public. TA-only, so `mode` is ignored on
+//  the key — only track/car/surface are used. Errors are swallowed so a hiccup never breaks play.
+// ---------------------------------------------------------------------------
+
+/** Upload the caller's ghost for a TA lap. Accepted ONLY if `value` is their genuine leaderboard
+ *  entry AND currently top-10 (the RPC checks). `ghost` is the serializeGhost() object {v,dt,x,y,h}. */
+export async function submitGhost(k: BoardKey, value: number, ghost: unknown): Promise<{ ok: boolean; reason: string | null }> {
+  try {
+    const { data, error } = await supabase.rpc('submit_ghost', {
+      p_track_id: k.trackId, p_car_key: k.carKey, p_surface: k.surface,
+      p_value: Math.round(value), p_ghost: ghost,
+    });
+    if (error) return { ok: false, reason: 'error' };
+    const r = (data ?? {}) as { ok?: boolean; reason?: string | null };
+    return { ok: !!r.ok, reason: r.reason ?? null };
+  } catch { return { ok: false, reason: 'error' }; }
+}
+
+/** Download one player's stored ghost for this combo (public read). null = none / error. The
+ *  `ghost` field is the jsonb object; the caller re-parses it with ghost.ts's parseGhost. */
+export async function fetchGhost(k: BoardKey, userId: string): Promise<{ ghost: unknown; nickname: string | null } | null> {
+  try {
+    const { data, error } = await supabase
+      .from('ghosts').select('ghost, nickname')
+      .eq('track_id', k.trackId).eq('car_key', k.carKey).eq('surface', k.surface)
+      .eq('user_id', userId).maybeSingle();
+    if (error || !data) return null;
+    return { ghost: (data as { ghost: unknown }).ghost, nickname: (data.nickname as string | null) ?? null };
+  } catch { return null; }
+}
+
+/** The set of user_ids that HAVE a stored ghost for this combo — to grey out board rows whose
+ *  time predates ghost recording (most existing times). Empty set on error. */
+export async function fetchGhostOwners(k: BoardKey): Promise<Set<string>> {
+  try {
+    const { data, error } = await supabase
+      .from('ghosts').select('user_id')
+      .eq('track_id', k.trackId).eq('car_key', k.carKey).eq('surface', k.surface);
+    if (error || !data) return new Set();
+    return new Set((data as { user_id: string }[]).map((d) => d.user_id));
+  } catch { return new Set(); }
+}
+
 /** One page of the full board for `k`, ordered best-first, with the total row count. */
 export async function fetchBoard(k: BoardKey, page: number): Promise<BoardPage | null> {
   const from = Math.max(0, page) * LB_PAGE_SIZE;

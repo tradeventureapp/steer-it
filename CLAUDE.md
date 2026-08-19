@@ -150,7 +150,9 @@ palette picked on the phone (§13).
   `auth.ts`); reads are public, writes are RPC-only; every call swallows errors so a network hiccup
   never breaks gameplay. `mode`-parameterised: TA ('timeattack', lower better, asc) and XP ('xp',
   higher better, desc) share the same queries. DB schema + RPC live in `supabase/schema.sql`; the two
-  views (menu mode-toggle + selection quick-view) are rendered in `desktop.ts`.
+  views (menu mode-toggle + selection quick-view) are rendered in `desktop.ts`. **Ghost Phase 2:**
+  `submitGhost` (→ the SECURITY DEFINER `submit_ghost` RPC), `fetchGhost` (download one player's
+  stored ghost), `fetchGhostOwners` (which top-10 users have a ghost — to grey the rest).
 - `vehicles.ts` — vehicle IDENTITY + specs: `VehicleSpec` (`overrides`, `branch`, `arcade`, **`phys4`**,
   `dims`, `sprite`, `fxScale`), `ROAD_SPEC` (Blitz), `STEEREX_SILVER/BLACK`, `FURY_SPEC` + dims +
   colour palettes. Pure data — NO real make/model names anywhere.
@@ -329,7 +331,32 @@ not trusted). `EV` events: phone→desktop `join|color|name|leave|control`; desk
   750 samples ≈ ~14 KB JSON, measured), positions rounded to 1 cm / heading 1e-4 rad. Pure logic
   headless-tested (20/20: linear/shortest-arc interp, 240 Hz smoothness, decimation, serialize/parse
   validation, size). Physics untouched (Blitz golden intact — the ghost path is render/record only).
-  **Dev-ghost + leaderboard ghosts are later phases** (no DB in Phase 1).
+- **GHOST (Phase 2) — LIVE, race OTHER players' ghosts (Time Attack).** Ghosts are now shareable
+  via Supabase and **selection moved to the MENU** (mode panel, `#ghost-panel` — the ONE source of
+  truth; the in-game `#ta-hud` toggle/PB-SESSION picker is REMOVED). Options: **OFF / PERSONAL BEST /
+  BEST IN SESSION / TOP PLAYERS**. TOP PLAYERS opens `#ghost-picker` (the combo's top-10, reusing
+  `fetchTopAndOwn` + `lbRowEl`); rows WITHOUT a stored ghost (`fetchGhostOwners`) are **greyed +
+  non-selectable** (their time predates ghosts); clicking a valid row downloads it (`fetchGhost` →
+  `parseGhost`) and selects it (transient, dropped if the track/car changes). Playback is Phase 1's
+  (`drawGhost`, translucent alpha 0.4 under the cars, interpolated, visual-only); an unobtrusive
+  `#ta-ghost-who` line shows **👻 whose ghost** (nickname / "YOU · personal best|this session")
+  during the run; a failed download → drive alone (no crash). **Storage (`public.ghosts` table):**
+  keyed `(user, track, car, surface)` (one ghost per user per combo), stores the SAME serialized
+  `{v,dt,x,y,h}` (~14 KB) + lap ms + nickname; **public read; writes ONLY via the SECURITY DEFINER
+  `submit_ghost` RPC** (`submit_score` is UNTOUCHED — ghost rides alongside): auth + 64 KB size cap +
+  rate limit (shares `leaderboard_submits`, 10/min) + the time must be the caller's REAL leaderboard
+  entry AND currently **top-10** (`< 10` strictly-better) + best-only upsert. **HARD CAP = top-10 per
+  combo:** step 7 of the RPC `delete`s every ghost whose owner is no longer in the leaderboard's top-10
+  for that combo → ≤10 rows/combo (~140 KB × ~15 TA combos ≈ **~2.1 MB total**). **Upload is AUTOMATIC
+  + MANDATORY** — on a new TA PB, `submitTaBestWithGhost` submits the score THEN (chained, once the row
+  exists, no race) the freshly-frozen PB ghost; the RPC stores it only if genuinely top-10, so the
+  board and the ghost library stay matched (a displaced player is evicted by the very submission that
+  displaces them). **Import existing local ghosts** (console): `steerUploadLocalGhost("<car>","<map>")`
+  or `steerUploadAllLocalGhosts()` — reads the localStorage PB ghost, looks up your existing
+  leaderboard value for that combo, and uploads via `submit_ghost` (attaches to your REAL entry, never
+  a fake time). ⚠️ **Re-run `supabase/schema.sql`** (idempotent) for the `ghosts` table + `submit_ghost`
+  RPC. Physics/lap-timer/zones/off-track/recorder/RECENTER/Free-Ride/RACE/XP untouched; **dev-ghost is
+  a later phase.**
 - **LEADERBOARD (Phase 2) — LIVE for TIME ATTACK + XP.** An online board on top of each mode's
   local best. ONE Supabase table `public.leaderboard` holds BOTH modes (`mode` = `'timeattack'` |
   `'xp'`): `(id, user_id→auth.users, nickname [denormalised for display, written server-side], mode,
@@ -758,6 +785,11 @@ The XSS/takeover half of Finding 1 is **FIXED + pushed** (`0eb7300`, see §8). T
   as a second line of defence — a real `script-src` would be worth adding.
 - **SMTP:** live via **Resend** (support@ / steeritapp@gmail.com).
 - **Realtime:** message usage **~12% of the 2M** plan.
+- **⚠️ GHOSTS (Phase 2):** re-run `supabase/schema.sql` (idempotent) for the `public.ghosts` table +
+  the SECURITY DEFINER `submit_ghost` RPC (public read, RPC-only write; `submit_score` untouched).
+  Storage is HARD-CAPPED at the top-10 ghosts per (track,car) by the RPC's eviction step (~2.1 MB
+  total). Until it runs, ghost upload/download fail gracefully (fire-and-forget; the picker shows no
+  selectable rows). Local-ghost import: `steerUploadLocalGhost("<car>","<map>")` in the console.
 - **TODO:** the two OPEN whitehat findings in §5. The **leaderboard submit RPC is now LIVE for Time
   Attack AND XP** (`public.submit_score`, SECURITY DEFINER: auth + mode plausibility [TA floor+1h /
   XP ceiling] + rate-limit + mode-aware best-only upsert, public read / RPC-only write — §4).

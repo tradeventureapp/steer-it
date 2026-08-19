@@ -1081,6 +1081,36 @@ body.desktop #game { display: block; width: 100vw; height: 100vh; }
 }
 .cms-lb-open:hover { border-color: var(--gold); color: var(--gold); }
 
+/* GHOST source selector (Time Attack, in the MODE panel) — the ONE place ghosts are chosen. */
+.cms-ghost { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.cms-ghost-label {
+  font-family: var(--font-display); font-weight: 800; font-size: 10px; letter-spacing: 2px;
+  color: var(--text-muted);
+}
+.cms-ghost-opts { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+.cms-ghost-opt {
+  font-family: var(--font-body); font-weight: 700; font-size: 11px; letter-spacing: 0.3px;
+  color: var(--text-dim); background: var(--glass); border: 1px solid var(--border-dim);
+  border-radius: 8px; padding: 7px 8px; cursor: pointer; text-align: center;
+  transition: border-color 0.14s, color 0.14s, background 0.14s;
+}
+.cms-ghost-opt:hover { border-color: rgba(255, 255, 255, 0.34); color: var(--text); }
+.cms-ghost-opt.sel { color: var(--gold); border-color: rgba(255, 200, 92, 0.65); text-shadow: var(--glow-gold); background: rgba(255, 194, 74, 0.08); }
+.cms-ghost-pick {
+  font-family: var(--font-body); font-weight: 700; font-size: 11px; letter-spacing: 0.3px;
+  color: var(--gold); text-shadow: var(--glow-gold);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* GHOST PICKER rows — a clickable top-10; rows with no stored ghost are greyed + inert. */
+.lb-row-pick { cursor: pointer; border-radius: 8px; transition: background 0.12s; }
+.lb-row-pick:hover { background: rgba(255, 194, 74, 0.1); }
+.lb-row-noghost { opacity: 0.4; cursor: not-allowed; }
+.ghost-picker-note {
+  font-family: var(--font-body); font-size: 11px; line-height: 1.4; color: var(--text-muted);
+  margin: 8px 0 0; text-align: center; text-wrap: balance;
+}
+
 @media (max-width: 720px) {
   .gm-logo { width: min(440px, 82vw); }
   .gm-actions { width: min(320px, 84vw); }
@@ -2073,22 +2103,12 @@ body.desktop #ta-hud {
 @keyframes taRecord { 50% { opacity: 0.25; } }
 @media (prefers-reduced-motion: reduce) { #ta-record { animation: none; } }
 
-/* GHOST controls — small clickable toggle + source picker under the Time Attack HUD.
-   The HUD itself is pointer-events:none (click-through); this block re-enables clicks. */
-.ta-ghost { margin-top: 9px; pointer-events: auto; display: flex; flex-direction: column; gap: 5px; align-items: flex-start; }
-.ta-ghost-btn, .ta-ghost-src-btn {
-  font-family: var(--font-display); font-weight: 800; letter-spacing: 1.5px;
-  color: var(--text-muted); background: rgba(20, 16, 30, 0.55);
-  border: 1px solid rgba(255, 255, 255, 0.16); border-radius: 6px; cursor: pointer;
-  transition: color 0.12s, border-color 0.12s, background 0.12s;
+/* Whose ghost is on track (Phase 2) — a small unobtrusive line under the Time Attack HUD. */
+#ta-ghost-who {
+  margin-top: 7px;
+  font-family: var(--font-body); font-weight: 700; font-size: 11px; letter-spacing: 0.6px;
+  color: rgba(197, 182, 230, 0.85);
 }
-.ta-ghost-btn { font-size: 11px; letter-spacing: 2px; padding: 5px 11px; }
-.ta-ghost-btn:hover { color: var(--text-dim); border-color: rgba(255, 255, 255, 0.32); }
-.ta-ghost-btn.on { color: var(--ok); border-color: rgba(93, 255, 176, 0.55); text-shadow: 0 0 9px rgba(93, 255, 176, 0.5); }
-.ta-ghost-src { display: flex; gap: 5px; }
-.ta-ghost-src-btn { font-size: 10px; padding: 3px 9px; }
-.ta-ghost-src-btn:hover { color: var(--text-dim); border-color: rgba(255, 255, 255, 0.32); }
-.ta-ghost-src-btn.sel { color: var(--gold); border-color: rgba(255, 200, 92, 0.6); text-shadow: var(--glow-gold); }
 
 /* Per-track best lap on a map tile (Time Attack only; hidden in every other mode). */
 .map-best {

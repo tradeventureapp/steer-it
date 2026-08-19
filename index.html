@@ -618,6 +618,19 @@
       </div>
     </div>
 
+    <!-- GHOST PICKER (Phase 2) — the top 10 for the selected (map, car); click a row to race that
+         player's ghost. Rows without a stored ghost are greyed + non-selectable (their time
+         predates ghost recording). Opened by the "Top players" ghost option; wired in desktop.ts. -->
+    <div id="ghost-picker" class="modal-overlay" hidden>
+      <div class="menu-card gm-card lb-card">
+        <button type="button" class="auth-x" id="ghost-picker-close" aria-label="Close">×</button>
+        <div class="menu-title">RACE A GHOST</div>
+        <div class="lb-sub" id="ghost-picker-sub">TIME ATTACK</div>
+        <div class="lb-list lb-list-compact" id="ghost-picker-list" aria-live="polite"></div>
+        <p class="ghost-picker-note">Tap a time to race that player's ghost. Greyed times have no recorded ghost.</p>
+      </div>
+    </div>
+
     <!-- BUY CONSENT — shown just before Stripe checkout. The buyer must agree that
          Premium is digital content delivered immediately and thereby waive the
          14-day withdrawal right (makes the non-refundable policy enforceable).
@@ -763,6 +776,19 @@
               <button type="button" class="cms-lb-open" id="cms-lb-open" hidden>
                 🏁 VIEW LEADERBOARD
               </button>
+              <!-- TIME ATTACK: GHOST source — OFF / PERSONAL BEST / BEST IN SESSION / TOP PLAYERS.
+                   The ONE place ghosts are chosen (no in-game toggle). TOP PLAYERS opens the
+                   top-10 picker (#ghost-picker). Shown by desktop.ts (refreshGhostPanel). -->
+              <div class="cms-ghost" id="ghost-panel" hidden>
+                <span class="cms-ghost-label">GHOST</span>
+                <div class="cms-ghost-opts" id="ghost-opts">
+                  <button type="button" class="cms-ghost-opt" data-g="off">Off</button>
+                  <button type="button" class="cms-ghost-opt" data-g="pb">Personal best</button>
+                  <button type="button" class="cms-ghost-opt" data-g="session">Best in session</button>
+                  <button type="button" class="cms-ghost-opt" data-g="player">Top players ▸</button>
+                </div>
+                <div class="cms-ghost-pick" id="ghost-pick" hidden></div>
+              </div>
             </div>
           </section>
         </div>
@@ -976,17 +1002,9 @@
         <span class="ta-label">LAST</span><span id="ta-last">--</span>
       </div>
       <div id="ta-record" hidden>NEW BEST!</div>
-      <!-- GHOST controls (Phase 1): toggle a translucent replay of your own lap, and pick the
-           source — PB (all-time best, saved) or SESSION (best since the tab opened). If the
-           chosen source has no clean lap yet, nothing shows. pointer-events:auto so the
-           buttons are clickable inside the otherwise click-through HUD. -->
-      <div class="ta-ghost" id="ta-ghost">
-        <button type="button" id="ta-ghost-toggle" class="ta-ghost-btn">GHOST OFF</button>
-        <div class="ta-ghost-src" id="ta-ghost-src" hidden>
-          <button type="button" class="ta-ghost-src-btn" data-src="pb">PB</button>
-          <button type="button" class="ta-ghost-src-btn" data-src="session">SESSION</button>
-        </div>
-      </div>
+      <!-- Whose ghost is on track (Phase 2). Unobtrusive; shown only while a ghost is replaying.
+           Ghost SELECTION now lives in the menu (mode panel), not here. -->
+      <div id="ta-ghost-who" hidden></div>
     </aside>
     <!-- XP MODE HUD (circuit + XP mode only): big score top-centre + drift
          multiplier. Blinks red under the slow-speed warning. -->
