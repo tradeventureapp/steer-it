@@ -21,23 +21,27 @@ import {
 //  Change these to change the feel. Each says which way makes it more/less lively.
 // ─────────────────────────────────────────────────────────────────────────────
 export const BALL = {
-  RADIUS: 1.0,            // m — ball radius. Diameter 2.0 m ≈ HALF a Stee-Rex length (4.03 m).
-                          //     BIGGER = easier to hit / harder to dribble past; smaller = nippier.
-  MASS: 45,              // kg — ball mass vs a ~1020 kg car. LOWER = flies further off a hit AND the
-                          //     car is slowed less (more "kick"); HIGHER = heavier, sluggish, shoves the car more.
+  RADIUS: 1.007,          // m — ball radius. Diameter 2.0135 m = EXACTLY half the Stee-Rex length
+                          //     (STEEREX_DIMS.lengthM 4.027 ÷ 2). BIGGER = easier to hit; smaller = nippier.
+  MASS: 12,              // kg — ball mass vs a ~1020 kg car (was 45 — a "bowling ball"). LOWER = flies
+                          //     further off a hit AND the car is slowed less (light + lively "football").
+                          //     HIGHER = heavier / sluggish / shoves the car more.
 
-  ROLL_DECEL: 3.2,       // m/s² — constant rolling resistance. HIGHER = comes to rest SOONER; LOWER = rolls longer.
-  LINEAR_DAMP: 0.15,     // per s — extra speed-proportional slowing (air drag). HIGHER = fast balls bleed speed
-                          //     quicker (less lively at speed); LOWER = keeps its pace.
+  ROLL_DECEL: 1.6,       // m/s² — constant rolling resistance (was 3.2). HIGHER = comes to rest SOONER;
+                          //     LOWER = keeps travelling / skips further before dying.
+  LINEAR_DAMP: 0.08,     // per s — extra speed-proportional slowing (was 0.15). HIGHER = fast balls bleed
+                          //     speed quicker (less lively at speed); LOWER = keeps its pace.
   REST_SPEED: 0.25,      // m/s — below this the ball snaps to a dead stop (kills infinite creep).
   MAX_SPEED: 60,         // m/s — absolute speed clamp. HIGHER = the ball can travel faster.
 
-  WALL_RESTITUTION: 0.6, // 0..1 — bounciness off the arena walls. HIGHER = bouncier walls / more rebound.
+  WALL_RESTITUTION: 0.82,// 0..1 — bounciness off the arena walls (was 0.6). HIGHER = more energetic rebound;
+                          //     lower = the bounce dies.
   WALL_FRICTION: 0.15,   // 0..1 — tangential scrub on a wall graze. HIGHER = more speed lost sliding along a wall.
 
-  CAR_RESTITUTION: 0.45, // 0..1 — bounciness of a CAR→ball hit. HIGHER = the ball springs off the car harder.
-  MAX_HIT_DV: 34,        // m/s — cap on the ball's speed CHANGE from a single car hit (anti-explosion).
-                          //     HIGHER = harder shoves possible; lower = tamer max kick.
+  CAR_RESTITUTION: 0.75, // 0..1 — bounciness of a CAR→ball hit (was 0.45). HIGHER = the ball SPRINGS off the
+                          //     car (pops away) rather than being shoved along.
+  MAX_HIT_DV: 60,        // m/s — cap on the ball's speed CHANGE from a single car hit (was 34; anti-explosion).
+                          //     HIGHER = harder hits pop the ball faster (less muted); lower = tamer max kick.
 
   PUSHOUT: 0.02,         // m — tiny extra separation so the ball never sinks into a car or wall.
 };

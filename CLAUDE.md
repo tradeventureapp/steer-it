@@ -306,9 +306,14 @@ not trusted). `EV` events: phone→desktop `join|color|name|leave|control`; desk
   **⭐ ALL TUNING in ONE block: the `BALL` const object at the top of `ball.ts`** — RADIUS, MASS,
   ROLL_DECEL, LINEAR_DAMP, REST_SPEED, MAX_SPEED, WALL_RESTITUTION, WALL_FRICTION, CAR_RESTITUTION,
   MAX_HIT_DV (per-hit Δv cap), PUSHOUT — each commented with which way makes it more/less lively.
-  Verified: 10/10 headless (rolls to rest ~2.9 s/16 m from 12 m/s, wall bounce keeps 60% =
-  WALL_RESTITUTION, car 10→9.4 m/s shoves ball 0→13.9 m/s, hit-Δv capped at 34); tsc + build clean;
-  arena switch + ball spawn run without runtime error. Ball radius 1.0 m (diameter ≈ half a Stee-Rex).
+  Tuned LIGHT + LIVELY (was a heavy "bowling ball"): **MASS 12 kg** (was 45), **CAR_RESTITUTION 0.75**
+  (was 0.45), **WALL_RESTITUTION 0.82** (was 0.6), **ROLL_DECEL 1.6** (was 3.2), **LINEAR_DAMP 0.08**
+  (was 0.15), **MAX_HIT_DV 60** (was 34). Verified headless: rolls 5.7 s/32 m from 12 m/s (still comes
+  to rest), wall bounce keeps 82%, car 10→9.8 m/s shoves ball 0→17.3 m/s, a hard 25 m/s hit pops it to
+  43.2 m/s (no longer muted by the cap); tsc + build clean; arena switch + ball spawn run without
+  runtime error. **Ball radius 1.007 m = diameter 2.0135 m = EXACTLY half the Stee-Rex length 4.027 m**
+  (`STEEREX_DIMS.lengthM`; a render confirmed the ball is ~half the car's length — it just reads big as
+  a solid disc).
 - **Race** — full: start/checkpoint/finish, sprint vs circuit, laps, standing grid + 3-2-1 countdown,
   **live standings** (top-left, all players, laps→progress ordered, finished-lock, throttled ~11 Hz),
   **DNF / finish-timeout**, finish feed, **podium + rematch**, per-car `RaceManager`. `playerName`
