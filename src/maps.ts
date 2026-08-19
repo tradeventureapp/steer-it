@@ -3840,15 +3840,16 @@ export const authoredCircuitMap: MapDefinition = {
 //  yet — FREE RIDE only. Tuned for 1v1: long axis ~25% shorter than the stadium
 //  oval, 3:2 aspect, crossable end-to-end in a few seconds.
 // =============================================================================
-const ARENA_INTERIOR_W = 180;   // long (horizontal) interior span, m — the crossing distance
-const ARENA_INTERIOR_H = 120;   // short (vertical) interior span, m  (180:120 = 3:2)
+const ARENA_INTERIOR_W = 180;   // long (horizontal) interior span, m — the crossing distance (goal→goal)
+const ARENA_INTERIOR_H = 100;   // short (vertical) interior span, m — the pitch WIDTH; narrowed 1/6
+                                //   (120 → 100) for a tighter 1v1. Now 180:100 = 1.8:1
 const ARENA_CORNER_R   = 40;    // corner arc radius, m — heavily rounded; < H/2 so each SHORT
-                                //   end keeps a 2·(60−40) = 40 m flat straight for a goal later
+                                //   end keeps a 2·(50−40) = 20 m flat straight for a goal later
 const ARENA_WALL       = 3.5;   // wall strip thickness, m (matches the oval's wall floor)
 const ARENA_MARGIN     = 6;     // ground border drawn outside the walls, m
 const ARENA_LOGICAL = {
   widthM:  ARENA_INTERIOR_W + 2 * ARENA_MARGIN,   // 192  (oval world is 256 → 0.75×)
-  heightM: ARENA_INTERIOR_H + 2 * ARENA_MARGIN,   // 132  (oval world is 144 → 0.917×)
+  heightM: ARENA_INTERIOR_H + 2 * ARENA_MARGIN,   // 112  (oval world is 144 → 0.78×)
 };
 
 interface ArenaGeom { cx: number; cy: number; HX: number; HY: number; r: number; sq: number; }

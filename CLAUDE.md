@@ -274,9 +274,10 @@ not trusted). `EV` events: phone→desktop `join|color|name|leave|control`; desk
   **no new physics, Blitz golden 0.0e+0 untouched** (only `maps.ts` map data + a `DEV_MAP_IDS` entry
   changed). Built like the oval barriers: 4 straight wall AABBs (one per side, centred on the interior
   edge) + 4 CORNER arcs (`inside:true`, radius `r − sq/2`); all four sides straight, the two SHORT ends
-  left FLAT so goals can land there later. Interior **180×120 m (3:2)**, corner radius **40 m** (each
-  short end keeps a 40 m flat straight), wall **3.5 m**; world `ARENA_LOGICAL` **192×132 m** = the oval
-  world 256×144 scaled **0.75× (long axis) / 0.917× (short)** — tuned for 1v1, crossable end-to-end in a
+  left FLAT so goals can land there later. Interior **180×100 m (1.8:1)** (width narrowed 1/6 from the
+  original 120 for a tighter 1v1), corner radius **40 m** (each short end keeps a **20 m** flat straight),
+  wall **3.5 m**; world `ARENA_LOGICAL` **192×112 m** = the oval world 256×144 scaled **0.75× (long axis)
+  / 0.78× (short)** — tuned for 1v1, crossable end-to-end in a
   few seconds. `trackType:'open'`, `gameModes:['free']` (FREE RIDE only — **no football mode yet**, the
   mode system is untouched); NO `onTrackAt`/`startLine`/`zonePath` (all optional — it's a closed space,
   no off-track). `surfaceAt` omitted ⇒ asphalt everywhere. Two spawns facing each other, one near each
