@@ -287,6 +287,28 @@ not trusted). `EV` events: phone→desktop `join|color|name|leave|control`; desk
   invisible to normal users) as the WIP default — NOT added to `FREE_MAP_IDS`, so no existing map's
   free/premium status changed. Move it to `FREE_MAP_IDS` (public free) or drop it from `DEV_MAP_IDS`
   (public premium) when ready.** Tuning knobs = the `ARENA_*` consts at the top of the map in `maps.ts`.
+- **FOOTBALL BALL (id in arena) — STEP 2 ONLY: the ball as a physical object, nothing else** (no
+  goals/score/teams/kickoff — later steps). A dynamic ball lives in the arena in FREE RIDE, bounces
+  off the walls, and gets shoved by cars. **`src/ball.ts` = PURE logic** (like `xp.ts`/`race.ts`):
+  `BallState`, `makeBall`, `stepBall` (its OWN tiny integrator — rolling friction: constant decel +
+  speed-proportional damp + rest-snap, then integrate, then max-speed clamp — **NEVER touches step4
+  / the shared force path**), `collideBallWalls` (reuses the cars' `collideWithRects`/`collideWithArcs`
+  with a ball-specific restitution config — the ball is a pure CIRCLE collider, `halfLen=halfWidth=
+  RADIUS`, cast to `CarState`), `collideCarBall` (the **MASS-AWARE variant of `collidePairCars`**:
+  capsule(car)-vs-circle(ball) closest-point + real 2-body impulse `j=−(1+e)·vn/(1/mCar+1/mBall)`, so
+  a ~45 kg ball takes almost all the Δv and the ~1020 kg car is barely slowed), and `clampBallToWorld`.
+  **⚠️ ISOLATION: `physics4.ts`/`vehicle-core.ts`/`cars.ts` are byte-UNTOUCHED (Blitz golden 0.0e+0
+  intact by construction).** Wiring in `desktop.ts`: a host-owned `ball: BallState | null` (created in
+  `switchMap` only when `currentMap.id==='arena'`, else null); in the fixed step, in the **post-`step4`
+  collision phase right after `collideCars`**: `stepBall` → per-car `collideCarBall` → `collideBallWalls`
+  → `clampBallToWorld`; drawn by `drawBall` in `paintWorld` after the cars (shaded sphere + ground
+  shadow). Host-authoritative — phones send input only, the ball is never synced (no protocol change).
+  **⭐ ALL TUNING in ONE block: the `BALL` const object at the top of `ball.ts`** — RADIUS, MASS,
+  ROLL_DECEL, LINEAR_DAMP, REST_SPEED, MAX_SPEED, WALL_RESTITUTION, WALL_FRICTION, CAR_RESTITUTION,
+  MAX_HIT_DV (per-hit Δv cap), PUSHOUT — each commented with which way makes it more/less lively.
+  Verified: 10/10 headless (rolls to rest ~2.9 s/16 m from 12 m/s, wall bounce keeps 60% =
+  WALL_RESTITUTION, car 10→9.4 m/s shoves ball 0→13.9 m/s, hit-Δv capped at 34); tsc + build clean;
+  arena switch + ball spawn run without runtime error. Ball radius 1.0 m (diameter ≈ half a Stee-Rex).
 - **Race** — full: start/checkpoint/finish, sprint vs circuit, laps, standing grid + 3-2-1 countdown,
   **live standings** (top-left, all players, laps→progress ordered, finished-lock, throttled ~11 Hz),
   **DNF / finish-timeout**, finish feed, **podium + rematch**, per-car `RaceManager`. `playerName`

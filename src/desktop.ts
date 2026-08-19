@@ -7,6 +7,9 @@ import {
   type CarState, type Inputs,
 } from './vehicle-core';
 import { collideCars, applyInputs } from './cars';
+import {
+  BALL, makeBall, stepBall, collideBallWalls, clampBallToWorld, collideCarBall, type BallState,
+} from './ball';
 import { TyreMarks } from './marks';
 import {
   getMap, listMaps, DEFAULT_MAP_ID, markClassAt, onTrackAt, setCircuitSurfaceReady,
@@ -2826,6 +2829,17 @@ let world: MapWorld = currentMap.createWorld(
   window.innerHeight / CONFIG.pxPerMeter,
 );
 
+// FOOTBALL BALL (step 2) — host-owned, ARENA + FREE RIDE only. Non-null only while the arena is the
+// current map; created/reset in switchMap, integrated + collided in the fixed step (post-step4),
+// drawn in paintWorld. All ball logic lives in ball.ts and never touches step4 (Blitz golden intact).
+let ball: BallState | null = null;
+// (Re)place the ball at the arena centre. Called on arena entry.
+function resetBallToCentre(): void {
+  ball = currentMap.id === 'arena'
+    ? makeBall(currentMap.fixedWorld!.widthM / 2, currentMap.fixedWorld!.heightM / 2)
+    : null;
+}
+
 // ---------- View transform (logical world px → screen px) -------------------
 // A FIXED-world map (the oval) is built at a constant logical size and rendered
 // with a SINGLE UNIFORM scale that fits it into the viewport, centred, with
@@ -4915,6 +4929,20 @@ function frame(now: number) {
         if (carImpact > 0.8 && lead) fx.impact(lead.state.x, lead.state.y, carImpact);
       }
 
+      // FOOTBALL BALL (arena only) — resolved in THIS post-step4 phase, beside collideCars, so it
+      // never touches step4/the shared force path (Blitz golden intact). Order: self-motion →
+      // cars shove it (mass-aware) → bounce off the walls → world-bounds backstop.
+      if (ball) {
+        stepBall(ball, FIXED_DT);
+        let ballHit = 0;
+        for (const car of cars.values()) {
+          ballHit = Math.max(ballHit, collideCarBall(car.state, carHalfExtents(car.spec), car.phys.massKg, ball));
+        }
+        const wallHit = collideBallWalls(ball, world.rects, world.arcs);
+        clampBallToWorld(ball, world.width, world.height);
+        if (Math.max(ballHit, wallHit) > 3) fx.impact(ball.x, ball.y, Math.max(ballHit, wallHit));
+      }
+
       // Per-car trails + edge wrap; race detection PER CAR (multi-car race).
       for (const car of cars.values()) { recordSkids(car); wrap(car); }
       // Each car races independently — velocity drives the directional start-line
@@ -5103,10 +5131,31 @@ function paintWorld(W: number, H: number, shake: { x: number; y: number }) {
   drawRaceElements();
   drawGhost();   // translucent self-ghost UNDER the real cars (Time Attack only; visual, no collision)
   for (const car of cars.values()) drawCar(car);  // paint every connected car
+  if (ball) drawBall(ball);                        // the football ball (arena only) — over the cars
   currentMap.drawAboveCars?.(ctx, world, CONFIG.pxPerMeter);  // tall props occlude cars under them
   fx.draw(ctx, CONFIG.pxPerMeter);
   ctx.restore();
 
+  ctx.restore();
+}
+
+// The football ball — drawn in LOGICAL px under the same camera as the cars. A soft ground
+// shadow + a shaded white sphere (visual only; all ball physics live in ball.ts).
+function drawBall(b: BallState) {
+  const px = PX();
+  const cx = b.x * px, cy = b.y * px, r = BALL.RADIUS * px;
+  ctx.save();
+  // ground shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.28)';
+  ctx.beginPath(); ctx.ellipse(cx + r * 0.12, cy + r * 0.18, r * 0.98, r * 0.9, 0, 0, Math.PI * 2); ctx.fill();
+  // sphere body (top-left light)
+  const g = ctx.createRadialGradient(cx - r * 0.35, cy - r * 0.35, r * 0.15, cx, cy, r);
+  g.addColorStop(0, '#ffffff'); g.addColorStop(0.65, '#e6e8ee'); g.addColorStop(1, '#a9adba');
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+  // rim
+  ctx.lineWidth = Math.max(1, r * 0.06); ctx.strokeStyle = 'rgba(30,32,40,0.55)';
+  ctx.beginPath(); ctx.arc(cx, cy, r * 0.97, 0, Math.PI * 2); ctx.stroke();
   ctx.restore();
 }
 
@@ -5968,6 +6017,7 @@ function switchMap(id: string): boolean {
     car.state = makeCar(pose.x, pose.y, pose.heading);
     invalidateSkidTrails(car);
   }
+  resetBallToCentre();          // arena → a fresh ball at centre; any other map → no ball
   console.info(`[map] switched to "${def.id}" (${def.name})`);
   return true;
 }
