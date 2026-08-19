@@ -563,10 +563,12 @@ function mapGameModes(id: string | null): readonly string[] {
 // ⚠️ TEMPORARY PROMO: 'circuit2' (Circuit II) is FREE for a while to show off the new authored
 // track — remove 'circuit2' here to put it back to premium-only when the promo ends.
 const FREE_MAP_IDS = ['desktop', 'asphalt', 'circuit', 'circuit2'];
-// DEV-ONLY maps — WIP tracks hidden from the map-select for every normal user. Both the
-// Rallycross and 'circuit2' (Circuit II, the boss's authored track) are now PUBLIC premium
-// maps (visible to all, premium-locked like the other non-free maps), so this list is empty.
-const DEV_MAP_IDS: string[] = [];
+// DEV-ONLY maps — WIP tracks hidden from the map-select for every normal user (and UNLOCKED for
+// the dev, since isMapLocked returns false for a DEV_MAP_IDS entry). Rallycross + Circuit II are
+// now public premium maps, so they're gone. 'arena' = the WIP football arena (step 1: just the
+// enclosed space, FREE RIDE) — dev-only while it's built out; move it to FREE_MAP_IDS (public
+// free) or drop it from here to make it a public premium map when it's ready.
+const DEV_MAP_IDS: string[] = ['arena'];
 const FREE_MODE_KEYS = ['free'];
 // ⚠️ TEMPORARY EXPERIMENT (data-gathering): open TIME ATTACK + XP to signed-in NON-premium users,
 // so free players' Stee-Rex runs seed the leaderboards. Flip to `false` to revert to the original

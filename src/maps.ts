@@ -3830,9 +3830,165 @@ export const authoredCircuitMap: MapDefinition = {
   draggableObstacles: false,
 };
 
+// =============================================================================
+//  FOOTBALL ARENA (id 'arena') — STEP 1: just the enclosed space, nothing else.
+//  A closed, SOLID-floored rounded RECTANGLE (not a ring like the oval): asphalt
+//  everywhere inside, SOLID perimeter walls the car bounces off via the SAME
+//  collideWithRects / collideWithArcs path the ovals already use — NO new physics.
+//  All four sides are STRAIGHT with four generous CORNER arcs; the two SHORT ends
+//  stay flat (goals land there in a later step). No ball, goals, teams or score
+//  yet — FREE RIDE only. Tuned for 1v1: long axis ~25% shorter than the stadium
+//  oval, 3:2 aspect, crossable end-to-end in a few seconds.
+// =============================================================================
+const ARENA_INTERIOR_W = 180;   // long (horizontal) interior span, m — the crossing distance
+const ARENA_INTERIOR_H = 120;   // short (vertical) interior span, m  (180:120 = 3:2)
+const ARENA_CORNER_R   = 40;    // corner arc radius, m — heavily rounded; < H/2 so each SHORT
+                                //   end keeps a 2·(60−40) = 40 m flat straight for a goal later
+const ARENA_WALL       = 3.5;   // wall strip thickness, m (matches the oval's wall floor)
+const ARENA_MARGIN     = 6;     // ground border drawn outside the walls, m
+const ARENA_LOGICAL = {
+  widthM:  ARENA_INTERIOR_W + 2 * ARENA_MARGIN,   // 192  (oval world is 256 → 0.75×)
+  heightM: ARENA_INTERIOR_H + 2 * ARENA_MARGIN,   // 132  (oval world is 144 → 0.917×)
+};
+
+interface ArenaGeom { cx: number; cy: number; HX: number; HY: number; r: number; sq: number; }
+interface ArenaWorld extends MapWorld { geom: ArenaGeom; }
+
+function computeArena(wM: number, hM: number): ArenaGeom {
+  return {
+    cx: wM / 2, cy: hM / 2,
+    HX: ARENA_INTERIOR_W / 2, HY: ARENA_INTERIOR_H / 2,   // 90 × 60
+    r: ARENA_CORNER_R, sq: ARENA_WALL,
+  };
+}
+
+// Perimeter STRAIGHT walls — one thin AABB per side, CENTRED on the interior edge (so the drawn
+// wall strip IS the collision wall, its band-side face = where the car stops), spanning only the
+// flat run between the corners (+ a small overlap into each corner so there's no seam).
+function arenaWalls(g: ArenaGeom): ObstacleRect[] {
+  const { cx, cy, HX, HY, r, sq } = g;
+  const ext = sq;                        // straight↔corner overlap
+  const flatX = HX - r, flatY = HY - r;  // half-length of each flat run
+  return [
+    { x: cx - flatX - ext, y: cy - HY - sq / 2, w: 2 * flatX + 2 * ext, h: sq },  // top    (long side)
+    { x: cx - flatX - ext, y: cy + HY - sq / 2, w: 2 * flatX + 2 * ext, h: sq },  // bottom (long side)
+    { x: cx - HX - sq / 2, y: cy - flatY - ext, w: sq, h: 2 * flatY + 2 * ext },  // left   (short end, flat)
+    { x: cx + HX - sq / 2, y: cy - flatY - ext, w: sq, h: 2 * flatY + 2 * ext },  // right  (short end, flat)
+  ];
+}
+
+// The four rounded CORNERS as curved (arc) collision boundaries — the car (capsule) contacts the
+// smooth curve exactly, no scalloping, exactly like the oval turns. Each centre sits r inside its
+// true corner; radius = r − sq/2 (the strip's band-side edge = the straights' inner face);
+// inside:true = the car stays inside the arc. A small angular pad overlaps the straights at both
+// junctions of every corner.
+function arenaArcs(g: ArenaGeom): ObstacleArc[] {
+  const { cx, cy, HX, HY, r, sq } = g;
+  const rr = r - sq / 2, pad = 0.16, P = Math.PI;
+  const ox = HX - r, oy = HY - r;        // corner-centre offset from the arena centre
+  return [
+    { cx: cx - ox, cy: cy - oy, r: rr, a0: P - pad,        a1: P * 1.5 + pad, inside: true }, // top-left
+    { cx: cx + ox, cy: cy - oy, r: rr, a0: P * 1.5 - pad,  a1: P * 2 + pad,   inside: true }, // top-right
+    { cx: cx + ox, cy: cy + oy, r: rr, a0: -pad,           a1: P * 0.5 + pad, inside: true }, // bottom-right
+    { cx: cx - ox, cy: cy + oy, r: rr, a0: P * 0.5 - pad,  a1: P + pad,       inside: true }, // bottom-left
+  ];
+}
+
+// Trace the rounded-rect outline at the interior edge, optionally INSET inward by `inset` metres
+// (inset = sq/2 gives the walls' band-side face). arcTo rounds each corner with radius r → the
+// drawn corners coincide with arenaArcs' collision arcs.
+function arenaRoundRectPath(ctx: CanvasRenderingContext2D, g: ArenaGeom, s: number, inset: number) {
+  const HX = g.HX - inset, HY = g.HY - inset, r = Math.max(0, g.r - inset);
+  const L = (g.cx - HX) * s, R = (g.cx + HX) * s, T = (g.cy - HY) * s, B = (g.cy + HY) * s, rr = r * s;
+  ctx.beginPath();
+  ctx.moveTo(L + rr, T); ctx.lineTo(R - rr, T); ctx.arcTo(R, T, R, T + rr, rr);
+  ctx.lineTo(R, B - rr); ctx.arcTo(R, B, R - rr, B, rr);
+  ctx.lineTo(L + rr, B); ctx.arcTo(L, B, L, B - rr, rr);
+  ctx.lineTo(L, T + rr); ctx.arcTo(L, T, L + rr, T, rr);
+  ctx.closePath();
+}
+
+function drawArena(ctx: CanvasRenderingContext2D, wPx: number, hPx: number) {
+  const s = wPx / ARENA_LOGICAL.widthM;   // px per metre (uniform — fixedWorld = ARENA_LOGICAL)
+  const g = computeArena(ARENA_LOGICAL.widthM, ARENA_LOGICAL.heightM);
+  // 1. dark surround (the border + any pillarbox outside the pitch).
+  ctx.fillStyle = '#12101a'; ctx.fillRect(0, 0, wPx, hPx);
+  // 2. asphalt floor — a clean tarmac, between the oval's ring tones.
+  arenaRoundRectPath(ctx, g, s, 0);
+  ctx.fillStyle = '#33363d'; ctx.fill();
+  // 2b. neutral arena markings (halfway line + centre circle), faint — spatial reference only.
+  ctx.save();
+  arenaRoundRectPath(ctx, g, s, 0); ctx.clip();
+  ctx.strokeStyle = 'rgba(255,255,255,0.10)'; ctx.lineWidth = Math.max(1, 0.5 * s);
+  ctx.beginPath(); ctx.moveTo(g.cx * s, (g.cy - g.HY) * s); ctx.lineTo(g.cx * s, (g.cy + g.HY) * s); ctx.stroke();
+  ctx.beginPath(); ctx.arc(g.cx * s, g.cy * s, 14 * s, 0, Math.PI * 2); ctx.stroke();
+  ctx.restore();
+  // 3. wall strip — stroke the interior edge CENTRED (width sq) so its band-side face is exactly
+  //    the collision boundary (arenaWalls/arenaArcs). Dark tyre-wall look.
+  arenaRoundRectPath(ctx, g, s, 0);
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  ctx.strokeStyle = '#15171c'; ctx.lineWidth = g.sq * s; ctx.stroke();
+  // 3b. a thin bright inner edge (at the band-side face) so the boundary reads clearly.
+  arenaRoundRectPath(ctx, g, s, g.sq / 2);
+  ctx.strokeStyle = 'rgba(120,200,255,0.45)'; ctx.lineWidth = Math.max(1, 0.35 * s); ctx.stroke();
+}
+
+// A closed arena: NO track ribbon ⇒ no onTrackAt / startLine / zonePath (all optional). FREE RIDE
+// only; the mode system is untouched. Solid walls do all containment; `wrap` is a backstop clamp.
+export const arenaMap: MapDefinition = {
+  id: 'arena',
+  name: 'Arena',
+  trackType: 'open',              // no lap/finish line; behaves like a walled free-roam space
+  gameModes: ['free'],            // FREE RIDE only for now — no football mode yet
+  smokeColor: [248, 248, 251],    // white asphalt smoke
+  markClass: 'asphalt',           // grey rubber tyre marks
+  fixedWorld: ARENA_LOGICAL,      // whole arena on ONE screen ⇒ constant car size, no follow-cam
+  // surfaceAt omitted ⇒ asphalt everywhere (predictable handling), as requested.
+
+  createWorld(widthM, heightM) {
+    const g = computeArena(widthM, heightM);
+    const world: ArenaWorld = {
+      width: widthM, height: heightM,
+      rects: arenaWalls(g), arcs: arenaArcs(g), geom: g,
+    };
+    return world;
+  },
+
+  drawBackground(ctx, wPx, hPx) { drawArena(ctx, wPx, hPx); },
+  drawObstacles() { /* walls are static geometry (rects/arcs), painted in drawBackground */ },
+
+  // Two spawns facing each other, one near each SHORT end (1v1). Even slots start on the left
+  // half facing +x, odd on the right facing −x; extra pairs stack alternately off centre.
+  spawn(slot, world) {
+    const g = (world as ArenaWorld).geom;
+    const side = slot % 2, row = Math.floor(slot / 2);
+    const x = side === 0 ? g.cx - g.HX * 0.55 : g.cx + g.HX * 0.55;
+    const heading = side === 0 ? 0 : Math.PI;
+    const step = CONFIG.wheelbase * 3.2;
+    const yOff = row === 0 ? 0 : (row % 2 === 1 ? 1 : -1) * Math.ceil(row / 2) * step;
+    const yLim = g.HY - g.r * 0.4;   // keep spawns off the rounded corners
+    return { x, y: g.cy + Math.max(-yLim, Math.min(yLim, yOff)), heading };
+  },
+
+  // Closed track: the perimeter walls contain the car. `wrap` only hard-clamps a car that somehow
+  // escaped the world rect (no torus wrap), mirroring the ovals.
+  wrap(car, world) {
+    const m = 1.5;
+    let clamped = false;
+    if (car.x < m) { car.x = m; car.vx = 0; clamped = true; }
+    else if (car.x > world.width - m) { car.x = world.width - m; car.vx = 0; clamped = true; }
+    if (car.y < m) { car.y = m; car.vy = 0; clamped = true; }
+    else if (car.y > world.height - m) { car.y = world.height - m; car.vy = 0; clamped = true; }
+    return clamped;
+  },
+
+  draggableObstacles: false,   // fixed walls — the drag hooks are never called
+};
+
 registerMap(desktopMap);
 registerMap(flatTrackMap);
 registerMap(asphaltTrackMap);
 registerMap(circuitMap);
 registerMap(rallycrossMap);
 registerMap(authoredCircuitMap);
+registerMap(arenaMap);

@@ -268,6 +268,24 @@ not trusted). `EV` events: phone→desktop `join|color|name|leave|control`; desk
 - **Maps** — desktop (open, draggable icons), the two stadium ovals (dirt + asphalt, `makeStadiumMap`),
   and the winding **circuit** (smooth ribbon, GP kerbs, gravel traps, grass — all with real surface
   physics: per-wheel grip + drag on grass/gravel/dirt). Fixed render scale (car constant across maps).
+- **FOOTBALL ARENA (id 'arena') — STEP 1 ONLY: the enclosed space, nothing else.** A closed, SOLID-
+  floored rounded RECTANGLE (not a ring like the oval): asphalt everywhere inside, SOLID perimeter
+  walls the car bounces off via the SAME `collideWithRects`/`collideWithArcs` path the ovals use —
+  **no new physics, Blitz golden 0.0e+0 untouched** (only `maps.ts` map data + a `DEV_MAP_IDS` entry
+  changed). Built like the oval barriers: 4 straight wall AABBs (one per side, centred on the interior
+  edge) + 4 CORNER arcs (`inside:true`, radius `r − sq/2`); all four sides straight, the two SHORT ends
+  left FLAT so goals can land there later. Interior **180×120 m (3:2)**, corner radius **40 m** (each
+  short end keeps a 40 m flat straight), wall **3.5 m**; world `ARENA_LOGICAL` **192×132 m** = the oval
+  world 256×144 scaled **0.75× (long axis) / 0.917× (short)** — tuned for 1v1, crossable end-to-end in a
+  few seconds. `trackType:'open'`, `gameModes:['free']` (FREE RIDE only — **no football mode yet**, the
+  mode system is untouched); NO `onTrackAt`/`startLine`/`zonePath` (all optional — it's a closed space,
+  no off-track). `surfaceAt` omitted ⇒ asphalt everywhere. Two spawns facing each other, one near each
+  short end. Renders `drawArena` (dark surround + tarmac + faint halfway line/centre circle + the wall
+  strip whose band-side face IS the collision boundary). Verified: collision rects/arcs align to the
+  drawn walls; tsc + build clean. **GATING: it's in `DEV_MAP_IDS` (dev-only + unlocked for the dev,
+  invisible to normal users) as the WIP default — NOT added to `FREE_MAP_IDS`, so no existing map's
+  free/premium status changed. Move it to `FREE_MAP_IDS` (public free) or drop it from `DEV_MAP_IDS`
+  (public premium) when ready.** Tuning knobs = the `ARENA_*` consts at the top of the map in `maps.ts`.
 - **Race** — full: start/checkpoint/finish, sprint vs circuit, laps, standing grid + 3-2-1 countdown,
   **live standings** (top-left, all players, laps→progress ordered, finished-lock, throttled ~11 Hz),
   **DNF / finish-timeout**, finish feed, **podium + rematch**, per-car `RaceManager`. `playerName`
