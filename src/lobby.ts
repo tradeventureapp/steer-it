@@ -18,6 +18,10 @@
 // Max simultaneous players. Tested with 2; built for up to this many.
 export const PLAYER_CAP = 8;
 
+// STEERBALL (football) teams — a player picks a side; the host is the authority.
+export type Team = 'left' | 'right';
+export const MAX_TEAM = 4;   // per-side cap; PLAYER_CAP 8 = 4 + 4
+
 // =============================================================================
 //  RESILIENCE — the SINGLE SOURCE OF TRUTH for the connection lifecycle.
 //  EVERY "is this phone still here?" decision (input, slot/lobby retention, car
@@ -189,10 +193,11 @@ export const EV = {
   join: 'join',       // { id, color, name? }  — join + keepalive heartbeat
   color: 'color',     // { id, color }  — colour choice (immediate)
   name: 'name',       // { id, name }   — player rename (immediate)
+  team: 'team',       // { id, team }   — Steerball side pick (left|right); host validates the cap
   leave: 'leave',     // { id }         — clean disconnect (best-effort)
   control: 'control', // { id, slot, steer, throttle, brake, handbrake }
   // desktop → phone
-  lobby: 'lobby',     // { players: LobbyPlayer[], cap }
+  lobby: 'lobby',     // { players: LobbyPlayer[], cap, steerball?, matchStarted? }
   full: 'full',       // { id }         — your join was rejected (all slots taken)
 } as const;
 
@@ -202,9 +207,10 @@ export interface LobbyPlayer {
   id: string;
   color: string;
   name?: string;      // empty/absent → UI shows "PLAYER n"
+  team?: Team;        // Steerball side (absent = not yet chosen)
   connected: boolean;
 }
-export interface LobbyMsg { players: LobbyPlayer[]; cap: number; }
+export interface LobbyMsg { players: LobbyPlayer[]; cap: number; steerball?: boolean; matchStarted?: boolean; }
 
 // =============================================================================
 //  LobbyState — the desktop authority's slot model, as a PURE state machine
@@ -214,7 +220,7 @@ export interface LobbyMsg { players: LobbyPlayer[]; cap: number; }
 //  Slot assignment: the lowest free slot in [0, cap). A known id keeps its slot
 //  (reclaim on reconnect). All mutators take an explicit `now` (testable time).
 // =============================================================================
-export interface LobbyStatePlayer { id: string; color: string; name?: string; lastSeen: number; }
+export interface LobbyStatePlayer { id: string; color: string; name?: string; team?: Team; lastSeen: number; }
 
 export class LobbyState {
   readonly cap: number;
@@ -237,9 +243,44 @@ export class LobbyState {
   snapshot(): LobbyPlayer[] {
     const arr: LobbyPlayer[] = [];
     for (const [slot, p] of this.players) {
-      arr.push({ slot, id: p.id, color: p.color, name: p.name, connected: true });
+      arr.push({ slot, id: p.id, color: p.color, name: p.name, team: p.team, connected: true });
     }
     return arr.sort((a, b) => a.slot - b.slot);
+  }
+
+  // ---- STEERBALL teams (host authority) ----
+  teamCounts(): { left: number; right: number } {
+    let left = 0, right = 0;
+    for (const p of this.players.values()) { if (p.team === 'left') left++; else if (p.team === 'right') right++; }
+    return { left, right };
+  }
+
+  // Set a player's team. Rejected (ok:false) if the target side is already full (MAX_TEAM) and the
+  // player isn't already on it. Switching sides frees the old side. `changed` = the roster changed.
+  setTeam(id: string, team: Team, now: number): { changed: boolean; ok: boolean } {
+    const slot = this.slotOf(id);
+    if (slot === null) return { changed: false, ok: false };
+    const p = this.players.get(slot)!;
+    p.lastSeen = now;
+    if (p.team === team) return { changed: false, ok: true };
+    const counts = this.teamCounts();
+    if (counts[team] >= MAX_TEAM) return { changed: false, ok: false };   // that side is full
+    p.team = team;
+    return { changed: true, ok: true };
+  }
+
+  // At match start: put every teamless player on the SMALLER side (ties → left), respecting the cap.
+  // Returns whether anything changed. (PLAYER_CAP 8 ≤ 2·MAX_TEAM, so it always fits.)
+  assignUnassigned(now: number): { changed: boolean } {
+    let changed = false;
+    for (const p of this.players.values()) {
+      if (p.team) continue;
+      const c = this.teamCounts();
+      const side: Team = c.left <= c.right && c.left < MAX_TEAM ? 'left'
+        : c.right < MAX_TEAM ? 'right' : 'left';
+      p.team = side; p.lastSeen = now; changed = true;
+    }
+    return { changed };
   }
 
   // Join or reclaim. Returns the assigned slot (null = lobby full) and whether

@@ -13,7 +13,7 @@ import {
 import { TyreMarks } from './marks';
 import {
   getMap, listMaps, DEFAULT_MAP_ID, markClassAt, onTrackAt, setCircuitSurfaceReady,
-  circuitFitDebug, arenaGoalCrossed, ARENA_GOAL_CELEBRATION_MS,
+  circuitFitDebug, arenaGoalCrossed, ARENA_GOAL_CELEBRATION_MS, arenaTeamSpawn,
   rallycrossPathWorld, nearestRallycrossIndex, RALLYCROSS_PATH_LEN,
   getRallycrossDirt, setRallycrossDirt,
   type MapDefinition, type MapWorld, type MapObstacle, type Surface, type MarkClass, type ArenaGoal,
@@ -29,7 +29,7 @@ import { trackOnce, resetOnce, durationBucket, nameSlug } from './analytics';
 import { FreeRideSession } from './session';
 import {
   PLAYER_CAP, LOBBY_SYNC_MS, RESILIENCE, EV, colorName, LobbyState, paletteForMode,
-  sanitizeColor, cssColor,
+  sanitizeColor, cssColor, type Team, type LobbyPlayer,
 } from './lobby';
 import { ROAD_SPEC, STEEREX_SILVER, STEEREX_SPECS, steerexSkinForColor, BLITZ_SPECS, blitzSkinForColor,
   BLITZ_RS_COLORS, FURY_SPEC, FURY_SPECS, furySkinForColor, type VehicleSpec, type CarColor } from './vehicles';
@@ -542,6 +542,7 @@ const GAME_MODES: GameMode[] = [
   { key: 'race', name: 'RACE', desc: 'Race your friends — or set your own best time.', players: 'SOLO/MULTI' },
   { key: 'timeattack', name: 'TIME ATTACK', desc: 'Solo. Lap after lap — hunt your best time.', players: 'SOLO' },
   { key: 'xp', name: 'XP MODE', desc: "Solo. Chain drifts, don't crash, beat your best.", players: 'SOLO' },
+  { key: 'steerball', name: 'STEERBALL', desc: 'Football with cars. Pick a side, score goals.', players: 'MULTI' },
 ];
 const DEFAULT_GAME_MODE = 'free';   // FREE RIDE — every map supports it; the resting default
 const RACE_LAP_OPTIONS = [1, 3, 5, 10] as const;   // menu lap-count choices for RACE
@@ -572,7 +573,9 @@ const FREE_MAP_IDS = ['desktop', 'asphalt', 'circuit', 'circuit2'];
 // enclosed space, FREE RIDE) — dev-only while it's built out; move it to FREE_MAP_IDS (public
 // free) or drop it from here to make it a public premium map when it's ready.
 const DEV_MAP_IDS: string[] = ['arena'];
-const FREE_MODE_KEYS = ['free'];
+// 'steerball' is not premium-gated in itself — the ARENA it needs is dev-only (DEV_MAP_IDS), so
+// that map gate is the real barrier while Steerball is WIP.
+const FREE_MODE_KEYS = ['free', 'steerball'];
 // ⚠️ TEMPORARY EXPERIMENT (data-gathering): open TIME ATTACK + XP to signed-in NON-premium users,
 // so free players' Stee-Rex runs seed the leaderboards. Flip to `false` to revert to the original
 // premium-gating of TA/XP with NO other change (the mechanism stays intact). Scoped deliberately
@@ -841,6 +844,13 @@ function applySelectedGameMode() {
     setCircuitMode('timeattack');   // rolling laps start on the first crossing — no countdown
   } else if (selectedGameMode === 'race') {
     enterRaceWarmup(selectedRaceLaps);   // free driving + READY (no countdown yet), the menu's lap count
+  } else if (selectedGameMode === 'steerball') {
+    // STEERBALL (arena football) — enter the WAITING room: teams unlocked, host shows the line-ups +
+    // START MATCH. The ball already exists (switchMap created it on the arena). Rides the arena's
+    // 'open' trackType, so isCircuitMap()/isXpMode()/isTimeAttack() all stay false — no circuit path.
+    steerballMode = true; matchStarted = false; localCarTeam = undefined;
+    steerballRecolor();
+    renderSteerballLobby(lobby.snapshot());
   }
   // 'free' → nothing: switchMap already left the map in its free-roam default.
 }
@@ -975,6 +985,9 @@ function buildModeOptions() {
   modePanelEl.innerHTML = '';
   modeOptEls = [];
   for (const m of GAME_MODES) {
+    // STEERBALL lives ONLY on the arena, which is dev-gated (DEV_MAP_IDS) while it's WIP — so the
+    // mode tile only appears when the arena is visible. Drops in for everyone once arena goes public.
+    if (m.key === 'steerball' && !mapVisible('arena')) continue;
     const opt = document.createElement('button');
     opt.type = 'button';
     opt.className = 'mode-opt';
@@ -1034,7 +1047,9 @@ function refreshXpBest() {
 // There's no "deselect to nothing" — FREE RIDE IS the cleared state, so choose it.
 function selectGameMode(key: string) {
   selectedGameMode = key;
-  if (selectedMapId && !mapGameModes(selectedMapId).includes(key)) selectedMapId = null;
+  // STEERBALL only lives on the arena — force it (the arena is the only map whose gameModes list it).
+  if (key === 'steerball') selectedMapId = 'arena';
+  else if (selectedMapId && !mapGameModes(selectedMapId).includes(key)) selectedMapId = null;
   refreshSelectionUi();
 }
 // Highlight the chosen mode option + dim any the selected map can't host (the
@@ -2725,6 +2740,17 @@ function restartRace() {
   // TIME ATTACK: RESTART = a fresh rolling session (respawn + clock back to not-started).
   // The stored personal best SURVIVES — it's a record, not run state.
   if (isTimeAttack()) { startTimeAttack(); userPaused = false; refreshFreeze(); return; }
+  // STEERBALL: RESTART = re-open the waiting room (teams unlocked again), ball centred, cars back
+  // to team halves. No race/lap machinery. Keeps the picked teams; START MATCH re-locks + kicks off.
+  if (steerballMode) {
+    matchStarted = false;
+    steerballRecolor();
+    respawnArenaCars();
+    resetBallToCentre();
+    renderSteerballLobby(lobby.snapshot());
+    broadcastLobby();
+    userPaused = false; refreshFreeze(); return;
+  }
   skidCtx.clearRect(0, 0, logicalPxW, logicalPxH);
   clearMarkLayers();
   for (const car of cars.values()) {
@@ -2845,29 +2871,127 @@ let ballLastToucherSlot: number | null = null;
 const goalBannerEl    = document.getElementById('goal-banner')     as HTMLElement | null;
 const goalBannerSubEl = document.getElementById('goal-banner-sub') as HTMLElement | null;
 
-// (Re)place the ball at the arena centre + clear any celebration. Called on arena entry / map switch.
+// ---- STEERBALL (football) — teams + a match on the arena, ALONGSIDE the existing ball/goal machinery.
+// `steerballMode` = Steerball is the chosen mode (arena forced); `matchStarted` = kicked off → teams
+// LOCKED + team scoring live. The keyboard car has no lobby entry, so its side is tracked here
+// (`localCarTeam`, auto-assigned at kickoff). `lastToucherByTeam` = each side's last striker, for
+// correct goal attribution (a defender's own-net deflection credits the attacker, not the defender).
+const STEERBALL_TEAM_COLORS: Record<Team, string> = { left: '#2f6ccb', right: '#e0552a' };  // blue / orange
+// The local keyboard car sits on a RESERVED slot OUTSIDE the lobby's [0, PLAYER_CAP) range, so it
+// NEVER collides with a phone (firstFreeSlot only hands out 0..cap-1). That lets the host drive with
+// the keyboard AS A SEPARATE CAR alongside connected phones — needed to test Steerball 1v1 (keyboard
+// on one team, a phone on the other). It's identified by `.local` everywhere (never by "slot 0"), so
+// nothing else depends on the number; playerName(local) still shows the nickname.
+const KEYBOARD_SLOT = PLAYER_CAP;
+let steerballMode = false;
+let matchStarted = false;
+let localCarTeam: Team | undefined;
+let lastToucherByTeam: { left: number | null; right: number | null } = { left: null, right: null };
+
+// The team of a car by slot. The local keyboard car (car.local) is not in the lobby → localCarTeam;
+// every other slot reads the lobby roster.
+function teamOfSlot(slot: number): Team | undefined {
+  if (cars.get(slot)?.local) return localCarTeam;
+  return lobby.snapshot().find((p) => p.slot === slot)?.team;
+}
+// Recolour every car to its TEAM colour once it has picked a side (Steerball only; a side-less car
+// keeps its current colour). Called after a team change / roster sync / kickoff.
+function steerballRecolor(): void {
+  if (!steerballMode) return;
+  for (const [slot, car] of cars) {
+    const t = teamOfSlot(slot);
+    if (!t) continue;
+    const desired = STEERBALL_TEAM_COLORS[t];
+    if (car.color !== desired) {
+      car.color = desired;
+      car.skidStyle = skidColorFor(desired);
+      applyVariant(car, specForColor(desired));
+    }
+  }
+}
+// Respawn a car at a pose with inputs cleared (the shared kickoff/reset move; physics untouched —
+// fresh CarState + zeroed inputs, same as a normal spawn).
+function respawnCarAt(car: Car, pose: { x: number; y: number; heading: number }): void {
+  car.state = makeCar(pose.x, pose.y, pose.heading);
+  car.target = { steer: 0, throttle: 0, brake: 0, handbrake: false };
+  car.current = { steer: 0, throttle: 0, brake: 0, handbrake: false };
+  invalidateSkidTrails(car);
+  car.lastInputAt = performance.now();
+}
+// Put every car back at a spawn pose. Steerball → each team on ITS OWN half (defending its goal),
+// teammates spread across the half; else → the map's own spawn layout.
+function respawnArenaCars(): void {
+  if (steerballMode) {
+    for (const team of ['left', 'right'] as const) {
+      const slots = [...cars.keys()].filter((s) => teamOfSlot(s) === team).sort((a, b) => a - b);
+      slots.forEach((slot, i) => respawnCarAt(cars.get(slot)!, arenaTeamSpawn(world, team, i, slots.length)));
+    }
+    for (const [slot, car] of cars) if (!teamOfSlot(slot)) respawnCarAt(car, currentMap.spawn(slot, world));
+  } else {
+    for (const [slot, car] of cars) respawnCarAt(car, currentMap.spawn(slot, world));
+  }
+}
+
+// (Re)place the ball at the arena centre + clear any celebration + touchers. Called on arena entry /
+// map switch / kickoff.
 function resetBallToCentre(): void {
   ball = currentMap.id === 'arena'
     ? makeBall(currentMap.fixedWorld!.widthM / 2, currentMap.fixedWorld!.heightM / 2)
     : null;
   goalCelebration = null;
-  ballLastToucherSlot = null;   // fresh ball → no scorer credited until a car strikes it
+  ballLastToucherSlot = null;
+  lastToucherByTeam = { left: null, right: null };
 }
 
-// After the celebration beat: KICK OFF — every car back to its spawn pose (inputs cleared), the ball
-// to the centre at rest. Mirrors the Time Attack respawn; physics untouched (fresh CarState + zeroed
-// inputs, same as a normal spawn). Clears the celebration via resetBallToCentre.
+// After the celebration beat: KICK OFF — cars back to their spawns (team-aware in Steerball), ball to
+// centre at rest.
 function resetArenaAfterGoal(): void {
-  for (const [slot, car] of cars) {
-    const pose = currentMap.spawn(slot, world);
-    car.state = makeCar(pose.x, pose.y, pose.heading);
-    car.target = { steer: 0, throttle: 0, brake: 0, handbrake: false };
-    car.current = { steer: 0, throttle: 0, brake: 0, handbrake: false };
-    invalidateSkidTrails(car);
-    car.lastInputAt = performance.now();
-  }
-  resetBallToCentre();                     // ball → centre at rest + goalCelebration = null
+  respawnArenaCars();
+  resetBallToCentre();                     // ball → centre at rest + celebration/touchers cleared
 }
+
+// ---- STEERBALL host waiting-room: LEFT/RIGHT line-ups + START MATCH (shown before kickoff) ----
+const sbLobbyEl  = document.getElementById('steerball-lobby') as HTMLElement | null;
+const sbLeftEl   = document.getElementById('sb-left-list')    as HTMLElement | null;
+const sbRightEl  = document.getElementById('sb-right-list')   as HTMLElement | null;
+const sbWaitEl   = document.getElementById('sb-unassigned')   as HTMLElement | null;
+const sbStartBtn = document.getElementById('sb-start')        as HTMLButtonElement | null;
+
+function sbChip(slot: number, color: string): string {
+  return `<div class="sb-chip"><span class="sb-chip-dot" style="background:${cssColor(color)}"></span>` +
+    `<span class="sb-chip-name">${escapeHtml(playerName(slot))}</span></div>`;
+}
+// The host's waiting-room line-ups. Shown only in Steerball before kickoff. The local keyboard car
+// (slot 0, not a lobby player) is shown too so the host sees the full line-up filling in.
+function renderSteerballLobby(snap: LobbyPlayer[]): void {
+  if (!sbLobbyEl) return;
+  const show = steerballMode && !matchStarted && !menuOpen && !editorMode;
+  sbLobbyEl.hidden = !show;
+  if (!show) return;
+  const left: string[] = [], right: string[] = [], none: string[] = [];
+  for (const p of snap) (p.team === 'left' ? left : p.team === 'right' ? right : none).push(sbChip(p.slot, p.color));
+  const local = cars.get(KEYBOARD_SLOT);
+  if (local?.local) (localCarTeam === 'left' ? left : localCarTeam === 'right' ? right : none).push(sbChip(KEYBOARD_SLOT, local.color));
+  if (sbLeftEl)  sbLeftEl.innerHTML  = left.join('')  || '<div class="sb-empty">—</div>';
+  if (sbRightEl) sbRightEl.innerHTML = right.join('') || '<div class="sb-empty">—</div>';
+  if (sbWaitEl) { sbWaitEl.innerHTML = none.join(''); sbWaitEl.hidden = none.length === 0; }
+}
+// KICK OFF: auto-assign teamless players (+ the keyboard car) to the smaller side, LOCK teams, move
+// to team spawns, centre the ball, and tell the phones (matchStarted). No score/timer yet.
+function startMatch(): void {
+  if (!steerballMode || matchStarted) return;
+  lobby.assignUnassigned(Date.now());
+  if (cars.get(KEYBOARD_SLOT)?.local && !localCarTeam) {
+    const c = lobby.teamCounts();
+    localCarTeam = c.left <= c.right ? 'left' : 'right';
+  }
+  matchStarted = true;
+  steerballRecolor();
+  respawnArenaCars();     // team-half kickoff positions
+  resetBallToCentre();    // ball centred at rest + touchers/celebration cleared
+  broadcastLobby();       // → phones: matchStarted (lock) + final teams; hides the host overlay
+}
+sbStartBtn?.addEventListener('click', startMatch);
 
 // Show/hide the GOAL banner during the celebration (arena only). Big + centred so it reads across a
 // room. Credits the SCORER (the last player to strike the ball) — "<PLAYER> SCORES" — or, if nobody
@@ -3346,21 +3470,20 @@ function primaryCar(): Car | null {
   return best;
 }
 
-// LOCAL keyboard driving: set the slot-0 LOCAL car's target inputs from the keys,
-// the SAME Inputs a phone would send (smoothed to `current` + stepped identically).
-// Lazy-spawns the local car on the first key press in gameplay (so phone mode is
-// untouched when unused); a paired phone owning slot 0 (not local) makes it inert.
+// LOCAL keyboard driving: set the LOCAL car's target inputs from the keys, the SAME Inputs a phone
+// would send (smoothed to `current` + stepped identically). Lazy-spawns the local car on the first
+// key press in gameplay (so phone mode is untouched when unused).
 function driveKeyboard() {
   if (menuOpen || userPaused || editorMode) return;   // gameplay only
   const active = keyDrive.up || keyDrive.down || keyDrive.left || keyDrive.right || keyDrive.hb;
-  let kc = cars.get(0);
+  let kc = cars.get(KEYBOARD_SLOT);
   if (!kc) {
     if (!active) return;                          // no car + no key → don't spawn a stray
-    kc = makeManagedCar(0, DEFAULT_CAR_COLOR);
+    kc = makeManagedCar(KEYBOARD_SLOT, DEFAULT_CAR_COLOR);
     kc.local = true;
-    cars.set(0, kc);
+    cars.set(KEYBOARD_SLOT, kc);
   }
-  if (!kc.local) return;                          // a phone owns slot 0 → keyboard inert
+  if (!kc.local) return;                          // (reserved slot ⇒ always local; kept as a guard)
   kc.target.steer    = (keyDrive.right ? 1 : 0) - (keyDrive.left ? 1 : 0);
   kc.target.throttle = keyDrive.up ? 1 : 0;
   kc.target.brake    = keyDrive.down ? 1 : 0;
@@ -4357,7 +4480,10 @@ const countedPlayers = new Set<string>();
 function broadcastLobby() {
   // mode + palette ride along so each phone builds the RIGHT colour picker
   // (SIM → Blitz colours, ARCADE → Stee-Rex silver/black) and drives the right car.
-  const payload = { players: lobby.snapshot(), cap: PLAYER_CAP, mode: raceMode, colors: activePalette() };
+  const payload = {
+    players: lobby.snapshot(), cap: PLAYER_CAP, mode: raceMode, colors: activePalette(),
+    steerball: steerballMode, matchStarted,   // → the phone shows the team picker + locks it at kickoff
+  };
   // A phone is "joined" once it holds a slot. This runs on every roster change (both
   // join paths — the join heartbeat AND handleControl's lazy-join — land here), so the
   // Set is what makes it exactly one event per phone across reconnects and re-renders.
@@ -4397,6 +4523,8 @@ function renderLobbyUI() {
   const snap = lobby.snapshot();
   // Reconcile the live cars with the lobby (spawn/remove/recolour per slot).
   syncCars();
+  steerballRecolor();           // Steerball: apply team colours to the reconciled cars
+  renderSteerballLobby(snap);   // Steerball: the host's LEFT/RIGHT line-ups + START MATCH
 
   if (!rosterEl) return;
   rosterEl.innerHTML = n === 0 ? '' : snap.map((p) => {
@@ -4476,6 +4604,16 @@ function handleName(payload: unknown, authId?: string) {
   if (lobby.setName(id, name, Date.now()).changed) broadcastLobby();
 }
 
+// STEERBALL side pick (phone → host). Validated: known side, the target team not full (lobby.setTeam),
+// and ONLY before kickoff (teams lock once matchStarted). broadcastLobby recolours + re-renders.
+function handleTeam(payload: unknown, authId?: string) {
+  const id = actingId(payload, authId);
+  const raw = (payload as { team?: unknown })?.team;
+  const team: Team | null = raw === 'left' || raw === 'right' ? raw : null;
+  if (!id || !team || matchStarted) return;
+  if (lobby.setTeam(id, team, Date.now()).changed) broadcastLobby();
+}
+
 function handleLeave(payload: unknown, authId?: string) {
   const id = actingId(payload, authId);
   if (id && lobby.leave(id).changed) broadcastLobby();
@@ -4520,6 +4658,7 @@ function handleStateMessage(id: string, msg: { ev: string; payload: unknown }) {
     case EV.join: handleJoin(msg.payload, id); break;
     case EV.color: handleColor(msg.payload, id); break;
     case EV.name: handleName(msg.payload, id); break;
+    case EV.team: handleTeam(msg.payload, id); break;
     case EV.leave: handleLeave(msg.payload, id); break;
   }
 }
@@ -4562,6 +4701,7 @@ function wireDesktop(ch: RealtimeChannel) {
   ch.on('broadcast', { event: EV.join }, ({ payload }) => handleJoin(payload));
   ch.on('broadcast', { event: EV.color }, ({ payload }) => handleColor(payload));
   ch.on('broadcast', { event: EV.name }, ({ payload }) => handleName(payload));
+  ch.on('broadcast', { event: EV.team }, ({ payload }) => handleTeam(payload));
   ch.on('broadcast', { event: EV.leave }, ({ payload }) => handleLeave(payload));
   ch.on('broadcast', { event: EV.control }, ({ payload }) => {
     // Realtime-wire only (DC control never reaches here): feed the fallback
@@ -4983,21 +5123,37 @@ function frame(now: number) {
         // SWEPT goal detection: test the movement segment against the goal lines (no tunnelling even
         // at MAX_SPEED). Guarded by !goalCelebration so an already-scored ball can't re-fire.
         const goals = (world as unknown as { goals?: ArenaGoal[] }).goals;
-        const scored = (!goalCelebration && goals)
+        // In STEERBALL, goals only count once the match has kicked off (the waiting-room warm-up
+        // doesn't score). Free Ride on the arena (steerballMode false) always detects goals.
+        const goalsLive = !steerballMode || matchStarted;
+        const scored = (!goalCelebration && goals && goalsLive)
           ? arenaGoalCrossed(goals, bx0, by0, ball.x, ball.y, BALL.RADIUS) : null;
         if (scored) {
-          // Credit the LAST car to have struck the ball (from prior frames — the kick that sent it
-          // in; the car loop below runs after this). Null → neutral banner (nobody touched it).
-          const scorer = ballLastToucherSlot !== null ? playerName(ballLastToucherSlot) : null;
+          // Attribution. STEERBALL: a goal in the LEFT net counts for the RIGHT team (and vice-versa),
+          // so credit the last player OF THE SCORING TEAM to touch it — a defender deflecting into
+          // their own net does NOT get credit; if no scoring-team player touched it → neutral. FREE
+          // RIDE arena: just the last toucher (no teams). Null → neutral "SCORE!" banner.
+          let scorerSlot: number | null;
+          if (steerballMode) {
+            const scoringTeam: Team = scored === 'left' ? 'right' : 'left';
+            scorerSlot = lastToucherByTeam[scoringTeam];
+          } else {
+            scorerSlot = ballLastToucherSlot;
+          }
+          const scorer = scorerSlot !== null ? playerName(scorerSlot) : null;
           console.info(`[arena] GOAL — ${scored} net — ${scorer ?? 'unattributed'}`);
           goalCelebration = { side: scored, until: gameNow + ARENA_GOAL_CELEBRATION_MS, scorer };
         }
         // Ball + cars keep simulating the WHOLE time (goal or not) — the ball bounces in the net.
-        // A strike (collideCarBall impact > 0) records the toucher for scorer credit on the next goal.
+        // A strike (collideCarBall impact > 0) records the toucher (overall + per team) for scorer credit.
         let ballHit = 0;
         for (const car of cars.values()) {
           const hit = collideCarBall(car.state, carHalfExtents(car.spec), car.phys.massKg, ball);
-          if (hit > 0) ballLastToucherSlot = car.slot;
+          if (hit > 0) {
+            ballLastToucherSlot = car.slot;
+            const t = teamOfSlot(car.slot);
+            if (t) lastToucherByTeam[t] = car.slot;
+          }
           ballHit = Math.max(ballHit, hit);
         }
         const wallHit = collideBallWalls(ball, world.rects, world.arcs);
@@ -5196,6 +5352,7 @@ function paintWorld(W: number, H: number, shake: { x: number; y: number }) {
   drawRaceElements();
   drawGhost();   // translucent self-ghost UNDER the real cars (Time Attack only; visual, no collision)
   for (const car of cars.values()) drawCar(car);  // paint every connected car
+  if (steerballMode) drawSteerballBadges();        // per-team number tags so a player finds their car
   if (ball) drawBall(ball);                        // the football ball (arena only) — over the cars
   currentMap.drawAboveCars?.(ctx, world, CONFIG.pxPerMeter);  // tall props occlude cars under them
   fx.draw(ctx, CONFIG.pxPerMeter);
@@ -5221,6 +5378,32 @@ function drawBall(b: BallState) {
   // rim
   ctx.lineWidth = Math.max(1, r * 0.06); ctx.strokeStyle = 'rgba(30,32,40,0.55)';
   ctx.beginPath(); ctx.arc(cx, cy, r * 0.97, 0, Math.PI * 2); ctx.stroke();
+  ctx.restore();
+}
+
+// STEERBALL: a per-team NUMBER tag floating above each car (team colour + white number), so a player
+// can find THEIR car (team colour + the number shown on their phone). Visual only; Steerball only.
+function drawSteerballBadges(): void {
+  const px = PX();
+  const num = new Map<number, number>();                 // slot → per-team index (1..MAX_TEAM)
+  for (const team of ['left', 'right'] as const) {
+    const slots = [...cars.keys()].filter((s) => teamOfSlot(s) === team).sort((a, b) => a - b);
+    slots.forEach((s, i) => num.set(s, i + 1));
+  }
+  ctx.save();
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  for (const [slot, car] of cars) {
+    const t = teamOfSlot(slot); const n = num.get(slot);
+    if (!t || !n) continue;
+    const bx = car.state.x * px, by = car.state.y * px - 3.6 * px;   // float above the car (screen-space)
+    const r = 1.6 * px;
+    ctx.beginPath(); ctx.arc(bx, by, r, 0, Math.PI * 2);
+    ctx.fillStyle = STEERBALL_TEAM_COLORS[t]; ctx.fill();
+    ctx.lineWidth = Math.max(1.5, 0.28 * px); ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.stroke();
+    ctx.fillStyle = '#fff';
+    ctx.font = `800 ${Math.round(2.1 * px)}px Orbitron, system-ui, sans-serif`;
+    ctx.fillText(String(n), bx, by + 0.08 * px);
+  }
   ctx.restore();
 }
 
@@ -6068,6 +6251,10 @@ function switchMap(id: string): boolean {
   ghostBufActive = false;
   if (taHudEl) taHudEl.hidden = true;
   raceWarmup = false;   // a fresh map is free-roam until a RACE launch arms the warm-up
+  // STEERBALL is per-map (arena only) — a map switch always drops it back to inert. applySelectedGameMode
+  // re-arms it (waiting room) if the launch mode is steerball; renderSteerballLobby then hides the overlay.
+  steerballMode = false; matchStarted = false; localCarTeam = undefined;
+  if (sbLobbyEl) sbLobbyEl.hidden = true;
   updateReadyButton();
   document.body.classList.remove('circuit-xp');
   if (xpEndEl) xpEndEl.hidden = true;

@@ -7,8 +7,8 @@ import {
 } from './rtc';
 import {
   getClientId, paletteForMode, EV, PHONE_HEARTBEAT_MS, sanitizeName,
-  quantizeControl, shouldSendControl,
-  type LobbyPlayer, type ControlSample,
+  quantizeControl, shouldSendControl, MAX_TEAM,
+  type LobbyPlayer, type ControlSample, type Team,
 } from './lobby';
 import { inject } from '@vercel/analytics';
 import { trackOnce } from './analytics';
@@ -130,6 +130,14 @@ const debugEl     = document.getElementById('debug')          as HTMLDivElement 
 const lobbySlotEl   = document.getElementById('lobby-slot')   as HTMLDivElement | null;
 const lobbyColorsEl = document.getElementById('lobby-colors') as HTMLDivElement | null;
 const lobbyNameEl   = document.getElementById('lobby-name')   as HTMLInputElement | null;
+// STEERBALL team UI.
+const teamPickerEl   = document.getElementById('team-picker')       as HTMLDivElement | null;
+const teamLeftBtn    = document.getElementById('team-left')         as HTMLButtonElement | null;
+const teamRightBtn   = document.getElementById('team-right')        as HTMLButtonElement | null;
+const teamPickerHint = document.getElementById('team-picker-hint')  as HTMLDivElement | null;
+const teamIdentEl    = document.getElementById('team-ident')        as HTMLButtonElement | null;
+const teamIdentBadge = document.getElementById('team-ident-badge')  as HTMLElement | null;
+const teamIdentLabel = document.getElementById('team-ident-label')  as HTMLElement | null;
 
 // ---------- Lobby (this phone's slot + colour + name) ----------
 const clientId = getClientId();
@@ -137,6 +145,16 @@ let mySlot: number | null = null;     // assigned by the desktop authority
 let selectedColor = '';                // '' until picked / adopted from server
 let selectedName = '';                 // '' → desktop shows "PLAYER n"
 let lobbyFull = false;
+
+// ---------- STEERBALL (football) team state ----------
+// Blue LEFT / orange RIGHT — must match desktop.ts STEERBALL_TEAM_COLORS.
+const TEAM_COLORS: Record<Team, string> = { left: '#2f6ccb', right: '#e0552a' };
+let steerballActive = false;                              // host says the mode is Steerball
+let matchLocked = false;                                  // host says the match kicked off (teams locked)
+let myTeam: Team | undefined;                             // this phone's chosen/assigned side
+let teamCounts: { left: number; right: number } = { left: 0, right: 0 };
+let myTeamNumber = 0;                                     // per-team number (1..) for the identity chip
+let controlsReady = false;                                // sensors/listeners attached (unlock done once)
 
 // ---------- State ----------
 type Stage = 'before-unlock' | 'after-unlock' | 'error';
@@ -233,6 +251,9 @@ function sendJoin() {
 function sendName() {
   sendLobbyMsg(EV.name, { id: clientId, name: selectedName });
 }
+function sendTeam(team: Team) {
+  sendLobbyMsg(EV.team, { id: clientId, team });
+}
 function sendLeave() {
   try {
     sendLobbyMsg(EV.leave, { id: clientId });
@@ -284,8 +305,27 @@ function handleLobby(payload: unknown) {
   // Rebuild the colour picker for the host's chosen mode's palette (if sent).
   const colors = (payload as { colors?: { name: string; hex: string }[] })?.colors;
   if (Array.isArray(colors) && colors.length) buildColorPicker(colors);
+  // STEERBALL: the host rides the mode + kickoff flags on the lobby payload. Team counts come from
+  // the roster (to disable a FULL side). In Steerball the colour picker is replaced by the team pick.
+  steerballActive = (payload as { steerball?: boolean }).steerball === true;
+  matchLocked = (payload as { matchStarted?: boolean }).matchStarted === true;
+  let cl = 0, cr = 0;
+  for (const p of list) { if (p.team === 'left') cl++; else if (p.team === 'right') cr++; }
+  teamCounts = { left: cl, right: cr };
   const me = list.find((p) => p.id === clientId);
   if (me) {
+    // Adopt / reconcile the server's view of our team. It's the authority: an auto-assignment at
+    // kickoff arrives here, and a reclaim after a blip re-asserts what we picked (host kept it).
+    if (me.team) { myTeam = me.team; }
+    else if (steerballActive && myTeam && !matchLocked) { sendTeam(myTeam); }   // re-assert after reclaim
+    // Our per-team NUMBER = our index among same-team players ordered by slot (+1). The host's badge
+    // numbers the same way; the keyboard car sits on the reserved top slot so it never shifts us.
+    if (me.team) {
+      const mates = list.filter((p) => p.team === me.team).sort((a, b) => a.slot - b.slot);
+      myTeamNumber = mates.findIndex((p) => p.id === clientId) + 1;
+    } else {
+      myTeamNumber = 0;
+    }
     // FUNNEL: holding a slot IS controlling a car — the honest "connected" moment, and
     // it covers BOTH transports (P2P and the Realtime fallback both get here). Fired
     // once: lobby messages arrive continuously and on every reclaim/reconnect.
@@ -300,6 +340,10 @@ function handleLobby(payload: unknown) {
     }
   }
   renderLobby();
+  renderTeamUI();
+  // The unlock gate depends on team state (Steerball requires a side first) → re-run it when the
+  // stage screen is showing, so picking/being-assigned a team reveals TAP TO STEER without a tap.
+  if (stage === 'before-unlock') renderUI();
 }
 function handleFull(payload: unknown) {
   if ((payload as { id?: string })?.id === clientId && mySlot === null) {
@@ -512,6 +556,68 @@ function renderLobby() {
   }
 }
 
+// ---------- STEERBALL team picker + identity chip ----------
+// Choose a side. Rejected if the match has kicked off (locked) or the side is FULL (4). Sends the
+// choice to the host (authority) and re-renders. Free to change until kickoff.
+function pickTeam(team: Team) {
+  if (matchLocked) return;
+  if (team !== myTeam && teamCounts[team] >= MAX_TEAM) return;   // that side is full
+  myTeam = team;
+  sendTeam(team);
+  sendJoin();          // keep the heartbeat payload fresh so a reclaim restores us
+  renderTeamUI();
+  if (stage === 'before-unlock') renderUI();   // reveal TAP TO STEER now a side is chosen
+}
+teamLeftBtn?.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); pickTeam('left'); });
+teamRightBtn?.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); pickTeam('right'); });
+// Tapping the identity chip on the driving screen (before kickoff) reopens the picker to switch sides.
+teamIdentEl?.addEventListener('click', (e) => {
+  e.preventDefault(); e.stopPropagation();
+  if (matchLocked) return;
+  stage = 'before-unlock';
+  renderUI();
+});
+
+// Paint the team picker (before-unlock, Steerball) and the identity chip (driving screen). Also gates
+// the unlock button: in Steerball you must pick a side before TAP TO STEER appears.
+function renderTeamUI() {
+  const showPicker = steerballActive && stage === 'before-unlock';
+  if (teamPickerEl) teamPickerEl.hidden = !showPicker;
+  if (showPicker) {
+    const paint = (btn: HTMLButtonElement | null, side: Team) => {
+      if (!btn) return;
+      const cnt = teamCounts[side];
+      const full = cnt >= MAX_TEAM && myTeam !== side;
+      btn.classList.toggle('selected', myTeam === side);
+      btn.classList.toggle('full', full);
+      btn.disabled = full || matchLocked;
+      const c = btn.querySelector('.team-btn-count');
+      if (c) c.textContent = `${cnt}/${MAX_TEAM}`;
+    };
+    paint(teamLeftBtn, 'left');
+    paint(teamRightBtn, 'right');
+    if (teamPickerHint) {
+      teamPickerHint.textContent = matchLocked ? 'Match started — locked in.'
+        : !myTeam ? 'Pick a side to start.'
+        : 'Ready — tap TAP TO STEER.';
+    }
+  }
+  // Identity chip (driving screen) — your colour + number so you can find your car on the monitor.
+  const showIdent = steerballActive && stage === 'after-unlock' && !!myTeam;
+  if (teamIdentEl) teamIdentEl.hidden = !showIdent;
+  if (showIdent && myTeam) {
+    if (teamIdentBadge) {
+      teamIdentBadge.style.background = TEAM_COLORS[myTeam];
+      teamIdentBadge.textContent = myTeamNumber ? String(myTeamNumber) : '';
+    }
+    if (teamIdentLabel) {
+      teamIdentLabel.textContent = (myTeam === 'left' ? 'BLUE' : 'ORANGE') + (matchLocked ? '' : ' · tap to switch');
+    }
+  }
+  // Unlock gate: Steerball requires a chosen side first.
+  if (stage === 'before-unlock') unlockBtn.hidden = steerballActive && !myTeam;
+}
+
 // ---------- Name input ----------
 if (lobbyNameEl) {
   const onName = () => {
@@ -541,22 +647,24 @@ function renderUI() {
   errorEl.hidden   = true;
   if (recenterBtn) recenterBtn.hidden = true;
 
-  // The slot label + colour picker live on the TAP TO STEER screen only.
+  // The slot label + colour picker live on the TAP TO STEER screen only. In Steerball the car colour
+  // IS the team colour (chosen by side, not swatch), so the colour picker is replaced by the team pick.
   const showLobby = stage === 'before-unlock';
   if (lobbySlotEl)   lobbySlotEl.hidden   = !showLobby;
-  if (lobbyColorsEl) lobbyColorsEl.hidden = !showLobby;
+  if (lobbyColorsEl) lobbyColorsEl.hidden = !showLobby || steerballActive;
   if (lobbyNameEl)   lobbyNameEl.hidden   = !showLobby;
 
   if (stage === 'error') {
     errorEl.hidden = false;
     errorEl.textContent = errorMsg;
   } else if (stage === 'before-unlock') {
-    unlockBtn.hidden = false;
+    unlockBtn.hidden = false;   // renderTeamUI may re-hide it until a Steerball side is picked
   } else {
     pedalsEl.hidden = false;
     if (recenterBtn) recenterBtn.hidden = false;   // shown on the driving screen only
   }
 
+  renderTeamUI();
   updateDebug();
 }
 
@@ -777,6 +885,9 @@ function updateDebug() {
 //  Unlock + permission
 // ----------------------------------------------------------------------
 unlockBtn.addEventListener('click', async () => {
+  // Already unlocked once (e.g. returning from a Steerball team switch) → just go back to driving.
+  // Re-running the permission request + re-attaching listeners would double-bind every control.
+  if (controlsReady) { stage = 'after-unlock'; renderUI(); return; }
   try {
     const win = window as unknown as {
       DeviceOrientationEvent?: { requestPermission?: () => Promise<string> };
@@ -814,6 +925,7 @@ unlockBtn.addEventListener('click', async () => {
     attachSensorListeners();
     attachControlListeners();
     startBroadcast();
+    controlsReady = true;
     renderUI();
     // No steering calibration needed: steer is a pitch-invariant roll angle read
     // directly from gravity (steeringRollDeg), level = 0 for everyone.

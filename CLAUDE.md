@@ -112,7 +112,8 @@ palette picked on the phone (§13).
 - `supabase.ts` — client + `channelName` + `createResilientChannel` (worker heartbeat, auto-reconnect).
 - `rtc.ts` — WebRTC P2P (injectable PeerFactory, unit-tested headless); signaling over `steer:<code>`.
 - `lobby.ts` — N-player lobby state machine (pure), `RESILIENCE` connection lifecycle (single source
-  of truth), `EV` event names, `PLAYER_CAP`, `paletteForMode`, control deadband helpers.
+  of truth), `EV` event names (incl. `team`), `PLAYER_CAP`, `paletteForMode`, control deadband helpers,
+  and the STEERBALL team model (`Team`, `MAX_TEAM`, `setTeam`/`teamCounts`/`assignUnassigned`).
 - `cars.ts` — multiplayer math (pure): spawn grid, car-car collision bounce, input router.
 - `race.ts` — race logic (pure): `RaceState` + `RaceManager` (per-slot laps, finish order, DNF),
   circuit anti-cheat (armed forward crossing), `RACE_CONFIG`, editor mutators, `formatRaceTime`.
@@ -278,8 +279,8 @@ not trusted). `EV` events: phone→desktop `join|color|name|leave|control`; desk
   pitch WIDTH (side-to-side) 72 m (whole arena scaled ×0.9 from 144×80); corner radius **24.3 m** (each
   short end keeps a **23.4 m** flat straight), wall **3.5 m** (UNCHANGED — walls don't shrink with the
   arena); world `ARENA_LOGICAL` **138.24×80.64 m** — tuned for 1v1, crossable end-to-end in a
-  few seconds. `trackType:'open'`, `gameModes:['free']` (FREE RIDE only — **no football mode yet**, the
-  mode system is untouched); NO `onTrackAt`/`startLine`/`zonePath` (all optional — it's a closed space,
+  few seconds. `trackType:'open'`, `gameModes:['free','steerball']` (Free Ride OR the STEERBALL football
+  mode — see the STEERBALL entry); NO `onTrackAt`/`startLine`/`zonePath` (all optional — it's a closed space,
   no off-track). `surfaceAt` omitted ⇒ asphalt everywhere. Two spawns facing each other, one near each
   short end. Renders `drawArena` (dark surround + tarmac + faint halfway line/centre circle + the wall
   strip whose band-side face IS the collision boundary). Verified: collision rects/arcs align to the
@@ -352,6 +353,41 @@ not trusted). `EV` events: phone→desktop `join|color|name|leave|control`; desk
   not-fully-crossed / wrong-way / diagonal), the celebration state machine 9/9 (one reset ~2 s after the
   goal, NO instant reset, banner spans the window, re-trigger guarded), + a mock-ctx render smoke +
   banner-DOM check; tsc + build clean. Still DEV-gated (`DEV_MAP_IDS`), FREE RIDE only — mode/physics untouched.
+- **STEERBALL (football) MODE — teams + a match on the arena (STEP 4).** A new game mode alongside
+  Free Ride / Race / Time Attack / XP: two teams of cars push the ball into the other team's goal.
+  Built as a NEW axis (`selectedGameMode==='steerball'` + a `steerballMode` flag + the arena `ball`),
+  NOT on the `circuitMode` axis — the arena is `trackType:'open'`, so every `isCircuitMap()`/
+  `isRaceLive()`/`isXpMode()`/`isTimeAttack()` guard is already inert on it and stays UNTOUCHED
+  (physics/leaderboard/ghost/RACE untouched; Blitz golden 0.0e+0 intact — only map/lobby/desktop UI
+  changed). **Mode⇄map bind:** picking STEERBALL forces the arena (`selectGameMode` sets
+  `selectedMapId='arena'`); the arena's `gameModes` is now `['free','steerball']` (Free Ride keeps the
+  ball, no teams). **Teams (host-authoritative, in `LobbyState`):** `Team='left'|'right'`, `MAX_TEAM=4`
+  per side; `setTeam`/`teamCounts`/`assignUnassigned` mirror the slot/colour model; the team + kickoff
+  flags ride the EXISTING lobby broadcast (`steerball`,`matchStarted`) — no new transport. A new
+  phone→host `EV.team` `{id,team}` handler (`handleTeam`) is wired on BOTH transports (Realtime +
+  WebRTC), validated by `actingId` + rejected once the match starts. **Phone (play.html/phone.ts):**
+  after connect the colour picker is replaced by a LEFT(BLUE)/RIGHT(ORANGE) team picker; the wheel
+  WON'T unlock until a side is chosen; a FULL side (4) is disabled; free to switch until kickoff, then
+  locked. On the driving screen a small identity chip shows the player's team colour + per-team NUMBER
+  (so they can find their car), tappable pre-kickoff to switch (guarded against re-binding controls via
+  `controlsReady`). **Host (index.html `#steerball-lobby`):** a waiting room shows the two line-ups
+  filling in + a **START MATCH** button; `startMatch` auto-assigns any teamless player (and the keyboard
+  car) to the SMALLER side, LOCKS teams, recolours cars to team colour, spawns each team on ITS OWN
+  half (`arenaTeamSpawn`, defending its goal), and centres the ball. **In play:** cars are team-coloured
+  (`STEERBALL_TEAM_COLORS` blue `#2f6ccb` / orange `#e0552a` — must match phone `TEAM_COLORS`), a
+  floating per-team number badge (`drawSteerballBadges`) sits over each car, and **scoring credits the
+  last player OF THE SCORING TEAM to touch the ball** (`lastToucherByTeam`; scoring team = opposite of
+  the net's side, so a defender's own-net deflection credits the attacker, not the defender; neutral if
+  no scoring-team touch). The goal-celebration beat + banner are the existing STEP-4 machinery. **RESTART**
+  re-opens the waiting room (teams unlocked, ball centred). **NO score counter / match timer yet** (next
+  step). **⚠️ KEYBOARD CAR MOVED to a RESERVED slot `KEYBOARD_SLOT=PLAYER_CAP` (8, outside the lobby's
+  [0,8) range)** so the host keyboard car and a phone NEVER collide on slot 0 — needed to test Steerball
+  1v1 (keyboard one team, a phone the other). Identified by `.local` everywhere (never "slot 0"), so
+  nothing else depends on the number; `playerName(local)` still shows the nickname. **Gating:** the
+  STEERBALL mode tile only shows when the arena is visible (`mapVisible('arena')`), so it inherits the
+  arena's DEV-only status until arena goes public — drops in for everyone then, no code change.
+  Headless-verified: lobby team state machine 19/19 (set/switch/cap-reject/auto-assign-balance/snapshot).
+  tsc + build clean; phone picker, identity chip + host waiting room render-checked.
 - **Race** — full: start/checkpoint/finish, sprint vs circuit, laps, standing grid + 3-2-1 countdown,
   **live standings** (top-left, all players, laps→progress ordered, finished-lock, throttled ~11 Hz),
   **DNF / finish-timeout**, finish feed, **podium + rematch**, per-car `RaceManager`. `playerName`

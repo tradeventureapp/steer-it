@@ -3870,6 +3870,21 @@ interface ArenaGeom { cx: number; cy: number; HX: number; HY: number; r: number;
 export interface ArenaGoal { side: 'left' | 'right'; dir: -1 | 1; lineX: number; yMin: number; yMax: number; }
 interface ArenaWorld extends MapWorld { geom: ArenaGeom; goals: ArenaGoal[]; }
 
+// STEERBALL kickoff pose for a team car: on that team's OWN half, facing the ball (centre). `idx`/`count`
+// stagger the team's cars along the pitch WIDTH (y) so they don't spawn on top of each other. LEFT team
+// defends the left goal → starts on the left half facing right (heading 0); RIGHT mirrors it.
+export function arenaTeamSpawn(
+  world: MapWorld, team: 'left' | 'right', idx: number, count: number,
+): { x: number; y: number; heading: number } {
+  const g = (world as ArenaWorld).geom;
+  const x = team === 'left' ? g.cx - g.HX * 0.5 : g.cx + g.HX * 0.5;
+  const heading = team === 'left' ? 0 : Math.PI;
+  const span = (g.HY - g.r * 0.3) * 1.4;                                 // usable width band
+  const step = count > 1 ? Math.min(CONFIG.wheelbase * 3.2, span / count) : 0;
+  const y = g.cy + (idx - (count - 1) / 2) * step;
+  return { x, y, heading };
+}
+
 function computeArena(wM: number, hM: number): ArenaGeom {
   return {
     cx: wM / 2, cy: hM / 2,
@@ -4050,7 +4065,7 @@ export const arenaMap: MapDefinition = {
   id: 'arena',
   name: 'Arena',
   trackType: 'open',              // no lap/finish line; behaves like a walled free-roam space
-  gameModes: ['free'],            // FREE RIDE only for now — no football mode yet
+  gameModes: ['free', 'steerball'], // FREE RIDE (ball, no teams) or STEERBALL (teams + score)
   smokeColor: [248, 248, 251],    // white asphalt smoke
   markClass: 'asphalt',           // grey rubber tyre marks
   fixedWorld: ARENA_LOGICAL,      // whole arena on ONE screen ⇒ constant car size, no follow-cam

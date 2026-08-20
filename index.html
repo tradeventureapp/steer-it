@@ -991,6 +991,29 @@
       <button type="button" class="menu-btn primary" id="btn-ready">READY — START RACE ▸</button>
       <div class="ready-hint">Everyone can warm up · press when the grid is set</div>
     </div>
+    <!-- STEERBALL waiting room (arena · Steerball only): the two team line-ups fill in as players
+         pick a side on their phones; START MATCH locks teams + kicks off. Screen-space HTML like
+         the race warm-up. Wired in desktop.ts (renderSteerballLobby / startMatch). -->
+    <div id="steerball-lobby" hidden>
+      <div id="sb-title">STEERBALL</div>
+      <div id="sb-teams">
+        <div class="sb-team sb-team-left">
+          <div class="sb-team-name">BLUE</div>
+          <div class="sb-list" id="sb-left-list"></div>
+        </div>
+        <div class="sb-vs">VS</div>
+        <div class="sb-team sb-team-right">
+          <div class="sb-team-name">ORANGE</div>
+          <div class="sb-list" id="sb-right-list"></div>
+        </div>
+      </div>
+      <div class="sb-unassigned-wrap">
+        <div class="sb-unassigned-label">No side yet</div>
+        <div class="sb-list" id="sb-unassigned" hidden></div>
+      </div>
+      <button type="button" class="menu-btn primary" id="sb-start">START MATCH ▸</button>
+      <div class="ready-hint">Players pick a team on their phone · unpicked players join the smaller side</div>
+    </div>
     <!-- TIME ATTACK HUD (circuit + Time Attack only): the live lap clock, the stored
          per-track best beside it, and the just-finished lap with a NEW BEST! flash.
          Top-left corner — the live standings that normally sit there belong to RACE,
