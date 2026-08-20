@@ -153,7 +153,6 @@ let steerballActive = false;                              // host says the mode 
 let matchLocked = false;                                  // host says the match kicked off (teams locked)
 let myTeam: Team | undefined;                             // this phone's chosen/assigned side
 let teamCounts: { left: number; right: number } = { left: 0, right: 0 };
-let myTeamNumber = 0;                                     // per-team number (1..) for the identity chip
 let controlsReady = false;                                // sensors/listeners attached (unlock done once)
 
 // ---------- State ----------
@@ -318,14 +317,6 @@ function handleLobby(payload: unknown) {
     // kickoff arrives here, and a reclaim after a blip re-asserts what we picked (host kept it).
     if (me.team) { myTeam = me.team; }
     else if (steerballActive && myTeam && !matchLocked) { sendTeam(myTeam); }   // re-assert after reclaim
-    // Our per-team NUMBER = our index among same-team players ordered by slot (+1). The host's badge
-    // numbers the same way; the keyboard car sits on the reserved top slot so it never shifts us.
-    if (me.team) {
-      const mates = list.filter((p) => p.team === me.team).sort((a, b) => a.slot - b.slot);
-      myTeamNumber = mates.findIndex((p) => p.id === clientId) + 1;
-    } else {
-      myTeamNumber = 0;
-    }
     // FUNNEL: holding a slot IS controlling a car — the honest "connected" moment, and
     // it covers BOTH transports (P2P and the Realtime fallback both get here). Fired
     // once: lobby messages arrive continuously and on every reclaim/reconnect.
@@ -602,13 +593,14 @@ function renderTeamUI() {
         : 'Ready — tap TAP TO STEER.';
     }
   }
-  // Identity chip (driving screen) — your colour + number so you can find your car on the monitor.
+  // Identity chip (driving screen) — your TEAM COLOUR (a swatch, no number) so you can find your car
+  // on the monitor. Cars are identified by colour alone; there are no on-screen numbers to match.
   const showIdent = steerballActive && stage === 'after-unlock' && !!myTeam;
   if (teamIdentEl) teamIdentEl.hidden = !showIdent;
   if (showIdent && myTeam) {
     if (teamIdentBadge) {
       teamIdentBadge.style.background = TEAM_COLORS[myTeam];
-      teamIdentBadge.textContent = myTeamNumber ? String(myTeamNumber) : '';
+      teamIdentBadge.textContent = '';
     }
     if (teamIdentLabel) {
       teamIdentLabel.textContent = (myTeam === 'left' ? 'BLUE' : 'ORANGE') + (matchLocked ? '' : ' · tap to switch');

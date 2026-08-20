@@ -373,14 +373,19 @@ not trusted). `EV` events: phone→desktop `join|color|name|leave|control`; desk
   `controlsReady`). **Host (index.html `#steerball-lobby`):** a waiting room shows the two line-ups
   filling in + a **START MATCH** button; `startMatch` auto-assigns any teamless player (and the keyboard
   car) to the SMALLER side, LOCKS teams, recolours cars to team colour, spawns each team on ITS OWN
-  half (`arenaTeamSpawn`, defending its goal), and centres the ball. **In play:** cars are team-coloured
-  (`STEERBALL_TEAM_COLORS` blue `#2f6ccb` / orange `#e0552a` — must match phone `TEAM_COLORS`), a
-  floating per-team number badge (`drawSteerballBadges`) sits over each car, and **scoring credits the
-  last player OF THE SCORING TEAM to touch the ball** (`lastToucherByTeam`; scoring team = opposite of
-  the net's side, so a defender's own-net deflection credits the attacker, not the defender; neutral if
-  no scoring-team touch). The goal-celebration beat + banner are the existing STEP-4 machinery. **RESTART**
-  re-opens the waiting room (teams unlocked, ball centred). **NO score counter / match timer yet** (next
-  step). **⚠️ KEYBOARD CAR MOVED to a RESERVED slot `KEYBOARD_SLOT=PLAYER_CAP` (8, outside the lobby's
+  half (`arenaTeamSpawn`, defending its goal), and centres the ball. **In play:** cars are **team-coloured
+  ONLY** (`STEERBALL_TEAM_COLORS` blue `#2f6ccb` / orange `#e0552a` — must match phone `TEAM_COLORS`);
+  team colour ALONE identifies the side — there are NO on-screen number badges (the old
+  `drawSteerballBadges` floating tags were removed) and the phone identity chip is a plain team-colour
+  swatch (no number). **Scoring credits the last player OF THE SCORING TEAM to touch the ball**
+  (`lastToucherByTeam`; scoring team = opposite of the net's side, so a defender's own-net deflection
+  credits the attacker, not the defender; neutral if no scoring-team touch). The goal-celebration beat +
+  banner are the existing STEP-4 machinery. **RESTART** re-opens the waiting room (teams unlocked, ball
+  centred). **⚠️ NO minimum-players / both-sides requirement — a 1v0 is a valid match BY DESIGN** (one
+  player alone in the arena, match running, for solo practice / testing; goals + celebration + kickoff
+  all run normally, a goal into the empty net credits the lone player as its attacking team). **NO score
+  counter / match timer yet** (next step). **⚠️ KEYBOARD CAR MOVED to a RESERVED slot
+  `KEYBOARD_SLOT=PLAYER_CAP` (8, outside the lobby's
   [0,8) range)** so the host keyboard car and a phone NEVER collide on slot 0 — needed to test Steerball
   1v1 (keyboard one team, a phone the other). Identified by `.local` everywhere (never "slot 0"), so
   nothing else depends on the number; `playerName(local)` still shows the nickname. **Gating:** the

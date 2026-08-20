@@ -2978,6 +2978,10 @@ function renderSteerballLobby(snap: LobbyPlayer[]): void {
 }
 // KICK OFF: auto-assign teamless players (+ the keyboard car) to the smaller side, LOCK teams, move
 // to team spawns, centre the ball, and tell the phones (matchStarted). No score/timer yet.
+// ⚠️ NO minimum-players / both-sides-filled requirement BY DESIGN — a 1v0 (one player, empty other
+// side) is a valid match so you can test or practise shooting alone. Goals/celebration/kickoff all
+// run normally; a goal into the empty net credits the last toucher (its attacking team = the lone
+// player's side), exactly as a normal goal does.
 function startMatch(): void {
   if (!steerballMode || matchStarted) return;
   lobby.assignUnassigned(Date.now());
@@ -5351,8 +5355,7 @@ function paintWorld(W: number, H: number, shake: { x: number; y: number }) {
   currentMap.drawForeground?.(ctx, world, CONFIG.pxPerMeter);
   drawRaceElements();
   drawGhost();   // translucent self-ghost UNDER the real cars (Time Attack only; visual, no collision)
-  for (const car of cars.values()) drawCar(car);  // paint every connected car
-  if (steerballMode) drawSteerballBadges();        // per-team number tags so a player finds their car
+  for (const car of cars.values()) drawCar(car);  // paint every connected car (team colour = the side)
   if (ball) drawBall(ball);                        // the football ball (arena only) — over the cars
   currentMap.drawAboveCars?.(ctx, world, CONFIG.pxPerMeter);  // tall props occlude cars under them
   fx.draw(ctx, CONFIG.pxPerMeter);
@@ -5378,32 +5381,6 @@ function drawBall(b: BallState) {
   // rim
   ctx.lineWidth = Math.max(1, r * 0.06); ctx.strokeStyle = 'rgba(30,32,40,0.55)';
   ctx.beginPath(); ctx.arc(cx, cy, r * 0.97, 0, Math.PI * 2); ctx.stroke();
-  ctx.restore();
-}
-
-// STEERBALL: a per-team NUMBER tag floating above each car (team colour + white number), so a player
-// can find THEIR car (team colour + the number shown on their phone). Visual only; Steerball only.
-function drawSteerballBadges(): void {
-  const px = PX();
-  const num = new Map<number, number>();                 // slot → per-team index (1..MAX_TEAM)
-  for (const team of ['left', 'right'] as const) {
-    const slots = [...cars.keys()].filter((s) => teamOfSlot(s) === team).sort((a, b) => a - b);
-    slots.forEach((s, i) => num.set(s, i + 1));
-  }
-  ctx.save();
-  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  for (const [slot, car] of cars) {
-    const t = teamOfSlot(slot); const n = num.get(slot);
-    if (!t || !n) continue;
-    const bx = car.state.x * px, by = car.state.y * px - 3.6 * px;   // float above the car (screen-space)
-    const r = 1.6 * px;
-    ctx.beginPath(); ctx.arc(bx, by, r, 0, Math.PI * 2);
-    ctx.fillStyle = STEERBALL_TEAM_COLORS[t]; ctx.fill();
-    ctx.lineWidth = Math.max(1.5, 0.28 * px); ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.stroke();
-    ctx.fillStyle = '#fff';
-    ctx.font = `800 ${Math.round(2.1 * px)}px Orbitron, system-ui, sans-serif`;
-    ctx.fillText(String(n), bx, by + 0.08 * px);
-  }
   ctx.restore();
 }
 
