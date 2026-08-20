@@ -13,7 +13,7 @@ import {
 import { TyreMarks } from './marks';
 import {
   getMap, listMaps, DEFAULT_MAP_ID, markClassAt, onTrackAt, setCircuitSurfaceReady,
-  circuitFitDebug, arenaGoalCrossed,
+  circuitFitDebug, arenaGoalCrossed, ARENA_GOAL_CELEBRATION_MS,
   rallycrossPathWorld, nearestRallycrossIndex, RALLYCROSS_PATH_LEN,
   getRallycrossDirt, setRallycrossDirt,
   type MapDefinition, type MapWorld, type MapObstacle, type Surface, type MarkClass, type ArenaGoal,
@@ -2833,11 +2833,45 @@ let world: MapWorld = currentMap.createWorld(
 // current map; created/reset in switchMap, integrated + collided in the fixed step (post-step4),
 // drawn in paintWorld. All ball logic lives in ball.ts and never touches step4 (Blitz golden intact).
 let ball: BallState | null = null;
-// (Re)place the ball at the arena centre. Called on arena entry.
+// GOAL CELEBRATION (arena step 4) — set when a goal is scored: play CONTINUES and the banner shows
+// until `until` (game-clock ms), then resetArenaAfterGoal fires. Non-null = celebrating; the swept
+// goal check is suppressed while it is (the ball is already in the net). No score/timer yet.
+let goalCelebration: { side: 'left' | 'right'; until: number } | null = null;
+const goalBannerEl    = document.getElementById('goal-banner')     as HTMLElement | null;
+const goalBannerSubEl = document.getElementById('goal-banner-sub') as HTMLElement | null;
+
+// (Re)place the ball at the arena centre + clear any celebration. Called on arena entry / map switch.
 function resetBallToCentre(): void {
   ball = currentMap.id === 'arena'
     ? makeBall(currentMap.fixedWorld!.widthM / 2, currentMap.fixedWorld!.heightM / 2)
     : null;
+  goalCelebration = null;
+}
+
+// After the celebration beat: KICK OFF — every car back to its spawn pose (inputs cleared), the ball
+// to the centre at rest. Mirrors the Time Attack respawn; physics untouched (fresh CarState + zeroed
+// inputs, same as a normal spawn). Clears the celebration via resetBallToCentre.
+function resetArenaAfterGoal(): void {
+  for (const [slot, car] of cars) {
+    const pose = currentMap.spawn(slot, world);
+    car.state = makeCar(pose.x, pose.y, pose.heading);
+    car.target = { steer: 0, throttle: 0, brake: 0, handbrake: false };
+    car.current = { steer: 0, throttle: 0, brake: 0, handbrake: false };
+    invalidateSkidTrails(car);
+    car.lastInputAt = performance.now();
+  }
+  resetBallToCentre();                     // ball → centre at rest + goalCelebration = null
+}
+
+// Show/hide the GOAL banner during the celebration (arena only). Big + centred so it reads across a
+// room. Named by the NET the ball went into (proper team/player names arrive with teams later).
+function updateGoalBanner(now: number): void {
+  if (!goalBannerEl) return;
+  const show = !!goalCelebration && now < goalCelebration.until;
+  goalBannerEl.hidden = !show;
+  if (show && goalBannerSubEl) {
+    goalBannerSubEl.textContent = goalCelebration!.side === 'left' ? '◂ LEFT GOAL' : 'RIGHT GOAL ▸';
+  }
 }
 
 // ---------- View transform (logical world px → screen px) -------------------
@@ -4931,28 +4965,32 @@ function frame(now: number) {
 
       // FOOTBALL BALL (arena only) — resolved in THIS post-step4 phase, beside collideCars, so it
       // never touches step4/the shared force path (Blitz golden intact). Order: self-motion →
-      // GOAL check on the integration sweep → (if no goal) cars shove it → bounce off the walls →
-      // world-bounds backstop.
+      // GOAL check on the integration sweep → cars shove it → bounce off the walls → world backstop.
+      // On a goal, play CONTINUES: we start a celebration window (ball stays in the net, cars keep
+      // driving, a banner shows) and only reset cars + ball AFTER it elapses. During the window a
+      // further crossing does NOT re-trigger (the ball is already in the net).
       if (ball) {
         const bx0 = ball.x, by0 = ball.y;                    // pre-step position (for the swept goal test)
         stepBall(ball, FIXED_DT);
         // SWEPT goal detection: test the movement segment against the goal lines (no tunnelling even
-        // at MAX_SPEED). On a goal: log which one + reset the ball to the arena centre at rest. No
-        // score / countdown / kickoff yet — those come later.
+        // at MAX_SPEED). Guarded by !goalCelebration so an already-scored ball can't re-fire.
         const goals = (world as unknown as { goals?: ArenaGoal[] }).goals;
-        const scored = goals ? arenaGoalCrossed(goals, bx0, by0, ball.x, ball.y, BALL.RADIUS) : null;
+        const scored = (!goalCelebration && goals)
+          ? arenaGoalCrossed(goals, bx0, by0, ball.x, ball.y, BALL.RADIUS) : null;
         if (scored) {
           console.info(`[arena] GOAL — ${scored} net`);
-          resetBallToCentre();                               // fresh ball at the centre, at rest
-        } else {
-          let ballHit = 0;
-          for (const car of cars.values()) {
-            ballHit = Math.max(ballHit, collideCarBall(car.state, carHalfExtents(car.spec), car.phys.massKg, ball));
-          }
-          const wallHit = collideBallWalls(ball, world.rects, world.arcs);
-          clampBallToWorld(ball, world.width, world.height);
-          if (Math.max(ballHit, wallHit) > 3) fx.impact(ball.x, ball.y, Math.max(ballHit, wallHit));
+          goalCelebration = { side: scored, until: gameNow + ARENA_GOAL_CELEBRATION_MS };
         }
+        // Ball + cars keep simulating the WHOLE time (goal or not) — the ball bounces in the net.
+        let ballHit = 0;
+        for (const car of cars.values()) {
+          ballHit = Math.max(ballHit, collideCarBall(car.state, carHalfExtents(car.spec), car.phys.massKg, ball));
+        }
+        const wallHit = collideBallWalls(ball, world.rects, world.arcs);
+        clampBallToWorld(ball, world.width, world.height);
+        if (Math.max(ballHit, wallHit) > 3) fx.impact(ball.x, ball.y, Math.max(ballHit, wallHit));
+        // Celebration elapsed → kick off: cars back to their spawns, ball to the centre at rest.
+        if (goalCelebration && gameNow >= goalCelebration.until) resetArenaAfterGoal();
       }
 
       // Per-car trails + edge wrap; race detection PER CAR (multi-car race).
@@ -5063,6 +5101,7 @@ function frame(now: number) {
   updateFinishTimeout(gameNow);
   updateTimeAttackHud(gameNow);
   updateXpHud();
+  updateGoalBanner(gameNow);
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);

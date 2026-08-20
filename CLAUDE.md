@@ -334,13 +334,21 @@ not trusted). `EV` events: phone→desktop `join|color|name|leave|control`; desk
   plane, so a fast ball (up to `MAX_SPEED` 60 m/s) can't TUNNEL through; a goal counts only when the
   WHOLE ball is past the line (centre crosses `lineX + dir·ballR`) AND the interpolated crossing-y is
   inside the mouth (a post shot never false-positives). Wired in `desktop.ts`'s post-step4 ball phase:
-  `stepBall → arenaGoalCrossed(world.goals, prev, cur, BALL.RADIUS)`; on a goal it just **logs
-  `[arena] GOAL — left|right net` and resets the ball to the arena centre at rest** (`resetBallToCentre`),
-  else the normal car-shove → wall-bounce → clamp runs. Rendered by `drawArenaGoal` (net cavity + mesh
-  GRID so it reads as a net, frame posts, white goal line; the mouth's wall band is cleared so the goal
-  reads OPEN). Headless-verified 17/17 (net box inside the world, 14 m centred mouth, gap present, swept
-  scoring incl. no-tunnel / post-miss / not-fully-crossed / wrong-way / diagonal) + a mock-ctx render
-  smoke; tsc + build clean. Still DEV-gated (`DEV_MAP_IDS`), FREE RIDE only — mode system untouched.
+  `stepBall → arenaGoalCrossed(world.goals, prev, cur, BALL.RADIUS)`. **GOAL CELEBRATION BEAT (step 4):
+  play does NOT stop — on a goal it logs `[arena] GOAL — left|right net` and starts a `goalCelebration
+  = {side, until}` window; the ball + cars keep simulating the WHOLE time (the ball bounces in the net),
+  a big gradient `GOAL!` banner (`#goal-banner`, FINISH/PAUSED wordmark treatment, party-readable) names
+  the NET, and only AFTER the window elapses does `resetArenaAfterGoal` KICK OFF — every car to its
+  spawn pose (inputs cleared) + the ball to centre at rest.** Duration = `ARENA_GOAL_CELEBRATION_MS`
+  (2000, exported from `maps.ts` with the other arena/football consts). The swept check is SUPPRESSED
+  while `goalCelebration` is set (guarded by `!goalCelebration`) so a ball already in the net can't
+  re-fire; leaving the arena / any reset clears it (`resetBallToCentre`). No score counter / match timer
+  yet. Rendered by `drawArenaGoal` (net cavity + mesh GRID so it reads as a net, frame posts, white goal
+  line; the mouth's wall band is cleared so the goal reads OPEN). Headless-verified: geometry 17/17
+  (net box inside world, 14 m centred mouth, gap present, swept scoring incl. no-tunnel / post-miss /
+  not-fully-crossed / wrong-way / diagonal), the celebration state machine 9/9 (one reset ~2 s after the
+  goal, NO instant reset, banner spans the window, re-trigger guarded), + a mock-ctx render smoke +
+  banner-DOM check; tsc + build clean. Still DEV-gated (`DEV_MAP_IDS`), FREE RIDE only — mode/physics untouched.
 - **Race** — full: start/checkpoint/finish, sprint vs circuit, laps, standing grid + 3-2-1 countdown,
   **live standings** (top-left, all players, laps→progress ordered, finished-lock, throttled ~11 Hz),
   **DNF / finish-timeout**, finish feed, **podium + rematch**, per-car `RaceManager`. `playerName`

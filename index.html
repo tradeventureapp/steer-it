@@ -969,6 +969,14 @@
       <div id="race-finish-time">0:00.0</div>
     </div>
 
+    <!-- FOOTBALL GOAL banner (arena only). Shown during the ~2 s celebration beat while play
+         continues, then hidden on kickoff. Big + centred so it reads across a party room.
+         Toggled by desktop.ts (updateGoalBanner); names the NET for now (teams come later). -->
+    <div id="goal-banner" hidden>
+      <div id="goal-banner-big">GOAL!</div>
+      <div id="goal-banner-sub">◂ LEFT GOAL</div>
+    </div>
+
     <!-- STANDING START: one shared 3-2-1-GO over the grid. Screen-space HTML (like the
          XP HUD) so it stays crisp and matches the HUD's type; the cars are held by
          race.ts's countdown phase, not by this. -->

@@ -3856,6 +3856,9 @@ const ARENA_GOAL_W     = 14;    // goal-MOUTH width, m — the gap between the p
 const ARENA_GOAL_DEPTH = 3.4;   // net depth behind the goal line, m. Must stay < ARENA_MARGIN (4.32) so
                                 //   the net box remains inside the world. DEEPER = ball settles further in.
 const ARENA_NET_WALL   = 0.8;   // net frame (side + back wall) thickness, m — thin posts, the ball bounces off.
+// The GOAL celebration beat: after a goal, play CONTINUES (ball stays in the net, cars keep driving)
+// with an on-screen message for this long, THEN cars + ball reset. Tune the moment here.
+export const ARENA_GOAL_CELEBRATION_MS = 2000;
 const ARENA_LOGICAL = {
   widthM:  ARENA_INTERIOR_W + 2 * ARENA_MARGIN,   // 138.24  (153.6 → ×0.9)
   heightM: ARENA_INTERIOR_H + 2 * ARENA_MARGIN,   // 80.64   (89.6  → ×0.9)

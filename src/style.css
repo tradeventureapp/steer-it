@@ -2134,6 +2134,35 @@ body.desktop #race-finish {
   text-shadow: 0 0 14px rgba(255, 194, 74, 0.7), 0 0 30px rgba(255, 138, 61, 0.4);
 }
 
+/* ---- FOOTBALL GOAL banner (arena) — a big gradient GOAL! wordmark, sized to read across a
+   party room. Same synthwave wordmark treatment as the FINISH / PAUSED titles. ---- */
+body.desktop #goal-banner {
+  position: fixed; top: 40%; left: 50%; transform: translate(-50%, -50%);
+  z-index: 13; pointer-events: none; text-align: center; font-family: var(--font-display);
+}
+#goal-banner[hidden] { display: none; }
+#goal-banner-big {
+  font-weight: 900; line-height: 0.95; letter-spacing: 6px;
+  font-size: clamp(84px, 17vw, 260px);
+  background-image: var(--grad-accent);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent;
+  filter: drop-shadow(0 4px 14px rgba(0, 0, 0, 0.55))
+          drop-shadow(0 0 34px rgba(255, 45, 143, 0.5))
+          drop-shadow(0 0 74px rgba(255, 138, 61, 0.35));
+  animation: goalPop 0.42s cubic-bezier(0.2, 1.4, 0.35, 1) both;
+}
+#goal-banner-sub {
+  margin-top: 4px;
+  font-weight: 800; letter-spacing: 6px; font-size: clamp(20px, 3.4vw, 46px);
+  color: var(--gold);
+  text-shadow: 0 0 14px rgba(255, 194, 74, 0.75), 0 0 30px rgba(255, 138, 61, 0.4);
+  animation: goalSubIn 0.45s ease-out both;
+}
+@keyframes goalPop { 0% { transform: scale(0.55); opacity: 0; } 60% { transform: scale(1.08); opacity: 1; } 100% { transform: scale(1); opacity: 1; } }
+@keyframes goalSubIn { 0% { opacity: 0; transform: translateY(10px); } 100% { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { #goal-banner-big, #goal-banner-sub { animation: none; } }
+
 /* ---- Pause overlay (key P): dim backdrop + gradient PAUSED wordmark ---- */
 /* Pause MENU — same full-screen synthwave treatment as the main menu. */
 body.desktop #pause-overlay {
