@@ -314,6 +314,29 @@ not trusted). `EV` events: phone→desktop `join|color|name|leave|control`; desk
   runtime error. **Ball radius 1.007 m = diameter 2.0135 m = EXACTLY half the Stee-Rex length 4.027 m**
   (`STEEREX_DIMS.lengthM`; a render confirmed the ball is ~half the car's length — it just reads big as
   a solid disc).
+- **FOOTBALL GOALS (arena) — STEP 3 ONLY: goals as structures + goal detection, nothing else** (no
+  score, countdown or kickoff — later steps). A goal at the CENTRE of each SHORT end: a GAP in the
+  perimeter wall + a NET box behind it. **All map data + collision reuse — no new physics** (`maps.ts`
+  only; Blitz golden 0.0e+0 untouched). The short-end wall is now SPLIT into an upper + lower POST
+  segment around the mouth; the net is a shallow 3-sided box (2 side walls + a back wall) OPEN toward
+  the pitch, all plain `ObstacleRect`s in `world.rects` → the ball bounces off them (stays in the net,
+  never leaves the world) and **cars collide with them exactly like any wall** (same
+  `collideWithRects`). **Dimensions (3 tunable consts at the top of the arena in `maps.ts`, beside the
+  other `ARENA_*`):** `ARENA_GOAL_W = 14` m (mouth width) = **0.60 of the 23.4 m flat run** (4.7 m post
+  each side) / **0.194 of the 72 m pitch width**; `ARENA_GOAL_DEPTH = 3.4` m (net depth, kept < the
+  4.32 m margin so the box stays in-world); `ARENA_NET_WALL = 0.8` m (frame thickness). Goal lines at
+  x = cx∓HX (4.32 L / 133.92 R), mouth y ∈ [33.32, 47.32]. **SWEPT goal detection** (`arenaGoalCrossed`,
+  exported pure fn): tests the ball's MOVEMENT SEGMENT (pre-step → post-step) against each goal-line
+  plane, so a fast ball (up to `MAX_SPEED` 60 m/s) can't TUNNEL through; a goal counts only when the
+  WHOLE ball is past the line (centre crosses `lineX + dir·ballR`) AND the interpolated crossing-y is
+  inside the mouth (a post shot never false-positives). Wired in `desktop.ts`'s post-step4 ball phase:
+  `stepBall → arenaGoalCrossed(world.goals, prev, cur, BALL.RADIUS)`; on a goal it just **logs
+  `[arena] GOAL — left|right net` and resets the ball to the arena centre at rest** (`resetBallToCentre`),
+  else the normal car-shove → wall-bounce → clamp runs. Rendered by `drawArenaGoal` (net cavity + mesh
+  GRID so it reads as a net, frame posts, white goal line; the mouth's wall band is cleared so the goal
+  reads OPEN). Headless-verified 17/17 (net box inside the world, 14 m centred mouth, gap present, swept
+  scoring incl. no-tunnel / post-miss / not-fully-crossed / wrong-way / diagonal) + a mock-ctx render
+  smoke; tsc + build clean. Still DEV-gated (`DEV_MAP_IDS`), FREE RIDE only — mode system untouched.
 - **Race** — full: start/checkpoint/finish, sprint vs circuit, laps, standing grid + 3-2-1 countdown,
   **live standings** (top-left, all players, laps→progress ordered, finished-lock, throttled ~11 Hz),
   **DNF / finish-timeout**, finish feed, **podium + rematch**, per-car `RaceManager`. `playerName`

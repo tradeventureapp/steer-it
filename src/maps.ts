@@ -3831,14 +3831,15 @@ export const authoredCircuitMap: MapDefinition = {
 };
 
 // =============================================================================
-//  FOOTBALL ARENA (id 'arena') — STEP 1: just the enclosed space, nothing else.
-//  A closed, SOLID-floored rounded RECTANGLE (not a ring like the oval): asphalt
-//  everywhere inside, SOLID perimeter walls the car bounces off via the SAME
-//  collideWithRects / collideWithArcs path the ovals already use — NO new physics.
-//  All four sides are STRAIGHT with four generous CORNER arcs; the two SHORT ends
-//  stay flat (goals land there in a later step). No ball, goals, teams or score
-//  yet — FREE RIDE only. Tuned for 1v1: long axis ~25% shorter than the stadium
-//  oval, 3:2 aspect, crossable end-to-end in a few seconds.
+//  FOOTBALL ARENA (id 'arena') — the enclosed space (step 1) + a dynamic ball (step 2,
+//  in ball.ts / desktop.ts) + GOALS (step 3, below). A closed, SOLID-floored rounded
+//  RECTANGLE (not a ring like the oval): asphalt everywhere inside, SOLID perimeter walls
+//  the car bounces off via the SAME collideWithRects / collideWithArcs path the ovals use
+//  — NO new physics. Four generous CORNER arcs; the two SHORT ends are straight with a
+//  central GOAL (a wall gap + a net box behind it — see ARENA_GOAL_* + arenaWalls/
+//  arenaGoals/arenaGoalCrossed/drawArenaGoal). No score/teams/kickoff yet — FREE RIDE only.
+//  Tuned for 1v1: long axis ~25% shorter than the stadium oval, 1.8:1 aspect, crossable
+//  end-to-end in a few seconds.
 // =============================================================================
 const ARENA_INTERIOR_W = 129.6; // long (horizontal) interior span, m — goal→goal LENGTH (144 → ×0.9)
 const ARENA_INTERIOR_H = 72;    // short (vertical) interior span, m — the pitch WIDTH (80 → ×0.9).
@@ -3847,13 +3848,24 @@ const ARENA_CORNER_R   = 24.3;  // corner arc radius, m (27 → ×0.9) — < H/2
                                 //   a 2·(36−24.3) = 23.4 m flat straight for a goal later
 const ARENA_WALL       = 3.5;   // wall strip thickness, m — UNCHANGED (walls don't shrink with the arena)
 const ARENA_MARGIN     = 4.32;  // ground border drawn outside the walls, m (4.8 → ×0.9)
+// ── GOALS (step 3) — a gap in each SHORT-end wall + a net box behind it. All three knobs live
+//    here beside the arena/ball tunables. The flat run available per short end is 2·(HY−r) = 23.4 m.
+const ARENA_GOAL_W     = 14;    // goal-MOUTH width, m — the gap between the posts. 14 m = 0.60 of the
+                                //   23.4 m flat run (leaving a 4.7 m post each side) / 0.194 of the 72 m
+                                //   pitch width. WIDER = easier to score; NARROWER = harder.
+const ARENA_GOAL_DEPTH = 3.4;   // net depth behind the goal line, m. Must stay < ARENA_MARGIN (4.32) so
+                                //   the net box remains inside the world. DEEPER = ball settles further in.
+const ARENA_NET_WALL   = 0.8;   // net frame (side + back wall) thickness, m — thin posts, the ball bounces off.
 const ARENA_LOGICAL = {
   widthM:  ARENA_INTERIOR_W + 2 * ARENA_MARGIN,   // 138.24  (153.6 → ×0.9)
   heightM: ARENA_INTERIOR_H + 2 * ARENA_MARGIN,   // 80.64   (89.6  → ×0.9)
 };
 
 interface ArenaGeom { cx: number; cy: number; HX: number; HY: number; r: number; sq: number; }
-interface ArenaWorld extends MapWorld { geom: ArenaGeom; }
+// A goal line for detection: the vertical plane at `lineX`, spanning y ∈ [yMin,yMax], scored by a ball
+// crossing it in `dir` (−1 = the LEFT goal, +1 = the RIGHT goal). Detection is in arenaGoalCrossed.
+export interface ArenaGoal { side: 'left' | 'right'; dir: -1 | 1; lineX: number; yMin: number; yMax: number; }
+interface ArenaWorld extends MapWorld { geom: ArenaGeom; goals: ArenaGoal[]; }
 
 function computeArena(wM: number, hM: number): ArenaGeom {
   return {
@@ -3870,12 +3882,64 @@ function arenaWalls(g: ArenaGeom): ObstacleRect[] {
   const { cx, cy, HX, HY, r, sq } = g;
   const ext = sq;                        // straight↔corner overlap
   const flatX = HX - r, flatY = HY - r;  // half-length of each flat run
-  return [
+  const gwHalf = ARENA_GOAL_W / 2, depth = ARENA_GOAL_DEPTH, nw = ARENA_NET_WALL;
+  const rects: ObstacleRect[] = [
     { x: cx - flatX - ext, y: cy - HY - sq / 2, w: 2 * flatX + 2 * ext, h: sq },  // top    (long side)
     { x: cx - flatX - ext, y: cy + HY - sq / 2, w: 2 * flatX + 2 * ext, h: sq },  // bottom (long side)
-    { x: cx - HX - sq / 2, y: cy - flatY - ext, w: sq, h: 2 * flatY + 2 * ext },  // left   (short end, flat)
-    { x: cx + HX - sq / 2, y: cy - flatY - ext, w: sq, h: 2 * flatY + 2 * ext },  // right  (short end, flat)
   ];
+  // SHORT ENDS — SPLIT around the central goal mouth into an upper + a lower POST segment (the gap
+  // between them is the goal). Same AABB/collide path as before; just two rects instead of one per end.
+  for (const sx of [cx - HX, cx + HX]) {
+    const wallX = sx - sq / 2;
+    const yTop = cy - flatY - ext;                                   // top: corner overlap → top post
+    rects.push({ x: wallX, y: yTop, w: sq, h: (cy - gwHalf) - yTop });
+    rects.push({ x: wallX, y: cy + gwHalf, w: sq, h: (cy + flatY + ext) - (cy + gwHalf) });  // bottom post → corner
+  }
+  // NET BOX behind each goal — a shallow 3-sided box (two side walls + a back wall) OPEN toward the
+  // pitch, so a ball through the mouth bounces off the back/sides and stays in the net (and never
+  // leaves the world). Cars collide with these exactly like any wall (same collideWithRects path).
+  for (const side of [-1, 1] as const) {
+    const lineX = cx + side * HX;                 // goal-line plane (interior edge)
+    const outX  = lineX + side * depth;           // back plane, `depth` behind the line
+    const backX = side < 0 ? outX - nw : outX;    // back-wall near edge (kept inside the world)
+    const sideX = side < 0 ? outX - nw : lineX;   // side walls span the goal line ↔ back
+    const top = cy - gwHalf, bot = cy + gwHalf;
+    rects.push({ x: backX, y: top - nw, w: nw,          h: ARENA_GOAL_W + 2 * nw });  // back wall
+    rects.push({ x: sideX, y: top - nw, w: depth + nw,  h: nw });                     // top side
+    rects.push({ x: sideX, y: bot,      w: depth + nw,  h: nw });                     // bottom side
+  }
+  return rects;
+}
+
+// The two goal lines (for swept scoring detection), derived from the same geometry as the walls.
+function arenaGoals(g: ArenaGeom): ArenaGoal[] {
+  const { cx, cy, HX } = g, gwHalf = ARENA_GOAL_W / 2;
+  return [
+    { side: 'left',  dir: -1, lineX: cx - HX, yMin: cy - gwHalf, yMax: cy + gwHalf },
+    { side: 'right', dir:  1, lineX: cx + HX, yMin: cy - gwHalf, yMax: cy + gwHalf },
+  ];
+}
+
+// SWEPT (continuous) goal detection — a fast ball can move many metres per frame, so we test the
+// ball's MOVEMENT SEGMENT (x0,y0)→(x1,y1) against each goal-line plane, not just the end position
+// (which would tunnel straight through). A goal is scored when the ball FULLY crosses the line: the
+// whole ball is past it, so the CENTRE must pass `lineX + dir·ballR` (a radius beyond the line). We
+// take the crossing's y by linear interpolation and require it inside the mouth [yMin,yMax]. Because
+// the only way to reach x past the line is through the mouth (the posts bounce everything else), this
+// can't false-positive on a shot that hits a post. Returns which goal, or null.
+export function arenaGoalCrossed(
+  goals: ArenaGoal[], x0: number, y0: number, x1: number, y1: number, ballR: number,
+): 'left' | 'right' | null {
+  for (const gGoal of goals) {
+    const xt = gGoal.lineX + gGoal.dir * ballR;                       // "whole ball past the line" plane
+    const crossed = gGoal.dir < 0 ? (x0 >= xt && x1 < xt) : (x0 <= xt && x1 > xt);
+    if (!crossed) continue;
+    const dx = x1 - x0;
+    const t = Math.abs(dx) < 1e-9 ? 0 : (xt - x0) / dx;               // fraction of the sweep at the plane
+    const yc = y0 + (y1 - y0) * t;
+    if (yc >= gGoal.yMin && yc <= gGoal.yMax) return gGoal.side;
+  }
+  return null;
 }
 
 // The four rounded CORNERS as curved (arc) collision boundaries — the car (capsule) contacts the
@@ -3934,6 +3998,46 @@ function drawArena(ctx: CanvasRenderingContext2D, wPx: number, hPx: number) {
   // 3b. a thin bright inner edge (at the band-side face) so the boundary reads clearly.
   arenaRoundRectPath(ctx, g, s, g.sq / 2);
   ctx.strokeStyle = 'rgba(120,200,255,0.45)'; ctx.lineWidth = Math.max(1, 0.35 * s); ctx.stroke();
+  // 4. GOALS — a net behind each short-end mouth. Drawn LAST so it opens the wall band at the mouth.
+  drawArenaGoal(ctx, g, s, -1);
+  drawArenaGoal(ctx, g, s, 1);
+}
+
+// One goal: clear the perimeter-wall band across the mouth, paint the net cavity + a mesh grid, then
+// the frame (posts/back) and the white goal line. `side` = −1 (left) / +1 (right). Render only — the
+// physical net walls come from arenaWalls (collision); this just makes the mouth read as a goal.
+function drawArenaGoal(ctx: CanvasRenderingContext2D, g: ArenaGeom, s: number, side: -1 | 1) {
+  const { cx, cy, HX, sq } = g;
+  const gwHalf = ARENA_GOAL_W / 2, depth = ARENA_GOAL_DEPTH, nw = ARENA_NET_WALL;
+  const lineX = cx + side * HX;                 // goal-line plane
+  const outX  = lineX + side * depth;           // back of the net
+  const top = cy - gwHalf, bot = cy + gwHalf;
+  const cavX0 = Math.min(lineX, outX), cavX1 = Math.max(lineX, outX);   // cavity x-range (behind the line)
+  // (a) clear the wall band across the mouth: cavity dark over the outer half, asphalt over the pitch
+  //     half — together they erase the wall stroke so the mouth reads OPEN.
+  ctx.fillStyle = '#0d0f14';
+  ctx.fillRect(cavX0 * s, top * s, (cavX1 - cavX0) * s, (bot - top) * s);
+  const mouthX = lineX + side * (sq / 2 + 0.02);           // sq/2 into the pitch (the wall's inner half)
+  const mX0 = Math.min(lineX, mouthX), mX1 = Math.max(lineX, mouthX);
+  ctx.fillStyle = '#33363d';                               // asphalt (matches the floor)
+  ctx.fillRect(mX0 * s, top * s, (mX1 - mX0) * s, (bot - top) * s);
+  // (b) net MESH — a grid across the cavity so it reads as a net, not a solid block.
+  ctx.save();
+  ctx.beginPath(); ctx.rect(cavX0 * s, top * s, (cavX1 - cavX0) * s, (bot - top) * s); ctx.clip();
+  ctx.strokeStyle = 'rgba(210,225,255,0.30)'; ctx.lineWidth = Math.max(1, 0.13 * s);
+  const cell = 1.4;                                        // mesh cell, m
+  for (let gx = cavX0; gx <= cavX1 + 1e-3; gx += cell) { ctx.beginPath(); ctx.moveTo(gx * s, top * s); ctx.lineTo(gx * s, bot * s); ctx.stroke(); }
+  for (let gy = top;   gy <= bot   + 1e-3; gy += cell) { ctx.beginPath(); ctx.moveTo(cavX0 * s, gy * s); ctx.lineTo(cavX1 * s, gy * s); ctx.stroke(); }
+  ctx.restore();
+  // (c) frame — the 3-sided net box (top side → back → bottom side), dark wall tone + bright inner edge.
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(lineX * s, top * s); ctx.lineTo(outX * s, top * s); ctx.lineTo(outX * s, bot * s); ctx.lineTo(lineX * s, bot * s);
+  ctx.strokeStyle = '#15171c'; ctx.lineWidth = nw * s; ctx.stroke();
+  ctx.strokeStyle = 'rgba(120,200,255,0.5)'; ctx.lineWidth = Math.max(1, 0.28 * s); ctx.stroke();
+  // (d) the white goal line across the mouth.
+  ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = Math.max(1.5, 0.32 * s);
+  ctx.beginPath(); ctx.moveTo(lineX * s, top * s); ctx.lineTo(lineX * s, bot * s); ctx.stroke();
 }
 
 // A closed arena: NO track ribbon ⇒ no onTrackAt / startLine / zonePath (all optional). FREE RIDE
@@ -3952,7 +4056,7 @@ export const arenaMap: MapDefinition = {
     const g = computeArena(widthM, heightM);
     const world: ArenaWorld = {
       width: widthM, height: heightM,
-      rects: arenaWalls(g), arcs: arenaArcs(g), geom: g,
+      rects: arenaWalls(g), arcs: arenaArcs(g), geom: g, goals: arenaGoals(g),
     };
     return world;
   },

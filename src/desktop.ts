@@ -13,10 +13,10 @@ import {
 import { TyreMarks } from './marks';
 import {
   getMap, listMaps, DEFAULT_MAP_ID, markClassAt, onTrackAt, setCircuitSurfaceReady,
-  circuitFitDebug,
+  circuitFitDebug, arenaGoalCrossed,
   rallycrossPathWorld, nearestRallycrossIndex, RALLYCROSS_PATH_LEN,
   getRallycrossDirt, setRallycrossDirt,
-  type MapDefinition, type MapWorld, type MapObstacle, type Surface, type MarkClass,
+  type MapDefinition, type MapWorld, type MapObstacle, type Surface, type MarkClass, type ArenaGoal,
 } from './maps';
 import { fitCanvasScale, sizeCanvasFitted, preloadSurfaceAssets, clearSurfaceCaches,
   surfaceCacheStats } from './surfaces';
@@ -4931,16 +4931,28 @@ function frame(now: number) {
 
       // FOOTBALL BALL (arena only) — resolved in THIS post-step4 phase, beside collideCars, so it
       // never touches step4/the shared force path (Blitz golden intact). Order: self-motion →
-      // cars shove it (mass-aware) → bounce off the walls → world-bounds backstop.
+      // GOAL check on the integration sweep → (if no goal) cars shove it → bounce off the walls →
+      // world-bounds backstop.
       if (ball) {
+        const bx0 = ball.x, by0 = ball.y;                    // pre-step position (for the swept goal test)
         stepBall(ball, FIXED_DT);
-        let ballHit = 0;
-        for (const car of cars.values()) {
-          ballHit = Math.max(ballHit, collideCarBall(car.state, carHalfExtents(car.spec), car.phys.massKg, ball));
+        // SWEPT goal detection: test the movement segment against the goal lines (no tunnelling even
+        // at MAX_SPEED). On a goal: log which one + reset the ball to the arena centre at rest. No
+        // score / countdown / kickoff yet — those come later.
+        const goals = (world as unknown as { goals?: ArenaGoal[] }).goals;
+        const scored = goals ? arenaGoalCrossed(goals, bx0, by0, ball.x, ball.y, BALL.RADIUS) : null;
+        if (scored) {
+          console.info(`[arena] GOAL — ${scored} net`);
+          resetBallToCentre();                               // fresh ball at the centre, at rest
+        } else {
+          let ballHit = 0;
+          for (const car of cars.values()) {
+            ballHit = Math.max(ballHit, collideCarBall(car.state, carHalfExtents(car.spec), car.phys.massKg, ball));
+          }
+          const wallHit = collideBallWalls(ball, world.rects, world.arcs);
+          clampBallToWorld(ball, world.width, world.height);
+          if (Math.max(ballHit, wallHit) > 3) fx.impact(ball.x, ball.y, Math.max(ballHit, wallHit));
         }
-        const wallHit = collideBallWalls(ball, world.rects, world.arcs);
-        clampBallToWorld(ball, world.width, world.height);
-        if (Math.max(ballHit, wallHit) > 3) fx.impact(ball.x, ball.y, Math.max(ballHit, wallHit));
       }
 
       // Per-car trails + edge wrap; race detection PER CAR (multi-car race).
