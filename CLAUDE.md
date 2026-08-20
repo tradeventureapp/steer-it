@@ -336,9 +336,12 @@ not trusted). `EV` events: phone→desktop `join|color|name|leave|control`; desk
   inside the mouth (a post shot never false-positives). Wired in `desktop.ts`'s post-step4 ball phase:
   `stepBall → arenaGoalCrossed(world.goals, prev, cur, BALL.RADIUS)`. **GOAL CELEBRATION BEAT (step 4):
   play does NOT stop — on a goal it logs `[arena] GOAL — left|right net` and starts a `goalCelebration
-  = {side, until}` window; the ball + cars keep simulating the WHOLE time (the ball bounces in the net),
-  a big gradient `GOAL!` banner (`#goal-banner`, FINISH/PAUSED wordmark treatment, party-readable) names
-  the NET, and only AFTER the window elapses does `resetArenaAfterGoal` KICK OFF — every car to its
+  = {side, until, scorer}` window; the ball + cars keep simulating the WHOLE time (the ball bounces in
+  the net), a big gradient `GOAL!` banner (`#goal-banner`, FINISH/PAUSED wordmark treatment, party-
+  readable) credits the **SCORER** — `<PLAYER> SCORES` via the existing `playerName(slot)` (nickname /
+  phone name / "Player N") for the LAST car to STRIKE the ball (`ballLastToucherSlot`, set whenever
+  `collideCarBall` impact > 0; own goals just credit whoever last touched it; neutral `SCORE!` if
+  nobody had), and only AFTER the window elapses does `resetArenaAfterGoal` KICK OFF — every car to its
   spawn pose (inputs cleared) + the ball to centre at rest.** Duration = `ARENA_GOAL_CELEBRATION_MS`
   (2000, exported from `maps.ts` with the other arena/football consts). The swept check is SUPPRESSED
   while `goalCelebration` is set (guarded by `!goalCelebration`) so a ball already in the net can't

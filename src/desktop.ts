@@ -2835,8 +2835,13 @@ let world: MapWorld = currentMap.createWorld(
 let ball: BallState | null = null;
 // GOAL CELEBRATION (arena step 4) — set when a goal is scored: play CONTINUES and the banner shows
 // until `until` (game-clock ms), then resetArenaAfterGoal fires. Non-null = celebrating; the swept
-// goal check is suppressed while it is (the ball is already in the net). No score/timer yet.
-let goalCelebration: { side: 'left' | 'right'; until: number } | null = null;
+// goal check is suppressed while it is (the ball is already in the net). `scorer` = the last car to
+// STRIKE the ball before it crossed (credited to the player), or null if nobody had touched it. No
+// score/timer yet.
+let goalCelebration: { side: 'left' | 'right'; until: number; scorer: string | null } | null = null;
+// The slot of the last car to actually strike the ball (collideCarBall impact > 0), for scorer
+// credit. Cleared with the ball (a fresh kickoff has no toucher until struck again).
+let ballLastToucherSlot: number | null = null;
 const goalBannerEl    = document.getElementById('goal-banner')     as HTMLElement | null;
 const goalBannerSubEl = document.getElementById('goal-banner-sub') as HTMLElement | null;
 
@@ -2846,6 +2851,7 @@ function resetBallToCentre(): void {
     ? makeBall(currentMap.fixedWorld!.widthM / 2, currentMap.fixedWorld!.heightM / 2)
     : null;
   goalCelebration = null;
+  ballLastToucherSlot = null;   // fresh ball → no scorer credited until a car strikes it
 }
 
 // After the celebration beat: KICK OFF — every car back to its spawn pose (inputs cleared), the ball
@@ -2864,13 +2870,15 @@ function resetArenaAfterGoal(): void {
 }
 
 // Show/hide the GOAL banner during the celebration (arena only). Big + centred so it reads across a
-// room. Named by the NET the ball went into (proper team/player names arrive with teams later).
+// room. Credits the SCORER (the last player to strike the ball) — "<PLAYER> SCORES" — or, if nobody
+// touched it before it went in, a neutral line rather than crediting the wrong player.
 function updateGoalBanner(now: number): void {
   if (!goalBannerEl) return;
   const show = !!goalCelebration && now < goalCelebration.until;
   goalBannerEl.hidden = !show;
   if (show && goalBannerSubEl) {
-    goalBannerSubEl.textContent = goalCelebration!.side === 'left' ? '◂ LEFT GOAL' : 'RIGHT GOAL ▸';
+    const scorer = goalCelebration!.scorer;
+    goalBannerSubEl.textContent = scorer ? `${scorer.toUpperCase()} SCORES` : 'SCORE!';
   }
 }
 
@@ -4978,13 +4986,19 @@ function frame(now: number) {
         const scored = (!goalCelebration && goals)
           ? arenaGoalCrossed(goals, bx0, by0, ball.x, ball.y, BALL.RADIUS) : null;
         if (scored) {
-          console.info(`[arena] GOAL — ${scored} net`);
-          goalCelebration = { side: scored, until: gameNow + ARENA_GOAL_CELEBRATION_MS };
+          // Credit the LAST car to have struck the ball (from prior frames — the kick that sent it
+          // in; the car loop below runs after this). Null → neutral banner (nobody touched it).
+          const scorer = ballLastToucherSlot !== null ? playerName(ballLastToucherSlot) : null;
+          console.info(`[arena] GOAL — ${scored} net — ${scorer ?? 'unattributed'}`);
+          goalCelebration = { side: scored, until: gameNow + ARENA_GOAL_CELEBRATION_MS, scorer };
         }
         // Ball + cars keep simulating the WHOLE time (goal or not) — the ball bounces in the net.
+        // A strike (collideCarBall impact > 0) records the toucher for scorer credit on the next goal.
         let ballHit = 0;
         for (const car of cars.values()) {
-          ballHit = Math.max(ballHit, collideCarBall(car.state, carHalfExtents(car.spec), car.phys.massKg, ball));
+          const hit = collideCarBall(car.state, carHalfExtents(car.spec), car.phys.massKg, ball);
+          if (hit > 0) ballLastToucherSlot = car.slot;
+          ballHit = Math.max(ballHit, hit);
         }
         const wallHit = collideBallWalls(ball, world.rects, world.arcs);
         clampBallToWorld(ball, world.width, world.height);
