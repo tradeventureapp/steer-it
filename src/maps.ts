@@ -3898,9 +3898,11 @@ function arenaWalls(g: ArenaGeom): ObstacleRect[] {
   // NET BOX behind each goal — a shallow 3-sided box (two side walls + a back wall) OPEN toward the
   // pitch, so a ball through the mouth bounces off the back/sides and stays in the net (and never
   // leaves the world). Cars collide with these exactly like any wall (same collideWithRects path).
+  // ⚠️ The goal line is the PITCH BOUNDARY = the wall's pitch-side FACE (cx ∓ (HX − sq/2)), NOT the
+  // wall centre — so the mouth is flush with the boundary and the net starts exactly there (no gap).
   for (const side of [-1, 1] as const) {
-    const lineX = cx + side * HX;                 // goal-line plane (interior edge)
-    const outX  = lineX + side * depth;           // back plane, `depth` behind the line
+    const lineX = cx + side * (HX - sq / 2);      // goal line = pitch boundary (wall's pitch-side face)
+    const outX  = lineX + side * depth;           // back plane, `depth` OUTWARD behind the line
     const backX = side < 0 ? outX - nw : outX;    // back-wall near edge (kept inside the world)
     const sideX = side < 0 ? outX - nw : lineX;   // side walls span the goal line ↔ back
     const top = cy - gwHalf, bot = cy + gwHalf;
@@ -3913,10 +3915,10 @@ function arenaWalls(g: ArenaGeom): ObstacleRect[] {
 
 // The two goal lines (for swept scoring detection), derived from the same geometry as the walls.
 function arenaGoals(g: ArenaGeom): ArenaGoal[] {
-  const { cx, cy, HX } = g, gwHalf = ARENA_GOAL_W / 2;
+  const { cx, cy, HX, sq } = g, gwHalf = ARENA_GOAL_W / 2, face = HX - sq / 2;  // goal line = pitch boundary
   return [
-    { side: 'left',  dir: -1, lineX: cx - HX, yMin: cy - gwHalf, yMax: cy + gwHalf },
-    { side: 'right', dir:  1, lineX: cx + HX, yMin: cy - gwHalf, yMax: cy + gwHalf },
+    { side: 'left',  dir: -1, lineX: cx - face, yMin: cy - gwHalf, yMax: cy + gwHalf },
+    { side: 'right', dir:  1, lineX: cx + face, yMin: cy - gwHalf, yMax: cy + gwHalf },
   ];
 }
 
@@ -4009,18 +4011,17 @@ function drawArena(ctx: CanvasRenderingContext2D, wPx: number, hPx: number) {
 function drawArenaGoal(ctx: CanvasRenderingContext2D, g: ArenaGeom, s: number, side: -1 | 1) {
   const { cx, cy, HX, sq } = g;
   const gwHalf = ARENA_GOAL_W / 2, depth = ARENA_GOAL_DEPTH, nw = ARENA_NET_WALL;
-  const lineX = cx + side * HX;                 // goal-line plane
-  const outX  = lineX + side * depth;           // back of the net
+  const lineX = cx + side * (HX - sq / 2);      // goal line = PITCH BOUNDARY (flush with the mouth)
+  const outX  = lineX + side * depth;           // back of the net (OUTWARD from the line)
   const top = cy - gwHalf, bot = cy + gwHalf;
   const cavX0 = Math.min(lineX, outX), cavX1 = Math.max(lineX, outX);   // cavity x-range (behind the line)
-  // (a) clear the wall band across the mouth: cavity dark over the outer half, asphalt over the pitch
-  //     half — together they erase the wall stroke so the mouth reads OPEN.
+  // (a) paint the whole net footprint dark — from the back-wall FAR edge up to the goal line. This also
+  //     covers the perimeter-wall stroke across the mouth (its pitch face is exactly the goal line), so
+  //     the mouth reads OPEN and the net starts flush with the boundary (no gap, no asphalt fill needed).
+  const footFar = outX + side * nw;   // back-wall FAR edge (outward-most)
+  const footX0 = Math.min(lineX, footFar), footX1 = Math.max(lineX, footFar);
   ctx.fillStyle = '#0d0f14';
-  ctx.fillRect(cavX0 * s, top * s, (cavX1 - cavX0) * s, (bot - top) * s);
-  const mouthX = lineX + side * (sq / 2 + 0.02);           // sq/2 into the pitch (the wall's inner half)
-  const mX0 = Math.min(lineX, mouthX), mX1 = Math.max(lineX, mouthX);
-  ctx.fillStyle = '#33363d';                               // asphalt (matches the floor)
-  ctx.fillRect(mX0 * s, top * s, (mX1 - mX0) * s, (bot - top) * s);
+  ctx.fillRect(footX0 * s, (top - nw) * s, (footX1 - footX0) * s, (bot - top + 2 * nw) * s);
   // (b) net MESH — a grid across the cavity so it reads as a net, not a solid block.
   ctx.save();
   ctx.beginPath(); ctx.rect(cavX0 * s, top * s, (cavX1 - cavX0) * s, (bot - top) * s); ctx.clip();

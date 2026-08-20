@@ -324,8 +324,12 @@ not trusted). `EV` events: phone→desktop `join|color|name|leave|control`; desk
   `collideWithRects`). **Dimensions (3 tunable consts at the top of the arena in `maps.ts`, beside the
   other `ARENA_*`):** `ARENA_GOAL_W = 14` m (mouth width) = **0.60 of the 23.4 m flat run** (4.7 m post
   each side) / **0.194 of the 72 m pitch width**; `ARENA_GOAL_DEPTH = 3.4` m (net depth, kept < the
-  4.32 m margin so the box stays in-world); `ARENA_NET_WALL = 0.8` m (frame thickness). Goal lines at
-  x = cx∓HX (4.32 L / 133.92 R), mouth y ∈ [33.32, 47.32]. **SWEPT goal detection** (`arenaGoalCrossed`,
+  4.32 m margin so the box stays in-world); `ARENA_NET_WALL = 0.8` m (frame thickness). ⚠️ The goal
+  line is the PITCH BOUNDARY = the wall's pitch-side FACE `cx ∓ (HX − sq/2)` (6.07 L / 132.17 R), NOT
+  the wall centre — so the mouth is FLUSH with the boundary and the net starts exactly there (an
+  earlier version anchored to the wall centre and left a ~1.75 m gap). Mouth y ∈ [33.32, 47.32];
+  posts continuous with the perimeter wall (one line with a gap). Pixel-verified flush (net dark just
+  inside the boundary, pitch just outside, no gap / no protruding wall band). **SWEPT goal detection** (`arenaGoalCrossed`,
   exported pure fn): tests the ball's MOVEMENT SEGMENT (pre-step → post-step) against each goal-line
   plane, so a fast ball (up to `MAX_SPEED` 60 m/s) can't TUNNEL through; a goal counts only when the
   WHOLE ball is past the line (centre crosses `lineX + dir·ballR`) AND the interpolated crossing-y is
