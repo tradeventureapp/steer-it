@@ -32,10 +32,12 @@ import {
   sanitizeColor, cssColor, type Team, type LobbyPlayer,
 } from './lobby';
 import { ROAD_SPEC, STEEREX_SILVER, STEEREX_SPECS, steerexSkinForColor, BLITZ_SPECS, blitzSkinForColor,
-  BLITZ_RS_COLORS, FURY_SPEC, FURY_SPECS, furySkinForColor, type VehicleSpec, type CarColor } from './vehicles';
+  BLITZ_RS_COLORS, FURY_SPEC, FURY_SPECS, furySkinForColor,
+  SCRAPPY_SILVER, SCRAPPY_SPECS, scrappySkinForColor, type VehicleSpec, type CarColor } from './vehicles';
 import { steerexSprite, steerexScaled, steerexOpaque, preloadSteerex, type SteerexSkin } from './steerex-sprite';
 import { furySprite, furyScaled, furyOpaque, preloadFury, type FurySkin } from './fury-sprite';
 import { blitzSprite, blitzScaled, blitzOpaque, preloadBlitz, type BlitzSkin } from './blitz-sprite';
+import { scrappySprite, scrappyScaled, scrappyOpaque, preloadScrappy, type ScrappySkin } from './scrappy-sprite';
 import { step4, PHYS4, wheelDebug, type Physics4Params } from './physics4';
 
 // physics4 (the per-wheel sim — Blitz RS) is THE drive model: every car, every
@@ -524,6 +526,9 @@ function isDev(): boolean {
 }
 // Is the Fury the current SIM-car selection? (Premium-gated via the SIM lock at launch.)
 function furySelected(): boolean { return selectedCarKey === 'fury'; }
+// Is the Scrappy GT the current ARCADE-car selection? (Dev-only WIP — the tile only shows
+// for the dev host, so a normal user can never select it. See modeCars / specForColor.)
+function scrappySelected(): boolean { return selectedCarKey === 'scrappy'; }
 
 // ---- GAME MODES (RACE / XP …) — the in-game mode picked on the CAR & MAP screen.
 // This is a DIFFERENT axis from RaceMode (arcade/sim = the car family): a GameMode
@@ -1522,9 +1527,28 @@ interface MenuCar {
   image?: SteerexSkin;   // Stee-Rex sprite skin shown in the flyout
   furyImage?: boolean;   // Fury tile → draw the Fury sprite in the flyout
   blitzImage?: boolean;  // Blitz tile → draw the Blitz sprite in the flyout
+  scrappyImage?: boolean; // Scrappy GT tile → draw the Scrappy sprite in the flyout
   specs: CarSpec[];
   blurb: string;
 }
+// The Scrappy GT ARCADE car tile — DEV-ONLY WIP (added to the arcade list only for isDev()).
+// The BEGINNER car: small, front-wheel-drive, forgiving. 0-100 (~6.5 s) / top (~220) are rough
+// display figures; the handling is still being tuned.
+const SCRAPPY_MENU_CAR: MenuCar = {
+  key: 'scrappy', name: 'Scrappy GT', scrappyImage: true,
+  specs: [
+    { label: 'ENGINE',    value: '2.0L I4 - turbocharged' },
+    { label: 'POWER',     value: '195 kW (260 hp)' },
+    { label: 'DRIVE',     value: 'FWD' },
+    { label: 'WEIGHT',    value: '1080 kg' },
+    { label: '0-100',     value: '~6.5 s' },
+    { label: 'TOP SPEED', value: '220 km/h' },
+    { label: 'TIRES',     value: 'Road - grippy & forgiving' },
+    { label: 'ORIGIN',    value: 'Europe' },
+  ],
+  blurb: 'A pocket-sized front-drive hot hatch. Grippy, planted and easy to place - '
+    + 'it pushes wide rather than biting back. The one to learn on.',
+};
 // The Fury 200 EVO SIM car tile (premium). Same panel format/rows as the Blitz RS.
 // 0-100 (2.4 s) MEASURED from the car (step4 / Fury PHYS4, full throttle on asphalt: 2.32 s).
 // TOP SPEED = 225 km/h: the no-gears model's asymptote is ~297 km/h but is never reached on our
@@ -1562,7 +1586,10 @@ function modeCars(mode: RaceMode): MenuCar[] {
     ],
     blurb: "A secret project developed with involvement from a space program. "
       + "Officially, it doesn't exist.",
-  }];
+  },
+  // Scrappy GT — the beginner car — joins the ARCADE list ONLY for the dev host while it's WIP
+  // (same isDev gate the arena map uses). Drops in for everyone once it's tuned + de-gated.
+  ...(isDev() ? [SCRAPPY_MENU_CAR] : [])];
   // SIM — Blitz RS. 0-100 + top speed MEASURED from the car (step4 / PHYS4, full
   // throttle on asphalt): 3.05 s, 246 km/h. No image (no finished design yet).
   return [{
@@ -1645,6 +1672,25 @@ function drawBlitzImage(cvs: HTMLCanvasElement, dpr: number) {
   c.drawImage(sprite, sx, sy, sw, sh, (W - dw) / 2, (H - dh) / 2, dw, dh);
 }
 
+// Dev-only: draw the Scrappy GT sprite into a flyout canvas (same crop/centre logic as the others).
+function drawScrappyImage(cvs: HTMLCanvasElement, dpr: number) {
+  const c = cvs.getContext('2d'); if (!c) return;
+  const W = cvs.width / dpr, H = cvs.height / dpr;
+  c.setTransform(dpr, 0, 0, dpr, 0, 0);
+  c.clearRect(0, 0, W, H);
+  const sprite = scrappySprite('white');   // menu tile / flyout = the white livery
+  if (!sprite) { window.setTimeout(() => drawScrappyImage(cvs, dpr), 120); return; }
+  const op = scrappyOpaque();
+  const sx = op ? op.cxPx - op.widPx / 2 : 0;
+  const sy = op ? op.cyPx - op.lenPx / 2 : 0;
+  const sw = op ? op.widPx : sprite.width;
+  const sh = op ? op.lenPx : sprite.height;
+  const scale = Math.min(W / sw, H / sh) * 0.94;
+  const dw = sw * scale, dh = sh * scale;
+  c.imageSmoothingEnabled = true; c.imageSmoothingQuality = 'high';
+  c.drawImage(sprite, sx, sy, sw, sh, (W - dw) / 2, (H - dh) / 2, dw, dh);
+}
+
 function selectCar(key: string) {
   selectedCarKey = key;
   if (carTilesEl) for (const el of Array.from(carTilesEl.children))
@@ -1675,7 +1721,7 @@ function buildCarTiles() {
     const detail = document.createElement('div');
     detail.className = 'car-detail';
 
-    if (car.image || car.furyImage || car.blitzImage) {
+    if (car.image || car.furyImage || car.blitzImage || car.scrappyImage) {
       const imgWrap = document.createElement('span');
       imgWrap.className = 'car-image';
       const DW = 150, DH = 190;
@@ -1684,6 +1730,7 @@ function buildCarTiles() {
       cvs.style.width = DW + 'px'; cvs.style.height = DH + 'px';
       if (car.blitzImage) drawBlitzImage(cvs, dpr);
       else if (car.furyImage) drawFuryImage(cvs, dpr);
+      else if (car.scrappyImage) drawScrappyImage(cvs, dpr);
       else drawCarImage(cvs, car.image!, dpr);
       imgWrap.appendChild(cvs);
       detail.appendChild(imgWrap);
@@ -1770,8 +1817,10 @@ document.getElementById('btn-mode-sim')?.addEventListener('click', () => chooseM
 document.getElementById('btn-mode-back')?.addEventListener('click', goHome);
 
 // Warm the Fury sprite so its SIM-car tile + the car itself draw instantly. Runs on auth changes.
+// The dev-only Scrappy GT is warmed only for the dev host (its ~1.2 MB PNG never loads otherwise).
 function refreshDevUi() {
   preloadFury();
+  if (isDev()) preloadScrappy();
 }
 
 // ---- GAME MENU (logged-in host) ----
@@ -3424,13 +3473,15 @@ function specForColor(hex: string): VehicleSpec {
   if (raceMode !== 'arcade') {
     return furySelected() ? FURY_SPECS[furySkinForColor(hex)] : BLITZ_SPECS[blitzSkinForColor(hex)];
   }
-  // ARCADE: each of the 8 Stee-Rex swatch hexes → its metallic skin spec (unknown → silver).
+  // ARCADE: the Scrappy GT when it's the picked (dev-only) car, else Stee-Rex. Both share the 8
+  // swatch hexes, so the phone's chosen colour selects the livery either way (unknown → silver).
+  if (scrappySelected()) return SCRAPPY_SPECS[scrappySkinForColor(hex)];
   return STEEREX_SPECS[steerexSkinForColor(hex)];
 }
-// Representative spec for the mode (both Stee-Rex skins share dims) — used for the
-// car-car collision radius (all cars in a race share the mode's footprint).
+// Representative spec for the mode — used for the car-car collision radius (all cars in a race
+// share the mode's footprint). Arcade = Stee-Rex, or the Scrappy GT when it's the dev pick.
 function modeSpec(): VehicleSpec {
-  if (raceMode === 'arcade') return STEEREX_SILVER;
+  if (raceMode === 'arcade') return scrappySelected() ? SCRAPPY_SILVER : STEEREX_SILVER;
   return furySelected() ? FURY_SPEC : ROAD_SPEC;
 }
 // Re-spec every live car to the current mode + its own colour (on mode launch).
@@ -5960,6 +6011,33 @@ function drawFury(car: Car) {
   ctx.imageSmoothingEnabled = prevSmooth; ctx.imageSmoothingQuality = prevQ;
 }
 
+// Dev-only Scrappy GT sprite — same width-anchored blit path as Stee-Rex / Fury.
+function drawScrappy(car: Car) {
+  const skin: ScrappySkin = car.spec.sprite?.car === 'scrappy' ? car.spec.sprite.skin : 'white';
+  const cv = scrappySprite(skin);
+  const op = scrappyOpaque();
+  if (!cv || !op) return;   // not decoded/measured yet — preloaded on dev reveal, momentary
+  const s = car.state;
+  const widM = car.spec.dims?.widthM ?? CONFIG.trackWidth;
+  const scale = (widM * PX()) / op.widPx;
+  const m = ctx.getTransform();
+  const ctxScale = Math.hypot(m.a, m.b) || 1;
+  const onScreenLenDev = op.lenPx * scale * ctxScale;
+  const mip = scrappyScaled(skin, onScreenLenDev * 2)
+    ?? { cv, widPx: op.widPx, cxPx: op.cxPx, cyPx: op.cyPx };
+  const mipScale = (widM * PX()) / mip.widPx;
+  const prevSmooth = ctx.imageSmoothingEnabled, prevQ = ctx.imageSmoothingQuality;
+  ctx.save();
+  ctx.translate(s.x * PX(), s.y * PX());
+  ctx.rotate(s.heading + Math.PI / 2);
+  ctx.scale(mipScale, mipScale);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(mip.cv, -mip.cxPx, -mip.cyPx);
+  ctx.restore();
+  ctx.imageSmoothingEnabled = prevSmooth; ctx.imageSmoothingQuality = prevQ;
+}
+
 // Blitz RS sprite — same blit path, but LENGTH-anchored to the vector body's drawn length
 // (BLITZ_LEN_M) so the bitmap drops in at exactly the old car's on-screen size. VISUAL ONLY.
 function drawBlitz(car: Car) {
@@ -6016,6 +6094,7 @@ function drawCar(car: Car) {
   // Blitz RS vector body. Everything else (physics, collision, HUD) is unchanged.
   if (car.spec.sprite?.car === 'steerex') { drawSteerex(car, car.spec.sprite.skin); return; }
   if (car.spec.sprite?.car === 'fury') { drawFury(car); return; }   // dev-only test car
+  if (car.spec.sprite?.car === 'scrappy') { drawScrappy(car); return; } // dev-only beginner car
   if (car.spec.sprite?.car === 'blitz') { drawBlitz(car); return; } // Blitz RS sprite (sunset stripe)
   const base = car.liveryColor ?? car.color;   // rally livery overrides the slot colour
   const crown   = shadeHex(base, 1.28);   // lit spine

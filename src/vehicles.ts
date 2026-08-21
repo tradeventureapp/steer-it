@@ -151,6 +151,7 @@ import type { Config } from './vehicle-core';
 import type { SteerexSkin } from './steerex-sprite';
 import type { FurySkin } from './fury-sprite';
 import type { BlitzSkin } from './blitz-sprite';
+import type { ScrappySkin } from './scrappy-sprite';
 import type { Physics4Params } from './physics4';
 
 // A vehicle's REAL-WORLD dimensions (metres). The source of truth for how big the car
@@ -188,7 +189,8 @@ export interface VehicleSpec {
   // A pre-authored SVG sprite instead of the vector-drawn Blitz RS body. When set,
   // drawCar blits the cached bitmap; the slot colour / livery are ignored (the skin
   // is a fixed design). VISUAL ONLY — the physics still uses the global PHYS4.
-  sprite?: { car: 'steerex'; skin: SteerexSkin } | { car: 'fury'; skin: FurySkin } | { car: 'blitz'; skin: BlitzSkin };
+  sprite?: { car: 'steerex'; skin: SteerexSkin } | { car: 'fury'; skin: FurySkin }
+    | { car: 'blitz'; skin: BlitzSkin } | { car: 'scrappy'; skin: ScrappySkin };
 }
 
 // ROAD — the base Blitz RS (grippy asphalt Sport-class coupe). NO physics overrides →
@@ -482,6 +484,97 @@ export function furySkinForColor(hex: string): FurySkin {
   const h = hex.trim().toLowerCase();
   const i = STEEREX_SKIN_COLORS.findIndex((c) => c.hex.toLowerCase() === h);
   return i >= 0 ? FURY_SKINS[i] : 'white';
+}
+
+// ---- SCRAPPY GT — DEV-ONLY WIP: the BEGINNER arcade car ------------------------
+// A small, compact FRONT-WHEEL-DRIVE hatch (a modern hot-hatch silhouette; public name
+// "Scrappy GT"). GATED to the dev host in desktop.ts (`isDev`) while it's WIP — never
+// selectable or visible for a normal user. It sits in the ARCADE section alongside
+// Stee-Rex (NOT with the SIM cars). The whole point is FORGIVENESS: FWD so a beginner
+// who enters a corner too fast pushes WIDE (understeer) instead of snapping into a spin.
+//
+// DIMENSIONS — the sprite is WIDTH-anchored, so lengthM:widthM MUST equal the sprite's
+// opaque aspect or the drawn car won't match its collision box. Measured opaque aspect of
+// ScrappyGT.png (after the standard flood-fill) = L/W 1.9690; anchored on the Mini JCW
+// reference length 3.874 m ⇒ widthM = 3.874 / 1.9690 = 1.9675. Wheelbase = the real 2.495 m
+// (physics wheelbase is set equal to dims.wheelbaseM, as Stee-Rex does).
+export const SCRAPPY_DIMS: VehicleDims = {
+  lengthM: 3.874, widthM: 1.9675, wheelbaseM: 2.495, bodyWidthM: 1.62,
+};
+// SCRAPPY GT arcade tune — deliberately CALMER than Stee-Rex (the beginner car). The drift-
+// provocation knobs (arcadeDriftGrip / arcadeThrottleCut / arcadeThrottleGrip / arcadeThrottleYaw
+// / arcadeDriftAssist / arcadeBrakeTransfer / arcadeBrakeStability …) are all OMITTED, so they
+// default OFF — no self-sustaining drift, no power-break-loose, no trail-brake oversteer. What is
+// left is a grippy, front-heavy, front-wheel-drive car that UNDERSTEERS (pushes wide) at the limit
+// and is very hard to spin. Mass 1080 kg (real Mini JCW is 1290; a heavy car accelerates/stops
+// slower + pushes wider — using less keeps it nimble and planted, between Blitz 1020 and Fury 1100).
+const SCRAPPY_ARCADE: Partial<Physics4Params> = {
+  // --- geometry + mass + FRONT-WHEEL DRIVE (the defining trait) ---
+  wheelbase: 2.495,        // m — the real Mini JCW wheelbase (= SCRAPPY_DIMS.wheelbaseM)
+  trackWidth: 1.50,        // m — narrow (small car), a touch of width for lateral stability
+  massKg: 1080,            // kg — lighter than the real 1290 (nimble + planted), not the heaviest
+  driveSplitFront: 1.0,    // 100% FRONT drive = pure FWD. Under power the FRONT tyres reach their
+                           // grip limit first → the nose washes WIDE (understeer); the rear is never
+                           // driven, so it can't be kicked out with the throttle. THE beginner trait.
+  weightDistFront: 0.62,   // front-heavy (real FWD hatch ~62% front) → the front is load-limited =
+                           // understeer-biased, and the neutral-steer point sits well BEHIND the CoM
+                           // = very directionally stable (resists the tail stepping out).
+  maxSteer: 0.46,          // ~26° lock — LOWER than Stee-Rex (0.52) and Blitz (0.56). Calmer turn-in,
+                           // far less sensitive to a clumsy input or a sudden phone tilt. The short
+                           // 2.495 m wheelbase still gives a tight radius, so it stays nimble.
+  // --- tyres: MORE grip than Stee-Rex + a GENTLER limit (forgiving, doesn't snap) ---
+  muNom: 2.0,              // peak grip a touch above Stee-Rex's 1.90 → holds the track better.
+  tireB: 8,                // broad, planted lateral build-up (same as Stee-Rex's universal tyre).
+  tireC: 1.2,              // LOWER than Stee-Rex's 1.30 → gentler post-peak fall-off: past the limit
+                           // it washes out SOFTLY and progressively instead of snapping = forgiving.
+  tireEllipseLong: 1.3,    // throttle doesn't crush the tyre's lateral grip (matters for the driven
+                           // FRONT axle — keeps corner-exit grip so a beginner isn't punished).
+  loadSensitivity: 0.05,   // grip holds under load transfer → planted, undramatic.
+  // --- weight transfer: CALMER than Stee-Rex → stable, unflappable ---
+  loadTransferLatGain: 0.5,   // less lateral shift than Stee-Rex (0.6) → the outer tyres don't
+                              // overload as fast → the car stays stable through a rushed corner.
+  loadTransferLongGain: 0.7,  // damps rear-unload under lift-off/brake (Stee-Rex 0.8) → KILLS the
+                              // lift-off oversteer that spins beginners when they panic-lift.
+  // per-surface μ — a ROAD car: strong on tarmac, weaker (but not lethal) off it.
+  tire: { muScale: { asphalt: 1.0, grass: 0.5, gravel: 0.55, dirt: 0.65 } },
+  // --- power + top speed: a peppy hot-hatch, NOT a monster. FWD front tyres put it down cleanly. ---
+  enginePower: 195000,     // 195 kW ≈ 260 hp — nimble, quick off the line, but no wheelspin drama.
+  peakThrust: 13000,       // N low-speed drive (~Blitz's) — enough punch, front tyres cope.
+  arcadeTopSpeed: 220 / 3.6,  // 220 km/h limiter (rarely reached on our short maps).
+  // --- brakes: strong + STABLE (front-biased so the rear stays planted under braking) ---
+  brakeForce: 15000,       // N — strong, confident stops so a beginner can scrub speed for a corner.
+  brakeBiasFront: 0.65,    // front-biased (FWD front-heavy) → braking keeps the rear planted (no
+                           // trail-brake tail-out). arcadeBrakeTransfer is OMITTED = no brake oversteer.
+  // --- handbrake: GENTLE. Kept mild so a beginner can't accidentally spin it. ---
+  arcadeHbLatGrip: 0.7,    // rear keeps 70% cornering grip under handbrake → a controllable little
+                           // slide if pulled, never the violent lock/spin (Stee-Rex is 0.50).
+  arcadeHbBrake: 0.3,      // moderate handbrake braking.
+};
+// Every Scrappy GT skin is the SAME arcade car — only the sprite skin + display name differ.
+const SCRAPPY_SKIN_NAMES: Record<ScrappySkin, string> = {
+  silver: 'Scrappy GT Silver', black: 'Scrappy GT Graphite', blue: 'Scrappy GT Blue', red: 'Scrappy GT Red',
+  purple: 'Scrappy GT Purple', white: 'Scrappy GT White', orange: 'Scrappy GT Orange', yellow: 'Scrappy GT Yellow',
+};
+const SCRAPPY_SKINS: ScrappySkin[] = ['silver', 'black', 'blue', 'red', 'purple', 'white', 'orange', 'yellow'];
+function scrappySpec(skin: ScrappySkin): VehicleSpec {
+  return {
+    name: SCRAPPY_SKIN_NAMES[skin], overrides: {}, dims: SCRAPPY_DIMS,
+    branch: 'arcade', arcade: SCRAPPY_ARCADE,
+    fxScale: 1.0,                // a road car → a modest off-road throw (not Stee-Rex's brutal 1.7)
+    sprite: { car: 'scrappy', skin },
+  };
+}
+export const SCRAPPY_SPECS: Record<ScrappySkin, VehicleSpec> = {
+  silver: scrappySpec('silver'), black: scrappySpec('black'), blue: scrappySpec('blue'),
+  red: scrappySpec('red'), purple: scrappySpec('purple'), white: scrappySpec('white'),
+  orange: scrappySpec('orange'), yellow: scrappySpec('yellow'),
+};
+export const SCRAPPY_SILVER = SCRAPPY_SPECS.silver;   // kept for modeSpec / the car-tile preview
+/** The Scrappy skin a picked swatch hex resolves to (unknown → 'silver'). */
+export function scrappySkinForColor(hex: string): ScrappySkin {
+  const h = hex.trim().toLowerCase();
+  const i = STEEREX_SKIN_COLORS.findIndex((c) => c.hex.toLowerCase() === h);
+  return i >= 0 ? SCRAPPY_SKINS[i] : 'silver';
 }
 
 export const VEHICLE_SPECS: VehicleSpec[] = [ROAD_SPEC, STEEREX_SILVER, STEEREX_BLACK];

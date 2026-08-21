@@ -22,9 +22,10 @@ Core hook: **phone as a steering wheel + drifting across a desktop + zero-fricti
 
 Live at **`steerit.app`** (the QR is built from `VITE_PUBLIC_BASE_URL`, not the deployment-hash
 URL; `steer-it.vercel.app` also serves it, `noindex`ed). **Business model is LIVE:** free to
-play + a one-time **$6.90 Premium** (Stripe, real payments — see §6). Three cars: **Blitz RS** and
-**Fury 200 EVO** (SIM, both premium) and **Stee-Rex** (arcade, free). All three share ONE 8-colour
-palette picked on the phone (§13).
+play + a one-time **$6.90 Premium** (Stripe, real payments — see §6). Cars: **Blitz RS** and
+**Fury 200 EVO** (SIM, both premium), **Stee-Rex** (arcade, free), and **Scrappy GT** (arcade,
+forgiving FWD beginner car — **DEV-ONLY WIP**, not public yet). All share ONE 8-colour palette
+picked on the phone (§13).
 
 ---
 
@@ -155,11 +156,13 @@ palette picked on the phone (§13).
   `submitGhost` (→ the SECURITY DEFINER `submit_ghost` RPC), `fetchGhost` (download one player's
   stored ghost), `fetchGhostOwners` (which top-10 users have a ghost — to grey the rest).
 - `vehicles.ts` — vehicle IDENTITY + specs: `VehicleSpec` (`overrides`, `branch`, `arcade`, **`phys4`**,
-  `dims`, `sprite`, `fxScale`), `ROAD_SPEC` (Blitz), `STEEREX_SILVER/BLACK`, `FURY_SPEC` + dims +
-  colour palettes. Pure data — NO real make/model names anywhere.
-- `steerex-sprite.ts` / `fury-sprite.ts` — the two SVG sprite cars, rasterised + cached (nose-up,
-  centred on the rotation pivot, mipmap downscale). Fury recolours from ONE base + `Fury-mask.png`
-  (§13) — Stee-Rex is vector per-skin, Blitz uses an arithmetic body test.
+  `dims`, `sprite`, `fxScale`), `ROAD_SPEC` (Blitz), `STEEREX_SILVER/BLACK`, `FURY_SPEC`, `SCRAPPY_SPECS`
+  (dev-only beginner FWD car) + dims + colour palettes. Pure data — NO real make/model names anywhere.
+- `steerex-sprite.ts` / `fury-sprite.ts` / `blitz-sprite.ts` / `scrappy-sprite.ts` — the sprite cars,
+  rasterised + cached (nose-up, centred on the rotation pivot, mipmap downscale). Stee-Rex is an SVG
+  drawn per-skin; Fury is a PNG recoloured from ONE base + `Fury-mask.png` (§13); Blitz + Scrappy GT are
+  PNGs recoloured by the arithmetic white-body test (`isBody`, no mask). Fury/Scrappy are WIDTH-anchored
+  (opaque width→`dims.widthM`), Blitz is LENGTH-anchored, in their `drawX` paths (desktop.ts).
 - `auth.ts` — HOST auth + entitlement (Supabase Auth): sign-up/in, email verify, password reset,
   **effective premium = `is_premium` (Stripe-paid) OR `granted_premium` (review/comp)** — the ONE
   place that OR is read; every gate inherits it (server truth, RLS), nickname (RPC-validated +
@@ -1098,6 +1101,50 @@ gone — `isDev` now only guards `DEV_MAP_IDS` and the dirt-edit tool).
   power-on tail-out **β 41° vs 28°** and lift-off **β 38° vs 5°** (eager, hard-to-gather rotation —
   low polar moment + 50/50 + rear-biased AWD). No NaN, bounded. An AWD rally monster vs the RWD
   race coupé. Physics awaits the phone feel-test.
+
+### Scrappy GT — DEV-ONLY WIP: the BEGINNER arcade car (forgiving FWD)
+A small, compact FRONT-WHEEL-DRIVE hot hatch (modern Mini JCW silhouette; public name "Scrappy GT").
+**DEV-ONLY** while WIP — added to the **ARCADE** car list (alongside Stee-Rex, NOT the SIM cars) ONLY
+for the dev host, via the SAME `isDev()` gate the arena map uses: `modeCars('arcade')` appends it with
+`...(isDev() ? [SCRAPPY_MENU_CAR] : [])`, `specForColor`/`modeSpec` resolve it behind `scrappySelected()`,
+and `preloadScrappy()` runs only for the dev. A normal user never sees it. NOT free/default yet — that
+comes after the phone feel-test + tuning. **The whole point is FORGIVENESS**: FWD so a beginner who
+enters a corner too fast pushes WIDE (understeer) instead of snapping into a spin.
+- **8 COLOURS, arithmetic recolour (`blitz-sprite.ts` approach — NO mask needed).** The art
+  (`public/ScrappyGT.png`, 941×1672, WHITE body on a near-black field, nose-UP) is a white-body render
+  (measured: 64.9% light+desaturated body, brightest px rgb(245,245,245), ~0% saturated), so Blitz's
+  `isBody` "light + desaturated = body" multiply-tint works cleanly (verified: white→red rgb(187,39,51)
+  / blue rgb(43,99,186) / yellow rgb(215,167,26), dark glass/wheels preserved). `scrappy-sprite.ts` is a
+  clone of `blitz-sprite.ts` (flood-fill near-black bg `BG_LUMA 28` → measure opaque → tint the 8
+  `STEEREX_SKIN_COLORS`). Renamed from the original `Scrappy GT.png` (space) to `ScrappyGT.png` for a
+  clean URL.
+- **DIMENSIONS — measured, WIDTH-anchored** (`SCRAPPY_DIMS`): the draw path scales opaque WIDTH→`widthM`
+  and draws length at the sprite aspect, so `lengthM:widthM` MUST equal the sprite's opaque aspect.
+  Measured opaque bbox (after flood-fill) **742×1461 px, aspect L/W 1.969** ⇒ anchored on the Mini
+  reference length **`lengthM 3.874`** ⇒ **`widthM 3.874/1.969 = 1.9675`**, `wheelbaseM 2.495`,
+  `bodyWidthM 1.62`. Physics `wheelbase = 2.495` (= dims). Collision (from dims): capsule 3.874×1.9675,
+  car-car radius 2.195 m (the smallest car). `drawScrappy` = the width-anchored `drawFury`/`drawSteerex`
+  blit path (mip-cached), dispatched in `drawCar` on `sprite.car === 'scrappy'`.
+- **HANDLING (`SCRAPPY_ARCADE`, arcade branch) — deliberately CALMER than Stee-Rex.** MASS **1080 kg**
+  (real Mini 1290 NOT used — a heavy car accelerates/stops slower + pushes wider; 1080 keeps it nimble
+  + planted, between Blitz 1020 / Fury 1100). Key params vs Stee-Rex: **`driveSplitFront 1.0` (pure FWD**
+  vs AWD 0.4 — the defining trait: power washes the nose wide, the rear is never driven so it can't be
+  kicked out), **`weightDistFront 0.62`** (vs 0.54 — front-heavy → understeer-biased + directionally
+  stable), **`maxSteer 0.46`** (~26° vs 0.52 — calmer, unbothered by a sudden phone tilt), **`muNom 2.0`**
+  (vs 1.90 — more grip), **`tireC 1.2`** (vs 1.30 — gentler post-peak fall-off = washes out softly, never
+  snaps), **`loadTransferLatGain 0.5` / `loadTransferLongGain 0.7`** (vs 0.6/0.8 — calmer weight shifts;
+  the long gain kills lift-off oversteer), **`enginePower 195000` / `peakThrust 13000`** (vs 666k/31k —
+  peppy hot-hatch, front puts it down cleanly), `arcadeTopSpeed 220 km/h`, `brakeForce 15000` +
+  `brakeBiasFront 0.65` (strong, front-biased, stable — no trail-brake oversteer since `arcadeBrakeTransfer`
+  is omitted), `arcadeHbLatGrip 0.7` + `arcadeHbBrake 0.3` (gentle handbrake). **ALL of Stee-Rex's
+  drift-provocation knobs are OMITTED** (`arcadeDriftGrip`/`arcadeThrottleCut`/`arcadeThrottleGrip`/
+  `arcadeThrottleYaw`/`arcadeDriftAssist`/`arcadeBrakeTransfer`/`arcadeBrakeStability`) — they default OFF
+  (optional + truthy-gated), so no self-sustaining drift, no power-break-loose, no nose-tuck.
+- **Measured character** (harness, Scrappy vs Stee-Rex): corner entered too fast (hard steer + full
+  throttle) → **peak |β| 12.7° (holds/understeers) vs Stee-Rex 179.8° (spins)**; handbrake-flick 145.5°
+  vs 164.6° (harder to provoke; the handbrake still slides it deliberately, as intended). No NaN, pure
+  FWD (driveSplitFront 1.0) stable. **Blitz golden 0.0e+0 UNTOUCHED** (new arcade spec; no change to
+  `physics4.ts`/`PHYS4`/any existing car). Physics awaits the phone feel-test + tuning.
 
 ---
 
