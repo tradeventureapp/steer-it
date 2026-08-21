@@ -417,9 +417,21 @@ not trusted). `EV` events: phone→desktop `join|color|name|leave|control`; desk
   (`> XP_CONFIG.offTrackWheels`, i.e. >2 = 3+ wheels off); going that far off DURING a lap marks
   the lap INVALID. An invalid lap still finishes and still records its crossing (the next lap
   starts correctly) but can NEVER set the record, however fast; the flag is STICKY within a lap
-  and resets to VALID at each start/finish crossing (a fresh lap is clean). The HUD shows it live —
-  the lap clock turns red + an "INVALID · OFF TRACK" label — so the player sees why no record was
-  set. (Where XP ENDS the run on the same condition, Time Attack only invalidates the lap; `xp.ts`
+  and resets to VALID at each start/finish crossing (a fresh lap is clean). **BARRIER (WALL)
+  INVALIDATION — the OVALS' analogue** (`bfc...` / this task): the stadium ovals (`flat`/`asphalt`,
+  `makeStadiumMap`) have NO `onTrackAt` (bounded by walls, on-track everywhere), so off-track never
+  fires there — instead ANY wall contact during a lap voids it. A map whose boundary IS a solid
+  barrier sets `MapDefinition.taWallInvalidates` (only the ovals do); the fixed-step feeds
+  `wallHit = taWallInvalidates && leadWallImpact > 0` — `leadWallImpact` is the SOLO car's per-substep
+  `collideWithRects`/`collideWithArcs` return (the inbound normal speed; `>0` = a bounce OR a lean that
+  re-presses through a curve). It latches a SEPARATE sticky `lapWall` flag in `TimeAttackRun` (so it's
+  distinct from off-track), reset at each crossing, and `valid = lapValid && !lapWall && zonesValid`.
+  Circuits pass `wallHit=false` (no flag) so hitting a billboard leg there still does NOT void a lap —
+  their off-track rule is untouched. Physics/collision are only READ (`impact` was already computed for
+  `fx.impact`/`xpCrash`); Blitz golden 0.0e+0 intact. The HUD shows it live — the lap clock turns red +
+  an **"INVALID · OFF TRACK"** (circuits) or **"INVALID · WALL"** (ovals) label (`hud().currentWall`
+  picks which) — so the player sees why no record was set. (Where XP ENDS the run on the off-track
+  condition, Time Attack only invalidates the lap; `xp.ts`
   is pure so `time-attack.ts` importing `XP_CONFIG` is a safe read, and a future change to the
   threshold or to `wheelsOffTrack` hits both modes.) The local best is `localStorage`
   `steerit.ta.best.<uid|guest>.<carKey>.<mapId>` — **keyed by ACCOUNT + CAR + TRACK** (`taBestKeyFor`
@@ -786,14 +798,15 @@ not trusted). `EV` events: phone→desktop `join|color|name|leave|control`; desk
   **Time Attack lap funnel** (fires from the TA fixed-step where a completed lap is known, each
   deduped per OUTCOME = once/page): `timeattack-first-valid-lap` (prop `laps` = how many laps it took
   to first succeed — "how many players ever get a lap that counts"); `timeattack-lap-completed-valid`;
-  and the INVALID breakdown `timeattack-lap-completed-invalid-off-track` /
-  `-invalid-missed-zones` / `-invalid-zones-out-of-order` — "how many complete laps that DON'T count,
-  and why". Reason priority = **off-track first** (a grass shortcut trips off-track AND skips a zone),
-  else the zone cause. This is **analytics-only** and changed NO validity rule: it surfaces the two
-  operands of the existing `valid = lapValid && zonesValid` — `CompletedLap` gained `offTrack`/`zonesOk`
-  (`valid === !offTrack && zonesOk` by construction), and `ZoneTracker.lapZoneReason()` is a read-only
+  and the INVALID breakdown `timeattack-lap-completed-invalid-wall` (oval barrier contact) /
+  `-invalid-off-track` / `-invalid-missed-zones` / `-invalid-zones-out-of-order` — "how many complete
+  laps that DON'T count, and why". Reason priority = **wall first** (ovals) → **off-track** (a grass
+  shortcut trips off-track AND skips a zone) → the zone cause; on a given map only one applies (ovals:
+  wall; circuits: off-track). This surfaces the operands of `valid = lapValid && !lapWall && zonesValid`
+  — `CompletedLap` carries `offTrack`/`wall`/`zonesOk`, and `ZoneTracker.lapZoneReason()` is a read-only
   mirror of `lapComplete()` reporting `missed` vs `unordered` (missed prioritised). Verified headless:
-  `lapZoneReason` 8/8. Physics/leaderboard/ghosts/validity untouched; tsc + build clean.
+  `lapZoneReason` 8/8, wall invalidation 13/13 (clean/wall/reset/hud/backward-compat). Physics/collision
+  only READ (Blitz golden intact); leaderboard/ghosts untouched; tsc + build clean.
 
 **Perf**
 - **Tyre marks** — the saturating multiply composite was running FULL-SCREEN every frame after any

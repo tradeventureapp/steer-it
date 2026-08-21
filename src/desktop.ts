@@ -5244,6 +5244,7 @@ function frame(now: number) {
       // creep or jump the start. On GO this goes false for every car in the same frame.
       if (pendingStandingStart) { raceManager.beginCountdown(gameNow); pendingStandingStart = false; }
       const gridLocked = isRaceLive() && raceManager.locked(gameNow);
+      let leadWallImpact = 0;   // the SOLO (lead) car's barrier-contact strength this substep (TA)
       for (const car of cars.values()) {
         const { current, target } = car;
         if (gridLocked) {
@@ -5280,7 +5281,10 @@ function frame(now: number) {
         if (impact > 0.8) {
           fx.impact(car.state.x, car.state.y, impact);
         }
-        if (car === lead && impact > XP_CONFIG.crashImpact) xpCrash = true;
+        if (car === lead) {
+          if (impact > XP_CONFIG.crashImpact) xpCrash = true;
+          leadWallImpact = impact;   // any positive value = the lead touched a barrier this substep
+        }
       }
 
       // Cars bounce off EACH OTHER (arcade, clamped) after all have integrated.
@@ -5374,9 +5378,12 @@ function frame(now: number) {
         const splits = zoneTracker ? zoneTracker.lapSplits() : null;
         // ANALYTICS ONLY: WHY the zones failed (missed vs out-of-order), captured before the reset.
         const zoneReason = zoneTracker ? zoneTracker.lapZoneReason() : 'ok';
-        // Off-track feeds the SAME per-wheel count XP does; done.isBest is gated on BOTH off-track
-        // AND zone validity, so an off-track OR a shortcut lap saves + submits nothing.
-        const done = taRun.update(nx, ny, gameNow, s.vx, s.vy, wheelsOffTrack(lead), zonesValid);
+        // Off-track feeds the SAME per-wheel count XP does; done.isBest is gated on off-track, zone
+        // validity AND barrier contact, so any of them (off-track / shortcut / wall) saves + submits
+        // nothing. WALL CONTACT (`wallHit`) is fed ONLY on maps whose boundary is a barrier
+        // (taWallInvalidates — the ovals); circuits pass false, so their off-track rule is unchanged.
+        const wallHit = currentMap.taWallInvalidates === true && leadWallImpact > 0;
+        const done = taRun.update(nx, ny, gameNow, s.vx, s.vy, wheelsOffTrack(lead), zonesValid, wallHit);
         if (zoneTracker) zoneTracker.update(nx, ny, gameNow);   // record THIS step
         const nowRunning = taRun.hud(gameNow).running;
         // Align the zone lap with TA's timed lap: reset it when the clock first starts (first
@@ -5402,15 +5409,17 @@ function frame(now: number) {
           if (zoneTracker) zoneTracker.resetLap(gameNow);   // next lap starts fresh
           // ANALYTICS: per-lap completion outcome + the first success. Deduped per OUTCOME
           // (trackOnce, once/page) so a long grind can't spam a single session's events. On an
-          // invalid lap OFF-TRACK takes priority (a grass shortcut trips it AND skips a zone);
-          // otherwise the zone cause (missed vs out-of-order). Purely a read of `done` — no rule change.
+          // invalid lap the reason is prioritised WALL (oval barrier contact) → OFF-TRACK (a grass
+          // shortcut trips it AND skips a zone) → the zone cause (missed vs out-of-order). On a given
+          // map only one applies (ovals: wall; circuits: off-track). Purely a read of `done` — no rule change.
           const taCar = xpCarKey();
           if (done.valid) {
             trackOnce('timeattack-lap-valid', 'timeattack-lap-completed-valid', { valid: true, car: taCar });
             trackOnce('timeattack-first-valid-lap', 'timeattack-first-valid-lap',
               { laps: done.lapNumber, car: taCar });
           } else {
-            const reason = done.offTrack ? 'off-track'
+            const reason = done.wall ? 'wall'
+              : done.offTrack ? 'off-track'
               : zoneReason === 'unordered' ? 'zones-out-of-order'
               : 'missed-zones';
             trackOnce(`timeattack-lap-invalid-${reason}`, `timeattack-lap-completed-invalid-${reason}`,
@@ -5954,12 +5963,15 @@ function updateTimeAttackHud(now: number) {
   if (taLastRowEl) taLastRowEl.hidden = !showLast;
   if (showLast && taLastEl) taLastEl.textContent = formatLapTime(h.lastMs!);
   if (taRecordEl) taRecordEl.hidden = !(h.lastWasBest && now < taRecordUntil);
-  // INVALID lap: the moment the car goes >2 wheels off, turn the live lap clock red and
-  // show the INVALID label, so the player knows immediately why no record will be set.
-  // A crossing resets the lap to valid, so this clears itself when the next lap begins.
+  // INVALID lap: the moment the car goes >2 wheels off (circuits) OR touches a barrier (ovals),
+  // turn the live lap clock red and show the INVALID label with the reason, so the player knows
+  // immediately why no record will be set. A crossing resets the lap, so this clears itself next lap.
   const invalid = h.running && !h.currentValid;
   taHudEl.classList.toggle('lap-invalid', invalid);
-  if (taInvalidEl) taInvalidEl.hidden = !invalid;
+  if (taInvalidEl) {
+    taInvalidEl.hidden = !invalid;
+    if (invalid) taInvalidEl.textContent = h.currentWall ? 'INVALID · WALL' : 'INVALID · OFF TRACK';
+  }
   // Whose ghost is on track (unobtrusive) — shown only while a ghost is actually replaying.
   if (taGhostWhoEl) {
     const who = (selectedGhostMode !== 'off' && currentGhostRec()) ? currentGhostNickname() : null;

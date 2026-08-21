@@ -113,6 +113,12 @@ export interface MapDefinition {
   // (acts as start AND finish in circuit mode). Open maps omit it.
   startLine?(world: MapWorld): RaceElement;
 
+  // TIME ATTACK: a map whose track boundary IS a solid BARRIER (the stadium ovals) sets this so
+  // that ANY wall contact during a lap invalidates it — the barrier analogue of the circuits'
+  // off-track rule (those have no perimeter wall; they use onTrackAt geometry instead). ABSENT ⇒
+  // wall contact does NOT invalidate (circuits — where hitting a billboard leg must NOT void a lap).
+  taWallInvalidates?: boolean;
+
   // LEADERBOARD ZONES (anti-cheat / proof-of-play; see zones.ts). The track's CENTRELINE as
   // a WORLD-space, arc-length-even, CLOSED polyline, ANCHORED so index 0 = the finish and
   // INCREASING index = the racing direction. zones.ts splits it into 6 equal arc-length
@@ -771,6 +777,9 @@ function makeStadiumMap(opts: {
     // Every mode a start/finish line supports: TIME ATTACK needs one, so it is listed
     // wherever RACE is (the desktop map, which has no line, stays FREE RIDE only).
     gameModes: ['free', 'race', 'timeattack', 'xp'],
+    // The oval's boundary IS a solid barrier, so ANY wall contact voids a Time Attack lap (the
+    // barrier analogue of the circuits' off-track rule — see TimeAttackRun / the fixed-step feed).
+    taWallInvalidates: true,
 
     surfaceGroup: opts.surfaceGroup,
 

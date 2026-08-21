@@ -48,11 +48,13 @@ export interface CompletedLap {
   ms: number;        // the lap's time
   lapNumber: number; // 1-based, counting completed laps this session
   isBest: boolean;   // beat the personal best — ONLY ever true for a VALID lap
-  valid: boolean;    // was the lap clean (on-track AND zones in order)?
-  // The two independent validity COMPONENTS, surfaced for analytics (they are the operands of
-  // `valid` above — exposing them changes no rule). `offTrack` = the lap went > threshold wheels
-  // off-track at some point; `zonesOk` = the caller's `zonesValid` (all 6 zones in order this lap).
+  valid: boolean;    // was the lap clean (on-track, no barrier contact, zones in order)?
+  // The independent validity COMPONENTS, surfaced for analytics (they are the operands of `valid`
+  // above — exposing them changes no rule). `offTrack` = the lap went > threshold wheels off-track
+  // (circuit maps); `wall` = the car touched a BARRIER during the lap (oval maps — fed by the caller
+  // only where `taWallInvalidates` is set); `zonesOk` = the caller's `zonesValid` (6 zones in order).
   offTrack: boolean;
+  wall: boolean;
   zonesOk: boolean;
 }
 
@@ -60,7 +62,8 @@ export interface CompletedLap {
 export interface TimeAttackHud {
   running: boolean;        // the clock is live (the first crossing has happened)
   currentMs: number;       // the lap in progress (0 before the first crossing)
-  currentValid: boolean;   // is the lap in progress still clean? (false = went off-track)
+  currentValid: boolean;   // is the lap in progress still clean? (false = off-track OR barrier contact)
+  currentWall: boolean;    // did the lap in progress touch a barrier? (so the HUD can name the reason)
   lastMs: number | null;   // the most recently completed lap (null = none yet)
   lastWasBest: boolean;    // ...and whether it set a new record
   bestMs: number | null;   // personal best this session (seeded by the caller)
@@ -81,6 +84,9 @@ export class TimeAttackRun {
   // The lap in progress is VALID until the car goes > threshold wheels off-track; then it
   // latches invalid (sticky) until the next crossing resets it. Only a valid lap can record.
   private lapValid = true;
+  // Sticky BARRIER-contact flag (oval maps): latches once the car touches a wall this lap, cleared
+  // at the next crossing. Separate from lapValid so analytics can tell wall contact from off-track.
+  private lapWall = false;
   // Previous-step readings, so a change is what fires (RaceState reports state, not events).
   private prevLap = 0;
   private prevFinished = false;
@@ -110,7 +116,7 @@ export class TimeAttackRun {
    */
   update(
     x: number, y: number, now: number, vx: number, vy: number,
-    wheelsOff: number, zonesValid = true,
+    wheelsOff: number, zonesValid = true, wallHit = false,
   ): CompletedLap | null {
     this.rs.update(x, y, now, vx, vy);
     const h = this.rs.hud(now);
@@ -123,6 +129,7 @@ export class TimeAttackRun {
       this.lapStartMs = now - h.elapsedMs;
       this.prevLap = h.lap;
       this.lapValid = true;   // the timed lap begins clean (off-track before the line is moot)
+      this.lapWall = false;   // ...and no barrier contact yet
       return null;   // the start crossing ends no lap — timing BEGINS here
     }
     if (!this.running) return null;
@@ -132,6 +139,10 @@ export class TimeAttackRun {
     // trips it — where updateXpRun ENDS the run, here it only latches the lap invalid
     // (sticky: it never clears mid-lap, only the next crossing resets it below).
     if (wheelsOff > XP_CONFIG.offTrackWheels) this.lapValid = false;
+    // BARRIER CONTACT ⇒ the lap is INVALID (oval maps: the caller passes `wallHit` only where
+    // `taWallInvalidates` is set; circuits pass false, so this is inert there). Same sticky latch
+    // as off-track — one touch of the wall anywhere in the lap voids it, cleared at the next crossing.
+    if (wallHit) this.lapWall = true;
 
     // A lap completed if the lap counter advanced, OR if RaceState hit its ceiling and
     // finished (which completes a lap WITHOUT advancing the counter — see tryCompleteLap).
@@ -144,18 +155,20 @@ export class TimeAttackRun {
     const ms = now - this.lapStartMs;
     this.lapStartMs = now;
     this.lapsDone += 1;
-    // VALID = on track the whole lap (off-track flag) AND all 6 zones in order (zonesValid).
-    // Either failing makes the lap ineligible for the record.
-    const valid = this.lapValid && zonesValid;
-    // Off-track COMPONENT captured here, BEFORE the lapValid reset below — for analytics only
-    // (it changes no rule; it's the operand of `valid`). `zonesOk` is the caller's zonesValid.
+    // VALID = on track the whole lap (off-track flag) AND no barrier contact (wall flag) AND all 6
+    // zones in order (zonesValid). Any one failing makes the lap ineligible for the record.
+    const valid = this.lapValid && !this.lapWall && zonesValid;
+    // The validity COMPONENTS captured here, BEFORE the resets below — for analytics only (they
+    // change no rule; they're the operands of `valid`). `zonesOk` is the caller's zonesValid.
     const offTrack = !this.lapValid;
+    const wall = this.lapWall;
     // An INVALID lap can NEVER set the record, however fast — the isBest test is gated on it.
     const isBest = valid && (this.bestMs === null || ms < this.bestMs);
     if (isBest) this.bestMs = ms;
     this.lastMs = ms;
     this.lastWasBest = isBest;
     this.lapValid = true;   // the next lap starts on a clean slate
+    this.lapWall = false;   // ...with no barrier contact
 
     if (hitCeiling) {
       // Ceiling reached: hand RaceState a clean slate so timing continues. The next
@@ -166,14 +179,15 @@ export class TimeAttackRun {
       this.prevLap = 0;
       this.prevFinished = false;
     }
-    return { ms, lapNumber: this.lapsDone, isBest, valid, offTrack, zonesOk: zonesValid };
+    return { ms, lapNumber: this.lapsDone, isBest, valid, offTrack, wall, zonesOk: zonesValid };
   }
 
   hud(now: number): TimeAttackHud {
     return {
       running: this.running,
       currentMs: this.running ? Math.max(0, now - this.lapStartMs) : 0,
-      currentValid: this.lapValid,
+      currentValid: this.lapValid && !this.lapWall,
+      currentWall: this.lapWall,
       lastMs: this.lastMs,
       lastWasBest: this.lastWasBest,
       bestMs: this.bestMs,
