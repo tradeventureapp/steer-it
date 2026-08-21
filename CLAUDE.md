@@ -23,9 +23,9 @@ Core hook: **phone as a steering wheel + drifting across a desktop + zero-fricti
 Live at **`steerit.app`** (the QR is built from `VITE_PUBLIC_BASE_URL`, not the deployment-hash
 URL; `steer-it.vercel.app` also serves it, `noindex`ed). **Business model is LIVE:** free to
 play + a one-time **$6.90 Premium** (Stripe, real payments — see §6). Cars: **Blitz RS** and
-**Fury 200 EVO** (SIM, both premium), **Stee-Rex** (arcade, free), and **Scrappy GT** (arcade,
-forgiving FWD beginner car — **DEV-ONLY WIP**, not public yet). All share ONE 8-colour palette
-picked on the phone (§13).
+**Fury 200 EVO** (SIM, both premium), and two ARCADE cars (both free): **Scrappy GT** (forgiving FWD
+beginner car — the FIRST/DEFAULT car) and **Stee-Rex** (the wilder one). All share ONE 8-colour
+palette picked on the phone (§13).
 
 ---
 
@@ -1102,14 +1102,17 @@ gone — `isDev` now only guards `DEV_MAP_IDS` and the dirt-edit tool).
   low polar moment + 50/50 + rear-biased AWD). No NaN, bounded. An AWD rally monster vs the RWD
   race coupé. Physics awaits the phone feel-test.
 
-### Scrappy GT — DEV-ONLY WIP: the BEGINNER arcade car (forgiving FWD)
+### Scrappy GT — PUBLIC + FREE: the BEGINNER arcade car (forgiving FWD), the DEFAULT car
 A small, compact FRONT-WHEEL-DRIVE hot hatch (modern Mini JCW silhouette; public name "Scrappy GT").
-**DEV-ONLY** while WIP — added to the **ARCADE** car list (alongside Stee-Rex, NOT the SIM cars) ONLY
-for the dev host, via the SAME `isDev()` gate the arena map uses: `modeCars('arcade')` appends it with
-`...(isDev() ? [SCRAPPY_MENU_CAR] : [])`, `specForColor`/`modeSpec` resolve it behind `scrappySelected()`,
-and `preloadScrappy()` runs only for the dev. A normal user never sees it. NOT free/default yet — that
-comes after the phone feel-test + tuning. **The whole point is FORGIVENESS**: FWD so a beginner who
-enters a corner too fast pushes WIDE (understeer) instead of snapping into a spin.
+**PUBLIC + FREE** — the **FIRST** car in the ARCADE list (before Stee-Rex) and the **DEFAULT** pre-selected
+car a new player arrives on (`modeCars('arcade')` returns `[SCRAPPY_MENU_CAR, {steerex…}]`; `buildCarTiles`
+auto-selects `cars[0]` = Scrappy). Free for everyone incl. non-premium (arcade has no lock — only SIM is
+`isSimLocked`; Stee-Rex stays available as the harder car). `specForColor`/`modeSpec` resolve it behind
+`scrappySelected()`, it's in `LB_CAR_KEYS`/`LB_CAR_DISPLAY` (its own Time Attack / XP boards), and the
+sprite loads **LAZILY** — `preloadScrappy()` runs when the ARCADE car list is built (`buildCarTiles`), so
+its ~1.2 MB PNG never loads on the bare landing page for a player who never opens car selection. (The
+arena map's `isDev()` gate is UNCHANGED — still dev-only WIP.) **The whole point is FORGIVENESS**: FWD so a
+beginner who enters a corner too fast pushes WIDE (understeer) instead of snapping into a spin.
 - **8 COLOURS, arithmetic recolour (`blitz-sprite.ts` approach — NO mask needed).** The art
   (`public/ScrappyGT.png`, 941×1672, WHITE body on a near-black field, nose-UP) is a white-body render
   (measured: 64.9% light+desaturated body, brightest px rgb(245,245,245), ~0% saturated), so Blitz's

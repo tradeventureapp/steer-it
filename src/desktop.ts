@@ -526,8 +526,8 @@ function isDev(): boolean {
 }
 // Is the Fury the current SIM-car selection? (Premium-gated via the SIM lock at launch.)
 function furySelected(): boolean { return selectedCarKey === 'fury'; }
-// Is the Scrappy GT the current ARCADE-car selection? (Dev-only WIP — the tile only shows
-// for the dev host, so a normal user can never select it. See modeCars / specForColor.)
+// Is the Scrappy GT the current ARCADE-car selection? (Public + free — the first/default arcade
+// car. See modeCars / specForColor.)
 function scrappySelected(): boolean { return selectedCarKey === 'scrappy'; }
 
 // ---- GAME MODES (RACE / XP …) — the in-game mode picked on the CAR & MAP screen.
@@ -1115,9 +1115,9 @@ function refreshSelectionUi() {
 type LbMode = 'timeattack' | 'xp';
 const LB_TOP_N = 10;                       // quick-view size
 const LB_CAR_DISPLAY: Record<string, string> = {
-  blitz: 'Blitz RS', fury: 'Fury 200 EVO', steerex: 'Stee-Rex',
+  blitz: 'Blitz RS', fury: 'Fury 200 EVO', steerex: 'Stee-Rex', scrappy: 'Scrappy GT',
 };
-const LB_CAR_KEYS = ['blitz', 'fury', 'steerex'] as const;   // cars that can run TA / XP
+const LB_CAR_KEYS = ['blitz', 'fury', 'steerex', 'scrappy'] as const;   // cars that can run TA / XP
 const LB_MODE_LABEL: Record<LbMode, string> = { timeattack: 'TIME ATTACK', xp: 'XP MODE' };
 // Track ids that host `mode` (from the registry — stays correct as maps change).
 // mapVisible() keeps a dev-only WIP map out of the public picker (matches the map-select).
@@ -1531,9 +1531,9 @@ interface MenuCar {
   specs: CarSpec[];
   blurb: string;
 }
-// The Scrappy GT ARCADE car tile — DEV-ONLY WIP (added to the arcade list only for isDev()).
-// The BEGINNER car: small, front-wheel-drive, forgiving. 0-100 (~6.5 s) / top (~220) are rough
-// display figures; the handling is still being tuned.
+// The Scrappy GT ARCADE car tile — PUBLIC + FREE, and the FIRST/default arcade car (a new player
+// starts on it). The BEGINNER car: small, front-wheel-drive, forgiving. 0-100 (~6.5 s) / top (~220)
+// are rough display figures.
 const SCRAPPY_MENU_CAR: MenuCar = {
   key: 'scrappy', name: 'Scrappy GT', scrappyImage: true,
   specs: [
@@ -1571,7 +1571,9 @@ const FURY_MENU_CAR: MenuCar = {
     + 'Devours mixed surfaces - asphalt and dirt alike. A handful at the limit.',
 };
 function modeCars(mode: RaceMode): MenuCar[] {
-  if (mode === 'arcade') return [{
+  // ARCADE: Scrappy GT is FIRST (the default a new player starts on — free, forgiving, beginner),
+  // then Stee-Rex (the harder, wilder car for anyone who wants the challenge). Both free.
+  if (mode === 'arcade') return [SCRAPPY_MENU_CAR, {
     key: 'steerex', name: 'Stee-Rex', image: 'silver',
     specs: [
       { label: 'ENGINE',    value: 'Hydrogen fusion spiral' },
@@ -1586,10 +1588,7 @@ function modeCars(mode: RaceMode): MenuCar[] {
     ],
     blurb: "A secret project developed with involvement from a space program. "
       + "Officially, it doesn't exist.",
-  },
-  // Scrappy GT — the beginner car — joins the ARCADE list ONLY for the dev host while it's WIP
-  // (same isDev gate the arena map uses). Drops in for everyone once it's tuned + de-gated.
-  ...(isDev() ? [SCRAPPY_MENU_CAR] : [])];
+  }];
   // SIM — Blitz RS. 0-100 + top speed MEASURED from the car (step4 / PHYS4, full
   // throttle on asphalt): 3.05 s, 246 km/h. No image (no finished design yet).
   return [{
@@ -1672,7 +1671,7 @@ function drawBlitzImage(cvs: HTMLCanvasElement, dpr: number) {
   c.drawImage(sprite, sx, sy, sw, sh, (W - dw) / 2, (H - dh) / 2, dw, dh);
 }
 
-// Dev-only: draw the Scrappy GT sprite into a flyout canvas (same crop/centre logic as the others).
+// Draw the Scrappy GT sprite into a flyout canvas (same crop/centre logic as the others).
 function drawScrappyImage(cvs: HTMLCanvasElement, dpr: number) {
   const c = cvs.getContext('2d'); if (!c) return;
   const W = cvs.width / dpr, H = cvs.height / dpr;
@@ -1705,6 +1704,9 @@ function buildCarTiles() {
   carTilesEl.innerHTML = '';
   const dpr = backingDpr();
   const cars = modeCars(raceMode);
+  // Scrappy GT is the default arcade car → warm its sprite the moment the ARCADE car list is built
+  // (lazy: only when a player actually reaches car selection, never on the bare landing page).
+  if (raceMode === 'arcade') preloadScrappy();
   for (const car of cars) {
     const card = document.createElement('div');
     card.className = 'map-tile car-card';
@@ -1817,10 +1819,10 @@ document.getElementById('btn-mode-sim')?.addEventListener('click', () => chooseM
 document.getElementById('btn-mode-back')?.addEventListener('click', goHome);
 
 // Warm the Fury sprite so its SIM-car tile + the car itself draw instantly. Runs on auth changes.
-// The dev-only Scrappy GT is warmed only for the dev host (its ~1.2 MB PNG never loads otherwise).
+// (Scrappy GT is warmed lazily when the ARCADE car list is built — see buildCarTiles — so its
+// ~1.2 MB PNG never loads on the landing page for a player who never opens car selection.)
 function refreshDevUi() {
   preloadFury();
-  if (isDev()) preloadScrappy();
 }
 
 // ---- GAME MENU (logged-in host) ----
@@ -4214,7 +4216,9 @@ window.addEventListener('pagehide', () => {
 // Fury, tarmac vs dirt — totally different drifts, so each car+map combo keeps its OWN record; they
 // must never mix. Old per-map-only keys (`steerit.xp.best.<mapId>`) are simply left unread (it's
 // early, no real records) — the new keys start fresh, nothing migrates or crashes on the old ones.
-function xpCarKey(): string { return selectedCarKey || (raceMode === 'arcade' ? 'steerex' : 'blitz'); }
+// Fallback only fires if no car is selected (unreachable in normal play — START requires one); the
+// arcade default is Scrappy GT (the first/default arcade car), the sim default Blitz.
+function xpCarKey(): string { return selectedCarKey || (raceMode === 'arcade' ? 'scrappy' : 'blitz'); }
 function xpBestKeyFor(carKey: string, mapId: string): string { return `steerit.xp.best.${carKey}.${mapId}`; }
 function readXpBest(key: string): number {
   try { return Math.max(0, Math.floor(Number(localStorage.getItem(key)) || 0)); }
@@ -6011,7 +6015,7 @@ function drawFury(car: Car) {
   ctx.imageSmoothingEnabled = prevSmooth; ctx.imageSmoothingQuality = prevQ;
 }
 
-// Dev-only Scrappy GT sprite — same width-anchored blit path as Stee-Rex / Fury.
+// Scrappy GT sprite — same width-anchored blit path as Stee-Rex / Fury.
 function drawScrappy(car: Car) {
   const skin: ScrappySkin = car.spec.sprite?.car === 'scrappy' ? car.spec.sprite.skin : 'white';
   const cv = scrappySprite(skin);
@@ -6094,7 +6098,7 @@ function drawCar(car: Car) {
   // Blitz RS vector body. Everything else (physics, collision, HUD) is unchanged.
   if (car.spec.sprite?.car === 'steerex') { drawSteerex(car, car.spec.sprite.skin); return; }
   if (car.spec.sprite?.car === 'fury') { drawFury(car); return; }   // dev-only test car
-  if (car.spec.sprite?.car === 'scrappy') { drawScrappy(car); return; } // dev-only beginner car
+  if (car.spec.sprite?.car === 'scrappy') { drawScrappy(car); return; } // free beginner car
   if (car.spec.sprite?.car === 'blitz') { drawBlitz(car); return; } // Blitz RS sprite (sunset stripe)
   const base = car.liveryColor ?? car.color;   // rally livery overrides the slot colour
   const crown   = shadeHex(base, 1.28);   // lit spine
