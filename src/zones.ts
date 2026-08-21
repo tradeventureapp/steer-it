@@ -119,6 +119,19 @@ export class ZoneTracker {
     }
     return true;
   }
+  /** WHY a lap is not zone-valid, for ANALYTICS only (read-only; mirrors lapComplete's test, changes
+   *  no rule): 'missed' = a zone was never entered this lap; 'unordered' = zones out of sequence;
+   *  'ok' = valid. A missing zone takes priority (checked first, in z-order — the clearer signal). */
+  lapZoneReason(): 'ok' | 'missed' | 'unordered' {
+    let prev = -1;
+    for (let z = 0; z < ZONE_COUNT; z++) {
+      const t = this.firstEntry[z];
+      if (t === null) return 'missed';
+      if (t < prev) return 'unordered';
+      prev = t;
+    }
+    return 'ok';
+  }
   /** The just-completed lap's 6 split ms (from lap start), or null if not zone-valid. */
   lapSplits(): number[] | null {
     if (!this.lapComplete()) return null;

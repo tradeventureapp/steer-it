@@ -4036,6 +4036,46 @@ function emitFreeRide(sig: 'start' | 'end' | null, now: number) {
   }
 }
 
+// ---- TIME ATTACK + XP session instrumentation — MIRRORS the Free Ride pattern above ----
+// The same pure FreeRideSession timer (visible-driving time, terminal, once per page load) applied
+// to Time Attack and XP so all three modes are comparable. Each is SOLO, so no `players` count — the
+// secondary property is the driven CAR (a fixed enum, privacy-safe). Started/ended only; the per-LAP
+// Time Attack events fire from the fixed-step where a completed lap is known (see the TA block).
+const taSession = new FreeRideSession();
+const xpSession = new FreeRideSession();
+// "In this mode AND playable" — mirrors inFreeRide (menu/editor pause the session; userPaused does
+// NOT end it, matching Free Ride). isTimeAttack()/isXpMode() already encode the mode itself.
+const inTimeAttack = () => !menuOpen && !editorMode && isTimeAttack();
+const inXpModePlaying = () => !menuOpen && !editorMode && isXpMode();
+
+function emitTimeAttack(sig: 'start' | 'end' | null, now: number) {
+  if (sig === 'start') trackOnce('timeattack-started', 'timeattack-started', { car: xpCarKey() });
+  else if (sig === 'end') {
+    const bucket = durationBucket(taSession.elapsedMs(now));
+    trackOnce('timeattack-ended', `timeattack-ended-${nameSlug(bucket)}`, { bucket, car: xpCarKey() });
+  }
+}
+function emitXp(sig: 'start' | 'end' | null, now: number) {
+  if (sig === 'start') trackOnce('xp-started', 'xp-started', { car: xpCarKey() });
+  else if (sig === 'end') {
+    const bucket = durationBucket(xpSession.elapsedMs(now));
+    trackOnce('xp-ended', `xp-ended-${nameSlug(bucket)}`, { bucket, car: xpCarKey() });
+  }
+}
+// Generic once-per-page session sampler (the Free Ride logic, reused for all three modes): begin on
+// the first real driving in-mode, end the moment the player leaves it.
+function sampleModeSession(
+  sess: FreeRideSession, inMode: () => boolean, emit: (s: 'start' | 'end' | null, now: number) => void,
+  now: number,
+) {
+  if (sess.isEnded()) return;
+  if (!sess.isStarted()) {
+    if (inMode() && anyCarMoving()) emit(sess.begin(now), now);
+    return;
+  }
+  if (!inMode()) emit(sess.leave(now), now);
+}
+
 // =============================================================================
 //  ONE-TIME REGISTRATION PROMPT — convert a SIGNED-OUT Free Ride player into a sign-up
 //  (which unlocks the now-free Time Attack + XP + leaderboard). Shown ONCE ever
@@ -4090,14 +4130,12 @@ window.setInterval(() => {
     if (regPromptActiveMs >= REG_PROMPT_MS) maybeShowRegPrompt();
   }
 
-  if (freeRide.isEnded()) return;
-  if (!freeRide.isStarted()) {
-    if (inFreeRide() && anyCarMoving()) emitFreeRide(freeRide.begin(now), now);
-    return;
-  }
-  // Left free ride (exit to menu, started a race, switched to XP, opened the editor) →
-  // the session is over. Counting on would bill unrelated time to free ride.
-  if (!inFreeRide()) emitFreeRide(freeRide.leave(now), now);
+  // Free Ride, Time Attack and XP each get an independent once-per-page session (begin on real
+  // driving in-mode, end on leaving it). They're mutually exclusive by their predicates, so at most
+  // one is live at a time; the others sit unstarted.
+  sampleModeSession(freeRide, inFreeRide, emitFreeRide, now);
+  sampleModeSession(taSession, inTimeAttack, emitTimeAttack, now);
+  sampleModeSession(xpSession, inXpModePlaying, emitXp, now);
 }, FR_SAMPLE_MS);
 
 // visibilitychange is the reliable MOBILE signal — an app switch can freeze the page so
@@ -4105,11 +4143,21 @@ window.setInterval(() => {
 // background window can never report a fake long session.
 document.addEventListener('visibilitychange', () => {
   const now = Date.now();
-  if (document.visibilityState === 'hidden') emitFreeRide(freeRide.hide(now), now);
-  else freeRide.show(now);
+  if (document.visibilityState === 'hidden') {
+    emitFreeRide(freeRide.hide(now), now);
+    emitTimeAttack(taSession.hide(now), now);
+    emitXp(xpSession.hide(now), now);
+  } else {
+    freeRide.show(now); taSession.show(now); xpSession.show(now);
+  }
 });
 // pagehide, NOT beforeunload: beforeunload is unreliable on mobile Safari (most traffic).
-window.addEventListener('pagehide', () => { const now = Date.now(); emitFreeRide(freeRide.leave(now), now); });
+window.addEventListener('pagehide', () => {
+  const now = Date.now();
+  emitFreeRide(freeRide.leave(now), now);
+  emitTimeAttack(taSession.leave(now), now);
+  emitXp(xpSession.leave(now), now);
+});
 
 // XP best is keyed by BOTH car AND map: `steerit.xp.best.<carKey>.<mapId>`. A RWD Blitz vs an AWD
 // Fury, tarmac vs dirt — totally different drifts, so each car+map combo keeps its OWN record; they
@@ -5197,6 +5245,8 @@ function frame(now: number) {
         // the whole lap's zones 0..5 are already recorded); capture BEFORE any reset below.
         const zonesValid = zoneTracker ? zoneTracker.lapComplete() : true;
         const splits = zoneTracker ? zoneTracker.lapSplits() : null;
+        // ANALYTICS ONLY: WHY the zones failed (missed vs out-of-order), captured before the reset.
+        const zoneReason = zoneTracker ? zoneTracker.lapZoneReason() : 'ok';
         // Off-track feeds the SAME per-wheel count XP does; done.isBest is gated on BOTH off-track
         // AND zone validity, so an off-track OR a shortcut lap saves + submits nothing.
         const done = taRun.update(nx, ny, gameNow, s.vx, s.vy, wheelsOffTrack(lead), zonesValid);
@@ -5223,6 +5273,22 @@ function frame(now: number) {
           }
           taLastUntil = gameNow + TA_LAST_MS;
           if (zoneTracker) zoneTracker.resetLap(gameNow);   // next lap starts fresh
+          // ANALYTICS: per-lap completion outcome + the first success. Deduped per OUTCOME
+          // (trackOnce, once/page) so a long grind can't spam a single session's events. On an
+          // invalid lap OFF-TRACK takes priority (a grass shortcut trips it AND skips a zone);
+          // otherwise the zone cause (missed vs out-of-order). Purely a read of `done` — no rule change.
+          const taCar = xpCarKey();
+          if (done.valid) {
+            trackOnce('timeattack-lap-valid', 'timeattack-lap-completed-valid', { valid: true, car: taCar });
+            trackOnce('timeattack-first-valid-lap', 'timeattack-first-valid-lap',
+              { laps: done.lapNumber, car: taCar });
+          } else {
+            const reason = done.offTrack ? 'off-track'
+              : zoneReason === 'unordered' ? 'zones-out-of-order'
+              : 'missed-zones';
+            trackOnce(`timeattack-lap-invalid-${reason}`, `timeattack-lap-completed-invalid-${reason}`,
+              { valid: false, reason, car: taCar });
+          }
         }
       }
 

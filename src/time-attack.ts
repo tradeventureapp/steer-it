@@ -48,7 +48,12 @@ export interface CompletedLap {
   ms: number;        // the lap's time
   lapNumber: number; // 1-based, counting completed laps this session
   isBest: boolean;   // beat the personal best — ONLY ever true for a VALID lap
-  valid: boolean;    // was the lap clean (never > threshold wheels off-track)?
+  valid: boolean;    // was the lap clean (on-track AND zones in order)?
+  // The two independent validity COMPONENTS, surfaced for analytics (they are the operands of
+  // `valid` above — exposing them changes no rule). `offTrack` = the lap went > threshold wheels
+  // off-track at some point; `zonesOk` = the caller's `zonesValid` (all 6 zones in order this lap).
+  offTrack: boolean;
+  zonesOk: boolean;
 }
 
 /** Everything the on-screen readout needs (no internal state leaks). */
@@ -142,6 +147,9 @@ export class TimeAttackRun {
     // VALID = on track the whole lap (off-track flag) AND all 6 zones in order (zonesValid).
     // Either failing makes the lap ineligible for the record.
     const valid = this.lapValid && zonesValid;
+    // Off-track COMPONENT captured here, BEFORE the lapValid reset below — for analytics only
+    // (it changes no rule; it's the operand of `valid`). `zonesOk` is the caller's zonesValid.
+    const offTrack = !this.lapValid;
     // An INVALID lap can NEVER set the record, however fast — the isBest test is gated on it.
     const isBest = valid && (this.bestMs === null || ms < this.bestMs);
     if (isBest) this.bestMs = ms;
@@ -158,7 +166,7 @@ export class TimeAttackRun {
       this.prevLap = 0;
       this.prevFinished = false;
     }
-    return { ms, lapNumber: this.lapsDone, isBest, valid };
+    return { ms, lapNumber: this.lapsDone, isBest, valid, offTrack, zonesOk: zonesValid };
   }
 
   hud(now: number): TimeAttackHud {

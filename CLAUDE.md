@@ -756,6 +756,28 @@ not trusted). `EV` events: phone→desktop `join|color|name|leave|control`; desk
 - **Legal** — /terms /privacy /refund live + linked (§7). **Security** — RLS default-deny + GRANT
   hardening + headers + verify-session ownership + gated TURN (§8). **SEO** — full pass live (§9).
   **SMTP** via Resend. **Vercel Web Analytics** `inject()` on both entries.
+- **FUNNEL ANALYTICS — per-MODE session + Time Attack lap funnel** (`analytics.ts` shim; NO personal
+  data — counts + fixed enum strings only; every event via `trackOnce` so a session can't spam).
+  **Mode sessions** — the pure `FreeRideSession` timer (visible-driving time, terminal = ONCE per
+  page load) applied to all three modes so they're comparable: `freeride-started` /
+  `freeride-ended-<bucket>` (props `players`); `timeattack-started` / `timeattack-ended-<bucket>`;
+  `xp-started` / `xp-ended-<bucket>` (TA/XP are solo → prop `car` = `xpCarKey()`, no `players`).
+  `<bucket>` = `durationBucket` (`0-30s`/`30s-2m`/`2-5m`/`5-15m`/`15m+`), IN THE NAME (Vercel shows
+  names, not property breakdowns, on our plan). A mode session BEGINS on the first real driving
+  in-mode (`inTimeAttack`/`inXpModePlaying` + `anyCarMoving`) and ENDS on leaving it (menu / other
+  mode / editor / tab-hide / pagehide) — `userPaused` does NOT end it (matches Free Ride). Sampled on
+  the existing 500 ms timer via `sampleModeSession`; the three are mutually exclusive by predicate.
+  **Time Attack lap funnel** (fires from the TA fixed-step where a completed lap is known, each
+  deduped per OUTCOME = once/page): `timeattack-first-valid-lap` (prop `laps` = how many laps it took
+  to first succeed — "how many players ever get a lap that counts"); `timeattack-lap-completed-valid`;
+  and the INVALID breakdown `timeattack-lap-completed-invalid-off-track` /
+  `-invalid-missed-zones` / `-invalid-zones-out-of-order` — "how many complete laps that DON'T count,
+  and why". Reason priority = **off-track first** (a grass shortcut trips off-track AND skips a zone),
+  else the zone cause. This is **analytics-only** and changed NO validity rule: it surfaces the two
+  operands of the existing `valid = lapValid && zonesValid` — `CompletedLap` gained `offTrack`/`zonesOk`
+  (`valid === !offTrack && zonesOk` by construction), and `ZoneTracker.lapZoneReason()` is a read-only
+  mirror of `lapComplete()` reporting `missed` vs `unordered` (missed prioritised). Verified headless:
+  `lapZoneReason` 8/8. Physics/leaderboard/ghosts/validity untouched; tsc + build clean.
 
 **Perf**
 - **Tyre marks** — the saturating multiply composite was running FULL-SCREEN every frame after any
