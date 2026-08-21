@@ -401,7 +401,9 @@ not trusted). `EV` events: phone→desktop `join|color|name|leave|control`; desk
   **DNF / finish-timeout**, finish feed, **podium + rematch**, per-car `RaceManager`. `playerName`
   resolver: host = account nickname (locked, drives the keyboard/local car), guests = phone name or
   "Player N". (Host-via-phone recognition deliberately NOT built.)
-- **XP MODE** — endless solo score run (drift multiplier), best in localStorage per map.
+- **XP MODE** — endless solo score run (drift multiplier), best in localStorage keyed by ACCOUNT +
+  car + map (`steerit.xp.best.<uid|guest>.<car>.<map>`, `xpBestKeyFor` via `taUserScope()`; same
+  stale-PB fix + `seedXpBestFromServer` server-seeding as Time Attack — see the TA entry).
 - **TIME ATTACK (Phase 1)** — SOLO rolling lap timing on every map that has a start/finish line
   (both ovals, Circuit, Circuit II; the Desktop free-roam surface is excluded — no line). The
   FIRST forward crossing STARTS the clock (spawn→line is not timed — that crossing IS the start
@@ -419,13 +421,23 @@ not trusted). `EV` events: phone→desktop `join|color|name|leave|control`; desk
   the lap clock turns red + an "INVALID · OFF TRACK" label — so the player sees why no record was
   set. (Where XP ENDS the run on the same condition, Time Attack only invalidates the lap; `xp.ts`
   is pure so `time-attack.ts` importing `XP_CONFIG` is a safe read, and a future change to the
-  threshold or to `wheelsOffTrack` hits both modes.) Best lap is LOCAL
-  ONLY — `localStorage` `steerit.ta.best.<carKey>.<mapId>`, keyed by CAR + TRACK, mirroring the XP
-  best (`xpBestKeyFor`): the Fury and the arcade Stee-Rex keep SEPARATE bests on the same line, so
-  a slower car is still worth driving and a future leaderboard stays per-car meaningful. The oval's
-  asphalt/dirt are DISTINCT map ids (`asphalt`/`flat`), so car+mapId also separates surface for
-  free — no extra key part. (Old track-only keys `steerit.ta.best.<mapId>` are left unread; Phase-1
-  local data isn't precious, nothing migrates.) Shown in-game as a top-left HUD (live lap clock,
+  threshold or to `wheelsOffTrack` hits both modes.) The local best is `localStorage`
+  `steerit.ta.best.<uid|guest>.<carKey>.<mapId>` — **keyed by ACCOUNT + CAR + TRACK** (`taBestKeyFor`
+  via `taUserScope()`, mirrored by `xpBestKeyFor`). **⚠️ The account SCOPE is the fix for the stale-PB
+  bug** (`0000000`): the key used to omit the user, so two accounts on one machine SHARED a local best
+  — signing in as a slower account inherited the faster account's PB, and because the new lap didn't
+  beat that stale local best (`done.isBest === false`) it SILENTLY blocked BOTH the leaderboard submit
+  AND the ghost save (everything hangs off `done.isBest`), and PERSONAL BEST replayed the other
+  account's ghost. Scoping isolates each account; old UNSCOPED keys are abandoned (NEVER migrated into
+  an account, so a device-global best can't leak in). **The SERVER is the source of truth:**
+  `seedTaBestFromServer` (async, on run start, signed-in) fetches the account's own leaderboard best
+  for this combo and reconciles — `TimeAttackRun.lowerBestTo()` (min-only, can't suppress a genuine
+  PB) tightens the live run + persists it, and it downloads the account's OWN ghost when the device
+  has none so PERSONAL BEST shows the real best lap on ANY machine. So a genuine account PB ALWAYS
+  submits + saves regardless of the selected ghost source. The Fury and the arcade Stee-Rex keep
+  SEPARATE bests (car+track); the oval's asphalt/dirt are DISTINCT map ids so surface separates for
+  free. `steerit.ta.ghost.mode` (the ghost-source UI preference) stays UNSCOPED (device setting, not
+  account data). Shown in-game as a top-left HUD (live lap clock,
   BEST, the just-finished LAST lap, a "NEW BEST!" flash) — the BEST/records are the CURRENT car +
   track (+ surface) — and on the **track-select tiles**, where each tile shows the SELECTED car's
   record for that track (`--` when unset / no car chosen, hidden on maps that can't host it;
@@ -447,7 +459,8 @@ not trusted). `EV` events: phone→desktop `join|color|name|leave|control`; desk
   beside the timer/zone feed. A lap is frozen into a ghost ONLY if **VALID** (`done.valid` — on-track
   + zones in order, the SAME validity as the record/leaderboard): best-in-session takes any faster
   valid lap (full 60 Hz, in memory), the personal best takes a new record (`done.isBest`, decimated to
-  ~30 Hz + rounded, saved to `localStorage` `steerit.ta.ghost.<car>.<map>`). **Playback** (MAXIMALLY
+  ~30 Hz + rounded, saved to `localStorage` `steerit.ta.ghost.<uid|guest>.<car>.<map>` — ACCOUNT-scoped
+  like the TA best, so PERSONAL BEST never replays another account's ghost). **Playback** (MAXIMALLY
   SMOOTH — `sampleGhost`): the cursor is the CONTINUOUS render-frame lap clock (`taRun.hud().currentMs`,
   stashed as `ghostRenderNow` before `render()`), and the pose is O(1)-indexed + **INTERPOLATED** —
   linear position, shortest-arc heading — between the fixed-step samples, so it glides at any framerate

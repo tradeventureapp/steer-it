@@ -183,6 +183,18 @@ export class TimeAttackRun {
 
   /** The personal best, for persisting (null = no lap completed and none was seeded). */
   best(): number | null { return this.bestMs; }
+
+  /**
+   * LOWER the target best to `ms` if it's better (smaller) than the current best — used to seed the
+   * ACCOUNT's real best from the server after a run has already started (the fetch is async, so the
+   * run begins with the local best and this tightens it once the server answers). Min-only BY DESIGN:
+   * it can never RAISE the bar, so a genuine personal best can never be suppressed by a stale/higher
+   * server value or a late reconcile. A non-positive/NaN value is ignored.
+   */
+  lowerBestTo(ms: number): void {
+    if (!(ms > 0)) return;
+    if (this.bestMs === null || ms < this.bestMs) this.bestMs = ms;
+  }
 }
 
 /**

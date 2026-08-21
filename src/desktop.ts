@@ -3784,14 +3784,20 @@ let taRecordUntil = 0;           // game-clock ms: show the NEW BEST! flash unti
 let taLastUntil = 0;             // ...and the just-finished LAST lap until then
 const isTimeAttack = () => isCircuitMap() && circuitMode === 'timeattack';
 
-// The best lap is keyed by CAR + TRACK — `steerit.ta.best.<carKey>.<mapId>` — mirroring the
-// XP best (xpBestKeyFor). One record per car per track: the AWD Fury and the arcade Stee-Rex
-// keep SEPARATE bests on the same line, so a slower car is still worth driving and a future
-// leaderboard stays per-car meaningful. The oval's asphalt/dirt surfaces are already DISTINCT
-// map ids ('asphalt' / 'flat'), so car+mapId also separates surface for free — no extra key
-// part needed. (Old track-only keys `steerit.ta.best.<mapId>` are simply left unread; Phase-1
-// local data isn't precious, so nothing migrates — new keys start fresh.)
-function taBestKeyFor(carKey: string, mapId: string): string { return `steerit.ta.best.${carKey}.${mapId}`; }
+// The best lap is keyed by ACCOUNT + CAR + TRACK — `steerit.ta.best.<uid|guest>.<carKey>.<mapId>` —
+// mirroring the XP best (xpBestKeyFor). One record per account per car per track: the AWD Fury and
+// the arcade Stee-Rex keep SEPARATE bests, and two accounts on ONE machine never share a best (the
+// stale-PB bug). The oval's asphalt/dirt surfaces are already DISTINCT map ids ('asphalt' / 'flat'),
+// so car+mapId also separates surface for free — no extra key part needed. (Old UNSCOPED keys
+// `steerit.ta.best.<carKey>.<mapId>` are left unread + abandoned — NOT migrated into any account, so a
+// device-global best from another user can never leak in; the server re-seeds the true best anyway.)
+// ACCOUNT SCOPE for local PB storage (TA best, PB ghost, XP best). The signed-in user's id, or
+// 'guest' when signed out — so a local best/ghost belongs to the ACCOUNT, not the browser: signing
+// in as a different user on the same machine never inherits the previous account's PB (which used to
+// block that account's own leaderboard submit + ghost save — the stale-PB bug). The server remains
+// the source of truth (see seedTaBestFromServer / seedXpBestFromServer, which reconcile on run start).
+function taUserScope(): string { return getAuthState().user?.id ?? 'guest'; }
+function taBestKeyFor(carKey: string, mapId: string): string { return `steerit.ta.best.${taUserScope()}.${carKey}.${mapId}`; }
 function readTaBest(key: string): number | null {
   try {
     const v = Number(localStorage.getItem(key));
@@ -3832,7 +3838,7 @@ const GHOST_ALPHA = 0.4;                            // translucency of the drawn
 let ghostRenderNow = 0;                             // gameNow stashed for the render pass (drawGhost)
 try { const gm = localStorage.getItem('steerit.ta.ghost.mode'); selectedGhostMode = (gm === 'pb' || gm === 'session') ? gm : 'off'; } catch { /* default off */ }
 
-function ghostPbKey(carKey: string, mapId: string): string { return `steerit.ta.ghost.${carKey}.${mapId}`; }
+function ghostPbKey(carKey: string, mapId: string): string { return `steerit.ta.ghost.${taUserScope()}.${carKey}.${mapId}`; }
 function readGhostPb(key: string): GhostRec | null {
   try { return parseGhost(localStorage.getItem(key)); } catch { return null; }
 }
@@ -4009,15 +4015,58 @@ async function uploadLocalGhost(carKey: string, mapId: string): Promise<string> 
   uploadLocalGhost(carKey, mapId).then((s) => { console.info('[ghost-import]', s); return s; });
 (window as unknown as Record<string, unknown>).steerUploadAllLocalGhosts = async () => {
   const out: string[] = [];
+  // Only the CURRENT account's ghosts (keys are now scoped: steerit.ta.ghost.<uid|guest>.<car>.<map>),
+  // so this never tries to attach another account's local ghost to your leaderboard entry.
+  const prefix = `steerit.ta.ghost.${taUserScope()}.`;
   for (let i = 0; i < localStorage.length; i++) {
     const k = localStorage.key(i);
-    const mm = k && /^steerit\.ta\.ghost\.([^.]+)\.(.+)$/.exec(k);   // skips '.mode' / legacy '.on'/'.src'
-    if (mm) out.push(await uploadLocalGhost(mm[1], mm[2]));
+    if (!k || !k.startsWith(prefix)) continue;   // skips '.mode', other scopes, legacy unscoped keys
+    const rest = k.slice(prefix.length);         // "<carKey>.<mapId>"
+    const dot = rest.indexOf('.');
+    if (dot > 0) out.push(await uploadLocalGhost(rest.slice(0, dot), rest.slice(dot + 1)));
   }
   out.forEach((s) => console.info('[ghost-import]', s));
   return out.length ? out : ['no local ghosts found'];
 };
 console.info('[ghost] to publish an existing local PB ghost for a listed time: steerUploadLocalGhost("<car>","<map>") or steerUploadAllLocalGhosts()');
+
+// Seed the ACCOUNT's real best (time + PB ghost) from the SERVER after a TA run has started, so the
+// account's leaderboard best — not this device's localStorage — is the source of truth. Async: the
+// run begins seeded with the local (scoped) best; when the server answers, if it's better we persist
+// it to this scope's key AND tighten the live run via lowerBestTo (min-only, so a genuine PB can
+// never be suppressed). Also downloads the account's OWN uploaded ghost when this device has none for
+// the account, so PERSONAL BEST shows the account's real best lap on any machine. Signed-out → no-op.
+async function seedTaBestFromServer(carKey: string, mapId: string, storageKey: string): Promise<void> {
+  const uid = getAuthState().user?.id;
+  if (!uid) return;                                    // signed-out: local best only
+  const key = boardKey('timeattack', mapId, carKey);
+  let own: LbRow | null = null;
+  try {
+    const view = await fetchTopAndOwn(key, LB_TOP_N, uid);
+    own = view?.own ?? view?.top.find((r) => r.userId === uid) ?? null;
+  } catch { return; }                                  // network hiccup → local best stays authoritative
+  // The player may have left / restarted / switched car+map while the fetch was in flight — only
+  // reconcile if THIS is still the active run's key (taBestKeyActive is re-snapshotted every start).
+  if (taBestKeyActive !== storageKey) return;
+  if (own) {
+    const serverMs = own.value, local = readTaBest(storageKey);
+    if (local === null || serverMs < local) {
+      writeTaBest(storageKey, serverMs);               // persist the account's true best for this scope
+      taRun?.lowerBestTo(serverMs);                    // ...and apply to the in-progress run
+    }
+  }
+  // PB GHOST: if this device has no local PB ghost for the account, fetch the account's OWN uploaded
+  // ghost so PERSONAL BEST shows the account's real best lap (not blank) on a fresh machine.
+  if (!readGhostPb(ghostPbKey(carKey, mapId))) {
+    try {
+      const g = await fetchGhost(key, uid);
+      if (g && taBestKeyActive === storageKey) {
+        const rec = parseGhost(JSON.stringify(g.ghost));   // jsonb object → the ghost.ts parser (as TOP PLAYERS)
+        if (rec) { writeGhostPb(ghostPbKey(carKey, mapId), rec); ghostPbActive = rec; }
+      }
+    } catch { /* no ghost / network → PERSONAL BEST stays empty until they set one */ }
+  }
+}
 
 // (Re)start a Time Attack session: fresh rolling timer seeded with the stored best,
 // solo car respawned at the grid, clean sheet. Called on entering the mode and on the
@@ -4031,6 +4080,7 @@ function startTimeAttack() {
   taBestKeyActive = taBestKeyFor(xpCarKey(), currentMap.id);
   taRun = new TimeAttackRun(el, readTaBest(taBestKeyActive));
   ghostBeginRun(xpCarKey(), currentMap.id);   // fresh ghost buffer + load this car+map's PB ghost
+  void seedTaBestFromServer(xpCarKey(), currentMap.id, taBestKeyActive);   // server = source of truth (async)
   zoneTracker = makeZoneTracker();   // leaderboard zone splits for this run (null on a zone-less map)
   taRecordUntil = 0;
   taLastUntil = 0;
@@ -4212,14 +4262,14 @@ window.addEventListener('pagehide', () => {
   emitXp(xpSession.leave(now), now);
 });
 
-// XP best is keyed by BOTH car AND map: `steerit.xp.best.<carKey>.<mapId>`. A RWD Blitz vs an AWD
-// Fury, tarmac vs dirt — totally different drifts, so each car+map combo keeps its OWN record; they
-// must never mix. Old per-map-only keys (`steerit.xp.best.<mapId>`) are simply left unread (it's
-// early, no real records) — the new keys start fresh, nothing migrates or crashes on the old ones.
+// XP best is keyed by ACCOUNT + car + map: `steerit.xp.best.<uid|guest>.<carKey>.<mapId>` (the scope
+// prevents two accounts on one machine sharing a best — the same fix as the TA best). A RWD Blitz vs
+// an AWD Fury, tarmac vs dirt — different drifts, so each combo keeps its OWN record; they never mix.
+// Old unscoped keys are left unread + abandoned (never migrated into an account); the server re-seeds.
 // Fallback only fires if no car is selected (unreachable in normal play — START requires one); the
 // arcade default is Scrappy GT (the first/default arcade car), the sim default Blitz.
 function xpCarKey(): string { return selectedCarKey || (raceMode === 'arcade' ? 'scrappy' : 'blitz'); }
-function xpBestKeyFor(carKey: string, mapId: string): string { return `steerit.xp.best.${carKey}.${mapId}`; }
+function xpBestKeyFor(carKey: string, mapId: string): string { return `steerit.xp.best.${taUserScope()}.${carKey}.${mapId}`; }
 function readXpBest(key: string): number {
   try { return Math.max(0, Math.floor(Number(localStorage.getItem(key)) || 0)); }
   catch { return 0; }
@@ -4233,6 +4283,27 @@ function selectedXpBest(): number {
   return readXpBest(xpBestKeyFor(selectedCarKey, selectedMapId));
 }
 
+// Seed the ACCOUNT's real XP best from the SERVER after a run has started (the XP analogue of
+// seedTaBestFromServer; XP has no ghost). XP is HIGHER-is-better, so this RAISES the bar to the
+// server value if it's higher — never lowers it, so a local record not yet submitted is preserved
+// and a genuine record can't be suppressed. Signed-out → no-op (local best only).
+async function seedXpBestFromServer(carKey: string, mapId: string, storageKey: string): Promise<void> {
+  const uid = getAuthState().user?.id;
+  if (!uid) return;
+  const key = boardKey('xp', mapId, carKey);
+  let own: LbRow | null = null;
+  try {
+    const view = await fetchTopAndOwn(key, LB_TOP_N, uid);
+    own = view?.own ?? view?.top.find((r) => r.userId === uid) ?? null;
+  } catch { return; }
+  if (!own || xpBestKeyActive !== storageKey) return;   // stale/left-run → don't touch
+  const serverScore = own.value;
+  if (serverScore > readXpBest(storageKey)) {
+    writeXpBest(storageKey, serverScore);               // persist the account's true best for this scope
+    xpBest = Math.max(xpBest, serverScore);             // raise the live run's bar (never lower it)
+  }
+}
+
 // (Re)start an XP run: fresh score, respawn the solo car at spawn, load the best,
 // hide the end card. Called on entering XP mode, on RETRY, and on RESTART.
 function startXpRun() {
@@ -4242,6 +4313,7 @@ function startXpRun() {
   // same key (the driven car = xpCarKey(), the loaded map = currentMap.id).
   xpBestKeyActive = xpBestKeyFor(xpCarKey(), currentMap.id);
   xpBest = readXpBest(xpBestKeyActive);
+  void seedXpBestFromServer(xpCarKey(), currentMap.id, xpBestKeyActive);   // server = source of truth (async)
   zoneTracker = makeZoneTracker();   // proof-of-play for this run (null on a zone-less map)
   for (const [slot, car] of cars) {
     const pose = currentMap.spawn(slot, world);
