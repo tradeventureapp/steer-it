@@ -1139,21 +1139,34 @@ sprite loads **LAZILY** — `preloadScrappy()` runs when the ARCADE car list is 
 its ~1.2 MB PNG never loads on the bare landing page for a player who never opens car selection. (The
 arena map's `isDev()` gate is UNCHANGED — still dev-only WIP.) **The whole point is FORGIVENESS**: FWD so a
 beginner who enters a corner too fast pushes WIDE (understeer) instead of snapping into a spin.
-- **8 COLOURS, arithmetic recolour (`blitz-sprite.ts` approach — NO mask needed).** The art
-  (`public/ScrappyGT.png`, 941×1672, WHITE body on a near-black field, nose-UP) is a white-body render
-  (measured: 64.9% light+desaturated body, brightest px rgb(245,245,245), ~0% saturated), so Blitz's
-  `isBody` "light + desaturated = body" multiply-tint works cleanly (verified: white→red rgb(187,39,51)
-  / blue rgb(43,99,186) / yellow rgb(215,167,26), dark glass/wheels preserved). `scrappy-sprite.ts` is a
-  clone of `blitz-sprite.ts` (flood-fill near-black bg `BG_LUMA 28` → measure opaque → tint the 8
-  `STEEREX_SKIN_COLORS`). Renamed from the original `Scrappy GT.png` (space) to `ScrappyGT.png` for a
-  clean URL.
+- **8 COLOURS, SYNTHESISED METALLIC SHEEN recolour (NO mask needed).** The art
+  (`public/ScrappyGT.png`, 660×1131, WHITE body on a near-black field, nose-UP) is the TOP-DOWN view
+  EXTRACTED from a Mini-JCW multi-view blueprint (cropped from the 4-view source `public/scrapy last.png`,
+  rotated nose-up, cleaned of the side/front/rear views + all dimension lines/arrows/text, centred +
+  L/R-symmetric on black). `scrappy-sprite.ts` flood-fills the near-black bg (`BG_LUMA 28`) → measures the
+  opaque bbox → picks the body panels with `isBody` (light + desaturated; dark glass/wheels + red
+  taillights fail it, kept as-is). **⚠️ The recolour is NOT a flat multiply.** The render's body is a
+  nearly UNIFORM bright white (measured body-brightness p10–p90 ≈ 245–248 — no shading gradient of its
+  own), so the old `tint × brightness` multiply came out FLAT/washed-out vs Stee-Rex (the reported bug).
+  Instead each body pixel is repainted from the skin's **5-tone metallic RAMP** `[shadow,dark,mid,light,
+  peak]` — the SAME tones Stee-Rex authors in its SVG (`steerex-sprite` SKIN_DEFS / `metallicSkin`) — via
+  a **width-wise cylindrical SHEEN** (`sheen()`: dark edges → bright peak streak → lit centre, normalised
+  per ROW off `rMin`/`rMax` so it hugs the silhouette), with the render's fine dark detail (panel/door
+  lines) preserved by a local-brightness ÷ `bMid` modulation. So the 8 colours have the SAME richness/
+  gloss as Stee-Rex (verified side-by-side, all 8). `mid` = the `STEEREX_SKIN_COLORS` hue. `SRC` carries a
+  `?v=2` cache-bust (the sprite bitmap was replaced, so the stale car-select preview / in-game car now
+  reload the new image — bump the version on any future `ScrappyGT.png` change). Purely visual — the
+  opaque measure (→ dims/collision) is off the flood-filled base, untouched; Blitz golden 0.0e+0 intact.
 - **DIMENSIONS — measured, WIDTH-anchored** (`SCRAPPY_DIMS`): the draw path scales opaque WIDTH→`widthM`
   and draws length at the sprite aspect, so `lengthM:widthM` MUST equal the sprite's opaque aspect.
-  Measured opaque bbox (after flood-fill) **742×1461 px, aspect L/W 1.969** ⇒ anchored on the Mini
-  reference length **`lengthM 3.874`** ⇒ **`widthM 3.874/1.969 = 1.9675`**, `wheelbaseM 2.495`,
-  `bodyWidthM 1.62`. Physics `wheelbase = 2.495` (= dims). Collision (from dims): capsule 3.874×1.9675,
-  car-car radius 2.195 m (the smallest car). `drawScrappy` = the width-anchored `drawFury`/`drawSteerex`
-  blit path (mip-cached), dispatched in `drawCar` on `sprite.car === 'scrappy'`.
+  Measured opaque bbox (after the game's flood-fill) **446 wide × 969 long px, aspect L/W 2.1726** ⇒
+  anchored on the reference length **`lengthM 3.874`** ⇒ **`widthM 3.874/2.1726 = 1.783`** (the dark
+  side mirrors fall outside the flood, so this is the body-with-valance width, NOT the across-mirrors
+  1.9675 m the blueprint annotates), `wheelbaseM 2.495`, `bodyWidthM 1.62`. Physics `wheelbase = 2.495`
+  (= dims). Collision (from dims): capsule 3.874×1.783, car-car radius 2.195 m (the smallest car; from
+  lengthM, unchanged). So the drawn car EXACTLY fills its collision capsule. `drawScrappy` = the
+  width-anchored `drawFury`/`drawSteerex` blit path (mip-cached), dispatched in `drawCar` on
+  `sprite.car === 'scrappy'`.
 - **HANDLING (`SCRAPPY_ARCADE`, arcade branch) — deliberately CALMER than Stee-Rex.** MASS **1080 kg**
   (real Mini 1290 NOT used — a heavy car accelerates/stops slower + pushes wider; 1080 keeps it nimble
   + planted, between Blitz 1020 / Fury 1100). Key params vs Stee-Rex: **`driveSplitFront 1.0` (pure FWD**

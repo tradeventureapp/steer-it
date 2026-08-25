@@ -493,13 +493,17 @@ export function furySkinForColor(hex: string): FurySkin {
 // Stee-Rex (NOT with the SIM cars). The whole point is FORGIVENESS: FWD so a beginner
 // who enters a corner too fast pushes WIDE (understeer) instead of snapping into a spin.
 //
-// DIMENSIONS — the sprite is WIDTH-anchored, so lengthM:widthM MUST equal the sprite's
-// opaque aspect or the drawn car won't match its collision box. Measured opaque aspect of
-// ScrappyGT.png (after the standard flood-fill) = L/W 1.9690; anchored on the Mini JCW
-// reference length 3.874 m ⇒ widthM = 3.874 / 1.9690 = 1.9675. Wheelbase = the real 2.495 m
-// (physics wheelbase is set equal to dims.wheelbaseM, as Stee-Rex does).
+// DIMENSIONS — the sprite is WIDTH-anchored, so lengthM:widthM MUST equal the sprite's opaque
+// aspect or the drawn car won't match its collision box. The sprite is the TOP-DOWN view extracted
+// from the Mini-JCW multi-view blueprint (nose-up, cleaned of the other views + dimension text).
+// Measured opaque bbox of that sprite (after the game's standard near-black flood-fill) = 446 wide ×
+// 969 long ⇒ L/W 2.1726; anchored on the reference length 3.874 m ⇒ widthM = 3.874 / 2.1726 = 1.783.
+// (The dark side mirrors fall outside the flood, so the opaque width is the body-with-valance width,
+// not the across-mirrors 1.9675 m the blueprint annotates.) Wheelbase = the real 2.495 m (physics
+// wheelbase is set equal to dims.wheelbaseM). So the drawn car (3.874 × 1.783) EXACTLY fills its
+// collision capsule — the point of this re-extraction.
 export const SCRAPPY_DIMS: VehicleDims = {
-  lengthM: 3.874, widthM: 1.9675, wheelbaseM: 2.495, bodyWidthM: 1.62,
+  lengthM: 3.874, widthM: 1.783, wheelbaseM: 2.495, bodyWidthM: 1.62,
 };
 // SCRAPPY GT arcade tune — deliberately CALMER than Stee-Rex (the beginner car). The drift-
 // provocation knobs (arcadeDriftGrip / arcadeThrottleCut / arcadeThrottleGrip / arcadeThrottleYaw
