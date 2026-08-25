@@ -1677,7 +1677,7 @@ function drawScrappyImage(cvs: HTMLCanvasElement, dpr: number) {
   const W = cvs.width / dpr, H = cvs.height / dpr;
   c.setTransform(dpr, 0, 0, dpr, 0, 0);
   c.clearRect(0, 0, W, H);
-  const sprite = scrappySprite('white');   // menu tile / flyout = the white livery
+  const sprite = scrappySprite('blue');   // menu tile / flyout = the blue livery
   if (!sprite) { window.setTimeout(() => drawScrappyImage(cvs, dpr), 120); return; }
   const op = scrappyOpaque();
   const sx = op ? op.cxPx - op.widPx / 2 : 0;
