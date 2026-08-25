@@ -1639,7 +1639,7 @@ function drawFuryImage(cvs: HTMLCanvasElement, dpr: number) {
   const W = cvs.width / dpr, H = cvs.height / dpr;
   c.setTransform(dpr, 0, 0, dpr, 0, 0);
   c.clearRect(0, 0, W, H);
-  const sprite = furySprite('white');   // menu tile / flyout = the original white livery
+  const sprite = furySprite('yellow');   // menu tile / flyout = the yellow livery
   if (!sprite) { window.setTimeout(() => drawFuryImage(cvs, dpr), 120); return; }
   const op = furyOpaque();
   const sx = op ? op.cxPx - op.widPx / 2 : 0;
@@ -1658,7 +1658,7 @@ function drawBlitzImage(cvs: HTMLCanvasElement, dpr: number) {
   const W = cvs.width / dpr, H = cvs.height / dpr;
   c.setTransform(dpr, 0, 0, dpr, 0, 0);
   c.clearRect(0, 0, W, H);
-  const sprite = blitzSprite('white');   // menu tile / flyout = the iconic near-white Blitz
+  const sprite = blitzSprite('black');   // menu tile / flyout = the black livery
   if (!sprite) { window.setTimeout(() => drawBlitzImage(cvs, dpr), 120); return; }
   const op = blitzOpaque();
   const sx = op ? op.cxPx - op.widPx / 2 : 0;

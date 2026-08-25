@@ -30,15 +30,18 @@
 // three cars answer the one phone picker. `blitzSkinForColor`'s sibling lives in vehicles.ts.
 export type FurySkin = 'silver' | 'black' | 'blue' | 'red' | 'purple' | 'white' | 'orange' | 'yellow';
 
-const SKIN_TINT: Record<FurySkin, [number, number, number]> = {
-  silver: [201, 206, 214],   // #c9ced6
-  black:  [42, 45, 52],      // #2a2d34
-  blue:   [47, 108, 203],    // #2f6ccb
-  red:    [204, 43, 56],     // #cc2b38
-  purple: [124, 75, 198],    // #7c4bc6
-  white:  [242, 240, 236],   // #f2f0ec
-  orange: [224, 106, 28],    // #e06a1c
-  yellow: [234, 182, 28],    // #eab61c
+// Per-skin 5-tone METALLIC RAMP [shadow, dark, mid, light, peak] — the SAME tones Stee-Rex authors,
+// shared with Blitz/Scrappy. Fury's body render is mostly bright too, so a flat multiply washed it
+// out; instead the MASKED body is repainted with a synthesised sheen from these (see bakeSkin).
+const SKIN_RAMP: Record<FurySkin, number[][]> = {
+  silver: [[91,98,107],[127,135,144],[174,182,191],[199,204,210],[238,241,244]],
+  black:  [[36,39,44],[52,56,63],[74,79,87],[86,91,99],[130,136,146]],
+  blue:   [[15,38,71],[28,68,135],[47,108,203],[110,163,234],[216,232,255]],
+  red:    [[69,17,26],[138,28,40],[204,43,56],[231,98,106],[255,215,213]],
+  purple: [[42,20,80],[79,42,144],[124,75,198],[169,126,230],[236,220,255]],
+  white:  [[182,179,173],[211,208,201],[233,230,224],[247,245,241],[255,255,255]],
+  orange: [[77,31,6],[156,64,15],[224,106,28],[255,157,78],[255,227,194]],
+  yellow: [[95,68,6],[171,125,10],[234,182,28],[255,219,86],[255,246,204]],
 };
 
 const SRC = '/Fury.png';                 // served from public/ at the site root
@@ -53,8 +56,11 @@ const BG_MAX = 14;
 const MASK_SRC = '/Fury-mask.png';       // WHITE = recolour this pixel, BLACK = keep as-is
 
 const _cache = new Map<FurySkin, HTMLCanvasElement>();
-// The stripped base + the body mask, decoded ONCE; every skin is baked from these.
-let _base: { data: Uint8ClampedArray; W: number; H: number } | null = null;
+// The stripped base + the body mask, decoded ONCE; every skin is baked from these. `rMin`/`rMax` =
+// per-row MASKED-body left/right extents (for the width-wise sheen); `bMid` = median masked-body
+// brightness. (Empty/247 when the mask is refused → bakeSkin then leaves the original livery.)
+let _base: { data: Uint8ClampedArray; W: number; H: number;
+  rMin: Int32Array; rMax: Int32Array; bMid: number } | null = null;
 let _mask: Uint8Array | null = null;
 let _baseLoading = false;
 let _opaque: { lenPx: number; widPx: number; cxPx: number; cyPx: number } | null = null;
@@ -132,32 +138,76 @@ function kickBase(): void {
       for (let p = 0; p < m.length; p++) m[p] = mask.data[p * 4] > 128 ? 1 : 0;   // threshold at mid-grey
       _mask = m;
     }
-    _base = base;
+    const { rMin, rMax, bMid } = analyseBody(base.data, base.W, base.H, _mask);
+    _base = { data: base.data, W: base.W, H: base.H, rMin, rMax, bMid };
     measureOpaqueData(base.data, base.W, base.H);
   }).catch(() => { _baseLoading = false; });   // transient → allow a later retry
 }
 
-// Copy the stripped base and multiply the MASKED pixels toward the tint. Multiplying by the
-// pixel's own brightness is what preserves the render's shading instead of flat-filling it.
+// One-time MASKED-body analysis for the sheen: per-row body left/right extent (rMin/rMax) + the
+// median masked-body brightness (bMid). `mask` null (refused) ⇒ no body ⇒ empty extents / bMid 247.
+function analyseBody(d: Uint8ClampedArray, W: number, H: number, mask: Uint8Array | null):
+  { rMin: Int32Array; rMax: Int32Array; bMid: number } {
+  const rMin = new Int32Array(H).fill(1 << 30);
+  const rMax = new Int32Array(H).fill(-1);
+  const bri: number[] = [];
+  if (mask) {
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const p = y * W + x, i = p * 4;
+        if (d[i + 3] <= 8 || !mask[p]) continue;
+        if (x < rMin[y]) rMin[y] = x;
+        if (x > rMax[y]) rMax[y] = x;
+        bri.push(Math.max(d[i], d[i + 1], d[i + 2]));
+      }
+    }
+  }
+  bri.sort((a, b) => a - b);
+  const bMid = bri.length ? bri[bri.length >> 1] : 247;
+  return { rMin, rMax, bMid };
+}
+
+// SHEEN tone at `c` = |x − rowCentre| / rowHalfWidth (0 centre → 1 edge). Reproduces Stee-Rex's body
+// gradient: lit centre → PEAK highlight streak → mid → dark edge. `ramp` = [shadow,dark,mid,light,peak].
+function sheen(ramp: number[][], c: number): [number, number, number] {
+  const lerp = (a: number[], b: number[], f: number): [number, number, number] =>
+    [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f];
+  const [, dk, md, lt, pk] = ramp;
+  if (c < 0.42) return lerp(lt, pk, c / 0.42);
+  if (c < 0.82) return lerp(pk, md, (c - 0.42) / 0.40);
+  return lerp(md, dk, (c - 0.82) / 0.18);
+}
+
+// Repaint the MASKED body pixels with the skin's metallic sheen (matching Stee-Rex / Scrappy / Blitz).
+// The body render is mostly bright, so a flat multiply washed out; the sheen (a width-wise
+// dark→peak→dark ramp, per row so it hugs the silhouette) gives the highlights/shading, with the
+// render's fine dark detail preserved by a local-brightness ÷ bMid modulation. Everything the mask
+// EXCLUDES — glass, chevrons, the logo tile, taillights, vents, the blue wordmarks — is untouched;
+// a refused mask (`_mask` null) means no body pixels, so the original livery ships unchanged.
 function bakeSkin(skin: FurySkin): HTMLCanvasElement | null {
   if (!_base) return null;
-  const { data: src, W, H } = _base;
+  const { data: src, W, H, rMin, rMax, bMid } = _base;
   const cv = document.createElement('canvas');
   cv.width = W; cv.height = H;
   const c = cv.getContext('2d');
   if (!c) return null;
   const id = c.createImageData(W, H);
   const dst = id.data;
-  const [tr, tg, tb] = SKIN_TINT[skin];
-  for (let i = 0, p = 0; i < src.length; i += 4, p++) {
-    const a = src[i + 3];
-    const r = src[i], g = src[i + 1], b = src[i + 2];
-    dst[i] = r; dst[i + 1] = g; dst[i + 2] = b; dst[i + 3] = a;
-    if (a <= 8 || !_mask || !_mask[p]) continue;
-    const br = Math.max(r, g, b) / 255;
-    dst[i] = Math.round(tr * br);
-    dst[i + 1] = Math.round(tg * br);
-    dst[i + 2] = Math.round(tb * br);
+  const ramp = SKIN_RAMP[skin];
+  for (let y = 0; y < H; y++) {
+    const lo = rMin[y], hi = rMax[y];
+    const cen = (lo + hi) / 2, half = Math.max(1, (hi - lo) / 2);
+    for (let x = 0; x < W; x++) {
+      const p = y * W + x, i = p * 4;
+      const a = src[i + 3], r = src[i], g = src[i + 1], b = src[i + 2];
+      dst[i] = r; dst[i + 1] = g; dst[i + 2] = b; dst[i + 3] = a;
+      if (a <= 8 || !_mask || !_mask[p]) continue;
+      const o = sheen(ramp, Math.min(1, Math.abs(x - cen) / half));
+      const m = Math.max(0.62, Math.min(1.12, Math.max(r, g, b) / bMid));
+      dst[i] = Math.min(255, o[0] * m);
+      dst[i + 1] = Math.min(255, o[1] * m);
+      dst[i + 2] = Math.min(255, o[2] * m);
+    }
   }
   c.putImageData(id, 0, 0);
   return cv;

@@ -160,9 +160,12 @@ palette picked on the phone (§13).
   (dev-only beginner FWD car) + dims + colour palettes. Pure data — NO real make/model names anywhere.
 - `steerex-sprite.ts` / `fury-sprite.ts` / `blitz-sprite.ts` / `scrappy-sprite.ts` — the sprite cars,
   rasterised + cached (nose-up, centred on the rotation pivot, mipmap downscale). Stee-Rex is an SVG
-  drawn per-skin; Fury is a PNG recoloured from ONE base + `Fury-mask.png` (§13); Blitz + Scrappy GT are
-  PNGs recoloured by the arithmetic white-body test (`isBody`, no mask). Fury/Scrappy are WIDTH-anchored
-  (opaque width→`dims.widthM`), Blitz is LENGTH-anchored, in their `drawX` paths (desktop.ts).
+  drawn per-skin. Blitz/Fury/Scrappy are PNGs recoloured by a SYNTHESISED METALLIC SHEEN (§13): they
+  pick the white body (Blitz/Scrappy by the `isBody` arithmetic test; Fury by `Fury-mask.png`) then
+  repaint it from the skin's 5-tone metallic ramp via a width-wise cylindrical sheen — the SAME
+  approach across all three, so their 8 colours match Stee-Rex's gloss (was a flat multiply that
+  washed the near-uniform-white bodies out). Fury/Scrappy are WIDTH-anchored (opaque width→`dims.widthM`),
+  Blitz is LENGTH-anchored, in their `drawX` paths (desktop.ts).
 - `auth.ts` — HOST auth + entitlement (Supabase Auth): sign-up/in, email verify, password reset,
   **effective premium = `is_premium` (Stripe-paid) OR `granted_premium` (review/comp)** — the ONE
   place that OR is read; every gate inherits it (server truth, RLS), nickname (RPC-validated +
@@ -1079,9 +1082,12 @@ limit four-wheel-slides and is catchable. `branch: 'sim'`, no overrides ⇒ its 
 276000` (~370 hp), `peakThrust 13000`, `brakeForce 13500`, RWD (`driveSplitFront 0`), slick
 `muScale {asphalt 1.0, grass 0.28, gravel 0.35, dirt 0.50}`. RENDERED AS A PNG SPRITE now
 (`public/BlitzRS.png`, white body + sunset stripe) — recoloured into the **8 SHARED body colours**
-(`STEEREX_SKIN_COLORS`, `BLITZ_SPECS`/`blitzSkinForColor`): a masked multiply tints only the light+
-desaturated body panels (shading kept), leaving the stripe/glass/wheels/lights intact — the SAME
-phone picker as Stee-Rex. Every skin has no `dims`/`phys4` ⇒ golden intact. (The old vector body +
+(`STEEREX_SKIN_COLORS`, `BLITZ_SPECS`/`blitzSkinForColor`): `isBody` picks the light+desaturated body
+panels, then they're repainted with the **synthesised metallic SHEEN** (skin's 5-tone ramp × width-wise
+cylindrical gradient — same as Scrappy; was a flat multiply that washed the near-uniform-white body
+out), leaving the sunset stripe/glass/wheels/lights intact — the SAME phone picker + gloss as Stee-Rex.
+The source PNG is UNCHANGED (recolour is code-only → hashed JS bundle carries it, no image cache-bust).
+Every skin has no `dims`/`phys4` ⇒ golden intact (the recolour is render-only). (The old vector body +
 12-colour `BLITZ_RS_COLORS` are retired from the draw path; the array lingers for legacy hex lookup.)
 **Premium.**
 
@@ -1097,17 +1103,19 @@ A Group-B rallycross special (Ford RS200 Evolution silhouette + Tradeventure whi
 internal reference only, public name "Fury 200 EVO"). **Public + premium** — it sits in the SIM car
 picker for everyone (`furySelected()` is just `selectedCarKey === 'fury'`; the old `isDev()` gate is
 gone — `isDev` now only guards `DEV_MAP_IDS` and the dirt-edit tool).
-- **8 COLOURS, mask-driven (`d5dc7d2`).** Same 8 swatches as Blitz/Stee-Rex, same phone picker.
-  Blitz's arithmetic "light + desaturated = body" rule CANNOT work here and must not be reused:
-  Fury's GLASS (saturation 36) falls inside it, and its white decals are the EXACT same RGB as
-  white bodywork, so no colour-only test separates them (a connected-component rule fails too —
-  the bodywork itself splits into several large regions). The body region is therefore stated
-  explicitly by **`public/Fury-mask.png`** (WHITE = recolour, BLACK = keep; greyscale, pixel-aligned,
-  13 KB). Protected: glass, chevrons, logo tile, taillights, vents, blue wordmarks. Taking the body
-  colour BY DESIGN: pinstripes, logo arrow, the white "Trade" on the spoiler — livery accents.
-  One source bitmap ⇒ the 8 colours are geometrically identical (no drift); the hitbox is
-  `FURY_DIMS`, never the art. `fury-sprite.ts` refuses a mask whose size doesn't match the sprite
-  (logs + disables recolour) rather than smearing colour over the branding.
+- **8 COLOURS, mask-driven body + SYNTHESISED SHEEN (`d5dc7d2` + sheen).** Same 8 swatches as
+  Blitz/Stee-Rex, same phone picker. Blitz's arithmetic "light + desaturated = body" rule CANNOT
+  pick the body here (Fury's GLASS at saturation 36 falls inside it, and its white decals are the
+  EXACT same RGB as white bodywork; a connected-component rule fails too), so the body region is
+  stated explicitly by **`public/Fury-mask.png`** (WHITE = recolour, BLACK = keep; greyscale,
+  pixel-aligned, 13 KB). Protected: glass, chevrons, logo tile, taillights, vents, blue wordmarks.
+  Taking the body colour BY DESIGN: pinstripes, logo arrow, the white "Trade" on the spoiler.
+  ⚠️ The masked body is repainted with the **same metallic SHEEN as Blitz/Scrappy** (skin's 5-tone
+  ramp × width-wise cylindrical gradient over the masked region, per-row `rMin`/`rMax`) — NOT the old
+  flat multiply, which washed the mostly-bright body out. So Fury's 8 colours match the others' gloss.
+  A refused mask (size mismatch) → no body pixels → the original livery ships unchanged. Source PNG +
+  mask UNCHANGED (recolour is code-only → no image cache-bust). One source bitmap ⇒ the 8 colours are
+  geometrically identical; the hitbox is `FURY_DIMS`, never the art.
   ⚠️ Known + accepted: on Graphite the dark hood/spoiler text loses contrast, on Blue the navy
   chevrons sit close to the body. Inherent to fixed branding over a variable body, invisible at
   in-game size, and the car-select tile shows white.

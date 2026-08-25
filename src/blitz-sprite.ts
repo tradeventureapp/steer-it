@@ -14,12 +14,17 @@
 //  silhouette, are kept), and measure the opaque bbox for the pivot + scale. That
 //  stripped base is then TINTED per colour into 8 cached bitmaps.
 //
-//  RECOLOUR = a masked multiply. ONLY the light + desaturated WHITE BODY panels are
-//  multiplied toward the target hue (so the 3D shading is preserved — a body pixel
-//  keeps its brightness, just gains the colour). The SUNSET STRIPE (saturated), the
-//  tinted GLASS + WHEELS (dark) and the RED LIGHTS (saturated) all fail the body
-//  mask, so they render identically across every colour. Length-anchored to the
-//  Blitz RS's real drawn length so the bitmap drops in at the vector body's size.
+//  RECOLOUR = a SYNTHESISED METALLIC SHEEN (matching Stee-Rex / Scrappy). `isBody` (light +
+//  desaturated) picks the WHITE BODY panels; the SUNSET STRIPE (saturated), the tinted GLASS +
+//  WHEELS (dark) and the RED LIGHTS (saturated) fail it, so they render identically across every
+//  colour. ⚠️ NOT a flat multiply: this render's body is a nearly UNIFORM bright white (measured
+//  p25–p75 ≈ 245–248 — no shading of its own), so `tint × brightness` came out flat/washed-out.
+//  Instead body pixels are repainted from the skin's 5-tone metallic RAMP (the SAME tones Stee-Rex
+//  authors) via a width-wise cylindrical SHEEN (dark edges → bright peak streak → lit centre, per
+//  ROW so it hugs the silhouette; fine dark detail preserved by a local-brightness modulation) —
+//  giving the same gloss as the other cars. The source PNG is UNCHANGED (recolour is code-only, so
+//  the hashed JS bundle carries the new look — no image cache-bust needed). Length-anchored to the
+//  Blitz RS's real drawn length. Physics is the golden PHYS4 and is NOT touched (0.0e+0 intact).
 // =============================================================================
 
 // The 8 shared body colours — SAME order + hexes as STEEREX_SKIN_COLORS (the phone
@@ -28,24 +33,26 @@
 // iconic near-white Blitz).
 export type BlitzSkin = 'silver' | 'black' | 'blue' | 'red' | 'purple' | 'white' | 'orange' | 'yellow';
 
-// Target body tint per skin (r,g,b) — the STEEREX_SKIN_COLORS hexes. `white` is a warm
-// near-white ⇒ its multiply is ~identity (the body stays essentially the shipped white).
-const SKIN_TINT: Record<BlitzSkin, [number, number, number]> = {
-  silver: [201, 206, 214],   // #c9ced6
-  black:  [42, 45, 52],      // #2a2d34
-  blue:   [47, 108, 203],    // #2f6ccb
-  red:    [204, 43, 56],     // #cc2b38
-  purple: [124, 75, 198],    // #7c4bc6
-  white:  [242, 240, 236],   // #f2f0ec
-  orange: [224, 106, 28],    // #e06a1c
-  yellow: [234, 182, 28],    // #eab61c
+// Per-skin 5-tone METALLIC RAMP [shadow, dark, mid, light, peak] — the SAME tones Stee-Rex authors
+// (steerex-sprite SKIN_DEFS / metallicSkin), shared with Scrappy. `mid` = the STEEREX_SKIN_COLORS hue.
+const SKIN_RAMP: Record<BlitzSkin, number[][]> = {
+  silver: [[91,98,107],[127,135,144],[174,182,191],[199,204,210],[238,241,244]],
+  black:  [[36,39,44],[52,56,63],[74,79,87],[86,91,99],[130,136,146]],
+  blue:   [[15,38,71],[28,68,135],[47,108,203],[110,163,234],[216,232,255]],
+  red:    [[69,17,26],[138,28,40],[204,43,56],[231,98,106],[255,215,213]],
+  purple: [[42,20,80],[79,42,144],[124,75,198],[169,126,230],[236,220,255]],
+  white:  [[182,179,173],[211,208,201],[233,230,224],[247,245,241],[255,255,255]],
+  orange: [[77,31,6],[156,64,15],[224,106,28],[255,157,78],[255,227,194]],
+  yellow: [[95,68,6],[171,125,10],[234,182,28],[255,219,86],[255,246,204]],
 };
 
-const SRC = '/BlitzRS.png';              // served from public/ at the site root
+const SRC = '/BlitzRS.png';              // served from public/ at the site root (UNCHANGED image)
 const BG_LUMA = 28;                      // ≤ this luma + connected to a corner = background → transparent
 
-// The stripped base (transparent background), decoded ONCE. Each skin is tinted from this.
-let _base: { data: Uint8ClampedArray; W: number; H: number } | null = null;
+// The stripped base (transparent background), decoded ONCE. Each skin bakes from this. `rMin`/`rMax`
+// = per-row body left/right extents (for the width-wise sheen); `bMid` = median body brightness.
+let _base: { data: Uint8ClampedArray; W: number; H: number;
+  rMin: Int32Array; rMax: Int32Array; bMid: number } | null = null;
 let _baseLoading = false;
 
 const _cache = new Map<BlitzSkin, HTMLCanvasElement>();
@@ -111,7 +118,8 @@ function kickBase(): void {
       c.drawImage(img, 0, 0);
       const id = c.getImageData(0, 0, W, H);
       stripBackground(id.data, W, H);
-      _base = { data: id.data, W, H };
+      const { rMin, rMax, bMid } = analyseBody(id.data, W, H);
+      _base = { data: id.data, W, H, rMin, rMax, bMid };
       measureOpaqueData(id.data, W, H);
     } catch {
       _baseLoading = false;   // decode/read threw (memory / tainted) → allow a later retry
@@ -122,27 +130,68 @@ function kickBase(): void {
   else { img.onload = bake; img.onerror = fail; }
 }
 
-// Synthesize a skin bitmap: copy the stripped base, multiply the body panels toward the tint.
+// One-time body analysis for the sheen: per-row body left/right extent (rMin/rMax) + the median body
+// brightness (bMid). Run once on the stripped base; every skin bakes off these.
+function analyseBody(d: Uint8ClampedArray, W: number, H: number):
+  { rMin: Int32Array; rMax: Int32Array; bMid: number } {
+  const rMin = new Int32Array(H).fill(1 << 30);
+  const rMax = new Int32Array(H).fill(-1);
+  const bri: number[] = [];
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const i = (y * W + x) * 4;
+      if (d[i + 3] <= 8) continue;
+      const r = d[i], g = d[i + 1], b = d[i + 2];
+      if (!isBody(r, g, b)) continue;
+      if (x < rMin[y]) rMin[y] = x;
+      if (x > rMax[y]) rMax[y] = x;
+      bri.push(Math.max(r, g, b));
+    }
+  }
+  bri.sort((a, b) => a - b);
+  const bMid = bri.length ? bri[bri.length >> 1] : 247;
+  return { rMin, rMax, bMid };
+}
+
+// SHEEN tone at `c` = |x − rowCentre| / rowHalfWidth (0 centre → 1 edge). Reproduces Stee-Rex's body
+// gradient: lit centre → PEAK highlight streak → mid → dark edge. `ramp` = [shadow,dark,mid,light,peak].
+function sheen(ramp: number[][], c: number): [number, number, number] {
+  const lerp = (a: number[], b: number[], f: number): [number, number, number] =>
+    [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f];
+  const [, dk, md, lt, pk] = ramp;
+  if (c < 0.42) return lerp(lt, pk, c / 0.42);
+  if (c < 0.82) return lerp(pk, md, (c - 0.42) / 0.40);
+  return lerp(md, dk, (c - 0.82) / 0.18);
+}
+
+// Synthesize a skin bitmap: repaint the body panels with the skin's metallic sheen. The render's
+// body is a near-uniform white, so the sheen (a width-wise dark→peak→dark ramp, per row so it hugs
+// the silhouette) provides the highlights/shading; the render's fine dark detail (panel/door lines)
+// is preserved by modulating with local brightness ÷ bMid. Non-body pixels (sunset stripe, glass,
+// wheels, red lights) keep their own colour.
 function bakeSkin(skin: BlitzSkin): HTMLCanvasElement | null {
   if (!_base) return null;
-  const { data: src, W, H } = _base;
+  const { data: src, W, H, rMin, rMax, bMid } = _base;
   const cv = document.createElement('canvas');
   cv.width = W; cv.height = H;
   const c = cv.getContext('2d');
   if (!c) return null;
   const id = c.createImageData(W, H);
   const dst = id.data;
-  const [tr, tg, tb] = SKIN_TINT[skin];
-  for (let i = 0; i < src.length; i += 4) {
-    const a = src[i + 3];
-    const r = src[i], g = src[i + 1], b = src[i + 2];
-    dst[i] = r; dst[i + 1] = g; dst[i + 2] = b; dst[i + 3] = a;
-    if (a <= 8) continue;
-    if (isBody(r, g, b)) {
-      const br = Math.max(r, g, b) / 255;      // body brightness → preserves the 3D shading
-      dst[i] = Math.round(tr * br);
-      dst[i + 1] = Math.round(tg * br);
-      dst[i + 2] = Math.round(tb * br);
+  const ramp = SKIN_RAMP[skin];
+  for (let y = 0; y < H; y++) {
+    const lo = rMin[y], hi = rMax[y];
+    const cen = (lo + hi) / 2, half = Math.max(1, (hi - lo) / 2);
+    for (let x = 0; x < W; x++) {
+      const i = (y * W + x) * 4;
+      const a = src[i + 3], r = src[i], g = src[i + 1], b = src[i + 2];
+      dst[i] = r; dst[i + 1] = g; dst[i + 2] = b; dst[i + 3] = a;
+      if (a <= 8 || !isBody(r, g, b)) continue;
+      const o = sheen(ramp, Math.min(1, Math.abs(x - cen) / half));
+      const m = Math.max(0.62, Math.min(1.12, Math.max(r, g, b) / bMid));
+      dst[i] = Math.min(255, o[0] * m);
+      dst[i + 1] = Math.min(255, o[1] * m);
+      dst[i + 2] = Math.min(255, o[2] * m);
     }
   }
   c.putImageData(id, 0, 0);
