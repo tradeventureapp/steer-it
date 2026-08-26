@@ -3062,9 +3062,13 @@ const matchResultEl      = document.getElementById('match-result')       as HTML
 const matchResultBigEl   = document.getElementById('match-result-big')   as HTMLElement | null;
 const matchResultScoreEl = document.getElementById('match-result-score') as HTMLElement | null;
 const mrAgainBtn         = document.getElementById('mr-again')            as HTMLButtonElement | null;
+const mrExitBtn          = document.getElementById('mr-exit')             as HTMLButtonElement | null;
 // PLAY AGAIN on the result screen = exactly the pause-menu RESTART (restartRace's steerball branch):
-// back to the waiting room, teams unlocked, format remembered. restartRace is hoisted.
+// back to the waiting room, teams unlocked, format remembered. EXIT TO MENU = exactly the pause-menu
+// EXIT (exitToSelection): back to car/map selection, the match cleared on the next launch via
+// switchMap — same path, so no weird leftover state. Both are hoisted functions.
 mrAgainBtn?.addEventListener('click', () => restartRace());
+mrExitBtn?.addEventListener('click', () => exitToSelection());
 
 function sbChip(slot: number, color: string): string {
   return `<div class="sb-chip"><span class="sb-chip-dot" style="background:${cssColor(color)}"></span>` +
@@ -3202,7 +3206,7 @@ function updateSteerballHud(): void {
 // score in team colours; a DRAW shows "DRAW" in gold with the level score. Stays until RESTART.
 function updateMatchResult(): void {
   if (!matchResultEl) return;
-  const show = steerballMode && matchEnded;
+  const show = steerballMode && matchEnded && !menuOpen && !editorMode;
   matchResultEl.hidden = !show;
   if (!show) return;
   const draw = scoreLeft === scoreRight;
