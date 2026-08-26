@@ -14,6 +14,7 @@ import { TyreMarks } from './marks';
 import {
   getMap, listMaps, DEFAULT_MAP_ID, markClassAt, onTrackAt, setCircuitSurfaceReady,
   circuitFitDebug, arenaGoalCrossed, ARENA_GOAL_CELEBRATION_MS, arenaTeamSpawn,
+  STEERBALL_TIME_OPTIONS_MS, STEERBALL_GOAL_OPTIONS, STEERBALL_DEFAULT_FORMAT,
   rallycrossPathWorld, nearestRallycrossIndex, RALLYCROSS_PATH_LEN,
   getRallycrossDirt, setRallycrossDirt,
   type MapDefinition, type MapWorld, type MapObstacle, type Surface, type MarkClass, type ArenaGoal,
@@ -2795,6 +2796,8 @@ function restartRace() {
   // to team halves. No race/lap machinery. Keeps the picked teams; START MATCH re-locks + kicks off.
   if (steerballMode) {
     matchStarted = false;
+    matchEnded = false;                 // drop the result screen
+    updateMatchResult(); updateSteerballHud();   // hide result + scoreboard
     steerballRecolor();
     respawnArenaCars();
     resetBallToCentre();
@@ -2919,8 +2922,9 @@ let goalCelebration: { side: 'left' | 'right'; until: number; scorer: string | n
 // The slot of the last car to actually strike the ball (collideCarBall impact > 0), for scorer
 // credit. Cleared with the ball (a fresh kickoff has no toucher until struck again).
 let ballLastToucherSlot: number | null = null;
-const goalBannerEl    = document.getElementById('goal-banner')     as HTMLElement | null;
-const goalBannerSubEl = document.getElementById('goal-banner-sub') as HTMLElement | null;
+const goalBannerEl      = document.getElementById('goal-banner')       as HTMLElement | null;
+const goalBannerSubEl   = document.getElementById('goal-banner-sub')   as HTMLElement | null;
+const goalBannerScoreEl = document.getElementById('goal-banner-score') as HTMLElement | null;
 
 // ---- STEERBALL (football) — teams + a match on the arena, ALONGSIDE the existing ball/goal machinery.
 // `steerballMode` = Steerball is the chosen mode (arena forced); `matchStarted` = kicked off → teams
@@ -2938,6 +2942,44 @@ let steerballMode = false;
 let matchStarted = false;
 let localCarTeam: Team | undefined;
 let lastToucherByTeam: { left: number | null; right: number | null } = { left: null, right: null };
+
+// STEERBALL match state (host-only — NOT synced to phones, exactly like the ball). A match runs the
+// four phases: WAITING (steerballMode && !matchStarted) → PLAYING (matchStarted, no celebration) →
+// CELEBRATION (goalCelebration set — clock PAUSED) → ENDED (matchEnded — play frozen, result shown).
+// The FORMAT is chosen in the waiting room and REMEMBERED across matches (localStorage), so a rematch
+// keeps the last choice. `matchRemainingMs` counts down only in TIME mode; `matchElapsedMs` tracks
+// played time (excludes celebration) for both modes (the GOALS-mode secondary readout).
+type SteerballFormat = { kind: 'time' | 'goals'; value: number };
+const SB_FORMAT_KEY = 'steerit.steerball.format';
+let steerballFormat: SteerballFormat = loadSteerballFormat();
+let matchEnded = false;
+let scoreLeft = 0, scoreRight = 0;
+let matchRemainingMs = 0;   // TIME mode: counts down while playing; ≤0 → match ends
+let matchElapsedMs = 0;     // both modes: total played time (paused during celebration)
+
+// The chosen format persists across sessions; validated against the current option lists so a stale
+// value (an option later removed) falls back to the default rather than breaking a match.
+function loadSteerballFormat(): SteerballFormat {
+  try {
+    const raw = localStorage.getItem(SB_FORMAT_KEY);
+    if (raw) {
+      const f = JSON.parse(raw) as { kind?: unknown; value?: unknown };
+      if ((f.kind === 'time' || f.kind === 'goals') && typeof f.value === 'number') {
+        const opts = f.kind === 'time' ? STEERBALL_TIME_OPTIONS_MS : STEERBALL_GOAL_OPTIONS;
+        if (opts.includes(f.value)) return { kind: f.kind, value: f.value };
+      }
+    }
+  } catch { /* ignore malformed storage */ }
+  return { ...STEERBALL_DEFAULT_FORMAT };
+}
+function saveSteerballFormat(): void {
+  try { localStorage.setItem(SB_FORMAT_KEY, JSON.stringify(steerballFormat)); } catch { /* ignore */ }
+}
+// M:SS from ms (the match clock — whole seconds, no ms precision, big + readable across a room).
+function formatMatchClock(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
 
 // The team of a car by slot. The local keyboard car (car.local) is not in the lobby → localCarTeam;
 // every other slot reads the lobby roster.
@@ -3007,6 +3049,18 @@ const sbLeftEl   = document.getElementById('sb-left-list')    as HTMLElement | n
 const sbRightEl  = document.getElementById('sb-right-list')   as HTMLElement | null;
 const sbWaitEl   = document.getElementById('sb-unassigned')   as HTMLElement | null;
 const sbStartBtn = document.getElementById('sb-start')        as HTMLButtonElement | null;
+const sbFmtTimeEl  = document.getElementById('sb-fmt-time')  as HTMLElement | null;
+const sbFmtGoalsEl = document.getElementById('sb-fmt-goals') as HTMLElement | null;
+
+// In-play scoreboard (top-centre strip) + the final-result banner.
+const sbHudEl      = document.getElementById('steerball-hud')   as HTMLElement | null;
+const sbHudLeftEl  = document.getElementById('sb-hud-left')      as HTMLElement | null;
+const sbHudRightEl = document.getElementById('sb-hud-right')     as HTMLElement | null;
+const sbHudMainEl  = document.getElementById('sb-hud-main')      as HTMLElement | null;
+const sbHudSubEl   = document.getElementById('sb-hud-sub')       as HTMLElement | null;
+const matchResultEl      = document.getElementById('match-result')       as HTMLElement | null;
+const matchResultBigEl   = document.getElementById('match-result-big')   as HTMLElement | null;
+const matchResultScoreEl = document.getElementById('match-result-score') as HTMLElement | null;
 
 function sbChip(slot: number, color: string): string {
   return `<div class="sb-chip"><span class="sb-chip-dot" style="background:${cssColor(color)}"></span>` +
@@ -3019,6 +3073,7 @@ function renderSteerballLobby(snap: LobbyPlayer[]): void {
   const show = steerballMode && !matchStarted && !menuOpen && !editorMode;
   sbLobbyEl.hidden = !show;
   if (!show) return;
+  updateSteerballFormatButtons();   // reflect the remembered / just-picked format
   const left: string[] = [], right: string[] = [], none: string[] = [];
   for (const p of snap) (p.team === 'left' ? left : p.team === 'right' ? right : none).push(sbChip(p.slot, p.color));
   const local = cars.get(KEYBOARD_SLOT);
@@ -3041,6 +3096,12 @@ function startMatch(): void {
     localCarTeam = c.left <= c.right ? 'left' : 'right';
   }
   matchStarted = true;
+  // Fresh match: zero the score + arm the clock/target from the chosen format.
+  matchEnded = false;
+  scoreLeft = 0; scoreRight = 0;
+  matchElapsedMs = 0;
+  matchRemainingMs = steerballFormat.kind === 'time' ? steerballFormat.value : 0;
+  updateMatchResult();    // hide any lingering result banner
   steerballRecolor();
   respawnArenaCars();     // team-half kickoff positions
   resetBallToCentre();    // ball centred at rest + touchers/celebration cleared
@@ -3048,16 +3109,114 @@ function startMatch(): void {
 }
 sbStartBtn?.addEventListener('click', startMatch);
 
+// The match-format picker is BUILT from the maps.ts option lists (one source of truth). Each button
+// sets `steerballFormat`, remembers it (localStorage) and re-highlights. Teams stay editable; the
+// format can change right up to START MATCH (but not mid-match — the picker only shows in the waiting
+// room). Times shown as whole minutes; goals as the target count.
+function buildSteerballFormatButtons(): void {
+  const make = (kind: 'time' | 'goals', value: number, label: string, host: HTMLElement | null) => {
+    if (!host) return;
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'sb-fmt'; b.textContent = label;
+    b.dataset.kind = kind; b.dataset.value = String(value);
+    b.addEventListener('click', () => {
+      steerballFormat = { kind, value };
+      saveSteerballFormat();
+      updateSteerballFormatButtons();
+    });
+    host.appendChild(b);
+  };
+  for (const ms of STEERBALL_TIME_OPTIONS_MS) make('time', ms, `${Math.round(ms / 60000)}m`, sbFmtTimeEl);
+  for (const g of STEERBALL_GOAL_OPTIONS)      make('goals', g, String(g),                 sbFmtGoalsEl);
+  updateSteerballFormatButtons();
+}
+function updateSteerballFormatButtons(): void {
+  for (const el of document.querySelectorAll<HTMLElement>('.sb-fmt')) {
+    const active = el.dataset.kind === steerballFormat.kind && Number(el.dataset.value) === steerballFormat.value;
+    el.classList.toggle('is-active', active);
+  }
+}
+buildSteerballFormatButtons();
+
+// The match is OVER (the clock ran out, or a team reached the goal target). Freeze play and paint the
+// final-result banner. RESTART re-opens the waiting room (restartRace's steerball branch) for a
+// rematch with the SAME teams + remembered format.
+function endMatch(): void {
+  if (matchEnded) return;
+  matchEnded = true;
+  goalCelebration = null;   // no lingering celebration under the result screen
+  updateMatchResult();
+  updateSteerballHud();     // hide the in-play scoreboard
+}
+
 // Show/hide the GOAL banner during the celebration (arena only). Big + centred so it reads across a
 // room. Credits the SCORER (the last player to strike the ball) — "<PLAYER> SCORES" — or, if nobody
-// touched it before it went in, a neutral line rather than crediting the wrong player.
+// touched it before it went in, a neutral line rather than crediting the wrong player. In STEERBALL
+// it ALSO shows the score AFTER this goal (team-coloured, large) so the celebration says all three
+// things at once: a goal happened, who scored, and what the score is now. Free Ride (no teams) hides it.
 function updateGoalBanner(now: number): void {
   if (!goalBannerEl) return;
   const show = !!goalCelebration && now < goalCelebration.until;
   goalBannerEl.hidden = !show;
-  if (show && goalBannerSubEl) {
+  if (!show) return;
+  if (goalBannerSubEl) {
     const scorer = goalCelebration!.scorer;
     goalBannerSubEl.textContent = scorer ? `${scorer.toUpperCase()} SCORES` : 'SCORE!';
+  }
+  if (goalBannerScoreEl) {
+    goalBannerScoreEl.hidden = !steerballMode;
+    if (steerballMode) {
+      goalBannerScoreEl.innerHTML =
+        `<span class="gb-sc" style="color:${STEERBALL_TEAM_COLORS.left}">${scoreLeft}</span>` +
+        `<span class="gb-dash">–</span>` +
+        `<span class="gb-sc" style="color:${STEERBALL_TEAM_COLORS.right}">${scoreRight}</span>`;
+    }
+  }
+}
+
+// In-play scoreboard (top-centre strip): [BLUE score] · [format readout] · [ORANGE score]. The middle
+// cell is FORMAT-AWARE — TIME shows the count-down clock; GOALS shows the target ("FIRST TO N") with
+// elapsed time beneath, so which format is being played reads at a glance. Scores in team colours.
+// Shown only while a match is actively running (not in the waiting room / result / menus).
+function updateSteerballHud(): void {
+  if (!sbHudEl) return;
+  const show = steerballMode && matchStarted && !matchEnded && !menuOpen && !editorMode;
+  sbHudEl.hidden = !show;
+  if (!show) return;
+  if (sbHudLeftEl)  sbHudLeftEl.textContent  = String(scoreLeft);
+  if (sbHudRightEl) sbHudRightEl.textContent = String(scoreRight);
+  if (steerballFormat.kind === 'time') {
+    if (sbHudMainEl) sbHudMainEl.textContent = formatMatchClock(matchRemainingMs);
+    if (sbHudSubEl)  sbHudSubEl.hidden = true;
+  } else {
+    if (sbHudMainEl) sbHudMainEl.textContent = `FIRST TO ${steerballFormat.value}`;
+    if (sbHudSubEl) { sbHudSubEl.hidden = false; sbHudSubEl.textContent = formatMatchClock(matchElapsedMs); }
+  }
+}
+
+// The final-result banner (goal-banner treatment): "<TEAM> WINS" in the winning team's colour + the
+// score in team colours; a DRAW shows "DRAW" in gold with the level score. Stays until RESTART.
+function updateMatchResult(): void {
+  if (!matchResultEl) return;
+  const show = steerballMode && matchEnded;
+  matchResultEl.hidden = !show;
+  if (!show) return;
+  const draw = scoreLeft === scoreRight;
+  if (matchResultBigEl) {
+    if (draw) {
+      matchResultBigEl.textContent = 'DRAW';
+      matchResultBigEl.style.color = 'var(--gold)';
+    } else {
+      const winner: Team = scoreLeft > scoreRight ? 'left' : 'right';
+      matchResultBigEl.textContent = winner === 'left' ? 'BLUE WINS' : 'ORANGE WINS';
+      matchResultBigEl.style.color = STEERBALL_TEAM_COLORS[winner];
+    }
+  }
+  if (matchResultScoreEl) {
+    matchResultScoreEl.innerHTML =
+      `<span class="mr-sc" style="color:${STEERBALL_TEAM_COLORS.left}">${scoreLeft}</span>` +
+      `<span class="mr-dash">–</span>` +
+      `<span class="mr-sc" style="color:${STEERBALL_TEAM_COLORS.right}">${scoreRight}</span>`;
   }
 }
 
@@ -5244,10 +5403,14 @@ function frame(now: number) {
       // creep or jump the start. On GO this goes false for every car in the same frame.
       if (pendingStandingStart) { raceManager.beginCountdown(gameNow); pendingStandingStart = false; }
       const gridLocked = isRaceLive() && raceManager.locked(gameNow);
+      // STEERBALL: once the match has ended, freeze every car in place under the result banner (same
+      // pin as the race-grid hold). Phone inputs keep arriving/updating car.target (connection lifecycle
+      // untouched) — they are simply not applied until RESTART re-opens the waiting room.
+      const matchFrozen = steerballMode && matchEnded;
       let leadWallImpact = 0;   // the SOLO (lead) car's barrier-contact strength this substep (TA)
       for (const car of cars.values()) {
         const { current, target } = car;
-        if (gridLocked) {
+        if (gridLocked || matchFrozen) {
           // Ignore inputs + pin the car exactly where it was spawned.
           current.steer = current.throttle = current.brake = 0;
           current.handbrake = false;
@@ -5300,7 +5463,7 @@ function frame(now: number) {
       // On a goal, play CONTINUES: we start a celebration window (ball stays in the net, cars keep
       // driving, a banner shows) and only reset cars + ball AFTER it elapses. During the window a
       // further crossing does NOT re-trigger (the ball is already in the net).
-      if (ball) {
+      if (ball && !matchFrozen) {
         const bx0 = ball.x, by0 = ball.y;                    // pre-step position (for the swept goal test)
         stepBall(ball, FIXED_DT);
         // SWEPT goal detection: test the movement segment against the goal lines (no tunnelling even
@@ -5320,11 +5483,13 @@ function frame(now: number) {
           if (steerballMode) {
             const scoringTeam: Team = scored === 'left' ? 'right' : 'left';
             scorerSlot = lastToucherByTeam[scoringTeam];
+            // Tick the scoring team's counter (a goal in the LEFT net is a RIGHT-team goal).
+            if (scoringTeam === 'left') scoreLeft++; else scoreRight++;
           } else {
             scorerSlot = ballLastToucherSlot;
           }
           const scorer = scorerSlot !== null ? playerName(scorerSlot) : null;
-          console.info(`[arena] GOAL — ${scored} net — ${scorer ?? 'unattributed'}`);
+          console.info(`[arena] GOAL — ${scored} net — ${scorer ?? 'unattributed'} — ${scoreLeft}:${scoreRight}`);
           goalCelebration = { side: scored, until: gameNow + ARENA_GOAL_CELEBRATION_MS, scorer };
         }
         // Ball + cars keep simulating the WHOLE time (goal or not) — the ball bounces in the net.
@@ -5342,8 +5507,25 @@ function frame(now: number) {
         const wallHit = collideBallWalls(ball, world.rects, world.arcs);
         clampBallToWorld(ball, world.width, world.height);
         if (Math.max(ballHit, wallHit) > 3) fx.impact(ball.x, ball.y, Math.max(ballHit, wallHit));
-        // Celebration elapsed → kick off: cars back to their spawns, ball to the centre at rest.
-        if (goalCelebration && gameNow >= goalCelebration.until) resetArenaAfterGoal();
+        // Celebration elapsed → either END the match (GOALS mode, a team reached the target with the
+        // goal just scored) or KICK OFF (cars back to their spawns, ball to centre at rest).
+        if (goalCelebration && gameNow >= goalCelebration.until) {
+          const targetHit = steerballMode && matchStarted && steerballFormat.kind === 'goals' &&
+            (scoreLeft >= steerballFormat.value || scoreRight >= steerballFormat.value);
+          if (targetHit) { goalCelebration = null; endMatch(); }
+          else resetArenaAfterGoal();
+        }
+      }
+
+      // STEERBALL match clock — advances ONLY while actively playing: PAUSED during the goal
+      // celebration (a goal must never eat match time) and frozen once the match has ended. In TIME
+      // mode it counts down and ends the match at 0; GOALS mode just accumulates elapsed time.
+      if (steerballMode && matchStarted && !matchEnded && !goalCelebration) {
+        matchElapsedMs += FIXED_DT * 1000;
+        if (steerballFormat.kind === 'time') {
+          matchRemainingMs -= FIXED_DT * 1000;
+          if (matchRemainingMs <= 0) { matchRemainingMs = 0; endMatch(); }
+        }
       }
 
       // Per-car trails + edge wrap; race detection PER CAR (multi-car race).
@@ -5478,6 +5660,8 @@ function frame(now: number) {
   updateTimeAttackHud(gameNow);
   updateXpHud();
   updateGoalBanner(gameNow);
+  updateSteerballHud();
+  updateMatchResult();
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
@@ -6464,7 +6648,10 @@ function switchMap(id: string): boolean {
   // STEERBALL is per-map (arena only) — a map switch always drops it back to inert. applySelectedGameMode
   // re-arms it (waiting room) if the launch mode is steerball; renderSteerballLobby then hides the overlay.
   steerballMode = false; matchStarted = false; localCarTeam = undefined;
+  matchEnded = false; scoreLeft = 0; scoreRight = 0; matchElapsedMs = 0; matchRemainingMs = 0;
   if (sbLobbyEl) sbLobbyEl.hidden = true;
+  if (sbHudEl) sbHudEl.hidden = true;
+  if (matchResultEl) matchResultEl.hidden = true;
   updateReadyButton();
   document.body.classList.remove('circuit-xp');
   if (xpEndEl) xpEndEl.hidden = true;

@@ -975,6 +975,7 @@
     <div id="goal-banner" hidden>
       <div id="goal-banner-big">GOAL!</div>
       <div id="goal-banner-sub">SCORE!</div>
+      <div id="goal-banner-score" hidden></div>
     </div>
 
     <!-- STANDING START: one shared 3-2-1-GO over the grid. Screen-space HTML (like the
@@ -1011,8 +1012,29 @@
         <div class="sb-unassigned-label">No side yet</div>
         <div class="sb-list" id="sb-unassigned" hidden></div>
       </div>
+      <!-- MATCH FORMAT: the host picks TIME (minutes) or GOALS (first-to-N) before kickoff; the
+           buttons are built from the maps.ts option lists in desktop.ts. -->
+      <div id="sb-format">
+        <div class="sb-fmt-group"><span class="sb-fmt-label">MINUTES</span><span id="sb-fmt-time"></span></div>
+        <div class="sb-fmt-group"><span class="sb-fmt-label">GOALS</span><span id="sb-fmt-goals"></span></div>
+      </div>
       <button type="button" class="menu-btn primary" id="sb-start">START MATCH ▸</button>
       <div class="ready-hint">Players pick a team on their phone · unpicked players join the smaller side</div>
+    </div>
+    <!-- STEERBALL in-play scoreboard (top-centre strip): team-coloured scores flank the format
+         readout (count-down clock in TIME mode, "FIRST TO N" + elapsed in GOALS mode). Kept narrow
+         + high so it never covers the play area. Wired in desktop.ts (updateSteerballHud). -->
+    <div id="steerball-hud" hidden>
+      <span id="sb-hud-left" class="sb-hud-score">0</span>
+      <span class="sb-hud-mid"><span id="sb-hud-main">0:00</span><span id="sb-hud-sub" hidden></span></span>
+      <span id="sb-hud-right" class="sb-hud-score">0</span>
+    </div>
+    <!-- STEERBALL final result (goal-banner treatment): winner + score, or DRAW. Wired in
+         desktop.ts (updateMatchResult); RESTART re-opens the waiting room. -->
+    <div id="match-result" hidden>
+      <div id="match-result-big">BLUE WINS</div>
+      <div id="match-result-score"><span class="mr-sc">0</span><span class="mr-dash">–</span><span class="mr-sc">0</span></div>
+      <div id="match-result-hint">Press RESTART for another match</div>
     </div>
     <!-- TIME ATTACK HUD (circuit + Time Attack only): the live lap clock, the stored
          per-track best beside it, and the just-finished lap with a NEW BEST! flash.

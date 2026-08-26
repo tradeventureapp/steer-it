@@ -3868,6 +3868,15 @@ const ARENA_NET_WALL   = 0.8;   // net frame (side + back wall) thickness, m —
 // The GOAL celebration beat: after a goal, play CONTINUES (ball stays in the net, cars keep driving)
 // with an on-screen message for this long, THEN cars + ball reset. Tune the moment here.
 export const ARENA_GOAL_CELEBRATION_MS = 2000;
+// STEERBALL MATCH FORMAT — the host picks one of these in the waiting room. Two kinds of match:
+//   • TIME  — the match runs for a fixed clock (these options, in ms); whoever leads at 0:00 wins.
+//   • GOALS — first team to reach the target goal count wins (no clock limit).
+// These arrays ARE the picker (desktop.ts builds the buttons from them), so add/remove an option
+// here and the UI follows. Defaults chosen for a shared-screen party game: 2 min / first-to-5.
+export const STEERBALL_TIME_OPTIONS_MS = [120000, 300000, 600000];   // 2, 5, 10 minutes
+export const STEERBALL_GOAL_OPTIONS    = [1, 3, 5, 10];              // first-to-N goals
+export const STEERBALL_DEFAULT_FORMAT: { kind: 'time' | 'goals'; value: number } =
+  { kind: 'time', value: 120000 };
 const ARENA_LOGICAL = {
   widthM:  ARENA_INTERIOR_W + 2 * ARENA_MARGIN,   // 138.24  (153.6 → ×0.9)
   heightM: ARENA_INTERIOR_H + 2 * ARENA_MARGIN,   // 80.64   (89.6  → ×0.9)

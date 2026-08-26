@@ -399,6 +399,39 @@ not trusted). `EV` events: phone→desktop `join|color|name|leave|control`; desk
   arena's DEV-only status until arena goes public — drops in for everyone then, no code change.
   Headless-verified: lobby team state machine 19/19 (set/switch/cap-reject/auto-assign-balance/snapshot).
   tsc + build clean; phone picker, identity chip + host waiting room render-checked.
+- **STEERBALL MATCH — score counter + match timer + result (STEP 5).** Steerball is now a real match
+  with a score and an end. **Four-phase state machine (all host-only, NOT synced to phones — like the
+  ball):** WAITING (`steerballMode && !matchStarted` → waiting room) → PLAYING (`matchStarted`, no
+  celebration → clock runs, goals count) → CELEBRATION (`goalCelebration` set → **clock PAUSED**, the
+  existing STEP-4 GOAL banner) → ENDED (`matchEnded` → play frozen, result banner). **Score:**
+  `scoreLeft`/`scoreRight`, incremented in the ball fixed-step exactly where `goalCelebration` is set
+  (a goal in the LEFT net is a RIGHT-team goal). **Clock:** a per-substep block advances only in the
+  PLAYING phase (`steerballMode && matchStarted && !matchEnded && !goalCelebration`) — so a celebration
+  never eats match time — accumulating `matchElapsedMs` (both modes) and, in TIME mode, counting
+  `matchRemainingMs` down (frame-rate-independent, on `FIXED_DT` like the lap timer). **Selectable
+  FORMAT (host, waiting room, alongside START MATCH):** TIME 2/5/10 min OR GOALS first-to-1/3/5/10;
+  the picker buttons are BUILT from the maps.ts option lists `STEERBALL_TIME_OPTIONS_MS` /
+  `STEERBALL_GOAL_OPTIONS` (one source of truth, beside `ARENA_GOAL_CELEBRATION_MS`), so
+  adding/removing an option there follows into the UI. The chosen format is REMEMBERED across matches
+  in `localStorage` (`steerit.steerball.format`, validated against the current options; default
+  `STEERBALL_DEFAULT_FORMAT` = time/2 min). **End conditions:** TIME → `matchRemainingMs ≤ 0` (ends
+  mid-play); GOALS → a team reaches the target — the winning goal still plays its celebration, THEN
+  transitions to ENDED instead of kicking off (checked at celebration-end). **`endMatch()`** freezes
+  play (cars pinned in place via the same grid-hold pin, `matchFrozen` in the car loop; the ball's sim
+  block is skipped so it stops too) and shows the **final-result banner** (`#match-result`, goal-banner
+  treatment): "<TEAM> WINS" in the winning team colour + the score in team colours, or **"DRAW"** in
+  gold with the level score. **In-play scoreboard** (`#steerball-hud`, top-centre narrow strip, z under
+  the banner so it never covers the play area): team-coloured scores (blue `#4f8cf0` / orange `#ff7a44`,
+  matching `STEERBALL_TEAM_COLORS`) flank a FORMAT-AWARE middle readout — TIME shows the count-down
+  `M:SS`; GOALS shows **`FIRST TO N`** (the win condition, so the format reads at a glance) with elapsed
+  `M:SS` beneath. **Goal banner now also shows the score** after the goal (`#goal-banner-score`,
+  team-coloured `N – N`, large) so the celebration says three things at once — a goal happened, who
+  scored, and the score now (hidden in Free Ride, no teams). **Rematch:** RESTART (pause menu) →
+  `restartRace`'s steerball branch re-opens the waiting room (teams unlocked + changeable, format
+  remembered); START MATCH re-zeros score/clock. Reset on map switch too. **Free Ride arena unchanged**
+  (all new state guards on `steerballMode` → no score/timer/teams, ball as before). Still DEV-gated;
+  physics/leaderboard/ghosts/XP/TA/RACE untouched (Blitz golden 0.0e+0 intact). tsc + build clean;
+  awaits a live shared-screen feel-test.
 - **Race** — full: start/checkpoint/finish, sprint vs circuit, laps, standing grid + 3-2-1 countdown,
   **live standings** (top-left, all players, laps→progress ordered, finished-lock, throttled ~11 Hz),
   **DNF / finish-timeout**, finish feed, **podium + rematch**, per-car `RaceManager`. `playerName`
