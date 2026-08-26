@@ -28,7 +28,11 @@
 // The 8 shared body colours — SAME order + hexes as STEEREX_SKIN_COLORS (the phone
 // picker), so all four cars share the identical palette. `scrappySkinForColor`
 // (vehicles.ts) maps a picked swatch → its skin here; an unknown colour → 'white'.
-export type ScrappySkin = 'silver' | 'black' | 'blue' | 'red' | 'purple' | 'white' | 'orange' | 'yellow';
+import { metallicRampRGB } from './metallic';
+// The 8 named palette skins, PLUS any arbitrary hex (a Steerball team shade) baked from its metallic
+// ramp — so team colours recolour Scrappy's white body exactly like the named palette does.
+type ScrappySkinName = 'silver' | 'black' | 'blue' | 'red' | 'purple' | 'white' | 'orange' | 'yellow';
+export type ScrappySkin = ScrappySkinName | (string & {});
 
 // Per-skin 5-tone METALLIC RAMP [shadow, dark, mid, light, peak] — the SAME tones Stee-Rex authors
 // in its SVG skins (steerex-sprite SKIN_DEFS / metallicSkin). The old recolour was a flat multiply
@@ -37,7 +41,7 @@ export type ScrappySkin = 'silver' | 'black' | 'blue' | 'red' | 'purple' | 'whit
 // cylindrical sheen across the car's width (dark edges → bright peak streak → lit centre) from these
 // tones, so the 8 colours have the same richness/gloss as Stee-Rex. `mid` = the STEEREX_SKIN_COLORS
 // hue; the other four give the shadow→highlight range. Purely visual — physics/collision untouched.
-const SKIN_RAMP: Record<ScrappySkin, number[][]> = {
+const SKIN_RAMP: Record<ScrappySkinName, number[][]> = {
   silver: [[91,98,107],[127,135,144],[174,182,191],[199,204,210],[238,241,244]],
   black:  [[36,39,44],[52,56,63],[74,79,87],[86,91,99],[130,136,146]],
   blue:   [[15,38,71],[28,68,135],[47,108,203],[110,163,234],[216,232,255]],
@@ -183,7 +187,8 @@ function bakeSkin(skin: ScrappySkin): HTMLCanvasElement | null {
   if (!c) return null;
   const id = c.createImageData(W, H);
   const dst = id.data;
-  const ramp = SKIN_RAMP[skin];
+  // Named skin → its authored ramp; any other id → a hex (team shade), ramp synthesised.
+  const ramp = (SKIN_RAMP as Record<string, number[][] | undefined>)[skin] ?? metallicRampRGB(skin);
   for (let y = 0; y < H; y++) {
     const lo = rMin[y], hi = rMax[y];
     const cen = (lo + hi) / 2, half = Math.max(1, (hi - lo) / 2);

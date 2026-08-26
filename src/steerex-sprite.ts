@@ -17,7 +17,12 @@
 //  for both is the more-detailed Silver `#carG`.
 // =============================================================================
 
-export type SteerexSkin = 'silver' | 'black' | 'blue' | 'red' | 'purple' | 'white' | 'orange' | 'yellow';
+import { metallicTonesHex } from './metallic';
+// The 8 named palette skins, PLUS any arbitrary hex (a Steerball team shade): an unknown skin builds
+// its gradient block from the synthesised 5 metallic tones, so team colours get the SAME chrome sheen
+// as the named skins (blue reads blue, orange reads orange).
+type SteerexSkinName = 'silver' | 'black' | 'blue' | 'red' | 'purple' | 'white' | 'orange' | 'yellow';
+export type SteerexSkin = SteerexSkinName | (string & {});
 
 // Build a per-skin metallic gradient block from 5 tones ordered DARKEST→BRIGHTEST
 // (shadow < dark < mid < light < peak). This reproduces the silver skin's exact stop
@@ -46,7 +51,7 @@ export const STEEREX_RASTER = 3;                // bitmap px per SVG unit (crisp
 const VB = { x: 134, y: 176, w: 392, h: 592 };  // centre (330,472), 30-unit margin
 
 // ---- per-skin gradients (the ONLY difference between skins) ----
-const SKIN_DEFS: Record<SteerexSkin, string> = {
+const SKIN_DEFS: Record<SteerexSkinName, string> = {
   silver: `
     <linearGradient id="body" x1="196" y1="0" x2="464" y2="0" gradientUnits="userSpaceOnUse">
       <stop offset="0" stop-color="#7f8790"/><stop offset="0.1" stop-color="#aeb6bf"/><stop offset="0.3" stop-color="#eef1f4"/><stop offset="0.5" stop-color="#c7ccd2"/><stop offset="0.7" stop-color="#eef1f4"/><stop offset="0.9" stop-color="#aeb6bf"/><stop offset="1" stop-color="#7f8790"/>
@@ -173,8 +178,12 @@ const CAR_G = `
   </g>`;
 
 function svgFor(skin: SteerexSkin): string {
+  // Named palette skin → its authored gradient block; any other id → a hex (team shade) whose block
+  // is built from the synthesised metallic tones (same sheen structure via metallicSkin).
+  const def = (SKIN_DEFS as Record<string, string | undefined>)[skin]
+    ?? metallicSkin(...metallicTonesHex(skin));
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${VB.w * STEEREX_RASTER}" height="${VB.h * STEEREX_RASTER}" viewBox="${VB.x} ${VB.y} ${VB.w} ${VB.h}">`
-    + `<defs>${SKIN_DEFS[skin]}${SHARED_DEFS}</defs>${CAR_G}</svg>`;
+    + `<defs>${def}${SHARED_DEFS}</defs>${CAR_G}</svg>`;
 }
 
 const _cache = new Map<SteerexSkin, HTMLCanvasElement>();

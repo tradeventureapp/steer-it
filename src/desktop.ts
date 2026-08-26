@@ -2932,6 +2932,17 @@ const goalBannerScoreEl = document.getElementById('goal-banner-score') as HTMLEl
 // (`localCarTeam`, auto-assigned at kickoff). `lastToucherByTeam` = each side's last striker, for
 // correct goal attribution (a defender's own-net deflection credits the attacker, not the defender).
 const STEERBALL_TEAM_COLORS: Record<Team, string> = { left: '#2f6ccb', right: '#e0552a' };  // blue / orange
+// Per-team CAR colours — each side gets FOUR clearly-DIFFERENT hues (not shades of one) so a player
+// finds their own car at a glance. LEFT is the COOL family (2 blues + 2 purples), RIGHT the WARM
+// family (2 oranges + 2 yellows). Each side still reads as one team (cool vs warm) but no two cars on
+// it look alike. Assigned by the car's order within its side; cycles if a side somehow exceeds 4.
+// (The scoreboard / banner / phone chip keep the single STEERBALL_TEAM_COLORS blue/orange identity.)
+const STEERBALL_CAR_SHADES: Record<Team, string[]> = {
+  // Each pair is pushed apart in BOTH hue and lightness (one dark, one bright) so the sheen bake — which
+  // lightens + adds a highlight streak — can't collapse them into near-twins. LEFT cool, RIGHT warm.
+  left:  ['#1f3fb0', '#3fb8f0', '#6a2fb8', '#d05ce8'],   // deep navy-blue · bright cyan-blue · deep violet · bright orchid
+  right: ['#d23f16', '#ff9530', '#dba300', '#ffe64a'],   // deep red-orange · bright orange · deep gold · bright lemon
+};
 // The local keyboard car sits on a RESERVED slot OUTSIDE the lobby's [0, PLAYER_CAP) range, so it
 // NEVER collides with a phone (firstFreeSlot only hands out 0..cap-1). That lets the host drive with
 // the keyboard AS A SEPARATE CAR alongside connected phones — needed to test Steerball 1v1 (keyboard
@@ -2988,19 +2999,37 @@ function teamOfSlot(slot: number): Team | undefined {
   return lobby.snapshot().find((p) => p.slot === slot)?.team;
 }
 // Recolour every car to its TEAM colour once it has picked a side (Steerball only; a side-less car
-// keeps its current colour). Called after a team change / roster sync / kickoff.
+// keeps its current colour). Called after a team change / roster sync / kickoff. Each car on a side
+// gets a DISTINCT colour from its team palette (STEERBALL_CAR_SHADES — the cool blue/purple family
+// for LEFT, the warm orange/yellow family for RIGHT), assigned by order within the side, so no two
+// teammates look alike yet each side still reads as one team. The colour hex IS the sprite skin id,
+// so it recolours EVERY car identically: the SVG Stee-Rex builds its gradient from the colour's
+// metallic tones, the PNG cars (Blitz/Fury/Scrappy) bake the same synthesised sheen — so it works on
+// all four cars, not just Stee-Rex.
 function steerballRecolor(): void {
   if (!steerballMode) return;
-  for (const [slot, car] of cars) {
-    const t = teamOfSlot(slot);
-    if (!t) continue;
-    const desired = STEERBALL_TEAM_COLORS[t];
-    if (car.color !== desired) {
-      car.color = desired;
-      car.skidStyle = skidColorFor(desired);
-      applyVariant(car, specForColor(desired));
-    }
+  for (const team of ['left', 'right'] as const) {
+    const slots = [...cars.keys()].filter((s) => teamOfSlot(s) === team).sort((a, b) => a - b);
+    const palette = STEERBALL_CAR_SHADES[team];
+    slots.forEach((slot, i) => {
+      const car = cars.get(slot)!;
+      const shade = palette[i % palette.length];
+      if (car.color === shade && car.spec.sprite?.skin === shade) return;   // already correct
+      car.color = shade;
+      car.skidStyle = skidColorFor(shade);
+      applyVariant(car, teamSkinSpec(shade));
+    });
   }
+}
+// The spec for a Steerball car = the current car FAMILY (dims / physics / sprite kind, following the
+// mode + dev car pick exactly like specForColor / modeSpec) with its skin set to a team SHADE hex.
+// The sprite bake turns that hex into the metallic recolour, so the family is unchanged (physics
+// intact) and only the livery colour differs.
+function teamSkinSpec(shadeHex: string): VehicleSpec {
+  const base = raceMode !== 'arcade'
+    ? (furySelected() ? FURY_SPEC : ROAD_SPEC)
+    : (scrappySelected() ? SCRAPPY_SILVER : STEEREX_SILVER);
+  return { ...base, sprite: { car: base.sprite!.car, skin: shadeHex } as VehicleSpec['sprite'] };
 }
 // Respawn a car at a pose with inputs cleared (the shared kickoff/reset move; physics untouched —
 // fresh CarState + zeroed inputs, same as a normal spawn).

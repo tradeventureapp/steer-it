@@ -31,11 +31,15 @@
 // picker) so all three cars share the identical palette. `blitzSkinForColor` (vehicles.ts)
 // maps a picked swatch → its skin here; an unknown colour falls back to 'white' (the
 // iconic near-white Blitz).
-export type BlitzSkin = 'silver' | 'black' | 'blue' | 'red' | 'purple' | 'white' | 'orange' | 'yellow';
+import { metallicRampRGB } from './metallic';
+// The 8 named palette skins, PLUS any arbitrary hex string (a Steerball team shade) — an unknown
+// skin is baked from its hex via the shared metallic ramp, so team colours work like the named ones.
+type BlitzSkinName = 'silver' | 'black' | 'blue' | 'red' | 'purple' | 'white' | 'orange' | 'yellow';
+export type BlitzSkin = BlitzSkinName | (string & {});
 
 // Per-skin 5-tone METALLIC RAMP [shadow, dark, mid, light, peak] — the SAME tones Stee-Rex authors
 // (steerex-sprite SKIN_DEFS / metallicSkin), shared with Scrappy. `mid` = the STEEREX_SKIN_COLORS hue.
-const SKIN_RAMP: Record<BlitzSkin, number[][]> = {
+const SKIN_RAMP: Record<BlitzSkinName, number[][]> = {
   silver: [[91,98,107],[127,135,144],[174,182,191],[199,204,210],[238,241,244]],
   black:  [[36,39,44],[52,56,63],[74,79,87],[86,91,99],[130,136,146]],
   blue:   [[15,38,71],[28,68,135],[47,108,203],[110,163,234],[216,232,255]],
@@ -178,7 +182,9 @@ function bakeSkin(skin: BlitzSkin): HTMLCanvasElement | null {
   if (!c) return null;
   const id = c.createImageData(W, H);
   const dst = id.data;
-  const ramp = SKIN_RAMP[skin];
+  // A named palette skin uses its authored ramp; any other id is treated as a hex (team shade) and
+  // its ramp is synthesised — so every colour, named or team, bakes through the identical sheen.
+  const ramp = (SKIN_RAMP as Record<string, number[][] | undefined>)[skin] ?? metallicRampRGB(skin);
   for (let y = 0; y < H; y++) {
     const lo = rMin[y], hi = rMax[y];
     const cen = (lo + hi) / 2, half = Math.max(1, (hi - lo) / 2);

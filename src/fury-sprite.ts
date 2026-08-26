@@ -28,12 +28,16 @@
 
 // The 8 shared body colours — SAME order + hexes as STEEREX_SKIN_COLORS / BlitzSkin, so all
 // three cars answer the one phone picker. `blitzSkinForColor`'s sibling lives in vehicles.ts.
-export type FurySkin = 'silver' | 'black' | 'blue' | 'red' | 'purple' | 'white' | 'orange' | 'yellow';
+import { metallicRampRGB } from './metallic';
+// The 8 named palette skins, PLUS any arbitrary hex (a Steerball team shade) baked from its metallic
+// ramp — so team colours recolour the masked body exactly like the named palette does.
+type FurySkinName = 'silver' | 'black' | 'blue' | 'red' | 'purple' | 'white' | 'orange' | 'yellow';
+export type FurySkin = FurySkinName | (string & {});
 
 // Per-skin 5-tone METALLIC RAMP [shadow, dark, mid, light, peak] — the SAME tones Stee-Rex authors,
 // shared with Blitz/Scrappy. Fury's body render is mostly bright too, so a flat multiply washed it
 // out; instead the MASKED body is repainted with a synthesised sheen from these (see bakeSkin).
-const SKIN_RAMP: Record<FurySkin, number[][]> = {
+const SKIN_RAMP: Record<FurySkinName, number[][]> = {
   silver: [[91,98,107],[127,135,144],[174,182,191],[199,204,210],[238,241,244]],
   black:  [[36,39,44],[52,56,63],[74,79,87],[86,91,99],[130,136,146]],
   blue:   [[15,38,71],[28,68,135],[47,108,203],[110,163,234],[216,232,255]],
@@ -193,7 +197,8 @@ function bakeSkin(skin: FurySkin): HTMLCanvasElement | null {
   if (!c) return null;
   const id = c.createImageData(W, H);
   const dst = id.data;
-  const ramp = SKIN_RAMP[skin];
+  // Named skin → its authored ramp; any other id → a hex (team shade), ramp synthesised.
+  const ramp = (SKIN_RAMP as Record<string, number[][] | undefined>)[skin] ?? metallicRampRGB(skin);
   for (let y = 0; y < H; y++) {
     const lo = rMin[y], hi = rMax[y];
     const cen = (lo + hi) / 2, half = Math.max(1, (hi - lo) / 2);

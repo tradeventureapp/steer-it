@@ -432,6 +432,24 @@ not trusted). `EV` events: phone→desktop `join|color|name|leave|control`; desk
   (all new state guards on `steerballMode` → no score/timer/teams, ball as before). Still DEV-gated;
   physics/leaderboard/ghosts/XP/TA/RACE untouched (Blitz golden 0.0e+0 intact). tsc + build clean;
   awaits a live shared-screen feel-test.
+- **STEERBALL TEAM COLOURS — work on ALL FOUR cars + distinct per teammate.** The team recolour used
+  to `specForColor(teamHex)` → EXACT-match the 8-hue palette → a named skin (unknown → default), so
+  only hexes that happened to equal a palette swatch worked and every teammate got the identical skin.
+  Fixed at the sprite layer: **`src/metallic.ts`** synthesises the 5-tone metallic RAMP `[shadow,dark,
+  mid,light,peak]` from ANY hex (keeps hue + saturation, steps lightness — matching the hand-authored
+  named ramps), and each sprite module now bakes an UNKNOWN skin id from its hex (`SKIN_RAMP[name] ??
+  metallicRampRGB(hex)` for the PNG cars Blitz/Fury/Scrappy; `SKIN_DEFS[name] ?? metallicSkin(...
+  metallicTonesHex(hex))` for the SVG Stee-Rex). The skin type widened to `…named… | (string & {})`
+  so a hex is a valid skin id (cached per hex like the named skins). So a team colour recolours EVERY
+  car through its own path — blue reads blue, orange reads orange on all four, not just Stee-Rex.
+  **Per-team CAR palette** (`STEERBALL_CAR_SHADES` in desktop.ts, distinct from the single-hue UI
+  `STEERBALL_TEAM_COLORS`): each side gets FOUR clearly-different colours (not shades of one) so a
+  player finds their own car — LEFT cool `[navy, cyan-blue, violet, orchid]`, RIGHT warm `[red-orange,
+  orange, gold, lemon]`, each pair pushed apart in BOTH hue and lightness (one dark, one bright) so the
+  brightening sheen can't collapse them. Assigned by order within the side (`steerballRecolor` →
+  `teamSkinSpec(shadeHex)` = the mode's car family with `sprite.skin` set to the colour hex). Physics
+  untouched (family spec's dims/phys kept; recolour is render-only; Blitz golden 0.0e+0). Verified by
+  rendering all 4 cars × 8 team colours through the real bakes. tsc + build clean.
 - **Race** — full: start/checkpoint/finish, sprint vs circuit, laps, standing grid + 3-2-1 countdown,
   **live standings** (top-left, all players, laps→progress ordered, finished-lock, throttled ~11 Hz),
   **DNF / finish-timeout**, finish feed, **podium + rematch**, per-car `RaceManager`. `playerName`
