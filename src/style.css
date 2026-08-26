@@ -2382,15 +2382,28 @@ body.desktop.editing #game { cursor: crosshair; }
 /* ---- STEERBALL host waiting room (arena · Steerball, before kickoff) ---- */
 #steerball-lobby {
   position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-  z-index: 46; pointer-events: none; text-align: center;
-  display: flex; flex-direction: column; align-items: center; gap: clamp(12px, 2.4vh, 26px);
+  z-index: 46; pointer-events: auto; text-align: center;
+  display: flex; flex-direction: column; align-items: center; gap: clamp(10px, 2.2vh, 24px);
   width: min(92vw, 900px);
-  padding: clamp(18px, 3vh, 34px) clamp(20px, 4vw, 48px);
+  /* Scroll-safe: never taller than the viewport, so on a short screen the whole panel (format
+     buttons + START MATCH included) stays reachable by scrolling INSIDE the panel instead of being
+     clipped off the top/bottom by the centring transform. */
+  max-height: calc(100vh - 20px);
+  max-height: calc(100dvh - 20px);
+  overflow-y: auto; overscroll-behavior: contain;
+  padding: clamp(14px, 2.6vh, 32px) clamp(20px, 4vw, 48px);
   border-radius: 22px;
   background: rgba(10, 5, 24, 0.82); backdrop-filter: blur(8px);
   border: 1px solid rgba(255, 45, 149, 0.28);
   box-shadow: 0 0 40px rgba(255, 45, 149, 0.2), inset 0 0 60px rgba(255, 138, 61, 0.05);
-  animation: readyIn 0.25s ease-out both;
+  /* Own intro keyframe: the shared readyIn ends at translateX(-50%) translateY(0), which would
+     override this panel's translate(-50%, -50%) centring (animation wins over the base transform)
+     and pin the top at mid-screen — pushing START MATCH off the bottom. sbLobbyIn keeps the -50% Y. */
+  animation: sbLobbyIn 0.25s ease-out both;
+}
+@keyframes sbLobbyIn {
+  from { opacity: 0; transform: translate(-50%, -50%) translateY(-10px); }
+  to   { opacity: 1; transform: translate(-50%, -50%); }
 }
 #sb-title {
   font-family: var(--font-display); font-weight: 900;
@@ -2518,13 +2531,15 @@ body.desktop #match-result {
   animation: goalSubIn 0.45s ease-out both;
 }
 #match-result-score .mr-dash { color: rgba(255, 255, 255, 0.75); margin: 0 0.15em; }
-#match-result-hint {
-  margin-top: 14px; font-family: var(--font-body); font-weight: 600;
-  font-size: clamp(12px, 1.6vw, 18px); letter-spacing: 3px; text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.6);
+#mr-again {
+  display: inline-block; margin-top: clamp(18px, 3vh, 30px);
+  pointer-events: auto; font-size: 15px; letter-spacing: 3px; padding: 13px 34px;
+  box-shadow: 0 0 18px rgba(255, 45, 149, 0.55), 0 6px 18px rgba(0, 0, 0, 0.45);
+  animation: readyPulse 1.8s ease-in-out infinite;
 }
 @media (prefers-reduced-motion: reduce) {
   #match-result-big, #match-result-score { animation: none; }
+  #mr-again { animation: none; }
 }
 
 #xp-hud {

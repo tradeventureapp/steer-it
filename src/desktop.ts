@@ -3061,6 +3061,10 @@ const sbHudSubEl   = document.getElementById('sb-hud-sub')       as HTMLElement 
 const matchResultEl      = document.getElementById('match-result')       as HTMLElement | null;
 const matchResultBigEl   = document.getElementById('match-result-big')   as HTMLElement | null;
 const matchResultScoreEl = document.getElementById('match-result-score') as HTMLElement | null;
+const mrAgainBtn         = document.getElementById('mr-again')            as HTMLButtonElement | null;
+// PLAY AGAIN on the result screen = exactly the pause-menu RESTART (restartRace's steerball branch):
+// back to the waiting room, teams unlocked, format remembered. restartRace is hoisted.
+mrAgainBtn?.addEventListener('click', () => restartRace());
 
 function sbChip(slot: number, color: string): string {
   return `<div class="sb-chip"><span class="sb-chip-dot" style="background:${cssColor(color)}"></span>` +
