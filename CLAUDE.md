@@ -1247,6 +1247,45 @@ beginner who enters a corner too fast pushes WIDE (understeer) instead of snappi
   FWD (driveSplitFront 1.0) stable. **Blitz golden 0.0e+0 UNTOUCHED** (new arcade spec; no change to
   `physics4.ts`/`PHYS4`/any existing car). Physics awaits the phone feel-test + tuning.
 
+### Volt R — DEV-ONLY WIP: the FAST-FRIENDLY MIDDLE arcade car (AWD front-biased)
+An all-wheel-drive sport hatchback (modern Golf R silhouette; public name "Volt R"). **DEV-ONLY** for
+now (gated by `isDev()` in `modeCars` — only the dev host sees it in the ARCADE car list, slotted
+BETWEEN Scrappy GT and Stee-Rex; `preloadVolt` is likewise `isDev`-gated so its ~1 MB PNG never loads
+for a normal player). Sprite `public/VoltR.png` (renamed from the delivered "Volt R.png"). The whole
+point: **quicker than Scrappy, far easier than Stee-Rex — but, by design, SLOWER around a lap than
+Stee-Rex/the sim cars in good hands** (the "easy must cost something" balance).
+- **Added end-to-end via the Scrappy pattern:** `src/volt-sprite.ts` (a near-copy of scrappy-sprite —
+  same flood-fill + `isBody` + metallic SHEEN bake, `SRC '/VoltR.png'`, no cache-bust needed on a
+  fresh filename); `VOLT_DIMS`/`VOLT_ARCADE`/`VOLT_SPECS`/`voltSkinForColor`/`VOLT_SILVER` in
+  `vehicles.ts` (+`{car:'volt';skin:VoltSkin}` in the sprite union); `voltSelected()`, `VOLT_MENU_CAR`,
+  `drawVolt`+dispatch, `drawVoltImage` flyout, the `specForColor`/`modeSpec`/`teamSkinSpec` arcade
+  branches, and `LB_CAR_KEYS`/`LB_CAR_DISPLAY` (`volt`) in `desktop.ts`. **8-colour metallic recolour +
+  Steerball team colours work automatically** (the widened `VoltSkin = …named… | (string & {})` + the
+  shared `metallicRampRGB` hex path — same as the other PNG cars); verified by rendering all 8 palette
+  colours + team blue/orange through the real bake.
+- **DIMENSIONS — WIDTH-anchored, measured to agree with the sprite** (`VOLT_DIMS`). Measured the sprite
+  the game's way (near-black flood-fill → opaque bbox): **564 wide × 1342 long ⇒ aspect 2.3794** (the
+  brief's 2.381; 0.07 % off). Anchored on `widthM 1.802` ⇒ **`lengthM 4.288`** (= 1.802 × 2.3794; the
+  real Golf R length — the brief's 4.29 corrected to 4.288 so dims + sprite agree EXACTLY, else the
+  drawn car wouldn't fill its collision box). `wheelbaseM 2.63` (real; physics `wheelbase` = this),
+  `bodyWidthM 1.64` (proportional).
+- **HANDLING (`VOLT_ARCADE`, arcade branch) — the middle.** `driveSplitFront 0.6` (AWD, FRONT-biased —
+  4Motion sends torque rearward only when needed → pushes WIDE, never snaps; between Scrappy pure-FWD
+  1.0 and Stee-Rex rear-bias 0.4), `massKg 1150`, `enginePower 245000` (245 kW / 333 hp),
+  `peakThrust 16000`, `arcadeTopSpeed 250 km/h`, `weightDistFront 0.58`, `maxSteer 0.48`, `muNom 1.90`
+  (wild-car grip level; Scrappy the planted beginner is 2.0), `tireC 1.25`, `loadTransfer Lat/Long
+  0.55/0.75`, `brakeForce 15500`/`brakeBiasFront 0.62`, `arcadeHbLatGrip 0.6`. **ALL drift-provocation
+  knobs OMITTED** (like Scrappy) → no rotation aid.
+- **THE TRADE-OFF (how "easy costs something"), measured (harness, Volt vs Scrappy vs Stee-Rex):**
+  0-100 **2.94 / 3.48 / 1.77 s**, top **237 / 219 / 300 km/h**, peak |β| in a hard corner **4.4° / 7.3°
+  / 179.9°**. So Volt is **markedly faster than Scrappy** (accel + top) and **understeers** (holds, like
+  Scrappy) instead of spinning — yet **laps slower than Stee-Rex** because it **CAN'T ROTATE** (front-
+  bias AWD + no drift knobs → it pushes wide, can't carry Stee-Rex's mid-corner/exit speed) and has less
+  power + a lower top. Three independent levers: (1) straight-line pace below the wild cars, (2) no
+  rotation, (3) grip at the wild-car level (not above). **Blitz golden 0.0e+0 UNTOUCHED** (new arcade
+  spec + new sprite; no change to `physics4.ts`/`PHYS4`/any existing car). Physics awaits the phone
+  feel-test. **Release = drop the `isDev()` gates in `modeCars` + the `preloadVolt` call.**
+
 ---
 
 ## 14. PHYSICS FOUNDATION — physics4.ts (the per-wheel model)

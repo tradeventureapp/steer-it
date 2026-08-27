@@ -152,6 +152,7 @@ import type { SteerexSkin } from './steerex-sprite';
 import type { FurySkin } from './fury-sprite';
 import type { BlitzSkin } from './blitz-sprite';
 import type { ScrappySkin } from './scrappy-sprite';
+import type { VoltSkin } from './volt-sprite';
 import type { Physics4Params } from './physics4';
 
 // A vehicle's REAL-WORLD dimensions (metres). The source of truth for how big the car
@@ -190,7 +191,8 @@ export interface VehicleSpec {
   // drawCar blits the cached bitmap; the slot colour / livery are ignored (the skin
   // is a fixed design). VISUAL ONLY — the physics still uses the global PHYS4.
   sprite?: { car: 'steerex'; skin: SteerexSkin } | { car: 'fury'; skin: FurySkin }
-    | { car: 'blitz'; skin: BlitzSkin } | { car: 'scrappy'; skin: ScrappySkin };
+    | { car: 'blitz'; skin: BlitzSkin } | { car: 'scrappy'; skin: ScrappySkin }
+    | { car: 'volt'; skin: VoltSkin };
 }
 
 // ROAD — the base Blitz RS (grippy asphalt Sport-class coupe). NO physics overrides →
@@ -579,6 +581,106 @@ export function scrappySkinForColor(hex: string): ScrappySkin {
   const h = hex.trim().toLowerCase();
   const i = STEEREX_SKIN_COLORS.findIndex((c) => c.hex.toLowerCase() === h);
   return i >= 0 ? SCRAPPY_SKINS[i] : 'silver';
+}
+
+// ---- VOLT R — DEV-ONLY WIP: the FAST-FRIENDLY MIDDLE arcade car ----------------
+// An all-wheel-drive sport hatchback (a modern Golf R silhouette; public name "Volt R").
+// GATED to the dev host in desktop.ts (isDev, like Scrappy was at first) — never selectable
+// or visible for a normal user until released. ARCADE section, sitting BETWEEN Scrappy GT and
+// Stee-Rex: markedly quicker than Scrappy, far easier than Stee-Rex — but, by design, SLOWER
+// around a lap than Stee-Rex/the sim cars in good hands (see the tune below).
+//
+// DIMENSIONS — WIDTH-anchored (the draw path scales opaque WIDTH → widthM, length follows the sprite
+// aspect), so lengthM:widthM MUST equal the sprite's opaque aspect or the drawn car won't fill its
+// collision box. Measured opaque bbox of public/VoltR.png after the game's near-black flood-fill =
+// 564 wide × 1342 long ⇒ aspect 2.3794. Anchored on widthM 1.802 ⇒ lengthM = 1.802 × 2.3794 = 4.288
+// (the real Golf R length; the brief's 4.29 corrected to 4.288 so dims + sprite agree exactly).
+// Wheelbase = 2.63 m (real; physics wheelbase is set equal to dims.wheelbaseM). bodyWidthM 1.64 is
+// proportional to Scrappy's body/opaque ratio.
+export const VOLT_DIMS: VehicleDims = {
+  lengthM: 4.288, widthM: 1.802, wheelbaseM: 2.63, bodyWidthM: 1.64,
+};
+// VOLT R arcade tune — the FAST-FRIENDLY MIDDLE. Between Scrappy (pure-FWD beginner) and Stee-Rex
+// (wild AWD). The trade-off "easy must cost something" is built from THREE independent levers:
+//   (1) STRAIGHT-LINE: 245 kW / 1150 kg = 290 hp/tonne + 250 km/h top — clearly quicker than Scrappy
+//       (241 hp/t, 220), well below Stee-Rex (992 hp/t, 300) and the sim cars.
+//   (2) CAN'T ROTATE: AWD with a FRONT bias (0.6) + front weight + ALL drift-provocation knobs
+//       OMITTED (like Scrappy) → it UNDERSTEERS (pushes wide), you can't provoke it into a
+//       rotation. Stee-Rex's arcade drift/yaw/assist knobs let a skilled driver rotate + carry
+//       more mid-corner/exit speed; the sim cars rotate on RWD. Volt can't → wider lines, more
+//       braking → SLOWER lap despite the grip.
+//   (3) GRIP CEILING: muNom 1.85 sits just UNDER Stee-Rex/sim (1.90), so even its peak lateral g is
+//       a touch lower.
+// Net: fast + forgiving, but a good driver laps it slower than Stee-Rex — the friendly middle option.
+const VOLT_ARCADE: Partial<Physics4Params> = {
+  // --- geometry + mass + AWD (front-biased) ---
+  wheelbase: 2.63,         // m — real Golf R (= VOLT_DIMS.wheelbaseM)
+  trackWidth: 1.55,        // m — wider than Scrappy (1.50), narrower than Stee-Rex (1.74): planted hatch
+  massKg: 1150,            // kg (brief) — heavier than Scrappy (1080), lighter than Fury (1100 is sim)
+  driveSplitFront: 0.6,    // AWD, 60% front / 40% rear. The Golf R's 4Motion is front-based, sending
+                           // torque rearward only when needed → the car pushes WIDE rather than
+                           // snapping into oversteer. More neutral than Scrappy's pure FWD (1.0), still
+                           // front-biased for approachability (Stee-Rex is rear-biased 0.4).
+  weightDistFront: 0.58,   // front-heavy (transverse engine) but less than Scrappy (0.62) — the AWD
+                           // rear axle lets it be a touch more balanced while staying stable.
+  maxSteer: 0.48,          // ~27° lock — between Scrappy (0.46) and Stee-Rex (0.52). Calm turn-in,
+                           // unbothered by a clumsy input / sudden phone tilt.
+  // --- tyres: grippy + forgiving (a proper sports hatch, clearly a step up from Scrappy) ---
+  muNom: 1.90,             // peak grip at the wild-car level (Stee-Rex/sim 1.90; Scrappy the planted
+                           // beginner is 2.0) → grippy + planted. The lap-time cost vs Stee-Rex is NOT
+                           // grip — it's that Volt CAN'T ROTATE (front-bias AWD + no drift knobs) and
+                           // has less power/top, so it can't carry Stee-Rex's mid-corner/exit speed.
+  tireB: 8,                // broad, planted lateral build-up (universal-tyre feel).
+  tireC: 1.25,             // between Scrappy (1.2) and Stee-Rex (1.30) — washes out softly, won't snap.
+  tireEllipseLong: 1.3,    // throttle keeps corner-exit lateral grip (matters for the driven axles).
+  loadSensitivity: 0.06,   // grip holds under load transfer → planted, undramatic.
+  // --- weight transfer: calm → stable, forgiving ---
+  loadTransferLatGain: 0.55,   // between Scrappy (0.5) and Stee-Rex (0.6) — outer tyres don't overload fast.
+  loadTransferLongGain: 0.75,  // damps rear-unload under lift/brake (Scrappy 0.7 / Stee-Rex 0.8) → kills
+                               // lift-off oversteer = forgiving under panic-lift.
+  // per-surface μ — a ROAD car: strong on tarmac, weaker (not lethal) off it (same as Scrappy).
+  tire: { muScale: { asphalt: 1.0, grass: 0.5, gravel: 0.55, dirt: 0.65 } },
+  // --- power + top speed: markedly quicker than Scrappy, nowhere near the wild cars ---
+  enginePower: 245000,     // 245 kW ≈ 333 hp (brief). AWD puts it down cleanly (no FWD wheelspin plough).
+  peakThrust: 16000,       // N low-speed drive — more punch than Scrappy (13000), AWD traction copes;
+                           // far below Stee-Rex (31000).
+  arcadeTopSpeed: 250 / 3.6,  // 250 km/h limiter — above Scrappy (220), below Stee-Rex (300).
+  // --- brakes: strong + STABLE (front-biased, no trail-brake oversteer) ---
+  brakeForce: 15500,       // N — strong, confident stops.
+  brakeBiasFront: 0.62,    // front-biased → braking keeps the rear planted. arcadeBrakeTransfer OMITTED.
+  // --- handbrake: mild, controllable (a little more playful than Scrappy, nowhere near Stee-Rex) ---
+  arcadeHbLatGrip: 0.6,    // rear keeps 60% cornering grip under handbrake (Scrappy 0.7 / Stee-Rex 0.50).
+  arcadeHbBrake: 0.3,      // moderate handbrake braking.
+  // ALL drift-provocation knobs (arcadeDriftGrip / arcadeThrottleCut / arcadeThrottleGrip /
+  // arcadeThrottleYaw / arcadeDriftAssist / arcadeBrakeTransfer / arcadeBrakeStability) are OMITTED —
+  // they default OFF, so there is NO self-sustaining drift, no power-break-loose, no rotation aid.
+  // This is the core of "can't rotate → slower lap than Stee-Rex" while staying easy to drive.
+};
+// Every Volt R skin is the SAME arcade car — only the sprite skin + display name differ.
+const VOLT_SKIN_NAMES: Record<VoltSkin, string> = {
+  silver: 'Volt R Silver', black: 'Volt R Graphite', blue: 'Volt R Blue', red: 'Volt R Red',
+  purple: 'Volt R Purple', white: 'Volt R White', orange: 'Volt R Orange', yellow: 'Volt R Yellow',
+};
+const VOLT_SKINS: VoltSkin[] = ['silver', 'black', 'blue', 'red', 'purple', 'white', 'orange', 'yellow'];
+function voltSpec(skin: VoltSkin): VehicleSpec {
+  return {
+    name: VOLT_SKIN_NAMES[skin], overrides: {}, dims: VOLT_DIMS,
+    branch: 'arcade', arcade: VOLT_ARCADE,
+    fxScale: 1.0,                // a road car → a modest off-road throw (like Scrappy)
+    sprite: { car: 'volt', skin },
+  };
+}
+export const VOLT_SPECS: Record<VoltSkin, VehicleSpec> = {
+  silver: voltSpec('silver'), black: voltSpec('black'), blue: voltSpec('blue'),
+  red: voltSpec('red'), purple: voltSpec('purple'), white: voltSpec('white'),
+  orange: voltSpec('orange'), yellow: voltSpec('yellow'),
+};
+export const VOLT_SILVER = VOLT_SPECS.silver;   // kept for modeSpec / the car-tile preview
+/** The Volt skin a picked swatch hex resolves to (unknown → 'silver'). */
+export function voltSkinForColor(hex: string): VoltSkin {
+  const h = hex.trim().toLowerCase();
+  const i = STEEREX_SKIN_COLORS.findIndex((c) => c.hex.toLowerCase() === h);
+  return i >= 0 ? VOLT_SKINS[i] : 'silver';
 }
 
 export const VEHICLE_SPECS: VehicleSpec[] = [ROAD_SPEC, STEEREX_SILVER, STEEREX_BLACK];
