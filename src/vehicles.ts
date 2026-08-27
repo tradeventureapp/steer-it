@@ -682,13 +682,13 @@ export function voltSkinForColor(hex: string): VoltSkin {
   return i >= 0 ? VOLT_SKINS[i] : 'silver';
 }
 
-// ---- VOLT R (SIM) — DEV-ONLY WIP: the APPROACHABLE sim car -----------------------
+// ---- VOLT R (SIM) — PREMIUM: the APPROACHABLE sim car ---------------------------
 // The SAME car as the arcade Volt R (same sprite/recolour module + VOLT_DIMS) but a SEPARATE entry
 // in the SIM section, running the honest per-wheel model (branch:'sim' + a `phys4` override, exactly
 // like the Fury) — NO arcade assists. Positioned as the MOST APPROACHABLE of the three sim cars (the
 // one to learn the sim model on): Blitz RS is RWD/raw, Fury is an AWD rallycross machine; the sim Volt
-// is a fast, planted road car that UNDERSTEERS rather than biting. DEV-ONLY for now (isDev-gated in
-// desktop.ts modeCars); in the SIM section it also inherits the premium sim lock like Blitz/Fury.
+// is a fast, planted road car that UNDERSTEERS rather than biting. Premium like Blitz/Fury (SIM section
+// inherits the sim lock).
 // Real anchor: modern Golf R — 245 kW / 333 hp, ~1150 kg, front-based 4Motion AWD.
 // VOLT_SIM_PHYS4 lists ONLY the fields that DIFFER from PHYS4 (the Blitz sim); the rest are inherited,
 // so it shares the same honest model and Blitz's golden 0.0e+0 is untouched (Blitz has no phys4).

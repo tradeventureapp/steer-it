@@ -535,7 +535,7 @@ function furySelected(): boolean { return selectedCarKey === 'fury'; }
 function scrappySelected(): boolean { return selectedCarKey === 'scrappy'; }
 // Is the Volt R the current ARCADE-car selection? (Public + free — the fast-friendly middle car.)
 function voltSelected(): boolean { return selectedCarKey === 'volt'; }
-// Is the Volt R (SIM) the current SIM-car selection? (DEV-ONLY WIP — the approachable sim car.)
+// Is the Volt R (SIM) the current SIM-car selection? (Premium SIM car — the approachable one.)
 function voltSimSelected(): boolean { return selectedCarKey === 'voltsim'; }
 
 // ---- GAME MODES (RACE / XP …) — the in-game mode picked on the CAR & MAP screen.
@@ -1577,10 +1577,10 @@ const VOLT_MENU_CAR: MenuCar = {
   blurb: 'A fast, all-wheel-drive sport hatch. Quick, planted and forgiving - it pushes '
     + 'wide, never bites. The friendly step up from Scrappy, not the sharpest tool.',
 };
-// The Volt R (SIM) car tile — DEV-ONLY WIP. Same real car as the arcade Volt R (shared sprite), but
-// tuned as the MOST APPROACHABLE sim car (branch:'sim' + phys4). 0-100 / top confirmed by the harness
-// at build time; DRIVE = AWD front-biased. Display name is plain "Volt R" (the ARCADE/SIM section
-// tells it apart in car-select; the leaderboard shows "Volt R (Sim)").
+// The Volt R (SIM) car tile — PREMIUM (like Blitz/Fury). Same real car as the arcade Volt R (shared
+// sprite), but tuned as the MOST APPROACHABLE sim car (branch:'sim' + phys4). 0-100 / top confirmed by
+// the harness; DRIVE = AWD front-biased. Display name is plain "Volt R" (the ARCADE/SIM section tells
+// it apart in car-select; the leaderboard shows "Volt R (Sim)").
 const VOLT_SIM_MENU_CAR: MenuCar = {
   key: 'voltsim', name: 'Volt R', voltImage: true,
   specs: [
@@ -1657,9 +1657,9 @@ function modeCars(mode: RaceMode): MenuCar[] {
     blurb: '90s European touring car. Group A pedigree - raw, rear-driven, unforgiving. '
       + 'Brilliant on asphalt, a struggle anywhere else.',
   }];
-  // The Volt R (SIM) — DEV-ONLY WIP — slots BETWEEN Blitz and Fury as the approachable sim car.
-  if (isDev()) sim.push(VOLT_SIM_MENU_CAR);
-  // The Fury 200 EVO joins the SIM car list next to the Blitz RS. Both are SIM cars, so they sit
+  // The Volt R (SIM) — the approachable sim car — slots BETWEEN Blitz and Fury.
+  sim.push(VOLT_SIM_MENU_CAR);
+  // The Fury 200 EVO joins the SIM car list next to the Blitz RS. All three are SIM cars, so they sit
   // behind the same PREMIUM gate as SIM mode (isSimLocked) — a free host sees the SIM tiles locked
   // and gets upsold; a premium host can pick them.
   sim.push(FURY_MENU_CAR);
@@ -1780,7 +1780,7 @@ function buildCarTiles() {
   // Scrappy GT is the default arcade car → warm its sprite the moment the ARCADE car list is built
   // (lazy: only when a player actually reaches car selection, never on the bare landing page).
   if (raceMode === 'arcade') { preloadVolt(); preloadScrappy(); }   // Volt is the default → warm it first
-  else if (isDev()) preloadVolt();   // SIM: warm the dev-only Volt R (Sim) sprite (shared with arcade)
+  else preloadVolt();   // SIM: warm the Volt R (Sim) sprite (shared with the arcade Volt)
   for (const car of cars) {
     const card = document.createElement('div');
     card.className = 'map-tile car-card';

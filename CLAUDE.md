@@ -25,8 +25,8 @@ URL; `steer-it.vercel.app` also serves it, `noindex`ed). **Business model is LIV
 play + a one-time **$6.90 Premium** (Stripe, real payments — see §6). Cars: **Blitz RS** and
 **Fury 200 EVO** (SIM, both premium), and three ARCADE cars (all free): **Volt R** (fast-friendly AWD
 hatch — the DEFAULT car a new player starts on), **Scrappy GT** (forgiving FWD beginner car) and
-**Stee-Rex** (the wilder one). A **Volt R (Sim)** — the same car tuned as an approachable SIM car —
-exists dev-only (WIP; §13). All share ONE 8-colour palette picked on the phone (§13).
+**Stee-Rex** (the wilder one). A third SIM car, **Volt R (Sim)** — the same car tuned as an
+approachable premium SIM car — sits alongside them (§13). All share ONE 8-colour palette picked on the phone (§13).
 
 ---
 
@@ -1289,7 +1289,7 @@ must cost something" balance).
   spec + new sprite; no change to `physics4.ts`/`PHYS4`/any existing car). Physics awaits the phone
   feel-test + tuning.
 
-### Volt R (Sim) — DEV-ONLY WIP: the APPROACHABLE sim car
+### Volt R (Sim) — PREMIUM: the APPROACHABLE sim car
 The SAME car as the arcade Volt R — **reuses the sprite + recolour module** (`volt-sprite.ts` /
 `VoltR.png`) and **`VOLT_DIMS`** (4.288 × 1.802, wheelbase 2.63), so NO new artwork — but a SEPARATE
 entry in the SIM section running the honest per-wheel model (`branch:'sim'` + a **`phys4` override**,
@@ -1318,9 +1318,9 @@ sim Volt is a fast, planted road car that **understeers rather than bites**.
   1.16 g**. So the sim Volt is the **slowest-accelerating + lowest-top** (least intimidating) and
   **understeers** (pushes wide) where Fury spins and Blitz's RWD tail can step out — a genuine sim car
   (honest model, no assists), just the friendliest of the three. **Blitz golden 0.0e+0 UNTOUCHED** (new
-  `phys4` spec; Blitz has no `phys4`, arcade Volt/Stee-Rex/Fury/Scrappy unchanged). DEV-ONLY for now
-  (`isDev()` in `modeCars`; in the SIM section it also inherits the premium `isSimLocked`). Release =
-  drop the `isDev()` gate in the SIM `modeCars` branch + the SIM `preloadVolt`. Physics awaits the phone
+  `phys4` spec; Blitz has no `phys4`, arcade Volt/Stee-Rex/Fury/Scrappy unchanged). **PUBLIC PREMIUM**
+  (the dev `isDev()` gates were dropped on release; the SIM list is now `[Blitz, Volt Sim, Fury]` for
+  everyone, all behind the premium `isSimLocked` like the other SIM cars). Physics awaits the phone
   feel-test.
 
 ---
