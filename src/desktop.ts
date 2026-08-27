@@ -35,7 +35,8 @@ import {
 import { ROAD_SPEC, STEEREX_SILVER, STEEREX_SPECS, steerexSkinForColor, BLITZ_SPECS, blitzSkinForColor,
   BLITZ_RS_COLORS, FURY_SPEC, FURY_SPECS, furySkinForColor,
   SCRAPPY_SILVER, SCRAPPY_SPECS, scrappySkinForColor,
-  VOLT_SILVER, VOLT_SPECS, voltSkinForColor, type VehicleSpec, type CarColor } from './vehicles';
+  VOLT_SILVER, VOLT_SPECS, voltSkinForColor,
+  VOLT_SIM_SILVER, VOLT_SIM_SPECS, type VehicleSpec, type CarColor } from './vehicles';
 import { steerexSprite, steerexScaled, steerexOpaque, preloadSteerex, type SteerexSkin } from './steerex-sprite';
 import { furySprite, furyScaled, furyOpaque, preloadFury, type FurySkin } from './fury-sprite';
 import { blitzSprite, blitzScaled, blitzOpaque, preloadBlitz, type BlitzSkin } from './blitz-sprite';
@@ -534,6 +535,8 @@ function furySelected(): boolean { return selectedCarKey === 'fury'; }
 function scrappySelected(): boolean { return selectedCarKey === 'scrappy'; }
 // Is the Volt R the current ARCADE-car selection? (Public + free — the fast-friendly middle car.)
 function voltSelected(): boolean { return selectedCarKey === 'volt'; }
+// Is the Volt R (SIM) the current SIM-car selection? (DEV-ONLY WIP — the approachable sim car.)
+function voltSimSelected(): boolean { return selectedCarKey === 'voltsim'; }
 
 // ---- GAME MODES (RACE / XP …) — the in-game mode picked on the CAR & MAP screen.
 // This is a DIFFERENT axis from RaceMode (arcade/sim = the car family): a GameMode
@@ -1121,8 +1124,9 @@ type LbMode = 'timeattack' | 'xp';
 const LB_TOP_N = 10;                       // quick-view size
 const LB_CAR_DISPLAY: Record<string, string> = {
   blitz: 'Blitz RS', fury: 'Fury 200 EVO', steerex: 'Stee-Rex', scrappy: 'Scrappy GT', volt: 'Volt R',
+  voltsim: 'Volt R (Sim)',   // the leaderboard is the only place the arcade + sim Volt appear together
 };
-const LB_CAR_KEYS = ['blitz', 'fury', 'steerex', 'scrappy', 'volt'] as const;   // cars that can run TA / XP
+const LB_CAR_KEYS = ['blitz', 'fury', 'steerex', 'scrappy', 'volt', 'voltsim'] as const;   // cars that can run TA / XP
 const LB_MODE_LABEL: Record<LbMode, string> = { timeattack: 'TIME ATTACK', xp: 'XP MODE' };
 // Track ids that host `mode` (from the registry — stays correct as maps change).
 // mapVisible() keeps a dev-only WIP map out of the public picker (matches the map-select).
@@ -1573,6 +1577,25 @@ const VOLT_MENU_CAR: MenuCar = {
   blurb: 'A fast, all-wheel-drive sport hatch. Quick, planted and forgiving - it pushes '
     + 'wide, never bites. The friendly step up from Scrappy, not the sharpest tool.',
 };
+// The Volt R (SIM) car tile — DEV-ONLY WIP. Same real car as the arcade Volt R (shared sprite), but
+// tuned as the MOST APPROACHABLE sim car (branch:'sim' + phys4). 0-100 / top confirmed by the harness
+// at build time; DRIVE = AWD front-biased. Display name is plain "Volt R" (the ARCADE/SIM section
+// tells it apart in car-select; the leaderboard shows "Volt R (Sim)").
+const VOLT_SIM_MENU_CAR: MenuCar = {
+  key: 'voltsim', name: 'Volt R', voltImage: true,
+  specs: [
+    { label: 'ENGINE',    value: '2.0L I4 - turbocharged' },
+    { label: 'POWER',     value: '245 kW (333 hp)' },
+    { label: 'DRIVE',     value: 'AWD (front-biased)' },
+    { label: 'WEIGHT',    value: '1150 kg' },
+    { label: '0-100',     value: '~4.7 s' },
+    { label: 'TOP SPEED', value: '~235 km/h' },
+    { label: 'TIRES',     value: 'Performance road' },
+    { label: 'ORIGIN',    value: 'Europe' },
+  ],
+  blurb: 'A fast, planted all-wheel-drive road car. Front-biased and stable, it '
+    + 'understeers rather than bites - the one to learn the sim model on.',
+};
 // The Fury 200 EVO SIM car tile (premium). Same panel format/rows as the Blitz RS.
 // 0-100 (2.4 s) MEASURED from the car (step4 / Fury PHYS4, full throttle on asphalt: 2.32 s).
 // TOP SPEED = 225 km/h: the no-gears model's asymptote is ~297 km/h but is never reached on our
@@ -1619,7 +1642,7 @@ function modeCars(mode: RaceMode): MenuCar[] {
   }
   // SIM — Blitz RS. 0-100 + top speed MEASURED from the car (step4 / PHYS4, full
   // throttle on asphalt): 3.05 s, 246 km/h. No image (no finished design yet).
-  return [{
+  const sim: MenuCar[] = [{
     key: 'blitz', name: 'Blitz RS', blitzImage: true,
     specs: [
       { label: 'ENGINE',    value: '2.5L I4 - naturally aspirated' },
@@ -1633,11 +1656,14 @@ function modeCars(mode: RaceMode): MenuCar[] {
     ],
     blurb: '90s European touring car. Group A pedigree - raw, rear-driven, unforgiving. '
       + 'Brilliant on asphalt, a struggle anywhere else.',
-  },
-  // The Fury 200 EVO joins the SIM car list next to the Blitz RS. It's a SIM car, so it sits
-  // behind the same PREMIUM gate as SIM mode (isSimLocked) — a free host sees the SIM tiles
-  // locked and gets upsold; a premium host can pick it.
-  FURY_MENU_CAR];
+  }];
+  // The Volt R (SIM) — DEV-ONLY WIP — slots BETWEEN Blitz and Fury as the approachable sim car.
+  if (isDev()) sim.push(VOLT_SIM_MENU_CAR);
+  // The Fury 200 EVO joins the SIM car list next to the Blitz RS. Both are SIM cars, so they sit
+  // behind the same PREMIUM gate as SIM mode (isSimLocked) — a free host sees the SIM tiles locked
+  // and gets upsold; a premium host can pick them.
+  sim.push(FURY_MENU_CAR);
+  return sim;
 }
 
 // Draw the car's sprite (cropped to its opaque bbox, nose UP) into a flyout canvas.
@@ -1754,6 +1780,7 @@ function buildCarTiles() {
   // Scrappy GT is the default arcade car → warm its sprite the moment the ARCADE car list is built
   // (lazy: only when a player actually reaches car selection, never on the bare landing page).
   if (raceMode === 'arcade') { preloadVolt(); preloadScrappy(); }   // Volt is the default → warm it first
+  else if (isDev()) preloadVolt();   // SIM: warm the dev-only Volt R (Sim) sprite (shared with arcade)
   for (const car of cars) {
     const card = document.createElement('div');
     card.className = 'map-tile car-card';
@@ -3074,7 +3101,7 @@ function steerballRecolor(): void {
 // intact) and only the livery colour differs.
 function teamSkinSpec(shadeHex: string): VehicleSpec {
   const base = raceMode !== 'arcade'
-    ? (furySelected() ? FURY_SPEC : ROAD_SPEC)
+    ? (voltSimSelected() ? VOLT_SIM_SILVER : furySelected() ? FURY_SPEC : ROAD_SPEC)
     : (voltSelected() ? VOLT_SILVER : scrappySelected() ? SCRAPPY_SILVER : STEEREX_SILVER);
   return { ...base, sprite: { car: base.sprite!.car, skin: shadeHex } as VehicleSpec['sprite'] };
 }
@@ -3716,6 +3743,7 @@ function specForColor(hex: string): VehicleSpec {
   // premium SIM cars — the Fury's old dev-only gate is long gone). Either way the phone's
   // chosen hex selects the livery: both cars share the same 8 swatches.
   if (raceMode !== 'arcade') {
+    if (voltSimSelected()) return VOLT_SIM_SPECS[voltSkinForColor(hex)];
     return furySelected() ? FURY_SPECS[furySkinForColor(hex)] : BLITZ_SPECS[blitzSkinForColor(hex)];
   }
   // ARCADE: the Scrappy GT when it's the picked (dev-only) car, else Stee-Rex. Both share the 8
@@ -3728,7 +3756,7 @@ function specForColor(hex: string): VehicleSpec {
 // share the mode's footprint). Arcade = Stee-Rex, or the Scrappy GT when it's the dev pick.
 function modeSpec(): VehicleSpec {
   if (raceMode === 'arcade') return voltSelected() ? VOLT_SILVER : scrappySelected() ? SCRAPPY_SILVER : STEEREX_SILVER;
-  return furySelected() ? FURY_SPEC : ROAD_SPEC;
+  return voltSimSelected() ? VOLT_SIM_SILVER : furySelected() ? FURY_SPEC : ROAD_SPEC;
 }
 // Re-spec every live car to the current mode + its own colour (on mode launch).
 function applyModeToAllCars() {

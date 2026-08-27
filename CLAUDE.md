@@ -25,7 +25,8 @@ URL; `steer-it.vercel.app` also serves it, `noindex`ed). **Business model is LIV
 play + a one-time **$6.90 Premium** (Stripe, real payments — see §6). Cars: **Blitz RS** and
 **Fury 200 EVO** (SIM, both premium), and three ARCADE cars (all free): **Volt R** (fast-friendly AWD
 hatch — the DEFAULT car a new player starts on), **Scrappy GT** (forgiving FWD beginner car) and
-**Stee-Rex** (the wilder one). All share ONE 8-colour palette picked on the phone (§13).
+**Stee-Rex** (the wilder one). A **Volt R (Sim)** — the same car tuned as an approachable SIM car —
+exists dev-only (WIP; §13). All share ONE 8-colour palette picked on the phone (§13).
 
 ---
 
@@ -1287,6 +1288,40 @@ must cost something" balance).
   rotation, (3) grip at the wild-car level (not above). **Blitz golden 0.0e+0 UNTOUCHED** (new arcade
   spec + new sprite; no change to `physics4.ts`/`PHYS4`/any existing car). Physics awaits the phone
   feel-test + tuning.
+
+### Volt R (Sim) — DEV-ONLY WIP: the APPROACHABLE sim car
+The SAME car as the arcade Volt R — **reuses the sprite + recolour module** (`volt-sprite.ts` /
+`VoltR.png`) and **`VOLT_DIMS`** (4.288 × 1.802, wheelbase 2.63), so NO new artwork — but a SEPARATE
+entry in the SIM section running the honest per-wheel model (`branch:'sim'` + a **`phys4` override**,
+exactly like the Fury), **no arcade assists**. Positioned as the **MOST APPROACHABLE of the three sim
+cars** (the one to learn the sim model on): Blitz RS is RWD/raw, Fury is an AWD rallycross machine, the
+sim Volt is a fast, planted road car that **understeers rather than bites**.
+- **Added via the Fury pattern:** `VOLT_SIM_PHYS4`/`VOLT_SIM_SPEC`/`VOLT_SIM_SPECS`/`VOLT_SIM_SILVER` in
+  `vehicles.ts` (reusing `voltSkinForColor` + the `{car:'volt'}` sprite → `drawVolt` draws BOTH the
+  arcade and the sim Volt, no new draw code); in `desktop.ts` a **separate car key `'voltsim'`**
+  (`voltSimSelected()`), `VOLT_SIM_MENU_CAR`, the `specForColor`/`modeSpec`/`teamSkinSpec` SIM branches,
+  `preloadVolt` on SIM car-select (dev), and `LB_CAR_KEYS`/`LB_CAR_DISPLAY` (`voltsim` → "Volt R (Sim)").
+- **NAMING:** the menu tile is plain **"Volt R"** — the car lists are per-mode so the arcade and sim Volt
+  are NEVER shown together in car-select (the ARCADE/SIM section tells them apart, like Blitz/Fury vs
+  Stee-Rex/Scrappy). The **leaderboard** is the only place all cars list together, so there the sim board
+  shows **"Volt R (Sim)"**. Separate `car_key` ⇒ separate TA/XP boards from the arcade Volt.
+- **`VOLT_SIM_PHYS4` (only the fields differing from PHYS4):** `driveSplitFront 0.6` (AWD front-based
+  4Motion → understeer), `weightDistFront 0.60` (most front-biased sim car; Blitz 0.53 / Fury 0.50 →
+  most stable), `massKg 1150`, `enginePower 245000` (245 kW / 333 hp — the least powerful sim car),
+  `peakThrust 14000`, `muNom 1.70` (perf-road tyre, between Blitz slick 1.90 and Fury universal 1.55),
+  `tireB 9`/`tireC 1.30` (broad + gentle limit = forgiving washout), `yawInertiaK 1.18` (stable, not
+  twitchy like Fury's 1.02), `cgHeight 0.48`, `maxSteer 0.54`, `brakeForce 14500`/`brakeBiasFront 0.62`
+  (stable front-biased braking), `tireEllipseLong 1.30`, `tire.muScale {asphalt 1, grass 0.45, gravel
+  0.50, dirt 0.62}` (road, between slick + rallycross), `trackWidth 1.55`.
+- **Measured positioning (harness, Volt Sim / Blitz / Fury):** 0-100 **3.18 / 2.86 / 2.29 s**, top
+  **237 / 246 / 300 km/h**, peak |β| in a hard corner **4.9° / 2° / 178°**, braking **1.08 / 1.23 /
+  1.16 g**. So the sim Volt is the **slowest-accelerating + lowest-top** (least intimidating) and
+  **understeers** (pushes wide) where Fury spins and Blitz's RWD tail can step out — a genuine sim car
+  (honest model, no assists), just the friendliest of the three. **Blitz golden 0.0e+0 UNTOUCHED** (new
+  `phys4` spec; Blitz has no `phys4`, arcade Volt/Stee-Rex/Fury/Scrappy unchanged). DEV-ONLY for now
+  (`isDev()` in `modeCars`; in the SIM section it also inherits the premium `isSimLocked`). Release =
+  drop the `isDev()` gate in the SIM `modeCars` branch + the SIM `preloadVolt`. Physics awaits the phone
+  feel-test.
 
 ---
 

@@ -675,11 +675,73 @@ export const VOLT_SPECS: Record<VoltSkin, VehicleSpec> = {
   orange: voltSpec('orange'), yellow: voltSpec('yellow'),
 };
 export const VOLT_SILVER = VOLT_SPECS.silver;   // kept for modeSpec / the car-tile preview
-/** The Volt skin a picked swatch hex resolves to (unknown → 'silver'). */
+/** The Volt skin a picked swatch hex resolves to (unknown → 'silver'). Shared by the arcade + sim Volt. */
 export function voltSkinForColor(hex: string): VoltSkin {
   const h = hex.trim().toLowerCase();
   const i = STEEREX_SKIN_COLORS.findIndex((c) => c.hex.toLowerCase() === h);
   return i >= 0 ? VOLT_SKINS[i] : 'silver';
 }
+
+// ---- VOLT R (SIM) — DEV-ONLY WIP: the APPROACHABLE sim car -----------------------
+// The SAME car as the arcade Volt R (same sprite/recolour module + VOLT_DIMS) but a SEPARATE entry
+// in the SIM section, running the honest per-wheel model (branch:'sim' + a `phys4` override, exactly
+// like the Fury) — NO arcade assists. Positioned as the MOST APPROACHABLE of the three sim cars (the
+// one to learn the sim model on): Blitz RS is RWD/raw, Fury is an AWD rallycross machine; the sim Volt
+// is a fast, planted road car that UNDERSTEERS rather than biting. DEV-ONLY for now (isDev-gated in
+// desktop.ts modeCars); in the SIM section it also inherits the premium sim lock like Blitz/Fury.
+// Real anchor: modern Golf R — 245 kW / 333 hp, ~1150 kg, front-based 4Motion AWD.
+// VOLT_SIM_PHYS4 lists ONLY the fields that DIFFER from PHYS4 (the Blitz sim); the rest are inherited,
+// so it shares the same honest model and Blitz's golden 0.0e+0 is untouched (Blitz has no phys4).
+const VOLT_SIM_PHYS4: Partial<Physics4Params> = {
+  // GEOMETRY (= VOLT_DIMS)
+  wheelbase: 2.63,            // m — real Golf R
+  trackWidth: 1.55,           // m — planted road hatch (Blitz 1.46 / Fury 1.50)
+  // DRIVETRAIN — front-based 4Motion: AWD, 60% front. Torque goes rearward only when needed, so under
+  // power the FRONT reaches its limit first → the nose washes WIDE (understeer). The forgiving,
+  // approachable trait — the opposite of Blitz's RWD tail and Fury's eager rear-biased rotation.
+  driveSplitFront: 0.6,
+  // MASS + BALANCE — front-heavy transverse engine → understeer-leaning + very directionally stable.
+  massKg: 1150,               // kg (anchor)
+  weightDistFront: 0.60,      // 60% front (real hot hatch ~61%) — the most front-biased of the sim
+                              // cars (Blitz 0.53 / Fury 0.50) → neutral-steer point well behind the
+                              // CoM = resists the tail stepping out = approachable.
+  cgHeight: 0.48,             // a road hatch sits a touch higher than the Blitz race coupe (0.45).
+  yawInertiaK: 1.18,          // moderate-high polar moment (engine over the front axle) → STABLE,
+                              // slow to rotate (Blitz 1.20; Fury's LOW 1.02 makes it twitchy/eager).
+  // TYRE — a performance ROAD tyre: less ultimate grip than the Blitz's slicks, but a BROAD, gentle
+  // limit that washes out progressively instead of snapping = forgiving.
+  muNom: 1.70,                // tarmac peak ~1.67g (Blitz slick 1.90 ≈ 1.86g; Fury universal 1.55) — middle.
+  tireB: 9,                   // broad build-up (Blitz's slick 14 is sharp; Fury 9) = planted, predictable.
+  tireC: 1.30,                // GENTLE post-peak falloff (Blitz 1.65 sharp; Fury 1.35) → forgiving washout.
+  tireEllipseLong: 1.30,      // AWD corner-exit: throttle keeps the lateral grip (both axles driven).
+  loadSensitivity: 0.08,      // grip holds under load transfer → planted, undramatic.
+  tire: { muScale: { asphalt: 1.0, grass: 0.45, gravel: 0.50, dirt: 0.62 } },  // road: between the slick + the rallycross universal
+  // STEERING — a road car, moderate lock
+  maxSteer: 0.54,             // ~31° (Blitz 0.56 / Fury 0.58)
+  // ENGINE — 245 kW / 333 hp, AWD deploys it cleanly (the ∝1/v power taper, no arcade top-speed cap)
+  peakThrust: 14000,          // N low-speed drive — a touch above Blitz's 13000 (AWD traction), far
+                              // below Fury's 21000. The least powerful sim car = least intimidating.
+  enginePower: 245000,        // 245 kW ≈ 333 hp
+  // BRAKES — strong + STABLE (front-biased → the rear stays planted, no trail-brake oversteer)
+  brakeForce: 14500,          // ~1.28g at 1150 kg — confident stops.
+  brakeBiasFront: 0.62,       // more front bias than Blitz (0.60) / Fury (0.58) → stable under braking.
+};
+export const VOLT_SIM_SPEC: VehicleSpec = {
+  name: 'Volt R',
+  overrides: {},                          // (legacy CONFIG field, unused by physics4)
+  phys4: VOLT_SIM_PHYS4,                   // its OWN honest per-wheel sim physics (AWD road car)
+  dims: VOLT_DIMS,
+  fxScale: 1.0,                            // a road car → a modest off-road throw
+  sprite: { car: 'volt', skin: 'white' },   // REUSES the Volt sprite + recolour (no new artwork)
+};
+function voltSimSpec(skin: VoltSkin): VehicleSpec {
+  return { ...VOLT_SIM_SPEC, sprite: { car: 'volt', skin } };
+}
+export const VOLT_SIM_SPECS: Record<VoltSkin, VehicleSpec> = {
+  silver: voltSimSpec('silver'), black: voltSimSpec('black'), blue: voltSimSpec('blue'),
+  red: voltSimSpec('red'), purple: voltSimSpec('purple'), white: VOLT_SIM_SPEC,
+  orange: voltSimSpec('orange'), yellow: voltSimSpec('yellow'),
+};
+export const VOLT_SIM_SILVER = VOLT_SIM_SPECS.silver;   // kept for modeSpec / the car-tile preview
 
 export const VEHICLE_SPECS: VehicleSpec[] = [ROAD_SPEC, STEEREX_SILVER, STEEREX_BLACK];
