@@ -1537,9 +1537,9 @@ interface MenuCar {
   specs: CarSpec[];
   blurb: string;
 }
-// The Scrappy GT ARCADE car tile — PUBLIC + FREE, and the FIRST/default arcade car (a new player
-// starts on it). The BEGINNER car: small, front-wheel-drive, forgiving. 0-100 (~6.5 s) / top (~220)
-// are rough display figures.
+// The Scrappy GT ARCADE car tile — PUBLIC + FREE. The BEGINNER car: small, front-wheel-drive,
+// forgiving (the Volt R is now the default a new player starts on; Scrappy is the easy alternative).
+// 0-100 (~6.5 s) / top (~220) are rough display figures.
 const SCRAPPY_MENU_CAR: MenuCar = {
   key: 'scrappy', name: 'Scrappy GT', scrappyImage: true,
   specs: [
@@ -1555,9 +1555,9 @@ const SCRAPPY_MENU_CAR: MenuCar = {
   blurb: 'A pocket-sized front-drive hot hatch. Grippy, planted and easy to place - '
     + 'it pushes wide rather than biting back. The one to learn on.',
 };
-// The Volt R ARCADE car tile — PUBLIC + FREE, the fast-friendly MIDDLE car (between Scrappy GT and
-// Stee-Rex): quicker than Scrappy, easier than Stee-Rex. 0-100 (~4.7 s) / top (250) are rough
-// display figures (the realistic Golf-R style numbers; the in-game arcade launch is quicker).
+// The Volt R ARCADE car tile — PUBLIC + FREE, the DEFAULT arcade car (a new player starts on it).
+// The fast-friendly middle: quicker than Scrappy, easier than Stee-Rex. 0-100 (~4.7 s) / top (250)
+// are rough display figures (the realistic Golf-R style numbers; the in-game arcade launch is quicker).
 const VOLT_MENU_CAR: MenuCar = {
   key: 'volt', name: 'Volt R', voltImage: true,
   specs: [
@@ -1595,10 +1595,10 @@ const FURY_MENU_CAR: MenuCar = {
     + 'Devours mixed surfaces - asphalt and dirt alike. A handful at the limit.',
 };
 function modeCars(mode: RaceMode): MenuCar[] {
-  // ARCADE: Scrappy GT is FIRST (the default a new player starts on — free, forgiving, beginner),
-  // then the Volt R (the fast-friendly middle), then Stee-Rex (the harder, wilder car). All three free.
+  // ARCADE: Volt R is FIRST (the DEFAULT a new player starts on — the fast-friendly AWD hatch), then
+  // Scrappy GT (the forgiving FWD beginner car), then Stee-Rex (the harder, wilder car). All three free.
   if (mode === 'arcade') {
-    const arcade: MenuCar[] = [SCRAPPY_MENU_CAR, VOLT_MENU_CAR];
+    const arcade: MenuCar[] = [VOLT_MENU_CAR, SCRAPPY_MENU_CAR];
     arcade.push({
     key: 'steerex', name: 'Stee-Rex', image: 'silver',
     specs: [
@@ -1753,7 +1753,7 @@ function buildCarTiles() {
   const cars = modeCars(raceMode);
   // Scrappy GT is the default arcade car → warm its sprite the moment the ARCADE car list is built
   // (lazy: only when a player actually reaches car selection, never on the bare landing page).
-  if (raceMode === 'arcade') { preloadScrappy(); preloadVolt(); }
+  if (raceMode === 'arcade') { preloadVolt(); preloadScrappy(); }   // Volt is the default → warm it first
   for (const car of cars) {
     const card = document.createElement('div');
     card.className = 'map-tile car-card';
@@ -4511,8 +4511,8 @@ window.addEventListener('pagehide', () => {
 // an AWD Fury, tarmac vs dirt — different drifts, so each combo keeps its OWN record; they never mix.
 // Old unscoped keys are left unread + abandoned (never migrated into an account); the server re-seeds.
 // Fallback only fires if no car is selected (unreachable in normal play — START requires one); the
-// arcade default is Scrappy GT (the first/default arcade car), the sim default Blitz.
-function xpCarKey(): string { return selectedCarKey || (raceMode === 'arcade' ? 'scrappy' : 'blitz'); }
+// arcade default is Volt R (the first/default arcade car), the sim default Blitz.
+function xpCarKey(): string { return selectedCarKey || (raceMode === 'arcade' ? 'volt' : 'blitz'); }
 function xpBestKeyFor(carKey: string, mapId: string): string { return `steerit.xp.best.${taUserScope()}.${carKey}.${mapId}`; }
 function readXpBest(key: string): number {
   try { return Math.max(0, Math.floor(Number(localStorage.getItem(key)) || 0)); }

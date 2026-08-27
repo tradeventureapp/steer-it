@@ -23,9 +23,9 @@ Core hook: **phone as a steering wheel + drifting across a desktop + zero-fricti
 Live at **`steerit.app`** (the QR is built from `VITE_PUBLIC_BASE_URL`, not the deployment-hash
 URL; `steer-it.vercel.app` also serves it, `noindex`ed). **Business model is LIVE:** free to
 play + a one-time **$6.90 Premium** (Stripe, real payments — see §6). Cars: **Blitz RS** and
-**Fury 200 EVO** (SIM, both premium), and two ARCADE cars (both free): **Scrappy GT** (forgiving FWD
-beginner car — the FIRST/DEFAULT car) and **Stee-Rex** (the wilder one). All share ONE 8-colour
-palette picked on the phone (§13).
+**Fury 200 EVO** (SIM, both premium), and three ARCADE cars (all free): **Volt R** (fast-friendly AWD
+hatch — the DEFAULT car a new player starts on), **Scrappy GT** (forgiving FWD beginner car) and
+**Stee-Rex** (the wilder one). All share ONE 8-colour palette picked on the phone (§13).
 
 ---
 
@@ -1187,11 +1187,11 @@ gone — `isDev` now only guards `DEV_MAP_IDS` and the dirt-edit tool).
   low polar moment + 50/50 + rear-biased AWD). No NaN, bounded. An AWD rally monster vs the RWD
   race coupé. Physics awaits the phone feel-test.
 
-### Scrappy GT — PUBLIC + FREE: the BEGINNER arcade car (forgiving FWD), the DEFAULT car
+### Scrappy GT — PUBLIC + FREE: the BEGINNER arcade car (forgiving FWD)
 A small, compact FRONT-WHEEL-DRIVE hot hatch (modern Mini JCW silhouette; public name "Scrappy GT").
-**PUBLIC + FREE** — the **FIRST** car in the ARCADE list (before Stee-Rex) and the **DEFAULT** pre-selected
-car a new player arrives on (`modeCars('arcade')` returns `[SCRAPPY_MENU_CAR, {steerex…}]`; `buildCarTiles`
-auto-selects `cars[0]` = Scrappy). Free for everyone incl. non-premium (arcade has no lock — only SIM is
+**PUBLIC + FREE** — an ARCADE car, the forgiving FWD beginner alternative. (The **Volt R** is now the
+DEFAULT pre-selected arcade car; the ARCADE list order is `[Volt, Scrappy, Stee-Rex]` and `buildCarTiles`
+auto-selects `cars[0]` = Volt.) Free for everyone incl. non-premium (arcade has no lock — only SIM is
 `isSimLocked`; Stee-Rex stays available as the harder car). `specForColor`/`modeSpec` resolve it behind
 `scrappySelected()`, it's in `LB_CAR_KEYS`/`LB_CAR_DISPLAY` (its own Time Attack / XP boards), and the
 sprite loads **LAZILY** — `preloadScrappy()` runs when the ARCADE car list is built (`buildCarTiles`), so
@@ -1249,9 +1249,10 @@ beginner who enters a corner too fast pushes WIDE (understeer) instead of snappi
 
 ### Volt R — PUBLIC + FREE: the FAST-FRIENDLY MIDDLE arcade car (AWD front-biased)
 An all-wheel-drive sport hatchback (modern Golf R silhouette; public name "Volt R"). **PUBLIC + FREE**
-in the ARCADE car list (the dev `isDev()` gates were dropped on release), slotted BETWEEN Scrappy GT
-and Stee-Rex (`modeCars('arcade')` → `[Scrappy, Volt, Stee-Rex]`; `preloadVolt` runs on arcade
-car-select like Scrappy). Free like the other arcade cars (only SIM is gated). Sprite `public/VoltR.png`
+in the ARCADE car list (the dev `isDev()` gates were dropped on release) and the **DEFAULT** arcade car
+a new player starts on (`modeCars('arcade')` → `[Volt, Scrappy, Stee-Rex]`; `buildCarTiles` auto-selects
+`cars[0]` = Volt; `preloadVolt` runs on arcade car-select first). The car-select flyout preview shows the
+SILVER livery. Free like the other arcade cars (only SIM is gated). Sprite `public/VoltR.png`
 (renamed from the delivered "Volt R.png"). The whole point: **quicker than Scrappy, far easier than
 Stee-Rex — but, by design, SLOWER around a lap than Stee-Rex/the sim cars in good hands** (the "easy
 must cost something" balance).
