@@ -1247,13 +1247,14 @@ beginner who enters a corner too fast pushes WIDE (understeer) instead of snappi
   FWD (driveSplitFront 1.0) stable. **Blitz golden 0.0e+0 UNTOUCHED** (new arcade spec; no change to
   `physics4.ts`/`PHYS4`/any existing car). Physics awaits the phone feel-test + tuning.
 
-### Volt R — DEV-ONLY WIP: the FAST-FRIENDLY MIDDLE arcade car (AWD front-biased)
-An all-wheel-drive sport hatchback (modern Golf R silhouette; public name "Volt R"). **DEV-ONLY** for
-now (gated by `isDev()` in `modeCars` — only the dev host sees it in the ARCADE car list, slotted
-BETWEEN Scrappy GT and Stee-Rex; `preloadVolt` is likewise `isDev`-gated so its ~1 MB PNG never loads
-for a normal player). Sprite `public/VoltR.png` (renamed from the delivered "Volt R.png"). The whole
-point: **quicker than Scrappy, far easier than Stee-Rex — but, by design, SLOWER around a lap than
-Stee-Rex/the sim cars in good hands** (the "easy must cost something" balance).
+### Volt R — PUBLIC + FREE: the FAST-FRIENDLY MIDDLE arcade car (AWD front-biased)
+An all-wheel-drive sport hatchback (modern Golf R silhouette; public name "Volt R"). **PUBLIC + FREE**
+in the ARCADE car list (the dev `isDev()` gates were dropped on release), slotted BETWEEN Scrappy GT
+and Stee-Rex (`modeCars('arcade')` → `[Scrappy, Volt, Stee-Rex]`; `preloadVolt` runs on arcade
+car-select like Scrappy). Free like the other arcade cars (only SIM is gated). Sprite `public/VoltR.png`
+(renamed from the delivered "Volt R.png"). The whole point: **quicker than Scrappy, far easier than
+Stee-Rex — but, by design, SLOWER around a lap than Stee-Rex/the sim cars in good hands** (the "easy
+must cost something" balance).
 - **Added end-to-end via the Scrappy pattern:** `src/volt-sprite.ts` (a near-copy of scrappy-sprite —
   same flood-fill + `isBody` + metallic SHEEN bake, `SRC '/VoltR.png'`, no cache-bust needed on a
   fresh filename); `VOLT_DIMS`/`VOLT_ARCADE`/`VOLT_SPECS`/`voltSkinForColor`/`VOLT_SILVER` in
@@ -1284,7 +1285,7 @@ Stee-Rex/the sim cars in good hands** (the "easy must cost something" balance).
   power + a lower top. Three independent levers: (1) straight-line pace below the wild cars, (2) no
   rotation, (3) grip at the wild-car level (not above). **Blitz golden 0.0e+0 UNTOUCHED** (new arcade
   spec + new sprite; no change to `physics4.ts`/`PHYS4`/any existing car). Physics awaits the phone
-  feel-test. **Release = drop the `isDev()` gates in `modeCars` + the `preloadVolt` call.**
+  feel-test + tuning.
 
 ---
 

@@ -532,7 +532,7 @@ function furySelected(): boolean { return selectedCarKey === 'fury'; }
 // Is the Scrappy GT the current ARCADE-car selection? (Public + free — the first/default arcade
 // car. See modeCars / specForColor.)
 function scrappySelected(): boolean { return selectedCarKey === 'scrappy'; }
-// Is the Volt R the current ARCADE-car selection? (DEV-ONLY WIP — only offered when isDev.)
+// Is the Volt R the current ARCADE-car selection? (Public + free — the fast-friendly middle car.)
 function voltSelected(): boolean { return selectedCarKey === 'volt'; }
 
 // ---- GAME MODES (RACE / XP …) — the in-game mode picked on the CAR & MAP screen.
@@ -1555,9 +1555,9 @@ const SCRAPPY_MENU_CAR: MenuCar = {
   blurb: 'A pocket-sized front-drive hot hatch. Grippy, planted and easy to place - '
     + 'it pushes wide rather than biting back. The one to learn on.',
 };
-// The Volt R ARCADE car tile — DEV-ONLY WIP (only shown to the dev host; see modeCars). The
-// fast-friendly MIDDLE car: quicker than Scrappy, easier than Stee-Rex. 0-100 (~4.7 s) / top (250)
-// are rough display figures (0-100 confirmed by the physics harness at build time).
+// The Volt R ARCADE car tile — PUBLIC + FREE, the fast-friendly MIDDLE car (between Scrappy GT and
+// Stee-Rex): quicker than Scrappy, easier than Stee-Rex. 0-100 (~4.7 s) / top (250) are rough
+// display figures (the realistic Golf-R style numbers; the in-game arcade launch is quicker).
 const VOLT_MENU_CAR: MenuCar = {
   key: 'volt', name: 'Volt R', voltImage: true,
   specs: [
@@ -1596,11 +1596,9 @@ const FURY_MENU_CAR: MenuCar = {
 };
 function modeCars(mode: RaceMode): MenuCar[] {
   // ARCADE: Scrappy GT is FIRST (the default a new player starts on — free, forgiving, beginner),
-  // then Stee-Rex (the harder, wilder car for anyone who wants the challenge). Both free. The Volt R
-  // (dev-only WIP) slots in BETWEEN them for the dev host — the fast-friendly middle — via isDev().
+  // then the Volt R (the fast-friendly middle), then Stee-Rex (the harder, wilder car). All three free.
   if (mode === 'arcade') {
-    const arcade: MenuCar[] = [SCRAPPY_MENU_CAR];
-    if (isDev()) arcade.push(VOLT_MENU_CAR);
+    const arcade: MenuCar[] = [SCRAPPY_MENU_CAR, VOLT_MENU_CAR];
     arcade.push({
     key: 'steerex', name: 'Stee-Rex', image: 'silver',
     specs: [
@@ -1726,7 +1724,7 @@ function drawVoltImage(cvs: HTMLCanvasElement, dpr: number) {
   const W = cvs.width / dpr, H = cvs.height / dpr;
   c.setTransform(dpr, 0, 0, dpr, 0, 0);
   c.clearRect(0, 0, W, H);
-  const sprite = voltSprite('blue');   // menu tile / flyout = the blue livery
+  const sprite = voltSprite('silver');   // menu tile / flyout = the silver livery
   if (!sprite) { window.setTimeout(() => drawVoltImage(cvs, dpr), 120); return; }
   const op = voltOpaque();
   const sx = op ? op.cxPx - op.widPx / 2 : 0;
@@ -1755,7 +1753,7 @@ function buildCarTiles() {
   const cars = modeCars(raceMode);
   // Scrappy GT is the default arcade car → warm its sprite the moment the ARCADE car list is built
   // (lazy: only when a player actually reaches car selection, never on the bare landing page).
-  if (raceMode === 'arcade') { preloadScrappy(); if (isDev()) preloadVolt(); }
+  if (raceMode === 'arcade') { preloadScrappy(); preloadVolt(); }
   for (const car of cars) {
     const card = document.createElement('div');
     card.className = 'map-tile car-card';
@@ -6402,7 +6400,7 @@ function drawVolt(car: Car) {
   const skin: VoltSkin = car.spec.sprite?.car === 'volt' ? car.spec.sprite.skin : 'white';
   const cv = voltSprite(skin);
   const op = voltOpaque();
-  if (!cv || !op) return;   // not decoded/measured yet — preloaded on dev reveal, momentary
+  if (!cv || !op) return;   // not decoded/measured yet — preloaded on arcade car-select, momentary
   const s = car.state;
   const widM = car.spec.dims?.widthM ?? CONFIG.trackWidth;
   const scale = (widM * PX()) / op.widPx;
@@ -6481,7 +6479,7 @@ function drawCar(car: Car) {
   if (car.spec.sprite?.car === 'steerex') { drawSteerex(car, car.spec.sprite.skin); return; }
   if (car.spec.sprite?.car === 'fury') { drawFury(car); return; }   // dev-only test car
   if (car.spec.sprite?.car === 'scrappy') { drawScrappy(car); return; } // free beginner car
-  if (car.spec.sprite?.car === 'volt') { drawVolt(car); return; } // dev-only fast-friendly middle car
+  if (car.spec.sprite?.car === 'volt') { drawVolt(car); return; } // free fast-friendly middle car
   if (car.spec.sprite?.car === 'blitz') { drawBlitz(car); return; } // Blitz RS sprite (sunset stripe)
   const base = car.liveryColor ?? car.color;   // rally livery overrides the slot colour
   const crown   = shadeHex(base, 1.28);   // lit spine

@@ -583,12 +583,11 @@ export function scrappySkinForColor(hex: string): ScrappySkin {
   return i >= 0 ? SCRAPPY_SKINS[i] : 'silver';
 }
 
-// ---- VOLT R — DEV-ONLY WIP: the FAST-FRIENDLY MIDDLE arcade car ----------------
+// ---- VOLT R — PUBLIC + FREE: the FAST-FRIENDLY MIDDLE arcade car ----------------
 // An all-wheel-drive sport hatchback (a modern Golf R silhouette; public name "Volt R").
-// GATED to the dev host in desktop.ts (isDev, like Scrappy was at first) — never selectable
-// or visible for a normal user until released. ARCADE section, sitting BETWEEN Scrappy GT and
-// Stee-Rex: markedly quicker than Scrappy, far easier than Stee-Rex — but, by design, SLOWER
-// around a lap than Stee-Rex/the sim cars in good hands (see the tune below).
+// ARCADE section, sitting BETWEEN Scrappy GT and Stee-Rex: markedly quicker than Scrappy, far
+// easier than Stee-Rex — but, by design, SLOWER around a lap than Stee-Rex/the sim cars in good
+// hands (see the tune below). Free for everyone (arcade has no lock; only SIM is gated).
 //
 // DIMENSIONS — WIDTH-anchored (the draw path scales opaque WIDTH → widthM, length follows the sprite
 // aspect), so lengthM:widthM MUST equal the sprite's opaque aspect or the drawn car won't fill its
