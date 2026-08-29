@@ -41,7 +41,11 @@ const SKIN_RAMP: Record<VoltSkinName, number[][]> = {
 };
 
 const SRC = '/VoltR.png';                // served from public/ at the site root (fresh filename → no cache-bust needed)
-const BG_LUMA = 28;                      // ≤ this luma + connected to a corner = background → transparent
+// Background = near-PURE black on EVERY channel (not a luma test). The dark GLASS + door MIRRORS are
+// near-black but TINTED (a channel > 14), so the old luma≤28 test wrongly stripped them — the surface
+// showed through the windows/mirrors. A per-channel ≤14 test keeps them (matches the Fury strip); the
+// backdrop is pure (0,0,0) so 14 clears it. Connected-to-a-corner + all channels ≤ 14 = background.
+const BG_MAX = 14;
 
 // The stripped base (transparent background), decoded ONCE. Each skin is tinted from this. `rMin`/
 // `rMax` are the per-row body left/right extents (for the width-wise metallic sheen); `bMid` is the
@@ -58,13 +62,13 @@ export function voltOpaque() { return _opaque; }
 
 // Flood-fill the connected near-black background (from the 4 corners) to transparent, in place.
 function stripBackground(d: Uint8ClampedArray, W: number, H: number) {
-  const luma = (i: number) => 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+  const isBg = (i: number) => d[i] <= BG_MAX && d[i + 1] <= BG_MAX && d[i + 2] <= BG_MAX;
   const seen = new Uint8Array(W * H);
   const st: number[] = [];
   const push = (x: number, y: number) => {
     if (x < 0 || y < 0 || x >= W || y >= H) return;
     const p = y * W + x;
-    if (seen[p] || luma(p * 4) > BG_LUMA) return;
+    if (seen[p] || !isBg(p * 4)) return;
     seen[p] = 1; d[p * 4 + 3] = 0; st.push(p);
   };
   push(0, 0); push(W - 1, 0); push(0, H - 1); push(W - 1, H - 1);

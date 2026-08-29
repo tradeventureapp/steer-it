@@ -159,14 +159,23 @@ approachable premium SIM car — sits alongside them (§13). All share ONE 8-col
 - `vehicles.ts` — vehicle IDENTITY + specs: `VehicleSpec` (`overrides`, `branch`, `arcade`, **`phys4`**,
   `dims`, `sprite`, `fxScale`), `ROAD_SPEC` (Blitz), `STEEREX_SILVER/BLACK`, `FURY_SPEC`, `SCRAPPY_SPECS`
   (dev-only beginner FWD car) + dims + colour palettes. Pure data — NO real make/model names anywhere.
-- `steerex-sprite.ts` / `fury-sprite.ts` / `blitz-sprite.ts` / `scrappy-sprite.ts` — the sprite cars,
-  rasterised + cached (nose-up, centred on the rotation pivot, mipmap downscale). Stee-Rex is an SVG
-  drawn per-skin. Blitz/Fury/Scrappy are PNGs recoloured by a SYNTHESISED METALLIC SHEEN (§13): they
-  pick the white body (Blitz/Scrappy by the `isBody` arithmetic test; Fury by `Fury-mask.png`) then
-  repaint it from the skin's 5-tone metallic ramp via a width-wise cylindrical sheen — the SAME
-  approach across all three, so their 8 colours match Stee-Rex's gloss (was a flat multiply that
-  washed the near-uniform-white bodies out). Fury/Scrappy are WIDTH-anchored (opaque width→`dims.widthM`),
-  Blitz is LENGTH-anchored, in their `drawX` paths (desktop.ts).
+- `steerex-sprite.ts` / `fury-sprite.ts` / `blitz-sprite.ts` / `scrappy-sprite.ts` / `volt-sprite.ts` —
+  the sprite cars, rasterised + cached (nose-up, centred on the rotation pivot, mipmap downscale).
+  Stee-Rex is an SVG drawn per-skin. Blitz/Fury/Scrappy/Volt are PNGs recoloured by a SYNTHESISED
+  METALLIC SHEEN (§13): they pick the white body (Blitz/Scrappy/Volt by the `isBody` arithmetic test;
+  Fury by `Fury-mask.png`) then repaint it from the skin's 5-tone metallic ramp via a width-wise
+  cylindrical sheen — the SAME approach across all, so their 8 colours match Stee-Rex's gloss (was a
+  flat multiply that washed the near-uniform-white bodies out). Fury/Scrappy/Volt are WIDTH-anchored
+  (opaque width→`dims.widthM`), Blitz is LENGTH-anchored, in their `drawX` paths (desktop.ts).
+  ⚠️ **BACKGROUND STRIP = per-channel ≤14, NOT luma ≤28.** The PNG cars flood-fill the near-black
+  backdrop to transparent from the corners. A **luma** test (`luma ≤ 28`, the old Blitz/Scrappy/Volt
+  value) wrongly stripped the **dark GLASS + door MIRRORS** — they're near-black but TINTED, so their
+  luma is ≤28 and the flood connected out through the dark bumper/mirror edges → the surface showed
+  THROUGH the windows (visible in-game + the promo posters). Fixed to a **per-channel `≤14` test**
+  (`d[i]≤14 && d[i+1]≤14 && d[i+2]≤14`) on all three — matching Fury, which always used it (its comment
+  noted the mirrors at rgb≈17). The backdrops are pure `(0,0,0)`, so 14 clears them fully with no halo;
+  the tinted glass (a channel >14) is kept solid. Verified on a magenta backdrop: glass px stripped went
+  Volt 31444→0 / Blitz 2469→0 / Scrappy 395→0. Physics untouched (Blitz golden 0.0e+0 is unrelated).
 - `auth.ts` — HOST auth + entitlement (Supabase Auth): sign-up/in, email verify, password reset,
   **effective premium = `is_premium` (Stripe-paid) OR `granted_premium` (review/comp)** — the ONE
   place that OR is read; every gate inherits it (server truth, RLS), nickname (RPC-validated +
@@ -1203,7 +1212,7 @@ beginner who enters a corner too fast pushes WIDE (understeer) instead of snappi
   (`public/ScrappyGT.png`, 660×1131, WHITE body on a near-black field, nose-UP) is the TOP-DOWN view
   EXTRACTED from a Mini-JCW multi-view blueprint (cropped from the 4-view source `public/scrapy last.png`,
   rotated nose-up, cleaned of the side/front/rear views + all dimension lines/arrows/text, centred +
-  L/R-symmetric on black). `scrappy-sprite.ts` flood-fills the near-black bg (`BG_LUMA 28`) → measures the
+  L/R-symmetric on black). `scrappy-sprite.ts` flood-fills the near-black bg (per-channel `BG_MAX 14` — see §2) → measures the
   opaque bbox → picks the body panels with `isBody` (light + desaturated; dark glass/wheels + red
   taillights fail it, kept as-is). **⚠️ The recolour is NOT a flat multiply.** The render's body is a
   nearly UNIFORM bright white (measured body-brightness p10–p90 ≈ 245–248 — no shading gradient of its
