@@ -1108,8 +1108,14 @@ The XSS/takeover half of Finding 1 is **FIXED + pushed** (`0eb7300`, see §8). T
   AirConsole is a broad library (150+ desktop / 60+ Android TV games, free tier max 2 players + ads,
   Hero subscription — price deliberately NOT stated, unverified), Steer It is a specialist racer; openly
   admits where AirConsole wins (more content, longer track record, more native platforms). (2)
-  **`/party-games-phone-controller`** (673 words) — a category answer ("party games phone controller",
-  "browser party games no download") introducing Steer It as ONE example, not a sales pitch. ⚠️ **The
+  **`/party-games-phone-controller`** (~690 words) — a category answer ("party games phone controller",
+  "browser party games no download") introducing Steer It as ONE example, not a sales pitch. (3)
+  **`/party-games-at-work-and-school`** (723 words) — a USE-CASE page for office breaks + the classroom
+  ("office party games no download", "team building games browser", "classroom multiplayer games"):
+  genuinely-useful-first with a light wink (no-install / no-admin-rights / nothing-to-book, seconds to
+  set up, up to 8, fits a real break, projector hosting for teachers). ⚠️ Tone humour, NOT framing —
+  positioned as something a manager/teacher would start themselves, never "instead of working/learning".
+  ⚠️ **The
   Steer It facts were verified against the code:** free tier = Free Ride, **up to 8 players**
   (`PLAYER_CAP = 8`, NOT "no cap"), 3 free maps (Circuit, Desktop, Stadium Oval = `FREE_MAP_IDS` minus
   the Circuit II promo), **a choice of arcade cars** (all 3 arcade cars are free — only SIM is

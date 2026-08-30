@@ -13,6 +13,7 @@ const CLEAN_ROUTES: Record<string, string> = {
   '/refund': '/refund.html',
   '/airconsole-alternative': '/airconsole-alternative.html',
   '/party-games-phone-controller': '/party-games-phone-controller.html',
+  '/party-games-at-work-and-school': '/party-games-at-work-and-school.html',
 };
 const cleanRouteRewrite = {
   name: 'clean-route-rewrite',
@@ -40,6 +41,7 @@ const SITEMAP_URLS = [
   { loc: 'https://steerit.app/',        file: null,           changefreq: 'weekly', priority: '1.0' },
   { loc: 'https://steerit.app/airconsole-alternative',      file: 'airconsole-alternative.html',      changefreq: 'monthly', priority: '0.7' },
   { loc: 'https://steerit.app/party-games-phone-controller', file: 'party-games-phone-controller.html', changefreq: 'monthly', priority: '0.7' },
+  { loc: 'https://steerit.app/party-games-at-work-and-school', file: 'party-games-at-work-and-school.html', changefreq: 'monthly', priority: '0.7' },
   { loc: 'https://steerit.app/terms',   file: 'terms.html',   changefreq: 'yearly', priority: '0.3' },
   { loc: 'https://steerit.app/privacy', file: 'privacy.html', changefreq: 'yearly', priority: '0.3' },
   { loc: 'https://steerit.app/refund',  file: 'refund.html',  changefreq: 'yearly', priority: '0.3' },
@@ -81,6 +83,7 @@ export default defineConfig({
         refund: resolve(__dirname, 'refund.html'),
         airconsole: resolve(__dirname, 'airconsole-alternative.html'),
         partygames: resolve(__dirname, 'party-games-phone-controller.html'),
+        worksschool: resolve(__dirname, 'party-games-at-work-and-school.html'),
       },
     },
   },
