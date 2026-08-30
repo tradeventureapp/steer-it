@@ -1148,6 +1148,16 @@ The XSS/takeover half of Finding 1 is **FIXED + pushed** (`0eb7300`, see §8). T
   read `user_id`. To close it: a column-restricted `leaderboard_public` VIEW (display columns only) with
   public-read moved to the view + removed from the base table — deferred (it touches the in-game read
   path; do it as its own change, not bundled with a page).
+- **INTERNAL LINKING to the SEO pages** — the homepage now links to all three standalone SEO pages so
+  they're discoverable (they were orphaned). (1) A restrained **"MORE ABOUT STEER IT"** section
+  (`.more`, after the FAQ, before the footer) — a muted uppercase label + a plain list of the 3 pages,
+  each with DESCRIPTIVE anchor text (not "read more" — anchor text is a ranking signal) + a one-line
+  description; kept quiet so it never competes with the game. NOT called a "blog" (they're pages about
+  the game). (2) A separate **footer row** (`.site-foot-explore`, above and divided from the legal
+  `.site-foot-links` by a border) with the same 3 links (concise anchors) as a secondary crawl path.
+  Both live in the marketing `#main-menu` (indexed, outside the game-shell template). The three SEO
+  pages also **cross-link to each other** (each footer links to the other two + the leaderboard +
+  home), so they form a cluster, not orphans. tsc + build clean.
 - **Performance:** hero image 661 KB → **70 KB WebP**.
 - **Google Search Console** verified + indexed.
 - **No analytics at launch** beyond Vercel Web Analytics + Stripe — the privacy policy states none
