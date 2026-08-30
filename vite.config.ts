@@ -11,6 +11,8 @@ const CLEAN_ROUTES: Record<string, string> = {
   '/terms': '/terms.html',
   '/privacy': '/privacy.html',
   '/refund': '/refund.html',
+  '/airconsole-alternative': '/airconsole-alternative.html',
+  '/party-games-phone-controller': '/party-games-phone-controller.html',
 };
 const cleanRouteRewrite = {
   name: 'clean-route-rewrite',
@@ -36,6 +38,8 @@ const cleanRouteRewrite = {
 // (e.g. a tarball build). Overwrites the static public/sitemap.xml copy, which stays as the dev fallback.
 const SITEMAP_URLS = [
   { loc: 'https://steerit.app/',        file: null,           changefreq: 'weekly', priority: '1.0' },
+  { loc: 'https://steerit.app/airconsole-alternative',      file: 'airconsole-alternative.html',      changefreq: 'monthly', priority: '0.7' },
+  { loc: 'https://steerit.app/party-games-phone-controller', file: 'party-games-phone-controller.html', changefreq: 'monthly', priority: '0.7' },
   { loc: 'https://steerit.app/terms',   file: 'terms.html',   changefreq: 'yearly', priority: '0.3' },
   { loc: 'https://steerit.app/privacy', file: 'privacy.html', changefreq: 'yearly', priority: '0.3' },
   { loc: 'https://steerit.app/refund',  file: 'refund.html',  changefreq: 'yearly', priority: '0.3' },
@@ -75,6 +79,8 @@ export default defineConfig({
         terms: resolve(__dirname, 'terms.html'),
         privacy: resolve(__dirname, 'privacy.html'),
         refund: resolve(__dirname, 'refund.html'),
+        airconsole: resolve(__dirname, 'airconsole-alternative.html'),
+        partygames: resolve(__dirname, 'party-games-phone-controller.html'),
       },
     },
   },

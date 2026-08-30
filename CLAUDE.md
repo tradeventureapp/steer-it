@@ -1098,6 +1098,25 @@ The XSS/takeover half of Finding 1 is **FIXED + pushed** (`0eb7300`, see §8). T
   no null/TypeError; TRY FREE → mode → car-select transitions + car-select render + HUD-on-launch all
   work; pause/options/auth/consent/steerball modals all present + wired. (Comments above the template +
   clone script explain this in-file for a cold reader / buyer.)
+- **SEO LANDING PAGES (standalone, marketing-only)** — real indexed URLs that target searches the
+  homepage doesn't reach, built on the SAME routing as the legal pages (Vite `CLEAN_ROUTES` +
+  `rollupOptions.input`, Vercel `rewrites`, in `SITEMAP_URLS` with auto lastmod). They link `/legal.css`
+  + a small scoped `<style>`; **NO game, NO game-shell template, no desktop.ts** (pure content pages).
+  Each: unique title/description, OG tags, canonical, exactly ONE `<h1>`, 500+ words of ORIGINAL prose
+  (not copied from the homepage — duplicate content is penalised), links back to the game/home + each
+  other. (1) **`/airconsole-alternative`** (784 words) — an HONEST AirConsole comparison incl. a table:
+  AirConsole is a broad library (150+ desktop / 60+ Android TV games, free tier max 2 players + ads,
+  Hero subscription — price deliberately NOT stated, unverified), Steer It is a specialist racer; openly
+  admits where AirConsole wins (more content, longer track record, more native platforms). (2)
+  **`/party-games-phone-controller`** (673 words) — a category answer ("party games phone controller",
+  "browser party games no download") introducing Steer It as ONE example, not a sales pitch. ⚠️ **The
+  Steer It facts were verified against the code:** free tier = Free Ride, **up to 8 players**
+  (`PLAYER_CAP = 8`, NOT "no cap"), 3 free maps (Circuit, Desktop, Stadium Oval = `FREE_MAP_IDS` minus
+  the Circuit II promo), **a choice of arcade cars** (all 3 arcade cars are free — only SIM is
+  `isSimLocked`; the homepage FREE-vs-PREMIUM pricing table was corrected "Cars 1" → **"Cars 3"** to
+  match), no account to start; $6.90 one-time. **Smart-TV hosting is worded as UNVERIFIED** on both
+  pages AND in the homepage FAQ ("any device with a modern browser, including smart TVs with a capable
+  browser" — a smart TV's browser handling render/WebRTC has NOT been tested on real hardware).
 - **Performance:** hero image 661 KB → **70 KB WebP**.
 - **Google Search Console** verified + indexed.
 - **No analytics at launch** beyond Vercel Web Analytics + Stripe — the privacy policy states none

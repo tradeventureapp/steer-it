@@ -3,7 +3,9 @@
     { "source": "/play", "destination": "/play.html" },
     { "source": "/terms", "destination": "/terms.html" },
     { "source": "/privacy", "destination": "/privacy.html" },
-    { "source": "/refund", "destination": "/refund.html" }
+    { "source": "/refund", "destination": "/refund.html" },
+    { "source": "/airconsole-alternative", "destination": "/airconsole-alternative.html" },
+    { "source": "/party-games-phone-controller", "destination": "/party-games-phone-controller.html" }
   ],
   "headers": [
     {
