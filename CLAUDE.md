@@ -1123,6 +1123,31 @@ The XSS/takeover half of Finding 1 is **FIXED + pushed** (`0eb7300`, see §8). T
   match), no account to start; $6.90 one-time. **Smart-TV hosting is worded as UNVERIFIED** on both
   pages AND in the homepage FAQ ("any device with a modern browser, including smart TVs with a capable
   browser" — a smart TV's browser handling render/WebRTC has NOT been tested on real hardware).
+- **PUBLIC LEADERBOARD PAGE — SERVER-RENDERED (`/leaderboard`).** A **Vercel serverless function**
+  `api/leaderboard.js` (plain JS like the other `api/*`, rewritten `/leaderboard` → `/api/leaderboard`
+  in `vercel.json`) that renders the best **Time Attack** lap times as REAL HTML per request — so
+  crawlers (and JS-off visitors) see the times, not an empty JS shell. Two wins: indexable
+  self-updating content, and a reason to come back (your public time is something to defend). Reads via
+  PostgREST with the **PUBLIC ANON key** (`SUPA_URL()`/`SUPA_ANON()` from `_lib.js`; RLS
+  "leaderboard: public read"), **SELECTing only display columns** (`nickname,value,car_key,track_id,
+  updated_at`) — **NEVER `user_id`**. Browse by track/car via a plain GET `<form>` (no JS needed →
+  crawlable); the TA tracks are `flat / asphalt / circuit / rallycross / circuit2`, cars = `LB_CAR_KEYS`.
+  Default combo = **Circuit + Scrappy GT** (most-played track + the default new-player car → most likely
+  to have times). The bare `/leaderboard` is `index,follow` + self-canonical; `?track=&car=` variants are
+  `noindex,follow` + canonical→base (no thin-combo index bloat). Untrusted `nickname` is HTML-escaped;
+  `Cache-Control: s-maxage=60, stale-while-revalidate` (fast + ≤~1 min stale). Styled via `/legal.css`,
+  ONE H1, links back to the game + the 3 SEO pages. **Discovery: a secondary `🏁 LEADERBOARD` link in the
+  hero `.menu-actions`** (stacked under TRY FREE — above the fold, where the code already reserved the
+  slot; a plain nav `<a>`, not a game button), PLUS a `/leaderboard` link in each of the 3 SEO pages'
+  footers. In `SITEMAP_URLS` (`changefreq daily`). ⚠️ **Read-only** — the in-game leaderboard / `submit_
+  score` / ghosts / gameplay are untouched. ⚠️ Dev caveat: `npm run dev` (Vite) does NOT run `api/*`, so
+  `/leaderboard` only works on Vercel (or `vercel dev`); the render is unit-tested in Node with a mocked
+  `fetch` (`renderPage()` is exported pure). **KNOWN FOLLOW-UP (RLS):** `public.leaderboard`'s public-read
+  policy is `using (true)`, so the anon key can read EVERY column incl. `user_id` (opaque UUID; no email
+  in the table). This page never exposes it, but anyone hitting PostgREST directly with the anon key can
+  read `user_id`. To close it: a column-restricted `leaderboard_public` VIEW (display columns only) with
+  public-read moved to the view + removed from the base table — deferred (it touches the in-game read
+  path; do it as its own change, not bundled with a page).
 - **Performance:** hero image 661 KB → **70 KB WebP**.
 - **Google Search Console** verified + indexed.
 - **No analytics at launch** beyond Vercel Web Analytics + Stripe — the privacy policy states none

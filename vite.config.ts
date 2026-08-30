@@ -39,6 +39,7 @@ const cleanRouteRewrite = {
 // (e.g. a tarball build). Overwrites the static public/sitemap.xml copy, which stays as the dev fallback.
 const SITEMAP_URLS = [
   { loc: 'https://steerit.app/',        file: null,           changefreq: 'weekly', priority: '1.0' },
+  { loc: 'https://steerit.app/leaderboard', file: 'api/leaderboard.js', changefreq: 'daily', priority: '0.6' },
   { loc: 'https://steerit.app/airconsole-alternative',      file: 'airconsole-alternative.html',      changefreq: 'monthly', priority: '0.7' },
   { loc: 'https://steerit.app/party-games-phone-controller', file: 'party-games-phone-controller.html', changefreq: 'monthly', priority: '0.7' },
   { loc: 'https://steerit.app/party-games-at-work-and-school', file: 'party-games-at-work-and-school.html', changefreq: 'monthly', priority: '0.7' },

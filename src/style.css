@@ -610,6 +610,8 @@ body.desktop #game { display: block; width: 100vw; height: 100vh; }
           drop-shadow(0 0 22px rgba(255, 45, 143, 0.4));
 }
 .menu-actions { display: flex; flex-direction: column; gap: 12px; width: 280px; margin-top: 6px; }
+/* A nav LINK styled as a menu button (e.g. the hero LEADERBOARD link) — kill the underline + centre it. */
+.menu-actions a.menu-btn { text-decoration: none; text-align: center; }
 .menu-btn {
   appearance: none; -webkit-appearance: none; cursor: pointer; white-space: nowrap;
   font-family: var(--font-display); font-weight: 800; letter-spacing: 3px; font-size: 16px;

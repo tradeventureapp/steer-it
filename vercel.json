@@ -6,7 +6,8 @@
     { "source": "/refund", "destination": "/refund.html" },
     { "source": "/airconsole-alternative", "destination": "/airconsole-alternative.html" },
     { "source": "/party-games-phone-controller", "destination": "/party-games-phone-controller.html" },
-    { "source": "/party-games-at-work-and-school", "destination": "/party-games-at-work-and-school.html" }
+    { "source": "/party-games-at-work-and-school", "destination": "/party-games-at-work-and-school.html" },
+    { "source": "/leaderboard", "destination": "/api/leaderboard" }
   ],
   "headers": [
     {
