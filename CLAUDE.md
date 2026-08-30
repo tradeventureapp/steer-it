@@ -1054,6 +1054,50 @@ The XSS/takeover half of Finding 1 is **FIXED + pushed** (`0eb7300`, see §8). T
 - **Full SEO pass live + verified:** title/meta description, Open Graph (`og-image.jpg`, sharing
   cards verified), **JSON-LD `VideoGame` schema** (0 errors), `sitemap.xml` + `robots.txt`,
   canonical URL, `steer-it.vercel.app` `noindex`ed (only `steerit.app` indexes).
+- **H1:** exactly ONE — the hero `<h1 class="hero-h1">` wraps the wordmark IMAGE + an `.sr-only`
+  keyword span ("…free multiplayer party racing game you play in your browser…"), so the logo is the
+  visual and the crawlable heading text carries the primary keywords. The `.hero-sub` below it is a
+  `<p>`, not a competing heading. (Verified: 1 `<h1>` on the page.)
+- **Structured data — TWO JSON-LD blocks in `index.html` `<head>`:** (1) `VideoGame` (name, description,
+  Free `$0` + Premium `$6.90` `Offer`s, genre, `gamePlatform` incl. Web browser, `operatingSystem`
+  "Any (web browser)", `numberOfPlayers` **1–8** [KEPT at 1 — the solo modes Time Attack / XP / ghost
+  are a deliberate on-ramp, so the schema must not signal "group required"], OG image); (2) **`FAQPage`**
+  — 7 Q&As phrased the way people SEARCH ("how do you play games with friends on one screen", "do I need
+  to download anything", "does it work on a TV", "do we all need to be on the same wifi", …). ⚠️ The
+  JSON-LD answer text MUST stay byte-identical to the visible **`#faq` "COMMON QUESTIONS"** accordion
+  (`<details>`, after "WHAT IS STEER IT?") — Google requires the on-page text to match; a build-time
+  validator (below) checks it. The account answer is HONEST: Free Ride needs no account, a free sign-in
+  unlocks TA/XP/leaderboard, premium is the separate one-time purchase.
+- **Sitemap `lastmod` auto-generates** — a Vite build plugin (`sitemapLastmod` in `vite.config.ts`,
+  `apply:'build'` / `closeBundle`) REWRITES `dist/sitemap.xml` with git-derived dates: the homepage
+  `lastmod` = the repo's last commit date (HEAD = last ship; the SPA renders the whole app so any src
+  change changes the page), each legal page = `git log -1 --format=%cs -- <file>`, with a build-date
+  fallback if git is absent. So it stays honest with zero hand-maintenance (was hardcoded `2026-07-29`).
+  `public/sitemap.xml` stays as the dev/fallback copy; the plugin overwrites the dist copy Vercel serves.
+- **JSON-LD validation is a repo habit:** a Node one-liner extracts both `ld+json` blocks, `JSON.parse`s
+  them, and asserts the 7 FAQ answers + questions match the visible HTML exactly and that there is 1 `<h1>`
+  (run ad-hoc pre-commit; all-pass was the gate for this SEO drop).
+- **GAME UI is hidden from crawlers (SEO isolation).** The in-game interface — `#game-menu`, every
+  modal, car/map/mode select, all HUD/overlays (`#hud-tr` "SCAN TO PLAY", `#hud-bl` GAS/BRK/HB,
+  `#ta-hud`, `#steerball-lobby`, `#pause-overlay`, `#editor`, …) — was shipping as ~780 lines of raw
+  HTML, so crawlers read all those app strings (GAS, BRK, KM/H, GRIP, SLIP, WSPIN, RUN OVER, the whole
+  menu system) as page content, diluting the marketing that's meant to rank. **Fix (index.html):**
+  everything except the marketing `#main-menu` + the `#game` canvas is wrapped in a single
+  **`<template id="game-shell">`** — `<template>` content is parsed but INERT (not in the live DOM), so
+  a proper crawler's body-text extraction skips it (verified: extracted body text **1609 → 895 words**,
+  now marketing-only). A tiny **CLASSIC inline `<script>` immediately after `</template>`** moves the
+  template's content back into its exact original body position: a classic inline script runs DURING
+  parsing, BEFORE the deferred `type="module"` desktop.ts, so all ~260 `getElementById` lookups resolve
+  exactly as before. **Zero effect on gameplay/layout/a11y** — the runtime DOM is byte-identical (same
+  elements, direct body children, hidden as before; no wrapper, no shift, cloned before first paint).
+  ⚠️ Keep the clone script directly after `</template>` and BEFORE the module, or the game boots to null
+  nodes. **Caveat (accepted):** Google's JS renderer runs the clone script, so the game UI is still in
+  the FULLY-RENDERED DOM — but it's all `hidden` (heavily discounted) and below the marketing. Hiding it
+  from the rendered DOM too would need clone-on-interaction (the game booting post-interaction) — a
+  bigger/riskier refactor, deliberately NOT done. Verified live: full boot with a dummy `.env.local`,
+  no null/TypeError; TRY FREE → mode → car-select transitions + car-select render + HUD-on-launch all
+  work; pause/options/auth/consent/steerball modals all present + wired. (Comments above the template +
+  clone script explain this in-file for a cold reader / buyer.)
 - **Performance:** hero image 661 KB → **70 KB WebP**.
 - **Google Search Console** verified + indexed.
 - **No analytics at launch** beyond Vercel Web Analytics + Stripe — the privacy policy states none

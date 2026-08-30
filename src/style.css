@@ -3601,3 +3601,46 @@ body.phone {
   .about-prose { font-size: 15.5px; line-height: 1.7; }
   .about-prose h3 { font-size: 15.5px; }
 }
+
+/* ---- FAQ — accordion of common questions (details/summary), synthwave-styled to match
+   the .about section. Body font for readability; the ONE section title stays Orbitron. ---- */
+.faq {
+  position: relative; z-index: 1;
+  max-width: 860px; margin: 0 auto; padding: 18px 22px 10px;
+}
+.faq-list { display: flex; flex-direction: column; gap: 12px; }
+.faq-item {
+  background: var(--glass-soft);
+  border: 1px solid var(--border-dim);
+  border-radius: 14px;
+  overflow: hidden;
+  transition: border-color 0.18s ease;
+}
+.faq-item[open] { border-color: rgba(255, 45, 149, 0.42); }
+.faq-q {
+  list-style: none; cursor: pointer;
+  display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  padding: 16px 20px;
+  font-family: var(--font-body); font-weight: 600; font-size: 16.5px;
+  color: var(--text); line-height: 1.4;
+  transition: color 0.15s ease;
+}
+.faq-q::-webkit-details-marker { display: none; }
+.faq-q::after {
+  content: '+'; flex: none;
+  font-family: var(--font-display); font-weight: 800; font-size: 22px; line-height: 1;
+  color: var(--gold);
+}
+.faq-item[open] .faq-q::after { content: '−'; }
+.faq-q:hover { color: var(--gold); }
+.faq-a {
+  padding: 0 20px 18px;
+  font-family: var(--font-body); color: var(--text-dim);
+  font-size: 15.5px; line-height: 1.7;
+}
+.faq-a p { margin: 0; }
+@media (max-width: 760px) {
+  .faq { padding: 10px 18px 6px; }
+  .faq-q { font-size: 15px; padding: 14px 16px; }
+  .faq-a { font-size: 14.5px; padding: 0 16px 16px; }
+}

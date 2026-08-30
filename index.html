@@ -85,6 +85,52 @@
       ]
     }
     </script>
+
+    <!-- FAQ structured data — mirrors the visible COMMON QUESTIONS section EXACTLY (Google
+         requires the JSON-LD answer text to match the on-page text). Enables FAQ rich results. -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "FAQPage",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "How do you play games with friends on one screen?",
+          "acceptedAnswer": { "@type": "Answer", "text": "One person opens Steer It on a laptop, TV or desktop, and everyone else scans the on-screen QR code — each phone becomes a steering wheel. Up to 8 of you then race on that one shared screen. It's a local multiplayer party game: you're all in the same room on one display, with no splitscreen and no extra controllers." }
+        },
+        {
+          "@type": "Question",
+          "name": "Do I need to download anything?",
+          "acceptedAnswer": { "@type": "Answer", "text": "No. Steer It runs entirely in the browser — the host just opens a web page and players join by scanning a QR code with their phone camera. There's nothing to install on the screen or on anyone's phone, and no app store." }
+        },
+        {
+          "@type": "Question",
+          "name": "How many players can play?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Two to eight players share one screen, each using their own phone as the controller. You can also drive on your own to practise or chase a lap time, but it's built for a group in the same room." }
+        },
+        {
+          "@type": "Question",
+          "name": "Does it work on a TV?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Yes — if your TV has a web browser (a smart TV, or anything plugged into it like a laptop or mini-PC), open steerit.app on it and it becomes the shared screen. Everyone's phones connect the same way, so the whole room watches the race on the big screen." }
+        },
+        {
+          "@type": "Question",
+          "name": "Do I need an account?",
+          "acceptedAnswer": { "@type": "Answer", "text": "No account is needed to start driving — Free Ride works the moment you open the page. Signing in is free and unlocks Time Attack, XP and the global leaderboard; premium is a separate one-time purchase for all the maps, modes and simulation cars." }
+        },
+        {
+          "@type": "Question",
+          "name": "Do we all need to be on the same wifi?",
+          "acceptedAnswer": { "@type": "Answer", "text": "It's smoothest when everyone's on the same wifi, which is the normal setup for a party in one room. Phones connect directly to the host where they can and fall back to the internet if needed, so mobile data can work too — but same-wifi gives the lowest lag." }
+        },
+        {
+          "@type": "Question",
+          "name": "What do I need to play?",
+          "acceptedAnswer": { "@type": "Answer", "text": "One screen with a web browser — a laptop, desktop, tablet or smart TV — and a phone for each player. That's it: no console, no controllers, no downloads. Scan the QR code with your phone's camera and you're the wheel." }
+        }
+      ]
+    }
+    </script>
   </head>
   <body class="desktop">
     <canvas id="game"></canvas>
@@ -390,6 +436,48 @@
         </div>
       </section>
 
+      <!-- ===== FAQ — questions phrased the way people actually search, answered honestly.
+           Mirrored EXACTLY by the FAQPage JSON-LD in <head> (Google requires the visible text
+           to match). Accordion (details/summary) so it's compact + accessible; content is still
+           in the DOM for crawlers even when collapsed. -->
+      <section class="faq" id="faq">
+        <div class="how-head">
+          <span class="how-rule" aria-hidden="true"></span>
+          <h2 class="how-title">COMMON QUESTIONS</h2>
+          <span class="how-rule flip" aria-hidden="true"></span>
+        </div>
+        <div class="faq-list">
+          <details class="faq-item">
+            <summary class="faq-q">How do you play games with friends on one screen?</summary>
+            <div class="faq-a"><p>One person opens Steer It on a laptop, TV or desktop, and everyone else scans the on-screen QR code — each phone becomes a steering wheel. Up to 8 of you then race on that one shared screen. It's a local multiplayer party game: you're all in the same room on one display, with no splitscreen and no extra controllers.</p></div>
+          </details>
+          <details class="faq-item">
+            <summary class="faq-q">Do I need to download anything?</summary>
+            <div class="faq-a"><p>No. Steer It runs entirely in the browser — the host just opens a web page and players join by scanning a QR code with their phone camera. There's nothing to install on the screen or on anyone's phone, and no app store.</p></div>
+          </details>
+          <details class="faq-item">
+            <summary class="faq-q">How many players can play?</summary>
+            <div class="faq-a"><p>Two to eight players share one screen, each using their own phone as the controller. You can also drive on your own to practise or chase a lap time, but it's built for a group in the same room.</p></div>
+          </details>
+          <details class="faq-item">
+            <summary class="faq-q">Does it work on a TV?</summary>
+            <div class="faq-a"><p>Yes — if your TV has a web browser (a smart TV, or anything plugged into it like a laptop or mini-PC), open steerit.app on it and it becomes the shared screen. Everyone's phones connect the same way, so the whole room watches the race on the big screen.</p></div>
+          </details>
+          <details class="faq-item">
+            <summary class="faq-q">Do I need an account?</summary>
+            <div class="faq-a"><p>No account is needed to start driving — Free Ride works the moment you open the page. Signing in is free and unlocks Time Attack, XP and the global leaderboard; premium is a separate one-time purchase for all the maps, modes and simulation cars.</p></div>
+          </details>
+          <details class="faq-item">
+            <summary class="faq-q">Do we all need to be on the same wifi?</summary>
+            <div class="faq-a"><p>It's smoothest when everyone's on the same wifi, which is the normal setup for a party in one room. Phones connect directly to the host where they can and fall back to the internet if needed, so mobile data can work too — but same-wifi gives the lowest lag.</p></div>
+          </details>
+          <details class="faq-item">
+            <summary class="faq-q">What do I need to play?</summary>
+            <div class="faq-a"><p>One screen with a web browser — a laptop, desktop, tablet or smart TV — and a phone for each player. That's it: no console, no controllers, no downloads. Scan the QR code with your phone's camera and you're the wheel.</p></div>
+          </details>
+        </div>
+      </section>
+
       <!-- SITE FOOTER — legal links + contact. Ends the scrolling landing. -->
       <footer class="site-foot">
         <nav class="site-foot-links" aria-label="Legal and social">
@@ -416,6 +504,20 @@
       <div class="page-fx" aria-hidden="true"></div>
     </div>
 
+    <!-- ============================================================================
+         GAME UI (SEO isolation). Everything from here to </template> — menus, modals,
+         car/map/mode select, HUD, Steerball lobby, pause menu, editor — is the IN-GAME
+         interface, NOT marketing. It is wrapped in this <template> so search engines
+         read only the marketing content above (hero, HOW IT WORKS, FAQ, footer) and
+         NOT the app's UI strings (GAS, BRK, SCAN TO PLAY, KM/H, GRIP, SLIP …), which
+         would otherwise dilute the page's topical focus. A <template>'s content is
+         parsed but INERT — it is not in the live DOM, so crawlers skip it.
+         The tiny CLASSIC inline <script> immediately AFTER </template> puts it back
+         into the page (see there). Net effect: crawlers see marketing only; the game
+         is byte-identical at runtime. ⚠️ Do not remove the clone script, and keep it
+         directly after </template> and BEFORE the deferred desktop.ts module.
+         ============================================================================ -->
+    <template id="game-shell">
     <!-- ===== GAME MENU — shown to a LOGGED-IN host instead of the marketing
          landing. Logo + PLAY / OPTIONS / LEADERBOARDS. OPTIONS + LEADERBOARDS are
          in-screen sub-views (no extra screens to juggle). Auth state drives which
@@ -1201,6 +1303,19 @@
         </div>
       </div>
     </aside>
+    </template>
+
+    <!-- Restore the game UI (the #game-shell <template> above) into the live DOM.
+         This is a CLASSIC inline script on purpose: it runs DURING HTML parsing, i.e.
+         BEFORE the deferred type="module" desktop.ts below — so every element exists
+         when the game code runs its ~260 getElementById lookups. It MOVES the
+         template's content into its exact original body position (no wrapper element),
+         so there is no layout shift and the elements stay hidden as before. Removing
+         or reordering this (after the module) would make the game boot to null nodes. -->
+    <script>(function () {
+      var t = document.getElementById('game-shell');
+      if (t && t.parentNode) t.parentNode.insertBefore(t.content, t);
+    })();</script>
 
     <script type="module" src="/src/desktop.ts"></script>
   </body>
