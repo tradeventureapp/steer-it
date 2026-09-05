@@ -2111,6 +2111,45 @@ body.desktop #ta-hud {
   font-family: var(--font-body); font-weight: 700; font-size: 11px; letter-spacing: 0.6px;
   color: rgba(197, 182, 230, 0.85);
 }
+/* GUEST gap line (signed-out TA) — standing vs the board best. Gold-tinted info, NOT a CTA. */
+#ta-gap {
+  margin-top: 7px;
+  font-family: var(--font-body); font-weight: 700; font-size: 11px; letter-spacing: 0.6px;
+  color: var(--gold); text-shadow: 0 0 8px rgba(255, 194, 74, 0.35);
+}
+#ta-gap[hidden] { display: none; }
+
+/* TIME ATTACK sign-in OFFER — a centred, prominent card shown ONLY when a signed-out player STOPS.
+   Sits above the menus / pause / modals (z 210 > modal 200) so it's the focus; its own sign-in
+   button hides it first, so the auth modal (z 200) then shows unobstructed. */
+body.desktop #ta-offer {
+  position: fixed; inset: 0; z-index: 210;
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px; pointer-events: none;
+  background: rgba(6, 3, 16, 0.55); backdrop-filter: blur(3px);
+}
+#ta-offer[hidden] { display: none; }
+.ta-offer-card {
+  pointer-events: auto; position: relative;
+  width: min(440px, 100%); text-align: center;
+  gap: 12px; padding: 26px 28px 20px;
+}
+.ta-offer-title {
+  font-family: var(--font-display); font-weight: 800; font-size: 24px; letter-spacing: 1px;
+  color: var(--gold); text-shadow: var(--glow-gold);
+}
+.ta-offer-body {
+  font-family: var(--font-body); font-size: 14.5px; line-height: 1.55;
+  color: var(--text-dim); margin: 4px 0 2px; text-wrap: balance;
+}
+.ta-offer-actions { display: flex; width: 100%; margin-top: 4px; }
+.ta-offer-actions .menu-btn { flex: 1; margin: 0; }
+.ta-offer-later {
+  appearance: none; background: none; border: none; cursor: pointer;
+  font-family: var(--font-body); font-size: 12px; letter-spacing: 0.5px;
+  color: var(--text-muted); padding: 6px; margin-top: 4px;
+}
+.ta-offer-later:hover { color: var(--text-dim); }
 
 /* Per-track best lap on a map tile (Time Attack only; hidden in every other mode). */
 .map-best {

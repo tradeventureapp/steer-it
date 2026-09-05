@@ -825,12 +825,28 @@
       <div class="menu-card reg-prompt-card">
         <button type="button" class="auth-x" id="reg-prompt-x" aria-label="Close">×</button>
         <div class="reg-prompt-title">Enjoying it?</div>
-        <p class="reg-prompt-body">Sign in <b>free</b> to unlock Time Attack, XP &amp; the global leaderboard.</p>
+        <p class="reg-prompt-body">Sign in <b>free</b> to save your lap times to the global leaderboard and race other players' ghosts.</p>
         <div class="reg-prompt-actions">
           <button type="button" class="menu-btn primary" id="reg-prompt-signup">Create account</button>
           <button type="button" class="menu-btn sub" id="reg-prompt-login">Sign in</button>
         </div>
         <button type="button" class="reg-prompt-later" id="reg-prompt-later">Maybe later</button>
+      </div>
+    </div>
+
+    <!-- TIME ATTACK sign-in OFFER — the conversion moment for a SIGNED-OUT player who set a valid lap.
+         Shown ONLY when they STOP (pause / exit to menu), ONCE per page load, NEVER while driving. The
+         title + body are filled by desktop.ts (maybeShowTaGuestOffer) from their lap vs the board's best
+         (gap framing, never a rank — the board is thin). Sign in reuses the auth modal. -->
+    <div id="ta-offer" hidden>
+      <div class="menu-card ta-offer-card">
+        <button type="button" class="auth-x" id="ta-offer-x" aria-label="Close">×</button>
+        <div class="ta-offer-title" id="ta-offer-title">Nice lap!</div>
+        <p class="ta-offer-body" id="ta-offer-body"></p>
+        <div class="ta-offer-actions">
+          <button type="button" class="menu-btn primary" id="ta-offer-signin">Sign in free ▸</button>
+        </div>
+        <button type="button" class="ta-offer-later" id="ta-offer-later">Maybe later</button>
       </div>
     </div>
 
@@ -1193,6 +1209,9 @@
       <!-- Whose ghost is on track (Phase 2). Unobtrusive; shown only while a ghost is replaying.
            Ghost SELECTION now lives in the menu (mode panel), not here. -->
       <div id="ta-ghost-who" hidden></div>
+      <!-- GUEST gap line (signed-out only): how their best compares to the board's #1 lap — plain
+           on-screen info, NOT a call to action. The sign-in offer is shown only when they STOP. -->
+      <div id="ta-gap" hidden></div>
     </aside>
     <!-- XP MODE HUD (circuit + XP mode only): big score top-centre + drift
          multiplier. Blinks red under the slow-speed warning. -->

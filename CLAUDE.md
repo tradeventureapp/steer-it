@@ -827,6 +827,63 @@ not trusted). `EV` events: phone→desktop `join|color|name|leave|control`; desk
   no sign-in/limit). Price + BEST VALUE unchanged. In the IN-GAME map picker the **Circuit group
   tile sits FIRST** (then Circuit II, Desktop, Stadium Oval), display-order only — the gate
   (`FREE_MAP_IDS`) is untouched.
+- **⚠️ TIME ATTACK OPEN TO SIGNED-OUT PLAYERS** (`TA_GUEST_ENABLED = true` in desktop.ts) — the funnel
+  fix: last week 53 people played Free Ride, **zero** tried TA (locked behind sign-in), yet TA is the
+  retaining mode (2–15 min sessions vs <2 min Free Ride). Now a **signed-out** player can select + play
+  full Time Attack — lap timing, validity, HUD, personal best, own ghost. **⚠️ FLAG INTERACTION —
+  independent levers, neither overrides the other:** `TA_GUEST_ENABLED` opens **TA to ALL non-premium
+  incl. signed-out** (`isModeLocked` checks `key==='timeattack' && TA_GUEST_ENABLED` FIRST → false);
+  `FREE_TA_XP_ENABLED` still governs **XP** (signed-in only) and would govern TA if the guest flag were
+  off. Guest off ⇒ TA reverts to signed-in-only (via FREE_TA_XP). Experiment off ⇒ XP closes, TA stays
+  open. Both off ⇒ premium-only. **Deliberately TA-only, NOT XP** (TA's goal — "faster lap" — is grasped
+  in 5 s; XP is a drift mode you must learn first, a poor first experience). **STAYS gated:** the
+  leaderboard **submit** (`submitLeaderboardBest`/`submitTaBestWithGhost` already `return` when `!user`
+  — a guest's valid lap sets the LOCAL PB, never submits) and **racing OTHER players' ghosts (TOP
+  PLAYERS)** — hidden + click-guarded for signed-out in `refreshGhostPanel` (PERSONAL BEST / BEST IN
+  SESSION are local, stay). **SIM cars** (`isSimLocked`) + **premium tracks** (`isMapLocked`) checked
+  INDEPENDENTLY ⇒ a guest gets arcade cars on the free TA tracks (Asphalt Oval, Circuit, Circuit II)
+  only — no premium content opens. **Guest scope unchanged** (`taUserScope() = user?.id ?? 'guest'`;
+  `steerit.ta.best.guest.*` / ghost keys separate from any account — no leak either way). **THE
+  CONVERSION (two split moments, never interrupts driving):** (1) **DURING driving** — an unobtrusive
+  gold `#ta-gap` HUD line (signed-out only), INFO not a CTA: after a valid lap it shows the gap to the
+  board's #1 (`taBoardBest`, fetched async on TA start via the PUBLIC leaderboard read) — "1.4s off the
+  best here" / "0.3s under the best here" / "First lap on this board". No modal, no pause. (2) **WHEN
+  STOPPED** (pause OR exit-to-menu) — the `#ta-offer` card (`maybeShowTaGuestOffer`), **once per page**,
+  NEVER while moving: their session best + gap-to-best (**never a rank** — the board is thin) + "Sign in
+  free" (→ auth modal). Three cases: empty board → "first time on this board … claim the top spot";
+  slower (t>B) → "{gap} off the fastest lap here ({B}) … put your time on the leaderboard"; faster (t<B)
+  → "{gap} under the current best … take the record"; board best not loaded → a plain invite (no gap).
+  On pause it **takes precedence over the premium promo** (no stacking). **Analytics** (signed-out,
+  `trackOnce`): `timeattack-guest-started` / `-guest-valid-lap` / `-guest-offer-shown` /
+  `-guest-signin-click` = the started → valid-lap → offer → sign-in funnel. **TIME ATTACK IS NOW THE
+  DEFAULT MODE** (`preferredDefaultMode()`, used by `chooseMode`): a fresh selection lands on TA
+  (highlighted) instead of Free Ride — the solo funnel's mode, grasped in 5 s, and the one that
+  RETAINS. It's only the initial HIGHLIGHT (a map still gates START; a group clicks Free Ride, right
+  there in the mode list); it falls back to Free Ride where TA is locked, and picking a TA-incapable
+  map (Desktop) resets the mode to Free Ride in `selectMap` (`DEFAULT_GAME_MODE = 'free'` stays the SAFE
+  fallback — `preferredDefaultMode` is the PREFERRED default). ⚠️ There's no solo/group signal before
+  phones join, so the default is TA for everyone at mode-select — accepted (Free Ride is one click).
+  **⚠️ GUEST TIME CARRY-OVER (the offer's promise made real):** a guest's TA best lives only under the
+  `guest` scope and `submitTaBestWithGhost` skips signed-out — so a guest who reads the offer, signs up,
+  and finds their lap ABSENT would be worse than never asking. **Bridge:** on every guest valid lap,
+  `stashGuestPending(car,map,ms,splits)` writes `steerit.ta.pending.<car>.<map> = {v,z:6-splits,t,c,ts}`
+  (KEEP-MIN per combo, so it always holds their FASTEST lap WITH its zone-split proof — a bare stored
+  best can't submit, the RPC needs the 6 splits); persisted → survives a Google-OAuth redirect. On the
+  **first auth resolution to a signed-in user** (a fresh sign-in from the offer OR the OAuth reload —
+  an `onAuthChange` hook, once per uid), `carryOverGuestTa()` submits every stashed combo via the normal
+  `submit_score` RPC + attaches the guest's PB ghost (`steerit.ta.ghost.guest.<car>.<map>`), then clears
+  it (one-shot; kept only on a NETWORK error for a retry; a 7-day TTL drops stale/foreign times on a
+  shared browser). ⚠️ **Scope isolation UNTOUCHED** — the guest's LOCAL keys stay under `guest`; carry-over
+  only SUBMITS the time to the server under the account (best-only upsert — can never worsen an existing
+  account best), and the account's local best/ghost self-heal via `seedTaBestFromServer` on the next TA
+  start. Analytics `timeattack-guest-carryover-submitted`. **Free Ride `#reg-prompt` copy fixed** —
+  reframed from "unlock Time Attack, XP & the leaderboard" to "save your lap times to the global
+  leaderboard and race other players' ghosts" (TA no longer needs sign-in). Physics/validity/submit-path/
+  in-game-leaderboard untouched (Blitz golden 0.0e+0). tsc + build clean; verified live signed-out (TA is
+  the default highlighted mode; TA launches with no sign-in wall; TOP PLAYERS hidden; offer renders +
+  sign-in opens auth) + headless-proven the pending keep-min + carry-over storage contract (fastest kept,
+  per-combo, 6 splits, prefix read). ⚠️ The actual `submit_score`/`submit_ghost` carry-over call needs a
+  live Supabase + a real lap to prove end-to-end (standard live-test caveat).
 - **Premium promo interstitial** (free/anon only): bold non-flashing, X after ~5 s, 3-min global cap,
   after Start / on Pause / on game-end; CTA → checkout or signup→checkout. Upsell banners show NO
   price (overflow fix); price shows on the landing pricing + game-menu.

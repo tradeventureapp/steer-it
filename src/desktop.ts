@@ -140,6 +140,10 @@ const taLastEl      = document.getElementById('ta-last')       as HTMLElement | 
 const taRecordEl    = document.getElementById('ta-record')     as HTMLElement | null;
 const taInvalidEl   = document.getElementById('ta-invalid')    as HTMLElement | null;
 const taGhostWhoEl  = document.getElementById('ta-ghost-who')   as HTMLElement | null;
+const taGapEl       = document.getElementById('ta-gap')         as HTMLElement | null;
+const taOfferEl      = document.getElementById('ta-offer')       as HTMLElement | null;
+const taOfferTitleEl = document.getElementById('ta-offer-title') as HTMLElement | null;
+const taOfferBodyEl  = document.getElementById('ta-offer-body')  as HTMLElement | null;
 const xpHudEl       = document.getElementById('xp-hud')        as HTMLElement | null;
 const xpScoreEl     = document.getElementById('xp-score')      as HTMLDivElement | null;
 const xpMultEl      = document.getElementById('xp-mult')       as HTMLDivElement | null;
@@ -437,7 +441,9 @@ window.addEventListener('keydown', (e) => {
     if (optionsModalEl && !optionsModalEl.hidden) { closeOptions(); return; }
     if (!editorMode) {
       userPaused = !userPaused; refreshFreeze();   // no-op in the editor
-      if (userPaused) maybeShowPremiumPromo();      // promo on PAUSE (free/anon, capped)
+      // On PAUSE: a signed-out TA player who set a lap gets the SIGN-IN offer, which TAKES PRECEDENCE
+      // over the premium promo (don't stack). Otherwise the usual promo (free/anon, capped).
+      if (userPaused && !maybeShowTaGuestOffer()) maybeShowPremiumPromo();
     }
   }
   if (e.key === 'e' || e.key === 'E') {
@@ -599,6 +605,15 @@ const FREE_MODE_KEYS = ['free', 'steerball'];
 // is untouched. Mirrors the PREMIUM_PROMO_ENABLED kill-switch pattern.
 const FREE_TA_XP_ENABLED = true;
 const FREE_TA_XP_MODES = ['timeattack', 'xp'];
+// ⚠️ SEPARATE, INDEPENDENT lever from FREE_TA_XP_ENABLED — they do NOT override each other:
+//   • FREE_TA_XP_ENABLED opens TA + XP to a SIGNED-IN non-premium user (the earlier experiment).
+//   • TA_GUEST_ENABLED opens TIME ATTACK to ANYONE non-premium, INCLUDING SIGNED-OUT (this change).
+// TA is checked against TA_GUEST first (below), so it's open to signed-out AND signed-in; XP stays
+// governed by FREE_TA_XP_ENABLED (signed-in only). Turn TA_GUEST off ⇒ TA reverts to signed-in-only
+// (via FREE_TA_XP_ENABLED). Turn FREE_TA_XP off ⇒ XP closes, TA stays open. Both off ⇒ premium-only.
+// Deliberately TA-only (not XP): TA's goal — "drive a faster lap" — is understood in 5 s; XP is a
+// drift mode you must learn first, a poor FIRST experience for a signed-out newcomer.
+const TA_GUEST_ENABLED = true;
 const isPremium = () => getAuthState().isPremium;
 // Entitlement still resolving for a logged-in host (a session appeared but the
 // profile read hasn't returned and there was no cache to seed from). While true the
@@ -616,7 +631,10 @@ const isFreeExperimentMode = (key: string) =>
   FREE_TA_XP_ENABLED && !isPremium() && FREE_TA_XP_MODES.includes(key);
 const isModeLocked = (key: string) => {
   if (isPremium() || FREE_MODE_KEYS.includes(key)) return false;   // premium, or an always-free mode
-  // EXPERIMENT: TA/XP free for a SIGNED-IN non-premium user (signed-out stays locked → sign-in prompt).
+  // TIME ATTACK is open to ALL non-premium, INCLUDING SIGNED-OUT (submit stays sign-in-gated; see
+  // submitTaBestWithGhost). This is the funnel fix — a signed-out newcomer can play the retaining mode.
+  if (key === 'timeattack' && TA_GUEST_ENABLED) return false;
+  // EXPERIMENT: XP (and TA when TA_GUEST is off) free for a SIGNED-IN non-premium user.
   if (isFreeExperimentMode(key) && !!getAuthState().user) return false;
   return true;
 };
@@ -810,8 +828,18 @@ function chooseMode(mode: RaceMode) {
   renderQr();             // the join URL carries the mode → phones paint the right colours
   selectedMapId = null;
   selectedCarKey = null;
-  selectedGameMode = DEFAULT_GAME_MODE;   // FREE RIDE is the resting default
+  selectedGameMode = preferredDefaultMode();   // TIME ATTACK for the solo funnel (see below)
   openCarMapSelect();
+}
+// The game-mode a FRESH selection lands on. TIME ATTACK is now the default: a solo newcomer — who
+// the funnel shows never discovers it (last week 53 Free Ride sessions, 0 TA) — grasps "drive a
+// faster lap" in five seconds, and TA is the mode that RETAINS (2–15 min vs <2 min). It falls back
+// to FREE RIDE only where TA isn't available to this player, so the highlight is never a locked
+// mode. This is just the initial HIGHLIGHT — a map still gates START, and a group that wants to
+// drive together clicks FREE RIDE (right there in the mode list), and picking a TA-incapable map
+// (Desktop) resets the mode to Free Ride in selectMap. DEFAULT_GAME_MODE stays the SAFE fallback.
+function preferredDefaultMode(): string {
+  return isModeLocked('timeattack') ? DEFAULT_GAME_MODE : 'timeattack';
 }
 function closeMenusIntoGame() {
   menuOpen = false;
@@ -2816,6 +2844,17 @@ onAuthChange((s) => {
   authRedirectResumeDone = true;
   if (openedViaAuthRedirect) resumePurchaseIfIntended();
 });
+// GUEST TA carry-over: the first time auth resolves to a signed-in user (a fresh sign-in from the
+// offer, OR a reload back from a Google-OAuth redirect), submit any TA bests the guest stashed
+// before signing in — so their lap actually lands on the leaderboard the offer promised. Once per
+// uid per page load; a no-op when there's nothing stashed. See carryOverGuestTa.
+let taCarryoverUid: string | null = null;
+onAuthChange((s) => {
+  if (s.loading || !s.user) return;
+  if (taCarryoverUid === s.user.id) return;
+  taCarryoverUid = s.user.id;
+  void carryOverGuestTa();
+});
 // A Google account arrives with NO nickname (Google doesn't supply one), so it would
 // show as "Player N" everywhere. Prompt once the entitlement read has resolved — that's
 // when `nickname` is server truth rather than a cache guess. Once per page: never nag,
@@ -2905,6 +2944,9 @@ function exitToSelection() {
   userPaused = false;
   resetRaceFeed();   // drop any finish feed / podium so it's clean next race
   openCarMapSelect();
+  // Leaving Time Attack is a STOP moment — a signed-out player who set a lap gets the sign-in offer
+  // (once per page; no-op for anyone else). Shown over the selection menu.
+  maybeShowTaGuestOffer();
 }
 document.getElementById('btn-resume')?.addEventListener('click', resumeGame);
 document.getElementById('btn-restart')?.addEventListener('click', restartRace);
@@ -4183,6 +4225,12 @@ function refreshGhostPanel(): void {
     selectedGhostMode = 'off'; selectedPlayerGhost = null;   // player ghost was for a different track/car
   }
   if (!show) return;
+  // TOP PLAYERS (racing OTHER players' ghosts) needs sign-in — hide it for a signed-out guest (PERSONAL
+  // BEST / BEST IN SESSION are local and stay available). Drop a stale 'player' selection on sign-out.
+  const signedIn = !!getAuthState().user;
+  const playerBtn = ghostOptsEl?.querySelector<HTMLButtonElement>('[data-g="player"]');
+  if (playerBtn) playerBtn.hidden = !signedIn;
+  if (!signedIn && selectedGhostMode === 'player') { selectedGhostMode = 'off'; selectedPlayerGhost = null; }
   if (ghostOptsEl) for (const b of Array.from(ghostOptsEl.querySelectorAll<HTMLButtonElement>('[data-g]'))) {
     b.classList.toggle('sel', b.dataset.g === selectedGhostMode);
   }
@@ -4204,7 +4252,7 @@ ghostOptsEl?.addEventListener('click', (e) => {
   const b = (e.target as HTMLElement | null)?.closest<HTMLButtonElement>('[data-g]');
   if (!b) return;
   const g = b.dataset.g as GhostSource;
-  if (g === 'player') { void openGhostPicker(); return; }   // TOP PLAYERS → the picker overlay
+  if (g === 'player') { if (!getAuthState().user) return; void openGhostPicker(); return; }   // TOP PLAYERS (sign-in only) → the picker overlay
   setGhostMode(g);
   b.blur();
 });
@@ -4267,6 +4315,67 @@ function submitTaBestWithGhost(value: number, splits: number[] | null, rec: Ghos
       console.info(g.ok ? '[ghost] top-10 ghost uploaded' : `[ghost] upload skipped: ${g.reason}`);
     }).catch((e) => console.info('[ghost] upload failed:', e));
   }).catch((e) => console.info('[lb] submit failed:', e));
+}
+
+// ---- GUEST TA carry-over: keep the offer's promise when a signed-out player signs in ----
+// A guest's TA best lives ONLY under the 'guest' localStorage scope, and submitTaBestWithGhost skips
+// signed-out players — so a guest who reads the offer ("put your time on the leaderboard"), signs
+// up, and finds their lap ABSENT would be worse than never asking. The PENDING record bridges it:
+// when a guest sets a valid best we stash the value + its 6 ZONE SPLITS (the leaderboard proof, which
+// a bare stored best doesn't carry) per combo; on the next sign-in we submit each under the new
+// account. Persisted to localStorage so it survives a Google-OAuth redirect; one-shot (cleared once
+// submitted). ⚠️ Scope isolation is UNTOUCHED — the guest's LOCAL best stays under 'guest', the
+// account's best is written by seedTaBestFromServer after the server round-trip; this only submits
+// the time to the server under the account (a best-only upsert, so it can never worsen an existing
+// account best). A 7-day TTL guards against carrying a stale, possibly-foreign time on a shared browser.
+const TA_PENDING_PREFIX = 'steerit.ta.pending.';
+const TA_PENDING_TTL_MS = 7 * 24 * 3600 * 1000;
+type TaPending = { v: number; z: number[]; t: string; c: string; ts: number };
+function stashGuestPending(carKey: string, mapId: string, value: number, splits: number[]): void {
+  const k = `${TA_PENDING_PREFIX}${carKey}.${mapId}`;
+  const v = Math.round(value);
+  // Keep the FASTEST lap we have splits for — a later, slower valid lap (or a slower session on a
+  // returning visit) must not overwrite a better stashed time, so carry-over always submits their best.
+  try {
+    const prev = JSON.parse(localStorage.getItem(k) || 'null') as TaPending | null;
+    if (prev && typeof prev.v === 'number' && prev.v <= v && (Date.now() - (prev.ts || 0) <= TA_PENDING_TTL_MS)) return;
+  } catch { /* unreadable prev — just overwrite */ }
+  const rec: TaPending = { v, z: splits.map((x) => Math.round(x)), t: mapId, c: carKey, ts: Date.now() };
+  try { localStorage.setItem(k, JSON.stringify(rec)); }
+  catch { /* quota/blocked — carry-over just won't happen for this combo */ }
+}
+// Run on the first auth resolution to a signed-in user (see the onAuthChange hook). Submits every
+// stashed guest best under the account; leaves a pending entry only on a NETWORK error (retried next
+// sign-in), clears it on a definitive server response, and drops malformed/stale ones.
+async function carryOverGuestTa(): Promise<void> {
+  if (!getAuthState().user) return;
+  const keys: string[] = [];
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith(TA_PENDING_PREFIX)) keys.push(k);
+    }
+  } catch { return; }
+  for (const k of keys) {
+    let p: TaPending | null = null;
+    try { p = JSON.parse(localStorage.getItem(k) || 'null'); } catch { p = null; }
+    const drop = () => { try { localStorage.removeItem(k); } catch { /* ignore */ } };
+    if (!p || typeof p.v !== 'number' || !p.t || !p.c) { drop(); continue; }
+    if (Date.now() - (p.ts || 0) > TA_PENDING_TTL_MS) { drop(); continue; }   // stale — never carry a foreign time
+    const key = boardKey('timeattack', p.t, p.c);
+    let res: Awaited<ReturnType<typeof submitScore>>;
+    try { res = await submitScore(key, p.v, { z: Array.isArray(p.z) ? p.z : [] }); }
+    catch { continue; }   // network throw → keep the pending, retry on a later sign-in / load
+    if (!res.ok && res.reason === 'error') continue;   // network-ish error → keep for a retry
+    drop();   // definitive response (accepted OR permanently rejected) → one-shot done
+    if (res.ok) {
+      trackOnce(`ta-carryover-${p.c}-${p.t}`, 'timeattack-guest-carryover-submitted', { car: p.c });
+      // Attach the guest's PB ghost (stored under the 'guest' scope) so PERSONAL BEST + the ghost
+      // library work on the account too — only if it's still genuinely top-10 (the submit_ghost RPC).
+      const rec = parseGhost(localStorage.getItem(`steerit.ta.ghost.guest.${p.c}.${p.t}`));
+      if (rec) { try { await submitGhost(key, p.v, JSON.parse(serializeGhost(rec))); } catch { /* ignore */ } }
+    }
+  }
 }
 
 // DEV/console: upload an EXISTING local ghost for a time already on the leaderboard. It attaches to
@@ -4343,6 +4452,29 @@ async function seedTaBestFromServer(carKey: string, mapId: string, storageKey: s
 // (Re)start a Time Attack session: fresh rolling timer seeded with the stored best,
 // solo car respawned at the grid, clean sheet. Called on entering the mode and on the
 // pause menu's RESTART (no new hotkey — 'R' belongs to the dev recorder).
+// ---- GUEST TIME ATTACK — the sign-in conversion (signed-out players only) --------------------
+// `taBoardBest` = the #1 lap on the CURRENT (track, car) board, fetched async on TA start via the
+// PUBLIC leaderboard read (works signed-out) — feeds the HUD gap line + the stop-moment offer.
+// `taGuestValidLap` = the signed-out player set a valid lap THIS session; the offer shows ONCE per
+// page load (`taGuestOfferShown`), only when STOPPED — never while the car is moving.
+let taBoardBest: number | null = null;   // the #1 lap ms for taBoardBestKey (lower=better); null once loaded = empty board
+let taBoardBestKey = '';                  // `${mapId}::${carKey}` the board best is for
+let taBoardBestLoaded = false;            // the fetch returned (empty or not) — distinguishes "empty board" from "still loading/failed"
+let taGuestValidLap = false;              // a signed-out player set a valid lap THIS session
+let taGuestSessionBest: number | null = null;   // their best valid lap ms this session
+let taGuestTrack = '', taGuestCar = '';   // display names captured at the valid lap, for the offer copy
+let taGuestOfferShown = false;            // the sign-in offer has been shown once this page load (no nag)
+// TA is playable while signed-out (submit still gated) → this viewer is a guest we want to convert.
+const isGuestTa = () => TA_GUEST_ENABLED && !getAuthState().user && !isPremium();
+async function fetchTaBoardBest(carKey: string, mapId: string): Promise<void> {
+  const key = `${mapId}::${carKey}`;
+  taBoardBestKey = key; taBoardBest = null; taBoardBestLoaded = false;
+  try {
+    const qv = await fetchTopAndOwn({ mode: 'timeattack', trackId: mapId, carKey, surface: '' }, 1, null);
+    if (taBoardBestKey === key) { taBoardBest = qv?.top?.[0]?.value ?? null; taBoardBestLoaded = !!qv; }
+  } catch { /* fail soft — the HUD line + the offer just omit the gap */ }
+}
+
 function startTimeAttack() {
   const el = currentMap.startLine?.(world);
   if (!el) { taRun = null; return; }   // no start/finish line ⇒ the mode cannot run here
@@ -4353,6 +4485,11 @@ function startTimeAttack() {
   taRun = new TimeAttackRun(el, readTaBest(taBestKeyActive));
   ghostBeginRun(xpCarKey(), currentMap.id);   // fresh ghost buffer + load this car+map's PB ghost
   void seedTaBestFromServer(xpCarKey(), currentMap.id, taBestKeyActive);   // server = source of truth (async)
+  // GUEST conversion: reset this run's valid-lap flag + fetch the board best for the gap framing.
+  // (The once-per-page `taGuestOfferShown` is deliberately NOT reset — one offer per visit, no nag.)
+  taGuestValidLap = false; taGuestSessionBest = null;
+  if (isGuestTa()) { void fetchTaBoardBest(xpCarKey(), currentMap.id); trackOnce('timeattack-guest-started', 'timeattack-guest-started', { car: xpCarKey() }); }
+  else { taBoardBest = null; taBoardBestKey = ''; taBoardBestLoaded = false; }
   zoneTracker = makeZoneTracker();   // leaderboard zone splits for this run (null on a zone-less map)
   taRecordUntil = 0;
   taLastUntil = 0;
@@ -5698,6 +5835,7 @@ function frame(now: number) {
             // Proof = the completed lap's 6 zone splits (present + ordered, since isBest ⇒ zonesValid).
             // Submits the score AND (chained, once the row exists) auto-uploads the just-frozen PB
             // ghost — mandatory, stored only if the time is genuinely top-10 (submit_ghost RPC).
+            // (No-op for a signed-OUT guest — it skips on !user.)
             submitTaBestWithGhost(done.ms, splits, ghostPbActive);
           }
           taLastUntil = gameNow + TA_LAST_MS;
@@ -5712,6 +5850,18 @@ function frame(now: number) {
             trackOnce('timeattack-lap-valid', 'timeattack-lap-completed-valid', { valid: true, car: taCar });
             trackOnce('timeattack-first-valid-lap', 'timeattack-first-valid-lap',
               { laps: done.lapNumber, car: taCar });
+            // GUEST: a signed-out player set a valid lap → they're now eligible for the stop-moment
+            // sign-in offer (shown on pause / exit, never here mid-drive). Track their best valid lap
+            // + the combo names for the offer copy.
+            if (isGuestTa()) {
+              taGuestValidLap = true;
+              if (taGuestSessionBest === null || done.ms < taGuestSessionBest) taGuestSessionBest = done.ms;
+              taGuestTrack = trackName(currentMap.id); taGuestCar = LB_CAR_DISPLAY[taCar] ?? taCar;
+              trackOnce('timeattack-guest-valid-lap', 'timeattack-guest-valid-lap', { car: taCar });
+              // Stash this valid lap + its 6-zone proof (keep-min) so signing in from the offer
+              // actually puts their BEST time on the leaderboard — carryOverGuestTa submits it.
+              if (splits && splits.length >= 6) stashGuestPending(taCar, currentMap.id, done.ms, splits);
+            }
           } else {
             const reason = done.wall ? 'wall'
               : done.offTrack ? 'off-track'
@@ -6275,7 +6425,69 @@ function updateTimeAttackHud(now: number) {
     taGhostWhoEl.hidden = !who;
     if (who) taGhostWhoEl.textContent = `👻 ${who}`;
   }
+  // GUEST gap line (signed-out only) — how their best compares to the board's #1 lap. INFORMATION,
+  // not a call to action (the sign-in offer only appears when they STOP). Shows once they have a
+  // valid lap (h.bestMs) and the board best for THIS combo has loaded.
+  if (taGapEl) {
+    let txt = '';
+    if (isGuestTa() && h.bestMs !== null && taBoardBestLoaded && taBoardBestKey === `${currentMap.id}::${xpCarKey()}`) {
+      if (taBoardBest === null) txt = 'First lap on this board';
+      else {
+        const gap = h.bestMs - taBoardBest, g = fmtGap(Math.abs(gap));
+        txt = gap > 0 ? `${g} off the best here` : gap < 0 ? `${g} under the best here` : 'Level with the best here';
+      }
+    }
+    taGapEl.hidden = !txt;
+    if (txt) taGapEl.textContent = txt;
+  }
 }
+// Format a lap gap in seconds for the guest HUD line + offer, e.g. 1400 → "1.4s".
+function fmtGap(ms: number): string { return `${(ms / 1000).toFixed(1)}s`; }
+
+// THE CONVERSION OFFER (signed-out Time Attack). Shown ONCE per page load, and ONLY when STOPPED
+// (pause / exit to menu) — never while driving. Frames the sign-in as a reward tied to THEIR lap,
+// using the GAP to the board's best (never a rank — the board is thin). Returns true if it showed
+// (so the caller can suppress the premium promo for that moment). Sign-in reuses the auth modal.
+function maybeShowTaGuestOffer(): boolean {
+  if (!taOfferEl || taGuestOfferShown) return false;
+  if (!isGuestTa() || !taGuestValidLap || taGuestSessionBest === null) return false;
+  const t = taGuestSessionBest, B = taBoardBest;
+  const T = formatLapTime(t);
+  const where = `on ${taGuestTrack} in the ${taGuestCar}`;
+  let title: string, body: string;
+  if (!taBoardBestLoaded) {
+    // The board best didn't load (pending/offline) → a plain, still-true invite (no gap claim).
+    title = 'Nice lap!';
+    body = `${T} ${where}. Sign in free to put your time on the leaderboard.`;
+  } else if (B === null) {
+    // The board is empty for this combo → they'd be first.
+    title = 'Nice lap!';
+    body = `You set ${T} ${where} — the first time on this board. Sign in free to claim the top spot.`;
+  } else if (t > B) {
+    title = 'Nice lap!';
+    body = `Your best was ${T} — ${fmtGap(t - B)} off the fastest lap here (${formatLapTime(B)}). Sign in free to put your time on the leaderboard.`;
+  } else if (t < B) {
+    title = 'New fastest lap!';
+    body = `Your ${T} is the quickest lap here — ${fmtGap(B - t)} under the current best. Sign in free to take the record.`;
+  } else {
+    title = 'Dead heat!';
+    body = `Your ${T} matches the fastest lap here to the millisecond. Sign in free to put your time on the leaderboard.`;
+  }
+  if (taOfferTitleEl) taOfferTitleEl.textContent = title;
+  if (taOfferBodyEl) taOfferBodyEl.textContent = body;
+  taOfferEl.hidden = false;
+  taGuestOfferShown = true;
+  trackOnce('timeattack-guest-offer-shown', 'timeattack-guest-offer-shown', { car: xpCarKey() });
+  return true;
+}
+function hideTaGuestOffer() { if (taOfferEl) taOfferEl.hidden = true; }
+document.getElementById('ta-offer-signin')?.addEventListener('click', () => {
+  trackOnce('timeattack-guest-signin-click', 'timeattack-guest-signin-click', {});
+  hideTaGuestOffer();
+  openAuthModal('form');
+});
+document.getElementById('ta-offer-later')?.addEventListener('click', hideTaGuestOffer);
+document.getElementById('ta-offer-x')?.addEventListener('click', hideTaGuestOffer);
 
 function updateRaceHud(h: RaceHud) {
   if (!raceHudEl) return;
